@@ -42,6 +42,7 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
         celery_broker=None,
         redis_cache=None,
         query_service=None,
+        secret="a-fake-secretkey",
     )
 
     mocker.patch(
@@ -174,6 +175,18 @@ def server(  # pylint: disable=too-many-statements
     ] = get_query_service_client_override
 
     with TestClient(app) as test_client:
+        test_client.post(
+            "/basic/user/",
+            data={
+                "email": "dj@datajuncion.io",
+                "username": "dj",
+                "password": "dj",
+            },
+        )
+        test_client.post(
+            "/basic/login/",
+            data={"username": "dj", "password": "dj"},
+        )
         yield test_client
 
     app.dependency_overrides.clear()

@@ -543,7 +543,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
 def resolve_downstream_references(
     session: Session,
     node_revision: NodeRevision,
-    current_user: Optional[User] = None,
+    current_user: User,
 ) -> List[NodeRevision]:
     """
     Find all node revisions with missing parent references to `node` and resolve them
@@ -603,7 +603,7 @@ def propagate_valid_status(
     session: Session,
     valid_nodes: List[NodeRevision],
     catalog_id: int,
-    current_user: Optional[User] = None,
+    current_user: User,
 ) -> None:
     """
     Propagate a valid status by revalidating all downstream nodes
@@ -1031,8 +1031,8 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
 def deactivate_node(
     session: Session,
     name: str,
+    current_user: User,
     message: str = None,
-    current_user: Optional[User] = None,
 ):
     """
     Deactivates a node and propagates to all downstreams.
@@ -1081,8 +1081,8 @@ def deactivate_node(
 def activate_node(
     session: Session,
     name: str,
+    current_user: User,
     message: str = None,
-    current_user: Optional[User] = None,
 ):
     """Restores node and revalidate all downstreams."""
     node = get_node_by_name(session, name, with_current=True, include_inactive=True)
@@ -1141,8 +1141,8 @@ def activate_node(
 def revalidate_node(
     name: str,
     session: Session,
+    current_user: User,
     parent_node: str = None,
-    current_user: Optional[User] = None,
 ):
     """
     Revalidate a single existing node and update its status appropriately
@@ -1187,7 +1187,7 @@ def revalidate_node(
 def hard_delete_node(
     name: str,
     session: Session,
-    current_user: Optional[User] = None,
+    current_user: User,
 ):
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.

@@ -33,7 +33,7 @@ def list_dimensions(
     prefix: Optional[str] = None,
     *,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -56,7 +56,7 @@ def find_nodes_with_dimension(
     *,
     node_type: Annotated[Union[List[NodeType], None], Query()] = Query(None),
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -89,7 +89,7 @@ def find_nodes_with_common_dimensions(
     node_type: Annotated[Union[List[NodeType], None], Query()] = Query(None),
     *,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),

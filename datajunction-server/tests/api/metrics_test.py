@@ -2,6 +2,7 @@
 """
 Tests for the metrics API.
 """
+from typing import Callable
 
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
@@ -11,6 +12,7 @@ from datajunction_server.models.column import Column
 from datajunction_server.models.database import Database
 from datajunction_server.models.node import Node, NodeRevision, NodeType
 from datajunction_server.models.table import Table
+from datajunction_server.models.user import User
 from datajunction_server.sql.parsing.types import FloatType, IntegerType, StringType
 
 
@@ -38,10 +40,15 @@ def test_read_metrics(client_with_roads: TestClient) -> None:
     }
 
 
-def test_read_metric(session: Session, client: TestClient) -> None:
+def test_read_metric(
+    session: Session,
+    client: TestClient,
+    get_mock_user: Callable,
+) -> None:
     """
     Test ``GET /metric/{node_id}/``.
     """
+    mock_user: User = get_mock_user(session=session)
     client.get("/attributes/")
     dimension_attribute = session.exec(
         select(AttributeType).where(AttributeType.name == "dimension"),
@@ -83,6 +90,7 @@ def test_read_metric(session: Session, client: TestClient) -> None:
         namespace="default",
         type=NodeType.SOURCE,
         current_version="1",
+        created_by=mock_user,
     )
     parent_rev.node = parent_node
 
@@ -91,6 +99,7 @@ def test_read_metric(session: Session, client: TestClient) -> None:
         namespace="default",
         type=NodeType.METRIC,
         current_version="1",
+        created_by=mock_user,
     )
     child_rev = NodeRevision(
         name=child_node.name,
@@ -116,16 +125,22 @@ def test_read_metric(session: Session, client: TestClient) -> None:
     ]
 
 
-def test_read_metrics_errors(session: Session, client: TestClient) -> None:
+def test_read_metrics_errors(
+    session: Session,
+    client: TestClient,
+    get_mock_user: Callable,
+) -> None:
     """
     Test errors on ``GET /metrics/{node_id}/``.
     """
+    mock_user: User = get_mock_user(session)
     database = Database(name="test", URI="sqlite://")
     node = Node(
         name="a-metric",
         namespace="default",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by=mock_user,
     )
     node_revision = NodeRevision(
         name=node.name,

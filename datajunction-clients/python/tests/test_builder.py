@@ -479,7 +479,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             name="default.cube_one",
             description="Ice ice cube.",
             metrics=["default.number_of_account_types"],
-            dimensions=["default.payment_type"],
+            dimensions=["default.account_type.account_type_name"],
             mode=NodeMode.PUBLISHED,
         )
         assert cube_one.name == "default.cube_one"

@@ -2,6 +2,7 @@
 
 # pylint: disable=redefined-outer-name, import-outside-toplevel, too-many-lines
 import logging
+import os
 import platform
 import warnings
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypedDict
@@ -143,6 +144,8 @@ class DJClient:
         engine_name: str = None,
         engine_version: str = None,
         requests_session: RequestsSessionWithEndpoint = None,
+        username: str = None,
+        password: str = None,
         target_namespace: str = DEFAULT_NAMESPACE,
         timeout: int = 2 * 60,
         debug: bool = False,
@@ -156,8 +159,16 @@ class DJClient:
         if not requests_session:  # pragma: no cover
             self._session = RequestsSessionWithEndpoint(
                 endpoint=self.uri,
-                show_traceback=self._debug,
+                show_traceback=True,
             )
+            if username:
+                self._session.post(
+                    "/basic/login/",
+                    data={
+                        "username": username,
+                        "password": password or os.getenv("DJ_PWD"),
+                    },
+                )
         else:  # pragma: no cover
             self._session = requests_session
         self._timeout = timeout

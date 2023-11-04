@@ -215,13 +215,11 @@ def from_amenable_name(name: str) -> str:
     return name.replace(to_replace, SEPARATOR)
 
 
-async def get_current_user(request: Request) -> Optional[User]:
+async def get_current_user(request: Request) -> User:
     """
     Returns the current authenticated user
     """
-    if hasattr(request.state, "user"):
-        return request.state.user
-    return None  # pragma: no cover
+    return request.state.user
 
 
 SEPARATOR = "."

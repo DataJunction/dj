@@ -86,7 +86,7 @@ def get_a_tag(name: str, *, session: Session = Depends(get_session)) -> Tag:
 def create_a_tag(
     data: CreateTag,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> Tag:
     """
     Create a tag.
@@ -117,7 +117,7 @@ def update_a_tag(
     name: str,
     data: UpdateTag,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> Tag:
     """
     Update a tag.

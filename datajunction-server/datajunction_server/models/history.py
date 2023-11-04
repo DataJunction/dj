@@ -78,8 +78,8 @@ def status_change_history(
     node_revision: NodeRevision,
     start_status: NodeStatus,
     end_status: NodeStatus,
+    current_user: User,
     parent_node: str = None,
-    current_user: Optional[User] = None,
 ) -> History:
     """
     Returns a status change history activity entry

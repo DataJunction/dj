@@ -55,6 +55,7 @@ class TestTags:
             "description": "All metrics for sales",
             "name": "sales_report",
             "tag_type": "group",
+            "created_by_id": None,
         }
         assert response.status_code == 201
         assert response.json() == expected_tag_output
@@ -112,6 +113,7 @@ class TestTags:
             "description": "Helpful sales metrics",
             "name": "sales_report",
             "tag_type": "group",
+            "created_by_id": None,
         }
 
         # Trying updating the tag
@@ -126,6 +128,7 @@ class TestTags:
             "description": "Helpful sales metrics",
             "name": "sales_report",
             "tag_type": "group",
+            "created_by_id": None,
         }
 
         # Check history
@@ -164,6 +167,7 @@ class TestTags:
                 "description": "Metrics for various types of impressions",
                 "tag_type": "group",
                 "tag_metadata": {},
+                "created_by_id": None,
             },
         )
 
@@ -175,6 +179,7 @@ class TestTags:
                 "description": "Department of brakes",
                 "tag_type": "business_area",
                 "tag_metadata": {},
+                "created_by_id": None,
             },
         )
 

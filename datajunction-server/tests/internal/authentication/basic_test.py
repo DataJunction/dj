@@ -82,16 +82,19 @@ def test_login_raise_on_user_not_found(client: TestClient):
     assert response.status_code == 401
 
 
-def test_fail_invalid_credentials(client: TestClient, session: Session):
+def test_fail_invalid_credentials(
+    client: TestClient,
+    session: Session,
+):  # pylint: disable=unused-argument
     """
     Test failing on invalid user credentials
     """
-    client.post(
-        "/basic/user/",
-        data={"email": "dj@datajunction.io", "username": "dj", "password": "incorrect"},
-    )
     with pytest.raises(DJException) as exc_info:
-        basic.validate_user_password(username="dj", password="dj", session=session)
+        basic.validate_user_password(
+            username="dj",
+            password="incorrect",
+            session=session,
+        )
     assert "Invalid password for user dj" in str(exc_info.value)
 
 
@@ -99,10 +102,6 @@ def test_fail_on_user_already_exists(client: TestClient):
     """
     Test failing when creating a user that already exists
     """
-    client.post(
-        "/basic/user/",
-        data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
-    )
     response = client.post(
         "/basic/user/",
         data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
@@ -131,7 +130,7 @@ def test_whoami(client: TestClient):
     assert response.json() == {
         "id": 1,
         "username": "dj",
-        "email": None,
+        "email": "dj@datajunction.io",
         "name": None,
         "oauth_provider": "basic",
         "is_admin": False,

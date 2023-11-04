@@ -2,13 +2,19 @@
 Test internal http authentication logic
 """
 import asyncio
+from typing import Callable
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlmodel import Session
 
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import DJHTTPBearer
-from datajunction_server.models.user import OAuthProvider, User
+from datajunction_server.models.user import (  # pylint: disable=unused-import
+    OAuthProvider,
+    User,
+)
 
 EXAMPLE_TOKEN = (
     "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..pMoQFVS0VMSAFsG5X0itfw.Lc"
@@ -71,43 +77,37 @@ def test_dj_http_bearer_raise_with_non_jwt_token():
     assert "Invalid authentication credentials" in str(exc_info.value)
 
 
-def test_dj_http_bearer_w_cookie():
+def test_dj_http_bearer_w_cookie(
+    client: TestClient,  # pylint: disable=unused-argument
+    session: Session,
+    get_mock_user: Callable,
+):
     """
     Test using the DJHTTPBearer middleware with a cookie
     """
+    get_mock_user(session=session)
     bearer = DJHTTPBearer()
     request = MagicMock()
     request.cookies.get.return_value = EXAMPLE_TOKEN
-    asyncio.run(bearer(request))
-    assert request.state.user == User(
-        id=1,
-        username="dj",
-        password=None,
-        email=None,
-        name=None,
-        oauth_provider=OAuthProvider.BASIC,
-        is_admin=False,
-    )
+    asyncio.run(bearer(request=request, session=session))
+    assert request.state.user.username == "dj"
 
 
-def test_dj_http_bearer_w_auth_headers():
+def test_dj_http_bearer_w_auth_headers(
+    client: TestClient,  # pylint: disable=unused-argument
+    session: Session,
+    get_mock_user: Callable,
+):
     """
     Test using the DJHTTPBearer middleware with an authorization header
     """
+    get_mock_user(session=session)
     bearer = DJHTTPBearer()
     request = MagicMock()
     request.cookies.get.return_value = None
     request.headers.get.return_value = f"Bearer {EXAMPLE_TOKEN}"
-    asyncio.run(bearer(request))
-    assert request.state.user == User(
-        id=1,
-        username="dj",
-        password=None,
-        email=None,
-        name=None,
-        oauth_provider=OAuthProvider.BASIC,
-        is_admin=False,
-    )
+    asyncio.run(bearer(request=request, session=session))
+    assert request.state.user.username == "dj"
 
 
 def test_raise_on_non_jwt_cookie():

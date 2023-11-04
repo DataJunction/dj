@@ -121,6 +121,7 @@ class Tag(BaseModel):
     name: str
     display_name: str
     tag_type: str
+    created_by_id: int
 
 
 class AvailabilityState(BaseModel):

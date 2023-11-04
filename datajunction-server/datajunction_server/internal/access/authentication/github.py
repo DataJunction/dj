@@ -10,6 +10,7 @@ import requests
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 
+from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.basic import get_password_hash
 from datajunction_server.models.user import OAuthProvider, User
 from datajunction_server.utils import get_session, get_settings
@@ -29,7 +30,7 @@ def get_authorize_url(oauth_client_id: str) -> str:
     )
 
 
-def get_github_user(access_token: str) -> Optional[User]:  # pragma: no cover
+def get_github_user(access_token: str) -> User:  # pragma: no cover
     """
     Get the user for a request
     """
@@ -40,7 +41,7 @@ def get_github_user(access_token: str) -> Optional[User]:  # pragma: no cover
         timeout=10,
     ).json()
     if "message" in user_data and user_data["message"] == "Bad credentials":
-        return None
+        raise DJException("Cannot get GitHub user, bad credentials")
     session = next(get_session())
     existing_user: Optional[User] = None
     try:
