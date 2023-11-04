@@ -50,7 +50,7 @@ def list_metrics(
     prefix: Optional[str] = None,
     *,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),

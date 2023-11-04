@@ -133,7 +133,7 @@ def validate_node(
 def revalidate(
     name: str,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> NodeValidation:
     """
     Revalidate a single existing node and update its status appropriately
@@ -159,7 +159,7 @@ def set_column_attributes(
     attributes: List[AttributeTypeIdentifier],
     *,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> List[ColumnOutput]:
     """
     Set column attributes for the node.
@@ -181,7 +181,7 @@ def list_nodes(
     prefix: Optional[str] = None,
     *,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -218,7 +218,7 @@ def list_all_nodes_with_details(
     node_type: Optional[NodeType] = None,
     *,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -285,7 +285,7 @@ def delete_node(
     name: str,
     *,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Delete (aka deactivate) the specified node.
@@ -301,7 +301,7 @@ def delete_node(
 def hard_delete(
     name: str,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
@@ -322,7 +322,7 @@ def restore_node(
     name: str,
     *,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Restore (aka re-activate) the specified node.
@@ -349,7 +349,7 @@ def list_node_revisions(
 def create_source(
     data: CreateSourceNode,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> NodeOutput:
     """
@@ -380,6 +380,7 @@ def create_source(
         namespace=data.namespace,
         type=NodeType.SOURCE,
         current_version=0,
+        created_by=current_user,
     )
     catalog = get_catalog_by_name(session=session, name=data.catalog)
 
@@ -444,7 +445,7 @@ def create_node(
     request: Request,
     *,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
 ) -> NodeOutput:
@@ -481,6 +482,7 @@ def create_node(
         namespace=data.namespace,
         type=NodeType(node_type),
         current_version=0,
+        created_by=current_user,
     )
     node_revision = create_node_revision(data, node_type, session)
     save_node(session, node_revision, node, data.mode, current_user=current_user)
@@ -526,7 +528,7 @@ def create_cube(
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
@@ -557,6 +559,7 @@ def create_cube(
         namespace=data.namespace,
         type=NodeType.CUBE,
         current_version=0,
+        created_by=current_user,
     )
     node_revision = create_cube_node_revision(session=session, data=data)
     save_node(session, node_revision, node, data.mode, current_user=current_user)
@@ -574,7 +577,7 @@ def register_table(  # pylint: disable=too-many-arguments
     table: str,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> NodeOutput:
     """
     Register a table. This creates a source node in the SOURCE_NODE_NAMESPACE and
@@ -628,7 +631,7 @@ def link_dimension(  # pylint: disable=too-many-arguments
     dimension: str,
     dimension_column: Optional[str] = None,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Add information to a node column
@@ -703,7 +706,7 @@ def delete_dimension_link(  # pylint: disable=too-many-arguments
     dimension: str,
     dimension_column: Optional[str] = None,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Remove the link between a node column and a dimension node
@@ -788,7 +791,7 @@ def tags_node(
     tag_names: Optional[List[str]] = Query(default=None),
     *,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Add a tag to a node
@@ -838,7 +841,7 @@ def refresh_source_node(
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> NodeOutput:
     """
     Refresh a source node with the latest columns from the query service.
@@ -907,7 +910,7 @@ def update_node(
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
@@ -1032,7 +1035,7 @@ def set_column_display_name(
     node_name: str,
     column_name: str,
     display_name: str,
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     *,
     session: Session = Depends(get_session),
 ) -> ColumnOutput:
@@ -1074,7 +1077,7 @@ def set_column_partition(  # pylint: disable=too-many-locals
     input_partition: PartitionInput,
     *,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> ColumnOutput:
     """
     Add or update partition columns for the specified node.

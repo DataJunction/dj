@@ -37,6 +37,7 @@ from datajunction_server.models.materialization import (
 )
 from datajunction_server.models.partition import PartitionOutput, PartitionType
 from datajunction_server.models.tag import Tag, TagNodeRelationship
+from datajunction_server.models.user import User
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR, Version, amenable_name
@@ -671,6 +672,8 @@ class NodeNamespace(SQLModel, table=True):  # type: ignore
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default=None,
     )
+    created_by_id: int = Field(default=None, foreign_key="users.id")
+    created_by: User = Relationship(back_populates="namespaces")
 
 
 class Node(NodeBase, table=True):  # type: ignore
@@ -722,6 +725,9 @@ class Node(NodeBase, table=True):  # type: ignore
             "secondaryjoin": "TagNodeRelationship.tag_id==Tag.id",
         },
     )
+
+    created_by_id: int = Field(default=None, foreign_key="users.id")
+    created_by: User = Relationship(back_populates="nodes")
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -1346,8 +1352,9 @@ class NodeOutput(OutputModel):
     """
 
     namespace: str
-    current: NodeRevisionOutput = PydanticField(flatten=True)
+    current: Optional[NodeRevisionOutput] = PydanticField(flatten=True)
     created_at: UTCDatetime
+    created_by_id: int
     tags: List["Tag"] = []
     current_version: str
 

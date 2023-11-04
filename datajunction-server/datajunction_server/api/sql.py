@@ -72,7 +72,7 @@ def get_sql(
     session: Session = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -124,7 +124,7 @@ def get_sql_for_metrics(
     session: Session = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),

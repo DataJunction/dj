@@ -5,7 +5,7 @@ Node materialization related APIs.
 import logging
 from datetime import datetime
 from http import HTTPStatus
-from typing import List, Optional
+from typing import List
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
@@ -53,7 +53,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Add or update a materialization of the specified node. If a node_name is specified
@@ -215,7 +215,7 @@ def deactivate_node_materializations(
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> List[MaterializationConfigInfoUnified]:
     """
     Deactivate the node materialization with the provided name.
@@ -272,7 +272,7 @@ def run_materialization_backfill(  # pylint: disable=too-many-locals
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> MaterializationInfo:
     """
     Start a backfill for a configured materialization.

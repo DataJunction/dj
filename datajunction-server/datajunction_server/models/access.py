@@ -160,7 +160,7 @@ class AccessControlStore(BaseModel):
     """
 
     validate_access: Callable[["AccessControl"], bool]
-    user: Optional[User]
+    user: User
     base_verb: Optional[ResourceRequestVerb] = None
     state: AccessControlState = AccessControlState.DIRECT
     direct_requests: Set[ResourceRequest] = Field(default_factory=set)

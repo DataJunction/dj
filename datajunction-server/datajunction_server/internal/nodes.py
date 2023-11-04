@@ -137,7 +137,7 @@ def set_node_column_attributes(
     node: Node,
     column_name: str,
     attributes: List[AttributeTypeIdentifier],
-    current_user: Optional[User] = None,
+    current_user: User,
 ) -> List[Column]:
     """
     Sets the column attributes on the node if allowed.
@@ -403,7 +403,7 @@ def save_node(
     node_revision: NodeRevision,
     node: Node,
     node_mode: NodeMode,
-    current_user: Optional[User] = None,
+    current_user: User,
 ):
     """
     Saves the newly created node revision
@@ -433,6 +433,7 @@ def save_node(
     newly_valid_nodes = resolve_downstream_references(
         session=session,
         node_revision=node_revision,
+        current_user=current_user,
     )
     propagate_valid_status(
         session=session,
@@ -448,7 +449,7 @@ def update_any_node(  # pylint: disable=too-many-arguments
     data: UpdateNode,
     session: Session,
     query_service_client: QueryServiceClient,
-    current_user: Optional[User] = None,
+    current_user: User,
     background_tasks: BackgroundTasks = None,
 ) -> Node:
     """
@@ -481,7 +482,7 @@ def update_node_with_query(
     session: Session,
     *,
     query_service_client: QueryServiceClient,
-    current_user: Optional[User] = None,
+    current_user: User,
     background_tasks: BackgroundTasks,
 ) -> Node:
     """
@@ -599,7 +600,7 @@ def has_minor_changes(
     )
 
 
-def node_update_history_event(new_revision: NodeRevision, current_user: Optional[User]):
+def node_update_history_event(new_revision: NodeRevision, current_user: User):
     """
     History event for node updates
     """
@@ -621,7 +622,7 @@ def update_cube_node(  # pylint: disable=too-many-locals
     data: UpdateNode,
     *,
     query_service_client: QueryServiceClient,
-    current_user: Optional[User] = None,
+    current_user: User,
     background_tasks: BackgroundTasks,
 ) -> Optional[NodeRevision]:
     """
@@ -719,7 +720,7 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
     history_events: Dict[str, Any],
     *,
     query_service_client: QueryServiceClient,
-    current_user: Optional[User] = None,
+    current_user: User,
     background_tasks: BackgroundTasks,
 ):
     """
@@ -752,6 +753,7 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
                         dimensions=child.cube_dimensions(),
                     ),
                     query_service_client=query_service_client,
+                    current_user=current_user,
                     background_tasks=background_tasks,
                 )
                 continue
@@ -847,7 +849,7 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
     data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
     session: Session = Depends(get_session),
     *,
-    current_user: Optional[User] = None,
+    current_user: User,
     query_service_client: QueryServiceClient,
     background_tasks: BackgroundTasks = None,
 ) -> Optional[Node]:
@@ -900,6 +902,7 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 previous_inactive_node.current,
                 data,
                 query_service_client=query_service_client,
+                current_user=current_user,
                 background_tasks=background_tasks,
             )
         try:

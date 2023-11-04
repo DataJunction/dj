@@ -9,6 +9,7 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import JSON, Field, Relationship
 
 from datajunction_server.models.base import BaseSQLModel, generate_display_name
+from datajunction_server.models.user import User
 
 if TYPE_CHECKING:
     from datajunction_server.models.node import Node
@@ -77,6 +78,8 @@ class Tag(ImmutableTagFields, MutableTagFields, table=True):  # type: ignore
             "secondaryjoin": "TagNodeRelationship.node_id==Node.id",
         },
     )
+    created_by_id: int = Field(default=None, foreign_key="users.id")
+    created_by: User = Relationship(back_populates="tags")
 
 
 class CreateTag(ImmutableTagFields, MutableTagFields):

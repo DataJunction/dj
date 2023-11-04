@@ -3,7 +3,7 @@
 Tests for the nodes API.
 """
 import re
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 from unittest import mock
 from unittest.mock import call
 
@@ -23,6 +23,7 @@ from datajunction_server.models.node import (
     NodeType,
 )
 from datajunction_server.models.partition import PartitionBackfill
+from datajunction_server.models.user import User
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
@@ -71,14 +72,20 @@ def test_read_node(client_with_roads: TestClient) -> None:
     }
 
 
-def test_read_nodes(session: Session, client: TestClient) -> None:
+def test_read_nodes(
+    session: Session,
+    client: TestClient,
+    get_mock_user: Callable,
+) -> None:
     """
     Test ``GET /nodes/``.
     """
+    mock_user: User = get_mock_user(session)
     node1 = Node(
         name="not-a-metric",
         type=NodeType.SOURCE,
         current_version="1",
+        created_by=mock_user,
     )
     node_rev1 = NodeRevision(
         node=node1,
@@ -90,6 +97,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
         name="also-not-a-metric",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by=mock_user,
     )
     node_rev2 = NodeRevision(
         name=node2.name,
@@ -101,7 +109,12 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
             Column(name="answer", type=IntegerType()),
         ],
     )
-    node3 = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
+    node3 = Node(
+        name="a-metric",
+        type=NodeType.METRIC,
+        current_version="1",
+        created_by=mock_user,
+    )
     node_rev3 = NodeRevision(
         name=node3.name,
         node=node3,
@@ -308,11 +321,17 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         return database
 
     @pytest.fixture
-    def source_node(self, session: Session, database: Database) -> Node:
+    def source_node(
+        self,
+        client: TestClient,  # pylint: disable=unused-argument
+        session: Session,
+        database: Database,
+        get_mock_user: Callable,
+    ) -> Node:
         """
         A source node fixture.
         """
-
+        mock_user: User = get_mock_user(session)
         table = Table(
             database=database,
             table="A",
@@ -325,6 +344,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             name="basic.source.users",
             type=NodeType.SOURCE,
             current_version="1",
+            created_by=mock_user,
         )
         node_revision = NodeRevision(
             node=node,
@@ -3510,11 +3530,16 @@ class TestNodeColumnsAttributes:
         return database
 
     @pytest.fixture
-    def source_node(self, session: Session, database: Database) -> Node:
+    def source_node(
+        self,
+        session: Session,
+        database: Database,
+        get_mock_user: Callable,
+    ) -> Node:
         """
         A source node fixture.
         """
-
+        mock_user: User = get_mock_user(session)
         table = Table(
             database=database,
             table="A",
@@ -3527,6 +3552,7 @@ class TestNodeColumnsAttributes:
             name="basic.source.users",
             type=NodeType.SOURCE,
             current_version="1",
+            created_by=mock_user,
         )
         node_revision = NodeRevision(
             node=node,
@@ -4668,14 +4694,16 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         ]
 
 
-def test_node_similarity(session: Session, client: TestClient):
+def test_node_similarity(session: Session, client: TestClient, get_mock_user: Callable):
     """
     Test determining node similarity based on their queries
     """
+    mock_user: User = get_mock_user(session)
     source_data = Node(
         name="source_data",
         type=NodeType.SOURCE,
         current_version="1",
+        created_by=mock_user,
     )
     source_data_rev = NodeRevision(
         node=source_data,
@@ -4687,6 +4715,7 @@ def test_node_similarity(session: Session, client: TestClient):
         name="a_transform",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by=mock_user,
     )
     a_transform_rev = NodeRevision(
         name=a_transform.name,
@@ -4702,6 +4731,7 @@ def test_node_similarity(session: Session, client: TestClient):
         name="another_transform",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by=mock_user,
     )
     another_transform_rev = NodeRevision(
         name=another_transform.name,
@@ -4717,6 +4747,7 @@ def test_node_similarity(session: Session, client: TestClient):
         name="yet_another_transform",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by=mock_user,
     )
     yet_another_transform_rev = NodeRevision(
         name=yet_another_transform.name,

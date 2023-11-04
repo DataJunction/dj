@@ -4,9 +4,11 @@ Tests for ``datajunction_server.models.node``.
 
 # pylint: disable=use-implicit-booleaness-not-comparison
 
+from typing import Callable
 from unittest import mock
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from datajunction_server.models.node import (
@@ -16,19 +18,37 @@ from datajunction_server.models.node import (
     NodeType,
     PartitionAvailability,
 )
+from datajunction_server.models.user import User
 
 
-def test_node_relationship(session: Session) -> None:
+def test_node_relationship(
+    client: TestClient,  # pylint: disable=unused-argument
+    session: Session,
+    get_mock_user: Callable,
+) -> None:
     """
     Test the n:n self-referential relationships.
     """
-    node_a = Node(name="A", current_version="1")
+    mock_user: User = get_mock_user(session)
+    node_a = Node(
+        name="A",
+        current_version="1",
+        created_by=mock_user,
+    )
     node_a_rev = NodeRevision(name="A", version="1", node=node_a)
 
-    node_b = Node(name="B", current_version="1")
+    node_b = Node(
+        name="B",
+        current_version="1",
+        created_by=mock_user,
+    )
     node_a_rev = NodeRevision(name="B", version="1", node=node_b)
 
-    node_c = Node(name="C", current_version="1")
+    node_c = Node(
+        name="C",
+        current_version="1",
+        created_by=mock_user,
+    )
     node_c_rev = NodeRevision(
         name="C",
         version="1",
@@ -47,11 +67,21 @@ def test_node_relationship(session: Session) -> None:
     assert node_c_rev.parents == [node_a, node_b]
 
 
-def test_extra_validation() -> None:
+def test_extra_validation(
+    client: TestClient,  # pylint: disable=unused-argument
+    session: Session,
+    get_mock_user: Callable,
+) -> None:
     """
     Test ``extra_validation``.
     """
-    node = Node(name="A", type=NodeType.SOURCE, current_version="1")
+    mock_user: User = get_mock_user(session)
+    node = Node(
+        name="A",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by=mock_user,
+    )
     node_revision = NodeRevision(
         name=node.name,
         type=node.type,

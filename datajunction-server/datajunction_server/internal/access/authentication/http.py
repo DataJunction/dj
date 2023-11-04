@@ -16,7 +16,7 @@ from datajunction_server.constants import AUTH_COOKIE
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.access.authentication.basic import get_user
 from datajunction_server.internal.access.authentication.tokens import decode_token
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_session
 
 
 class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
@@ -119,9 +119,8 @@ class SecureAPIRouter(TrailingSlashAPIRouter):
     """
 
     def __init__(self, *args: Any, **kwargs: Any):
-        settings = get_settings()
         super().__init__(
             *args,
-            dependencies=[Depends(DJHTTPBearer())] if settings.secret else [],
+            dependencies=[Depends(DJHTTPBearer())],
             **kwargs,
         )

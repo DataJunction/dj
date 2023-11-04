@@ -2,7 +2,7 @@
 Helper methods for namespaces endpoints.
 """
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from sqlalchemy import or_
 from sqlalchemy.sql.operators import is_
@@ -83,8 +83,8 @@ def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
 def mark_namespace_deactivated(
     session: Session,
     namespace: NodeNamespace,
+    current_user: User,
     message: str = None,
-    current_user: Optional[User] = None,
 ):
     """
     Deactivates the node namespace and updates history indicating so
@@ -114,8 +114,8 @@ def mark_namespace_deactivated(
 def mark_namespace_restored(
     session: Session,
     namespace: NodeNamespace,
+    current_user: User,
     message: str = None,
-    current_user: Optional[User] = None,
 ):
     """
     Restores the node namespace and updates history indicating so
@@ -158,8 +158,8 @@ def get_parent_namespaces(namespace: str):
 def create_namespace(
     session: Session,
     namespace: str,
+    current_user: User,
     include_parents: bool = True,
-    current_user: Optional[User] = None,
 ) -> List[str]:
     """
     Creates a namespace entry in the database table.
@@ -175,7 +175,10 @@ def create_namespace(
             namespace=parent_namespace,
             raise_if_not_exists=False,
         ):
-            node_namespace = NodeNamespace(namespace=parent_namespace)
+            node_namespace = NodeNamespace(
+                namespace=parent_namespace,
+                created_by=current_user,
+            )
             session.add(node_namespace)
             session.add(
                 History(
@@ -193,8 +196,8 @@ def create_namespace(
 def hard_delete_namespace(
     session: Session,
     namespace: str,
+    current_user: User,
     cascade: bool = False,
-    current_user: Optional[User] = None,
 ):
     """
     Hard delete a node namespace.
