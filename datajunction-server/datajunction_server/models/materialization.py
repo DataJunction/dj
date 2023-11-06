@@ -8,7 +8,7 @@ from sqlalchemy import DateTime, String
 from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 from datajunction_server.models.base import BaseSQLModel
-from datajunction_server.models.engine import Engine, EngineInfo, EngineRef
+from datajunction_server.models.engine import Engine, EngineInfo
 from datajunction_server.models.partition import Backfill, BackfillOutput
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.typing import UTCDatetime
@@ -248,7 +248,7 @@ class UpsertMaterialization(BaseSQLModel):
     """
 
     name: Optional[str]
-    engine: EngineRef
+    engine: EngineInfo
     config: Union[
         DruidCubeConfigInput,
         GenericCubeConfigInput,

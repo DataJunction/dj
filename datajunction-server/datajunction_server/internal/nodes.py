@@ -286,6 +286,7 @@ def create_node_revision(
 def create_cube_node_revision(  # pylint: disable=too-many-locals
     session: Session,
     data: CreateCubeNode,
+    query_service_client: QueryServiceClient,
 ) -> NodeRevision:
     """
     Create a cube node revision.
@@ -366,9 +367,10 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     # Set up a default materialization for the cube. Note that this does not get used
     # for any actual materialization, but is for storing info needed for materialization
     node_revision.materializations = []
+    engine = node_revision.catalog.get_available_engines(query_service_client)[0]
     default_materialization = UpsertMaterialization(
         name="placeholder",
-        engine=node_revision.catalog.engines[0],  # pylint: disable=no-member
+        engine=engine,  # pylint: disable=no-member
         schedule="@daily",
         config={},
         job="CubeMaterializationJob",

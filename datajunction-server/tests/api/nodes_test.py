@@ -2391,12 +2391,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["detail"] == "Engine not found: `spark` version `2.4.4`"
 
-    def test_node_with_struct(self, client_with_roads: TestClient):
+    def test_node_with_struct(self, client_with_query_service_example_loader: TestClient):
         """
         Test that building a query string with structs yields a correctly formatted struct
         reference.
         """
-        response = client_with_roads.post(
+        custom_client = client_with_query_service_example_loader(["ROADS"])
+        response = custom_client.post(
             "/nodes/transform/",
             json={
                 "description": "Regional level agg with structs",
@@ -2460,7 +2461,7 @@ GROUP BY
             "partition": None,
         } in response.json()["columns"]
 
-        client_with_roads.post(
+        custom_client.post(
             "/nodes/transform/",
             json={
                 "description": "Total Repair Amounts during the COVID-19 Pandemic",
@@ -2471,7 +2472,7 @@ GROUP BY
                 "mode": "published",
             },
         )
-        response = client_with_roads.get(
+        response = custom_client.get(
             "/sql/default.total_amount_in_region_from_struct_transform?filters="
             "&dimensions=location_hierarchy",
         )

@@ -22,12 +22,13 @@ class TestDataForNode:
 
     def test_get_dimension_data_failed(
         self,
-        client_with_account_revenue: TestClient,
+        client_with_query_service_example_loader: TestClient,
     ) -> None:
         """
         Test trying to get dimensions data while setting dimensions
         """
-        response = client_with_account_revenue.get(
+        custom_client = client_with_query_service_example_loader(["ACCOUNT_REVENUE"])
+        response = custom_client.get(
             "/data/default.payment_type/",
             params={
                 "dimensions": ["something"],
@@ -655,12 +656,13 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
 
     def test_availability_catalog_mismatch(
         self,
-        client_with_account_revenue: TestClient,
+        client_with_query_service_example_loader: TestClient,
     ) -> None:
         """
         Test that setting availability works even when the catalogs do not match
         """
-        response = client_with_account_revenue.post(
+        custom_client = client_with_query_service_example_loader(["ACCOUNT_REVENUE"])
+        response = custom_client.post(
             "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "public",
@@ -679,12 +681,13 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     def test_setting_availability_state_multiple_times(
         self,
         session: Session,
-        client_with_account_revenue: TestClient,
+        client_with_query_service_example_loader: TestClient,
     ) -> None:
         """
         Test adding multiple availability states
         """
-        response = client_with_account_revenue.post(
+        custom_client = client_with_query_service_example_loader(["ACCOUNT_REVENUE"])
+        response = custom_client.post(
             "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
@@ -700,7 +703,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data == {"message": "Availability state successfully posted"}
 
-        response = client_with_account_revenue.post(
+        response = custom_client.post(
             "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
@@ -716,7 +719,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data == {"message": "Availability state successfully posted"}
 
-        response = client_with_account_revenue.post(
+        response = custom_client.post(
             "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
@@ -735,7 +738,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert data == {"message": "Availability state successfully posted"}
 
         # Check that the history tracker has been updated
-        response = client_with_account_revenue.get(
+        response = custom_client.get(
             "/history/?node=default.large_revenue_payments_and_business_only",
         )
         data = response.json()

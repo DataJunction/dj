@@ -13,27 +13,11 @@ from sqlmodel import JSON, Field, Relationship, SQLModel
 
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.engine import Engine, EngineInfo
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
     from datajunction_server.models import NodeRevision, Table
-
-
-class CatalogEngines(BaseSQLModel, table=True):  # type: ignore
-    """
-    Join table for catalogs and engines.
-    """
-
-    catalog_id: Optional[int] = Field(
-        default=None,
-        foreign_key="catalog.id",
-        primary_key=True,
-    )
-    engine_id: Optional[int] = Field(
-        default=None,
-        foreign_key="engine.id",
-        primary_key=True,
-    )
 
 
 class Catalog(BaseSQLModel, table=True):  # type: ignore
@@ -44,13 +28,13 @@ class Catalog(BaseSQLModel, table=True):  # type: ignore
     id: Optional[int] = Field(default=None, primary_key=True)
     uuid: UUID = Field(default_factory=uuid4, sa_column=SqlaColumn(UUIDType()))
     name: str
-    engines: List[Engine] = Relationship(
-        link_model=CatalogEngines,
-        sa_relationship_kwargs={
-            "primaryjoin": "Catalog.id==CatalogEngines.catalog_id",
-            "secondaryjoin": "Engine.id==CatalogEngines.engine_id",
-        },
-    )
+    # engines: List[Engine] = Relationship(
+    #     link_model=CatalogEngines,
+    #     sa_relationship_kwargs={
+    #         "primaryjoin": "Catalog.id==CatalogEngines.catalog_id",
+    #         "secondaryjoin": "Engine.id==CatalogEngines.engine_id",
+    #     },
+    # )
     node_revisions: List["NodeRevision"] = Relationship(back_populates="catalog")
     created_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
@@ -61,6 +45,9 @@ class Catalog(BaseSQLModel, table=True):  # type: ignore
         default_factory=partial(datetime.now, timezone.utc),
     )
     extra_params: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
+
+    def get_available_engines(self, query_service_client: QueryServiceClient) -> List[EngineInfo]:
+        return query_service_client.get_available_engines(catalog=self.name)
 
     def __str__(self) -> str:
         return self.name

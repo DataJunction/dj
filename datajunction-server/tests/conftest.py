@@ -19,6 +19,7 @@ from datajunction_server.api.main import app
 from datajunction_server.config import Settings
 from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.models import Column, Engine
+from datajunction_server.models.engine import EngineInfo
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.models.user import OAuthProvider, User
@@ -167,6 +168,34 @@ def query_service_client(
         qs_client,
         "get_query",
         mock_get_query,
+    )
+
+    def mock_get_available_engines(
+        catalog: str,
+    ) -> List[EngineInfo]:
+        return {
+            "dev": [EngineInfo(
+                name="spark",
+                version="3.3.1",
+                uri=None,
+                dialect="spark",
+            )],
+            "test": [],
+            "prod": [],
+            "draft": [],
+            "default": [EngineInfo(
+                name="spark",
+                version="3.3.1",
+                uri=None,
+                dialect="spark",
+            )],
+            "public": [],
+        }[catalog]
+
+    mocker.patch.object(
+        qs_client,
+        "get_available_engines",
+        mock_get_available_engines,
     )
 
     mock_materialize = MagicMock()

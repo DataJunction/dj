@@ -558,7 +558,7 @@ def create_cube(
         type=NodeType.CUBE,
         current_version=0,
     )
-    node_revision = create_cube_node_revision(session=session, data=data)
+    node_revision = create_cube_node_revision(session=session, data=data, query_service_client=query_service_client)
     save_node(session, node_revision, node, data.mode, current_user=current_user)
     return node  # type: ignore
 
@@ -602,7 +602,6 @@ def register_table(  # pylint: disable=too-many-arguments
         _catalog.name,
         schema_,
         table,
-        _catalog.engines[0] if len(_catalog.engines) >= 1 else None,
     )
 
     return create_source(
@@ -851,9 +850,6 @@ def refresh_source_node(
         current_revision.catalog.name,
         current_revision.schema_,  # type: ignore
         current_revision.table,  # type: ignore
-        current_revision.catalog.engines[0]
-        if len(current_revision.catalog.engines) >= 1
-        else None,
     )
 
     # Check if any of the columns have changed (only continue with update if they have)

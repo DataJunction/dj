@@ -77,7 +77,7 @@ def test_catalog_list(
         {
             "name": "dev",
             "engines": [
-                {"name": "foo", "version": "1.0", "type": "duckdb", "extra_params": {}},
+                {"name": "foo", "version": "1.0", "type": "duckdb"},
             ],
         },
         {"name": "test", "engines": []},
@@ -126,7 +126,7 @@ def test_catalog_get_catalog(
     assert data == {
         "name": "dev",
         "engines": [
-            {"name": "foo", "version": "1.0", "type": "duckdb", "extra_params": {}},
+            {"name": "foo", "version": "1.0", "type": "duckdb"},
         ],
     }
 
@@ -168,7 +168,7 @@ def test_catalog_adding_a_new_catalog_with_engines(
     assert data == {
         "name": "dev",
         "engines": [
-            {"name": "foo", "version": "1.0", "type": "duckdb", "extra_params": {}},
+            {"name": "foo", "version": "1.0", "type": "duckdb"},
         ],
     }
 
@@ -216,7 +216,7 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
     assert data == {
         "name": "dev",
         "engines": [
-            {"name": "foo", "version": "1.0", "type": "duckdb", "extra_params": {}},
+            {"name": "foo", "version": "1.0", "type": "duckdb"},
         ],
     }
 
@@ -318,9 +318,9 @@ def test_catalog_adding_without_duplicating(
     assert data == {
         "name": "dev",
         "engines": [
-            {"name": "foo", "version": "2.4.4", "type": "duckdb", "extra_params": {}},
-            {"name": "foo", "version": "3.3.0", "type": "duckdb", "extra_params": {}},
-            {"name": "foo", "version": "1.0", "type": "duckdb", "extra_params": {}},
+            {"name": "foo", "version": "2.4.4", "type": "duckdb"},
+            {"name": "foo", "version": "3.3.0", "type": "duckdb"},
+            {"name": "foo", "version": "1.0", "type": "duckdb"},
         ],
     }
 

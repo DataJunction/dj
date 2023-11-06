@@ -8,14 +8,14 @@ from strawberry.fastapi import GraphQLRouter
 
 from datajunction_server.api.graphql.catalogs import CatalogInfo, list_catalogs
 from datajunction_server.api.graphql.engines import EngineInfo, list_engines
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_session, get_settings, get_query_service_client
 
 
-async def get_context(session=Depends(get_session), settings=Depends(get_settings)):
+async def get_context(session=Depends(get_session), settings=Depends(get_settings), query_service_client=Depends(get_query_service_client)):
     """
     provides the context for graphql requests
     """
-    return {"session": session, "settings": settings}
+    return {"session": session, "settings": settings, "query_service_client": query_service_client}
 
 
 @strawberry.type

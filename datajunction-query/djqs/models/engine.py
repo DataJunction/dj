@@ -39,12 +39,12 @@ class BaseEngineInfo(SQLModel):
     name: str
     version: str
     type: EngineType
-    extra_params: Dict = {}
 
 
-class EngineInfo(BaseEngineInfo):
+class SensitiveEngineInfo(BaseEngineInfo):
     """
     Class for engine creation
     """
 
     uri: str
+    extra_params: Dict = {}

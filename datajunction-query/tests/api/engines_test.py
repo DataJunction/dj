@@ -26,7 +26,6 @@ def test_engine_adding_a_new_engine(
         "name": "foo",
         "version": "1.0",
         "type": "duckdb",
-        "extra_params": {},
     }
 
 
@@ -72,22 +71,16 @@ def test_engine_list(
             "name": "foo",
             "version": "1.0",
             "type": "duckdb",
-            "extra_params": {},
-            "uri": "bar",
         },
         {
             "name": "foo",
             "version": "1.1",
             "type": "duckdb",
-            "extra_params": {},
-            "uri": "baz",
         },
         {
             "name": "foo",
             "version": "1.2",
             "type": "duckdb",
-            "extra_params": {},
-            "uri": "qux",
         },
     ]
 
@@ -118,7 +111,6 @@ def test_engine_get_engine(
         "name": "foo",
         "version": "1.0",
         "type": "duckdb",
-        "extra_params": {},
     }
 
 

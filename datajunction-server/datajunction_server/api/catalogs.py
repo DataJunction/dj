@@ -12,10 +12,11 @@ from sqlmodel import Session, select
 from datajunction_server.api.engines import EngineInfo
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.errors import DJException
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models.catalog import Catalog, CatalogInfo
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_session, get_settings, get_query_service_client
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -23,11 +24,17 @@ router = SecureAPIRouter(tags=["catalogs"])
 
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])
-def list_catalogs(*, session: Session = Depends(get_session)) -> List[CatalogInfo]:
+def list_catalogs(*, session: Session = Depends(get_session), query_service_client: QueryServiceClient = Depends(get_query_service_client)) -> List[CatalogInfo]:
     """
     List all available catalogs
     """
-    return list(session.exec(select(Catalog)))
+    catalogs = session.exec(select(Catalog)).all()
+    return [
+        CatalogInfo(
+            name=catalog.name,
+            engines=catalog.get_available_engines(query_service_client)
+        ) for catalog in catalogs
+    ]
 
 
 @router.get("/catalogs/{name}/", response_model=CatalogInfo, name="Get a Catalog")
@@ -62,14 +69,7 @@ def add_catalog(
             detail=f"Catalog already exists: `{data.name}`",
         )
 
-    catalog = Catalog.from_orm(data)
-    catalog.engines.extend(
-        list_new_engines(
-            session=session,
-            catalog=catalog,
-            create_engines=data.engines,
-        ),
-    )
+    catalog = Catalog(name=data.name)
     session.add(catalog)
     session.commit()
     session.refresh(catalog)
@@ -93,9 +93,6 @@ def add_engines_to_catalog(
     Attach one or more engines to a catalog
     """
     catalog = get_catalog_by_name(session, name)
-    catalog.engines.extend(
-        list_new_engines(session=session, catalog=catalog, create_engines=data),
-    )
     session.add(catalog)
     session.commit()
     session.refresh(catalog)

@@ -164,17 +164,23 @@ def get_data(  # pylint: disable=too-many-locals
 
     node = get_node_by_name(session, node_name)
 
-    available_engines = node.current.catalog.engines
-    engine = (
-        get_engine(session, engine_name, engine_version)  # type: ignore
-        if engine_name
-        else available_engines[0]
-    )
-    if engine not in available_engines:
-        raise DJInvalidInputException(  # pragma: no cover
-            f"The selected engine is not available for the node {node_name}. "
-            f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
-        )
+    available_engines = node.current.catalog.get_available_engines(query_service_client)
+    engine = None
+    if engine_name and engine_version:
+        selected_engine = None
+        for available_engine in available_engines:
+            if available_engine.name == engine_name and available_engine.version == engine_version:
+                selected_engine = available_engine
+        if selected_engine:
+            engine = selected_engine
+        else:
+            raise DJInvalidInputException(  # pragma: no cover
+                f"The selected engine is not available for the node {node_name}. "
+                f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
+            )
+    else:
+        engine = available_engines[0] if available_engines else None
+
     validate_orderby(orderby, [node_name], dimensions)
 
     access_control = access.AccessControlStore(
@@ -189,6 +195,7 @@ def get_data(  # pylint: disable=too-many-locals
         dimensions=dimensions,
         filters=filters,
         orderby=orderby,
+        query_service_client=query_service_client,
         limit=limit,
         engine=engine,
         access_control=access_control,
@@ -261,6 +268,7 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
         session,
         metrics,
         dimensions,
+        query_service_client,
         filters,
         orderby,
         limit,
@@ -304,6 +312,7 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
         session,
         metrics,
         dimensions,
+        query_service_client,
         filters,
         orderby,
         limit,

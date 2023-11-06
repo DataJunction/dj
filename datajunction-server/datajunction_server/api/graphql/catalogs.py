@@ -29,7 +29,9 @@ def list_catalogs(
     List all available catalogs
     """
     session = info.context["session"]  # type: ignore
+    catalogs = session.exec(select(Catalog)).all()
     return [
-        CatalogInfo.from_pydantic(catalog)  # type: ignore #pylint: disable=E1101
-        for catalog in session.exec(select(Catalog))
+        CatalogInfo(
+            name=catalog.name,
+        ) for catalog in catalogs
     ]

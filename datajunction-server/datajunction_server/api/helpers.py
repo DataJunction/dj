@@ -199,6 +199,7 @@ def get_query(  # pylint: disable=too-many-arguments
     dimensions: List[str],
     filters: List[str],
     orderby: List[str],
+    query_service_client: QueryServiceClient,
     limit: Optional[int] = None,
     engine: Optional[Engine] = None,
     access_control: Optional[access.AccessControlStore] = None,
@@ -213,9 +214,9 @@ def get_query(  # pylint: disable=too-many-arguments
         not engine
         and node.current
         and node.current.catalog
-        and node.current.catalog.engines
     ):
-        engine = node.current.catalog.engines[0]
+        if available_engines := node.current.catalog.get_available_engines(query_service_client):
+            engine = available_engines[0]
     build_criteria = BuildCriteria(
         dialect=(engine.dialect if engine and engine.dialect else Dialect.SPARK),
     )
@@ -792,6 +793,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
     session: Session,
     metrics: List[str],
     dimensions: List[str],
+    query_service_client: QueryServiceClient,
     filters: List[str] = None,
     orderby: List[str] = None,
     limit: Optional[int] = None,
@@ -813,7 +815,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
         dimensions,
     )
     leading_metric_node = get_node_by_name(session, metrics[0])
-    available_engines = leading_metric_node.current.catalog.engines
+    available_engines = leading_metric_node.current.catalog.get_available_engines(query_service_client)
 
     # Try to find a built cube that already has the given metrics and dimensions
     # The cube needs to have a materialization configured and an availability state
@@ -826,19 +828,24 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
     )
     if cube:
         catalog = get_catalog_by_name(session, cube.availability.catalog)  # type: ignore
-        available_engines = catalog.engines + available_engines
+        available_engines = available_engines + catalog.get_available_engines(query_service_client)
 
     # Check if selected engine is available
-    engine = (
-        get_engine(session, engine_name, engine_version)  # type: ignore
-        if engine_name
-        else available_engines[0]
-    )
-    if engine not in available_engines:
-        raise DJInvalidInputException(  # pragma: no cover
-            f"The selected engine is not available for the node {metrics[0]}. "
-            f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
-        )
+    engine = None
+    if engine_name and engine_version:
+        selected_engine = None
+        for available_engine in available_engines:
+            if available_engine.name == engine_name and available_engine.version == engine_version:
+                selected_engine = available_engine
+        if selected_engine:
+            engine = selected_engine
+        else:
+            raise DJInvalidInputException(  # pragma: no cover
+                f"The selected engine is not available for the node {metrics[0]}. "
+                f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
+            )
+    else:
+        engine = available_engines[0] if available_engines else None
 
     validate_orderby(orderby, metrics, dimensions)
 

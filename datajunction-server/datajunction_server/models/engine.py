@@ -43,11 +43,3 @@ class EngineInfo(SQLModel):
     uri: Optional[str]
     dialect: Optional[Dialect]
 
-
-class EngineRef(SQLModel):
-    """
-    Basic reference to an engine
-    """
-
-    name: str
-    version: str

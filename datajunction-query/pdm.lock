@@ -6,7 +6,7 @@ groups = ["default", "test", "uvicorn"]
 cross_platform = true
 static_urls = false
 lock_version = "4.3"
-content_hash = "sha256:740a1689e377e26378154b380beb4f7b97cc663294dcb12b142e0d58ebdda0cf"
+content_hash = "sha256:41cd05b3a79c8c84aeb07cd74c94a33090fd2fad18043f3f6e6357c165afe759"
 
 [[package]]
 name = "accept-types"

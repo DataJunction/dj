@@ -629,13 +629,7 @@ def build_node(  # pylint: disable=too-many-arguments
     # Set the dialect by finding available engines for this node, or default to Spark
     if not build_criteria:
         build_criteria = BuildCriteria(
-            dialect=(
-                node.catalog.engines[0].dialect
-                if node.catalog
-                and node.catalog.engines
-                and node.catalog.engines[0].dialect
-                else Dialect.SPARK
-            ),
+            dialect=Dialect.SPARK,
         )
 
     # get dimension columns which are required

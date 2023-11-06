@@ -1266,20 +1266,20 @@ def test_sql_with_filters_on_namespaced_nodes(  # pylint: disable=R0913
 
 
 def test_sql_with_filters_orderby_no_access(  # pylint: disable=R0913
-    client_with_namespaced_roads: TestClient,
+    client_with_query_service_example_loader: TestClient,
 ):
     """
     Test ``GET /sql/{node_name}/`` with various filters and dimensions using a
     version of the DJ roads database with namespaces.
     """
-
+    custom_client = client_with_query_service_example_loader(["NAMESPACED_ROADS"])
     def validate_access_override():
         def _validate_access(access_control: access.AccessControl):
             access_control.deny_all()
 
         return _validate_access
 
-    app = client_with_namespaced_roads.app
+    app = custom_client.app
     app.dependency_overrides[validate_access] = validate_access_override
 
     node_name = "foo.bar.num_repair_orders"
@@ -1296,7 +1296,7 @@ def test_sql_with_filters_orderby_no_access(  # pylint: disable=R0913
         "foo.bar.repair_orders.order_date >= '2020-01-01'",
     ]
     orderby = ["foo.bar.hard_hat.last_name"]
-    response = client_with_namespaced_roads.get(
+    response = custom_client.get(
         f"/sql/{node_name}/",
         params={"dimensions": dimensions, "filters": filters, "orderby": orderby},
     )
@@ -1313,12 +1313,12 @@ def test_sql_with_filters_orderby_no_access(  # pylint: disable=R0913
 
 
 def test_cross_join_unnest(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+    client_with_query_service_example_loader: Callable[[Optional[List[str]]], TestClient],
 ):
     """
     Verify cross join unnest on a joined in dimension works
     """
-    custom_client = client_example_loader(["LATERAL_VIEW"])
+    custom_client = client_with_query_service_example_loader(["LATERAL_VIEW"])
     custom_client.post(
         "/nodes/basic.corrected_patches/columns/color_id/"
         "?dimension=basic.paint_colors_trino&dimension_column=color_id",
@@ -1369,12 +1369,12 @@ def test_cross_join_unnest(
 
 
 def test_lateral_view_explode(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+    client_with_query_service_example_loader: Callable[[Optional[List[str]]], TestClient],
 ):
     """
     Verify lateral view explode on a joined in dimension works
     """
-    custom_client = client_example_loader(["LATERAL_VIEW"])
+    custom_client = client_with_query_service_example_loader(["LATERAL_VIEW"])
     custom_client.post(
         "/nodes/basic.corrected_patches/columns/color_id/"
         "?dimension=basic.paint_colors_spark&dimension_column=color_id",
@@ -1427,12 +1427,12 @@ def test_lateral_view_explode(
     compare_query_strings(query, expected)
 
 
-def test_get_sql_for_metrics_failures(client_with_account_revenue: TestClient):
+def test_get_sql_for_metrics_failures(client_with_query_service: TestClient):
     """
     Test failure modes when getting sql for multiple metrics.
     """
     # Getting sql for no metrics fails appropriately
-    response = client_with_account_revenue.get(
+    response = client_with_query_service.get(
         "/sql/",
         params={
             "metrics": [],
@@ -1449,7 +1449,7 @@ def test_get_sql_for_metrics_failures(client_with_account_revenue: TestClient):
     }
 
     # Getting sql with no dimensions fails appropriately
-    response = client_with_account_revenue.get(
+    response = client_with_query_service.get(
         "/sql/",
         params={
             "metrics": ["default.number_of_account_types"],
@@ -1466,7 +1466,7 @@ def test_get_sql_for_metrics_failures(client_with_account_revenue: TestClient):
     }
 
 
-def test_get_sql_for_metrics_no_access(client_with_roads: TestClient):
+def test_get_sql_for_metrics_no_access(client_with_query_service: TestClient):
     """
     Test getting sql for multiple metrics.
     """
@@ -1480,10 +1480,10 @@ def test_get_sql_for_metrics_no_access(client_with_roads: TestClient):
 
         return _validate_access
 
-    app = client_with_roads.app
+    app = client_with_query_service.app
     app.dependency_overrides[validate_access] = validate_access_override
 
-    response = client_with_roads.get(
+    response = client_with_query_service.get(
         "/sql/",
         params={
             "metrics": ["default.discounted_orders_rate", "default.num_repair_orders"],
@@ -1510,12 +1510,12 @@ def test_get_sql_for_metrics_no_access(client_with_roads: TestClient):
     assert data["errors"][0]["code"] == 500
 
 
-def test_get_sql_for_metrics(client_with_roads: TestClient):
+def test_get_sql_for_metrics(client_with_query_service: TestClient):
     """
     Test getting sql for multiple metrics.
     """
 
-    response = client_with_roads.get(
+    response = client_with_query_service.get(
         "/sql/",
         params={
             "metrics": ["default.discounted_orders_rate", "default.num_repair_orders"],
@@ -1921,12 +1921,12 @@ def test_get_sql_including_dimensions_with_disambiguated_columns(
 
 
 def test_get_sql_for_metrics_filters_validate_dimensions(
-    client_with_namespaced_roads: TestClient,
+    client_with_query_service: TestClient,
 ):
     """
     Test that we extract the columns from filters to validate that they are from shared dimensions
     """
-    response = client_with_namespaced_roads.get(
+    response = client_with_query_service.get(
         "/sql/",
         params={
             "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
@@ -1946,13 +1946,12 @@ def test_get_sql_for_metrics_filters_validate_dimensions(
 
 
 def test_get_sql_for_metrics_orderby_not_in_dimensions(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+    client_with_query_service: Callable[[Optional[List[str]]], TestClient],
 ):
     """
     Test that we extract the columns from filters to validate that they are from shared dimensions
     """
-    custom_client = client_example_loader(["ROADS", "NAMESPACED_ROADS"])
-    response = custom_client.get(
+    response = client_with_query_service.get(
         "/sql/",
         params={
             "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
@@ -1971,12 +1970,12 @@ def test_get_sql_for_metrics_orderby_not_in_dimensions(
 
 
 def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+    client_with_query_service: TestClient,
 ):
     """
     Test that we extract the columns from filters to validate that they are from shared dimensions
     """
-    if isinstance(client_example_loader, TestClient):
+    if isinstance(client_with_query_service, TestClient):
 
         def validate_access_override():
             def _validate_access(access_control: access.AccessControl):
@@ -1995,11 +1994,10 @@ def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
 
             return _validate_access
 
-        app = client_example_loader.app
+        app = client_with_query_service.app
         app.dependency_overrides[validate_access] = validate_access_override
 
-    custom_client = client_example_loader(["ROADS", "NAMESPACED_ROADS"])
-    response = custom_client.get(
+    response = client_with_query_service.get(
         "/sql/",
         params={
             "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],

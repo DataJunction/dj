@@ -9,7 +9,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from djqs.api.engines import EngineInfo
+from djqs.api.engines import SensitiveEngineInfo
 from djqs.api.helpers import get_catalog, get_engine
 from djqs.exceptions import DJException
 from djqs.models.catalog import Catalog, CatalogInfo
@@ -98,8 +98,8 @@ def add_engines_to_catalog(
 def list_new_engines(
     session: Session,
     catalog: Catalog,
-    create_engines: List[EngineInfo],
-) -> List[EngineInfo]:
+    create_engines: List[SensitiveEngineInfo],
+) -> List[SensitiveEngineInfo]:
     """
     Filter to engines that are not already set on a catalog
     """

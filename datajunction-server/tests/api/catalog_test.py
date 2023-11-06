@@ -3,7 +3,7 @@ Tests for the catalog API.
 """
 
 from fastapi.testclient import TestClient
-
+from datajunction_server.service_clients import QueryServiceClient
 
 def test_catalog_adding_a_new_catalog(
     client: TestClient,
@@ -23,37 +23,21 @@ def test_catalog_adding_a_new_catalog(
 
 
 def test_catalog_list(
-    client: TestClient,
+    client_with_query_service: TestClient,
+    query_service_client: QueryServiceClient,
 ) -> None:
     """
     Test listing catalogs
     """
-    response = client.post(
-        "/engines/",
-        json={
-            "name": "spark",
-            "version": "3.3.1",
-            "dialect": "spark",
-        },
-    )
-    assert response.status_code == 201
-
-    response = client.post(
+    response = client_with_query_service.post(
         "/catalogs/",
         json={
             "name": "dev",
-            "engines": [
-                {
-                    "name": "spark",
-                    "version": "3.3.1",
-                    "dialect": "spark",
-                },
-            ],
         },
     )
     assert response.status_code == 201
 
-    response = client.post(
+    response = client_with_query_service.post(
         "/catalogs/",
         json={
             "name": "test",
@@ -61,7 +45,7 @@ def test_catalog_list(
     )
     assert response.status_code == 201
 
-    response = client.post(
+    response = client_with_query_service.post(
         "/catalogs/",
         json={
             "name": "prod",
@@ -69,9 +53,12 @@ def test_catalog_list(
     )
     assert response.status_code == 201
 
-    response = client.get("/catalogs/")
+    response = client_with_query_service.get("/catalogs/")
     assert response.status_code == 200
     assert response.json() == [
+        {"name": "draft", "engines": []},
+        {"name": "default", "engines": []},
+        {"name": "public", "engines": []},
         {
             "name": "dev",
             "engines": [

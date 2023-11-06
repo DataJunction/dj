@@ -14,12 +14,13 @@ from datajunction_server.api.helpers import (
     validate_orderby,
 )
 from datajunction_server.construction.build import get_measures_query
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import User, access
 from datajunction_server.models.metric import TranslatedSQL
-from datajunction_server.utils import get_current_user, get_session, get_settings
+from datajunction_server.utils import get_current_user, get_session, get_settings, get_query_service_client
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -70,6 +71,7 @@ def get_sql(
     limit: Optional[int] = None,
     *,
     session: Session = Depends(get_session),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
@@ -98,6 +100,7 @@ def get_sql(
         dimensions=dimensions,
         filters=filters,
         orderby=orderby,
+        query_service_client=query_service_client,
         limit=limit,
         engine=engine,
         access_control=access_control,
@@ -128,6 +131,7 @@ def get_sql_for_metrics(
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client)
 ) -> TranslatedSQL:
     """
     Return SQL for a set of metrics with dimensions and filters
@@ -143,6 +147,7 @@ def get_sql_for_metrics(
         session,
         metrics,
         dimensions,
+        query_service_client,
         filters,
         orderby,
         limit,
