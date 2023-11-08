@@ -277,13 +277,6 @@ def test_common_dimensions(
             "path": ["default.repair_orders_fact.municipality_id"],
             "type": "int",
         },
-        {"name": "default.repair_orders_fact.dispatcher_id", "path": [], "type": "int"},
-        {"name": "default.repair_orders_fact.hard_hat_id", "path": [], "type": "int"},
-        {
-            "name": "default.repair_orders_fact.municipality_id",
-            "path": [],
-            "type": "string",
-        },
         {
             "name": "default.us_state.state_id",
             "path": [
@@ -503,13 +496,6 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.municipality_dim.state_id",
             "path": ["default.repair_orders_fact.municipality_id"],
             "type": "int",
-        },
-        {"name": "default.repair_orders_fact.dispatcher_id", "path": [], "type": "int"},
-        {"name": "default.repair_orders_fact.hard_hat_id", "path": [], "type": "int"},
-        {
-            "name": "default.repair_orders_fact.municipality_id",
-            "path": [],
-            "type": "string",
         },
         {
             "name": "default.us_state.state_id",

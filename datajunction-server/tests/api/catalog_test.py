@@ -72,6 +72,7 @@ def test_catalog_list(
     response = client.get("/catalogs/")
     assert response.status_code == 200
     assert response.json() == [
+        {"name": "unknown", "engines": []},
         {
             "name": "dev",
             "engines": [
