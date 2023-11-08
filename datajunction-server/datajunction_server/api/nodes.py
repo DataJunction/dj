@@ -13,6 +13,7 @@ from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 from starlette.requests import Request
 
+from datajunction_server.api.catalogs import UNKNOWN_CATALOG_ID
 from datajunction_server.api.helpers import (
     activate_node,
     deactivate_node,
@@ -640,7 +641,7 @@ def link_dimension(  # pylint: disable=too-many-arguments
         node_type=NodeType.DIMENSION,
     )
     if (
-        dimension_node.current.catalog_id != 0
+        dimension_node.current.catalog_id != UNKNOWN_CATALOG_ID
         and dimension_node.current.catalog is not None
         and node.current.catalog.name != dimension_node.current.catalog.name
     ):

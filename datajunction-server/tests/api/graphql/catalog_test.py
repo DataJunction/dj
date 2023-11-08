@@ -58,5 +58,12 @@ def test_catalog_list(
     response = client.post("/graphql", json={"query": query})
     assert response.status_code == 200
     assert response.json() == {
-        "data": {"listCatalogs": [{"name": "dev"}, {"name": "test"}, {"name": "prod"}]},
+        "data": {
+            "listCatalogs": [
+                {"name": "unknown"},
+                {"name": "dev"},
+                {"name": "test"},
+                {"name": "prod"},
+            ],
+        },
     }

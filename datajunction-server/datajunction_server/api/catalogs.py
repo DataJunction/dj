@@ -21,6 +21,8 @@ _logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["catalogs"])
 
+UNKNOWN_CATALOG_ID = 0
+
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])
 def list_catalogs(*, session: Session = Depends(get_session)) -> List[CatalogInfo]:
@@ -127,13 +129,12 @@ def default_catalog(session: Session = Depends(get_session)):
     Loads a default catalog for nodes that are pure SQL and don't belong in any
     particular catalog. This typically applies to on-the-fly user-defined dimensions.
     """
-    # Update existing default attribute types
-    statement = select(Catalog).filter(Catalog.id == 0)
+    statement = select(Catalog).filter(Catalog.id == UNKNOWN_CATALOG_ID)
     catalogs = session.exec(statement).all()
     if not catalogs:
-        default = Catalog(
-            id=0,
-            name="default",
+        unknown = Catalog(
+            id=UNKNOWN_CATALOG_ID,
+            name="unknown",
         )
-        session.add(default)
+        session.add(unknown)
         session.commit()

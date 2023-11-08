@@ -312,7 +312,6 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         """
         A source node fixture.
         """
-
         table = Table(
             database=database,
             table="A",
@@ -324,13 +323,14 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         node = Node(
             name="basic.source.users",
             type=NodeType.SOURCE,
-            current_version="1",
+            current_version="v1",
         )
         node_revision = NodeRevision(
             node=node,
             name=node.name,
+            catalog_id=-100,
             type=node.type,
-            version="1",
+            version="v1",
             tables=[table],
             columns=[
                 Column(name="id", type=IntegerType()),
@@ -939,7 +939,6 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert response.json()["dimensions"] == [
-            {"name": "default.messages.user_id", "path": [], "type": "int"},
             {
                 "name": "default.us_users.age",
                 "path": ["default.messages.user_id"],
@@ -1006,9 +1005,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         # The deleted dimension's attributes should no longer be available to the metric
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
-        assert [
-            {"path": [], "name": "default.messages.user_id", "type": "int"},
-        ] == response.json()["dimensions"]
+        assert [] == response.json()["dimensions"]
         # The metric should still be VALID
         response = client.get("/nodes/default.num_messages/")
         assert response.json()["status"] == NodeStatus.VALID
@@ -1022,7 +1019,6 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert response.json()["dimensions"] == [
-            {"name": "default.messages.user_id", "path": [], "type": "int"},
             {
                 "name": "default.us_users.age",
                 "path": ["default.messages.user_id"],
