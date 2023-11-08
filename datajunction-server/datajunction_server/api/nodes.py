@@ -640,7 +640,8 @@ def link_dimension(  # pylint: disable=too-many-arguments
         node_type=NodeType.DIMENSION,
     )
     if (
-        dimension_node.current.catalog is not None
+        dimension_node.current.catalog_id != 0
+        and dimension_node.current.catalog is not None
         and node.current.catalog.name != dimension_node.current.catalog.name
     ):
         raise DJException(
