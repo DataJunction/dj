@@ -630,8 +630,8 @@ class MetricMetadataOutput(BaseSQLModel):
     Metric metadata output
     """
 
-    direction: MetricDirection
-    unit: Unit
+    direction: Optional[MetricDirection]
+    unit: Optional[Unit]
 
 
 class MetricMetadataInput(BaseSQLModel):

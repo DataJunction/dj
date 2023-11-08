@@ -120,3 +120,20 @@ def list_new_engines(
         if not already_set:
             new_engines.append(engine)
     return new_engines
+
+
+def default_catalog(session: Session = Depends(get_session)):
+    """
+    Loads a default catalog for nodes that are pure SQL and don't belong in any
+    particular catalog. This typically applies to on-the-fly user-defined dimensions.
+    """
+    # Update existing default attribute types
+    statement = select(Catalog).filter(Catalog.id == 0)
+    catalogs = session.exec(statement).all()
+    if not catalogs:
+        default = Catalog(
+            id=0,
+            name="default",
+        )
+        session.add(default)
+        session.commit()
