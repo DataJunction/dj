@@ -53,8 +53,11 @@ def get_dimensions(
 
         for column in current_node.current.columns:
             # Include the dimension if it's a column belonging to a dimension node
-            # or if it's tagged with the dimension column attribute
-            if current_node.type == NodeType.DIMENSION or column.is_dimensional():
+            # or if it's tagged with the dimension column attribute (but not
+            # additionally linked to a dimension)
+            if current_node.type == NodeType.DIMENSION or (
+                column.is_dimensional() and not column.dimension_id
+            ):
                 join_path_str = [
                     (
                         (
@@ -145,7 +148,7 @@ def get_shared_dimensions(
                         to_delete.add(common_dim)  # pragma: no cover
 
         for dim_key in to_delete:
-            del common[dim_key]
+            del common[dim_key]  # pragma: no cover
 
     return sorted(
         [y for x in common.values() for y in x],
