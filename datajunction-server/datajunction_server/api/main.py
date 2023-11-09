@@ -42,6 +42,7 @@ from datajunction_server.api import (
 )
 from datajunction_server.api.access.authentication import whoami
 from datajunction_server.api.attributes import default_attribute_types
+from datajunction_server.api.catalogs import default_catalog
 from datajunction_server.api.graphql.main import graphql_app
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.errors import DJException
@@ -64,7 +65,7 @@ config.fileConfig(
     disable_existing_loggers=False,
 )
 
-dependencies = [Depends(default_attribute_types)]
+dependencies = [Depends(default_attribute_types), Depends(default_catalog)]
 
 app = FastAPI(
     title=settings.name,
