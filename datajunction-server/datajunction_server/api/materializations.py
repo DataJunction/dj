@@ -14,11 +14,13 @@ from sqlmodel import Session
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
 )
 from datajunction_server.materialization.jobs import MaterializationJob
+from datajunction_server.models import access
 from datajunction_server.models.history import ActivityType, EntityType, History
 from datajunction_server.models.materialization import (
     MaterializationConfigInfoUnified,
@@ -54,6 +56,9 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> JSONResponse:
     """
     Add or update a materialization of the specified node. If a node_name is specified
@@ -69,7 +74,12 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     old_materializations = {mat.name: mat for mat in current_revision.materializations}
 
     # Create a new materialization
-    new_materialization = create_new_materialization(session, current_revision, data)
+    new_materialization = create_new_materialization(
+        session,
+        current_revision,
+        data,
+        validate_access,
+    )
 
     # Check to see if a materialization for this engine already exists with the exact same config
     existing_materialization = old_materializations.get(new_materialization.name)

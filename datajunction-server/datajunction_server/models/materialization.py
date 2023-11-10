@@ -16,6 +16,25 @@ from datajunction_server.typing import UTCDatetime
 if TYPE_CHECKING:
     from datajunction_server.models import NodeRevision
 
+DRUID_AGG_MAPPING = {
+    ("bigint", "sum"): "longSum",
+    ("int", "sum"): "longSum",
+    ("double", "sum"): "doubleSum",
+    ("float", "sum"): "floatSum",
+    ("double", "min"): "doubleMin",
+    ("double", "max"): "doubleMax",
+    ("float", "min"): "floatMin",
+    ("float", "max"): "floatMax",
+    ("bigint", "min"): "longMin",
+    ("int", "min"): "longMin",
+    ("bigint", "max"): "longMax",
+    ("int", "max"): "longMax",
+    ("bigint", "count"): "longSum",
+    ("int", "count"): "longSum",
+    ("double", "count"): "longSum",
+    ("float", "count"): "longSum",
+}
+
 
 class GenericMaterializationInput(BaseModel):
     """
@@ -173,6 +192,61 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
     Specific cube materialization implementation with Spark and Druid ingestion and
     optional prefix and/or suffix to include with the materialized entity's name.
     """
+
+    def metrics_spec(self) -> Dict:
+        """
+        Returns the Druid metrics spec for ingestion
+        """
+        return {
+            measure.name: {
+                "fieldName": measure.field_name,
+                "name": measure.name,
+                "type": DRUID_AGG_MAPPING[(measure.type.lower(), measure.agg.lower())],
+            }
+            for measure_group in self.measures.values()  # type: ignore
+            for measure in measure_group.measures
+        }
+
+    def build_druid_spec(self, node_revision: "NodeRevision"):
+        """
+        Builds the Druid ingestion spec from a materialization config.
+        """
+        node_name = node_revision.name
+        metrics_spec = list(self.metrics_spec().values())
+        user_defined_temporal_partitions = node_revision.temporal_partition_columns()
+        user_defined_temporal_partition = user_defined_temporal_partitions[0]
+        output_temporal_partition_column = [
+            col.name
+            for col in self.columns  # type: ignore
+            if col.column == user_defined_temporal_partition.name
+        ][0]
+        druid_datasource_name = (
+            self.prefix  # type: ignore
+            + node_name.replace(".", "_DOT_")  # type: ignore
+            + self.suffix  # type: ignore
+        )
+        druid_spec: Dict = {
+            "dataSchema": {
+                "dataSource": druid_datasource_name,
+                "parser": {
+                    "parseSpec": {
+                        "format": "parquet",
+                        "dimensionsSpec": {"dimensions": self.dimensions},
+                        "timestampSpec": {
+                            "column": output_temporal_partition_column,
+                            "format": user_defined_temporal_partition.partition.format,
+                        },
+                    },
+                },
+                "metricsSpec": metrics_spec,
+                "granularitySpec": {
+                    "type": "uniform",
+                    "segmentGranularity": user_defined_temporal_partition.partition.granularity,
+                    "intervals": [],  # this should be set at runtime
+                },
+            },
+        }
+        return druid_spec
 
 
 class Materialization(BaseSQLModel, table=True):  # type: ignore

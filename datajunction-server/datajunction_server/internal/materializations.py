@@ -5,21 +5,19 @@ from typing import Dict, List, Set, Tuple, Union
 from pydantic import ValidationError
 from sqlmodel import Session
 
-from datajunction_server.construction.build import build_node
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.construction.build import build_node, get_measures_query
+from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.materialization.jobs import (
-    DefaultCubeMaterialization,
     DruidCubeMaterializationJob,
     MaterializationJob,
     SparkSqlMaterializationJob,
     TrinoMaterializationJob,
 )
-from datajunction_server.models import Engine, NodeRevision
+from datajunction_server.models import Engine, NodeRevision, access
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
     DruidCubeConfig,
-    GenericCubeConfig,
     GenericMaterializationConfig,
     Materialization,
     MaterializationInfo,
@@ -27,136 +25,16 @@ from datajunction_server.models.materialization import (
     MetricMeasures,
     UpsertMaterialization,
 )
+from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import NodeType
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.ast import CompileContext
+from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.utils import SEPARATOR
 
 MAX_COLUMN_NAME_LENGTH = 128
-
-
-def build_cube_config(  # pylint: disable=too-many-locals
-    cube_node: NodeRevision,
-    combined_ast: ast.Query,
-) -> Union[DruidCubeConfig, GenericCubeConfig]:
-    """
-    Builds the materialization config for a cube. This includes two parts:
-    (a) building a query that decomposes each of the cube's metrics into their
-    constituent measures that have simple aggregations
-    (b) adding a metric to measures mapping that tells us which measures
-    in the query map to each selected metric
-
-    The query in the materialization config is different from the one stored
-    on the cube node itself in that this one is meant to create a temporary
-    table in preparation for ingestion into an OLAP database like Druid. The
-    metric to measures mapping then provides information on how to assemble
-    metrics from measures based on this query's output.
-
-    The query directly on the cube node is meant for direct querying of the cube
-    without materialization to an OLAP database.
-    """
-    dimensions_set = {
-        dim.name for dim in cube_node.columns if dim.has_dimension_attribute()
-    }
-    metrics_to_measures = {}
-    measures_tracker = {}
-
-    # Track columns to return later as a part of the default config
-    intermediate_columns = {
-        ColumnMetadata(name=dim.name, type=str(dim.type))
-        for dim in cube_node.columns
-        if dim.has_dimension_attribute()
-    }
-    for cte in combined_ast.ctes:
-        metrics_to_measures.update(decompose_metrics(cte, dimensions_set))
-        new_select_projection: Set[Union[ast.Aliasable, ast.Expression]] = set()
-        for expr in cte.select.projection:
-            if expr in metrics_to_measures:
-                combiner, measures = metrics_to_measures[expr]  # type: ignore
-                new_select_projection = set(new_select_projection).union(
-                    measures,
-                )
-                metric_key = expr.alias_or_name.name  # type: ignore
-                if metric_key not in measures_tracker:  # pragma: no cover
-                    measures_tracker[metric_key] = MetricMeasures(
-                        metric=metric_key,
-                        measures=[],
-                        combiner=str(combiner),
-                    )
-                for measure in measures:
-                    intermediate_columns.add(
-                        ColumnMetadata(
-                            name=str(
-                                f"{cte.alias_or_name}_{measure.alias_or_name}",
-                            ),
-                            type=str(measure.type),
-                        ),
-                    )
-                    measures_tracker[metric_key].measures.append(  # type: ignore
-                        Measure(
-                            name=measure.alias_or_name.name,
-                            field_name=str(
-                                f"{cte.alias_or_name}_{measure.alias_or_name}",
-                            ),
-                            agg=str(measure.child.name),
-                            type=str(measure.type),
-                        ),
-                    )
-            else:
-                new_select_projection.add(expr)
-        cte.select.projection = list(new_select_projection)
-    for _, metric_measures in measures_tracker.items():
-        metric_measures.measures = sorted(
-            metric_measures.measures,
-            key=lambda x: x.name,
-        )
-    combined_ast.select.projection = [
-        (
-            ast.Column(name=col.alias_or_name, _table=cte).set_alias(  # type: ignore
-                ast.Name(f"{cte.alias_or_name}_{col.alias_or_name}"),  # type: ignore
-            )
-        )
-        for cte in combined_ast.ctes
-        for col in cte.select.projection
-        if col.alias_or_name.name not in dimensions_set  # type: ignore
-    ]
-    dimension_grouping: Dict[str, List[ast.Column]] = {}
-    for col in [
-        ast.Column(name=col.alias_or_name, _table=cte)  # type: ignore
-        for cte in combined_ast.ctes
-        for col in cte.select.projection
-        if col.alias_or_name.name in dimensions_set  # type: ignore
-    ]:
-        dimension_grouping.setdefault(str(col.alias_or_name.name), []).append(col)
-
-    for col_name, columns in dimension_grouping.items():
-        combined_ast.select.projection.append(
-            ast.Function(name=ast.Name("COALESCE"), args=list(columns)).set_alias(
-                ast.Name(col_name),
-            ),
-        )
-
-    upstream_tables = sorted(
-        list(
-            {
-                f"{tbl.dj_node.catalog.name}.{tbl.identifier()}"
-                for tbl in combined_ast.find_all(ast.Table)
-                if tbl.dj_node
-            },
-        ),
-    )
-    ordering = {
-        col.alias_or_name.name: idx  # type: ignore
-        for idx, col in enumerate(combined_ast.select.projection)
-    }
-    return GenericCubeConfig(
-        query=str(combined_ast),
-        columns=sorted(list(intermediate_columns), key=lambda x: ordering[x.name]),
-        dimensions=sorted(list(dimensions_set)),
-        measures=measures_tracker,
-        partitions=[],
-        upstream_tables=upstream_tables,
-    )
 
 
 def materialization_job_from_engine(engine: Engine) -> MaterializationJob:
@@ -177,10 +55,146 @@ def materialization_job_from_engine(engine: Engine) -> MaterializationJob:
     return engine_to_job_mapping[engine.dialect]  # type: ignore
 
 
+def rewrite_metrics_expressions(
+    session: Session,
+    current_revision: NodeRevision,
+    measures_query: TranslatedSQL,
+) -> Dict[str, MetricMeasures]:
+    """
+    Map each metric to a rewritten version of the metric expression with the measures from
+    the materialized measures table.
+    """
+    context = CompileContext(session, DJException())
+    metrics_expressions = {}
+    measures_to_output_columns_lookup = {
+        column.semantic_entity: column.name
+        for column in measures_query.columns  # type: ignore # pylint: disable=not-an-iterable
+        if column.semantic_type == "measure"
+    }
+    for metric in current_revision.cube_metrics():
+        measures_for_metric = []
+        metric_ast = parse(metric.current.query)
+        metric_ast.compile(context)
+        for col in metric_ast.select.find_all(ast.Column):
+            full_column_name = (
+                col.table.dj_node.name + SEPARATOR + col.alias_or_name.name  # type: ignore
+            )
+            measures_for_metric.append(
+                Measure(
+                    name=full_column_name,
+                    field_name=full_column_name,
+                    type=str(col.type),
+                    agg="sum",
+                ),
+            )
+            if full_column_name in measures_to_output_columns_lookup:
+                col._table = None  # pylint: disable=protected-access
+                col.name = ast.Name(
+                    measures_to_output_columns_lookup[full_column_name],
+                )
+        if (
+            hasattr(metric_ast.select.projection[0], "alias")
+            and metric_ast.select.projection[0].alias  # type: ignore
+        ):
+            metric_ast.select.projection[0].alias.name = ""  # type: ignore
+        metrics_expressions[metric.name] = MetricMeasures(
+            metric=metric.name,
+            measures=measures_for_metric,
+            combiner=str(metric_ast),
+        )
+    return metrics_expressions
+
+
+def build_cube_materialization_config(
+    session: Session,
+    current_revision: NodeRevision,
+    engine: Engine,
+    upsert: UpsertMaterialization,
+    validate_access: access.ValidateAccessFn,
+) -> DruidCubeConfig:
+    """
+    Builds the materialization config for a cube.
+
+    We build a measures query where we ingest the referenced measures for all
+    selected metrics at the level of dimensions provided. This query is used to create
+    an intermediate table for ingestion into an OLAP database like Druid.
+
+    We additionally provide a metric to measures mapping that tells us both which measures
+    in the query map to each selected metric and how to rewrite each metric expression
+    based on the materialized measures table.
+    """
+    measures_query = get_measures_query(
+        session=session,
+        metrics=[node.name for node in current_revision.cube_metrics()],
+        dimensions=current_revision.cube_dimensions(),
+        filters=[],
+        validate_access=validate_access,
+    )
+    metrics_expressions = rewrite_metrics_expressions(
+        session,
+        current_revision,
+        measures_query,
+    )
+    try:
+        generic_config = DruidCubeConfig(
+            node_name=current_revision.name,
+            query=measures_query.sql,
+            dimensions=[
+                col.name
+                for col in measures_query.columns  # type: ignore # pylint: disable=not-an-iterable
+                if col.semantic_type == "dimension"
+            ],
+            measures=metrics_expressions,
+            spark=upsert.config.spark,
+            upstream_tables=measures_query.upstream_tables,
+            columns=measures_query.columns,
+        )
+        return generic_config
+    except (KeyError, ValidationError, AttributeError) as exc:  # pragma: no cover
+        raise DJInvalidInputException(  # pragma: no cover
+            message=(
+                "No change has been made to the materialization config for "
+                f"node `{current_revision.name}` and engine `{engine.name}` as"
+                " the config does not have valid configuration for "
+                f"engine `{engine.name}`."
+            ),
+        ) from exc
+
+
+def build_non_cube_materialization_config(
+    session: Session,
+    current_revision: NodeRevision,
+    upsert: UpsertMaterialization,
+) -> GenericMaterializationConfig:
+    """
+    Build materialization config for non-cube nodes (transforms and dimensions).
+    """
+    materialization_ast = build_node(
+        session=session,
+        node=current_revision,
+        dimensions=[],
+        orderby=[],
+    )
+    generic_config = GenericMaterializationConfig(
+        query=str(materialization_ast),
+        spark=upsert.config.spark if upsert.config.spark else {},
+        upstream_tables=[
+            f"{current_revision.catalog.name}.{tbl.identifier()}"
+            for tbl in materialization_ast.find_all(ast.Table)
+        ],
+        columns=[
+            ColumnMetadata(name=col.name, type=str(col.type))
+            for col in current_revision.columns
+        ],
+    )
+    return generic_config
+
+
 def create_new_materialization(
     session: Session,
     current_revision: NodeRevision,
     upsert: UpsertMaterialization,
+    validate_access: access.ValidateAccessFn,
 ) -> Materialization:
     """
     Create a new materialization based on the input values.
@@ -191,61 +205,27 @@ def create_new_materialization(
     if current_revision.type in (
         NodeType.DIMENSION,
         NodeType.TRANSFORM,
-        NodeType.METRIC,
     ):
-        materialization_ast = build_node(
-            session=session,
-            node=current_revision,
-            dimensions=[],
-            orderby=[],
-        )
-        generic_config = GenericMaterializationConfig(
-            query=str(materialization_ast),
-            spark=upsert.config.spark if upsert.config.spark else {},
-            upstream_tables=[
-                f"{current_revision.catalog.name}.{tbl.identifier()}"
-                for tbl in materialization_ast.find_all(ast.Table)
-            ],
-            columns=[
-                ColumnMetadata(name=col.name, type=str(col.type))
-                for col in current_revision.columns
-            ],
+        generic_config = build_non_cube_materialization_config(
+            session,
+            current_revision,
+            upsert,
         )
 
     if current_revision.type == NodeType.CUBE:
-        # Check to see if a default materialization was already configured, so that we
-        # can copy over the default cube setup and layer on specific config as needed
         if not temporal_partition:
             raise DJInvalidInputException(
                 "The cube materialization cannot be configured if there is no "
                 "temporal partition specified on the cube. Please make sure at "
                 "least one cube element has a temporal partition defined",
             )
-        default_job = [
-            conf
-            for conf in current_revision.materializations
-            if conf.job == DefaultCubeMaterialization.__name__
-        ][0]
-        default_job_config = GenericCubeConfig.parse_obj(default_job.config)
-        try:
-            generic_config = DruidCubeConfig(
-                node_name=current_revision.name,
-                query=default_job_config.query,
-                dimensions=default_job_config.dimensions,
-                measures=default_job_config.measures,
-                spark=upsert.config.spark,
-                upstream_tables=default_job_config.upstream_tables,
-                columns=default_job_config.columns,
-            )
-        except (KeyError, ValidationError, AttributeError) as exc:  # pragma: no cover
-            raise DJInvalidInputException(  # pragma: no cover
-                message=(
-                    "No change has been made to the materialization config for "
-                    f"node `{current_revision.name}` and engine `{engine.name}` as"
-                    " the config does not have valid configuration for "
-                    f"engine `{engine.name}`."
-                ),
-            ) from exc
+        generic_config = build_cube_materialization_config(
+            session,
+            current_revision,
+            engine,
+            upsert,
+            validate_access,
+        )
     materialization_name = (
         f"{temporal_partition[0].name}_{engine.name}"
         if temporal_partition
