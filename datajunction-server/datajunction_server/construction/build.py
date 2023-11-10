@@ -1161,21 +1161,31 @@ def build_ast(  # pylint: disable=too-many-arguments
 def metrics_to_measures(
     session: Session,
     metric_nodes: List[Node],
-) -> DefaultDict[str, Set[str]]:
+) -> Tuple[DefaultDict[str, Set[str]], DefaultDict[str, Set[str]]]:
     """
-    Returns a mapping between each metric node and a list of necessary measures for that metric.
+    For the given metric nodes, returns a mapping between the metrics' referenced parent nodes
+    and the list of necessary measures to extract from the parent node.
+    The structure is:
+    {
+        "parent_node_name1": ["measure_columnA", "measure_columnB"],
+        "parent_node_name2": ["measure_columnX"],
+    }
     """
     ctx = CompileContext(session, DJException())
     metric_to_measures_mapping = collections.defaultdict(set)
+    parents_to_measures = collections.defaultdict(set)
     for metric_node in metric_nodes:
         metric_ast = parse(metric_node.current.query)
         metric_ast.compile(ctx)
         for col in metric_ast.find_all(ast.Column):
             if col.table:  # pragma: no cover
-                metric_to_measures_mapping[col.table.dj_node.name].add(  # type: ignore
+                parents_to_measures[col.table.dj_node.name].add(  # type: ignore
                     col.alias_or_name.name,
                 )
-    return metric_to_measures_mapping
+                metric_to_measures_mapping[metric_node.name].add(
+                    col.alias_or_name.name,
+                )
+    return parents_to_measures, metric_to_measures_mapping
 
 
 def get_measures_query(
@@ -1187,7 +1197,7 @@ def get_measures_query(
     engine_version: Optional[str] = None,
     current_user: Optional[User] = None,
     validate_access: access.ValidateAccessFn = None,
-):
+) -> TranslatedSQL:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.
     This SQL can be used to produce an intermediate table with all the measures
@@ -1231,7 +1241,10 @@ def get_measures_query(
     common_parents = group_metrics_by_parent(metric_nodes)
 
     # Mapping between each metric node and its measures
-    metric_to_measures_mapping = metrics_to_measures(session, metric_nodes)
+    parents_to_measures, _ = metrics_to_measures(
+        session,
+        metric_nodes,
+    )
 
     for parent_node, _ in common_parents.items():  # type: ignore
         measure_columns, dimensional_columns = [], []
@@ -1254,7 +1267,7 @@ def get_measures_query(
             )[
                 -1
             ]
-            in metric_to_measures_mapping[parent_node.name]
+            in parents_to_measures[parent_node.name]
             or from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
             in dimensions
         ]
@@ -1342,6 +1355,7 @@ def get_measures_query(
 
     # Assemble column metadata
     columns_metadata = []
+    measures_to_output_columns_lookup = {}
     dimension_column_names = {
         dim.alias_or_name.identifier(False) for dim in all_dimension_columns
     }
@@ -1355,8 +1369,20 @@ def get_measures_query(
                 "dimension" if metadata.name in dimension_column_names else "measure"
             )
             columns_metadata.append(metadata)
+            if metadata.semantic_type == "measure":
+                measures_to_output_columns_lookup[
+                    metadata.semantic_entity
+                ] = metadata.name
+    dependencies, _ = combined_ast.extract_dependencies(
+        CompileContext(session, DJException()),
+    )
     return TranslatedSQL(
         sql=str(combined_ast),
         columns=columns_metadata,
         dialect=build_criteria.dialect,
+        upstream_tables=[
+            f"{dep.catalog.name}.{dep.schema_}.{dep.table}"
+            for dep in dependencies
+            if dep.type == NodeType.SOURCE
+        ],
     )

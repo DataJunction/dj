@@ -64,6 +64,7 @@ class TranslatedSQL(SQLModel):
     sql: str
     columns: Optional[List[ColumnMetadata]] = None  # pragma: no-cover
     dialect: Optional[Dialect] = None
+    upstream_tables: Optional[List[str]] = None
 
     @root_validator(pre=False)
     def transpile_sql(  # pylint: disable=no-self-argument

@@ -352,6 +352,9 @@ def create_source(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> NodeOutput:
     """
     Create a source node. If columns are not provided, the source node's schema
@@ -366,6 +369,7 @@ def create_source(
         session=session,
         current_user=current_user,
         query_service_client=query_service_client,
+        validate_access=validate_access,
     ):
         return recreated_node
 
@@ -448,6 +452,9 @@ def create_node(
     current_user: Optional[User] = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> NodeOutput:
     """
     Create a node.
@@ -467,6 +474,7 @@ def create_node(
         current_user=current_user,
         query_service_client=query_service_client,
         background_tasks=background_tasks,
+        validate_access=validate_access,
     ):
         return recreated_node  # pragma: no cover
 
@@ -529,6 +537,9 @@ def create_cube(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
     background_tasks: BackgroundTasks,
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> NodeOutput:
     """
     Create a cube node.
@@ -543,6 +554,7 @@ def create_cube(
         current_user=current_user,
         query_service_client=query_service_client,
         background_tasks=background_tasks,
+        validate_access=validate_access,
     ):
         return recreated_node  # pragma: no cover
 
@@ -911,6 +923,9 @@ def update_node(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
     background_tasks: BackgroundTasks,
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> NodeOutput:
     """
     Update a node.
@@ -922,6 +937,7 @@ def update_node(
         query_service_client=query_service_client,
         current_user=current_user,
         background_tasks=background_tasks,
+        validate_access=validate_access,
     )
     return node  # type: ignore
 
