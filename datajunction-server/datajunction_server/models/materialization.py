@@ -257,6 +257,10 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         """
         Builds the Druid ingestion spec from a materialization config.
         """
+        from datajunction_server.utils import (  # pylint: disable=import-outside-toplevel
+            amenable_name,
+        )
+
         node_name = node_revision.name
         metrics_spec = list(self.metrics_spec().values())
         user_defined_temporal_partitions = node_revision.temporal_partition_columns()
@@ -268,7 +272,7 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         ][0]
         druid_datasource_name = (
             self.prefix  # type: ignore
-            + node_name.replace(".", "_DOT_")  # type: ignore
+            + amenable_name(node_name)  # type: ignore
             + self.suffix  # type: ignore
         )
         # if there are categorical partitions, we can additionally include one of them
