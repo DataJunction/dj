@@ -62,13 +62,7 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.utils import (
-    LOOKUP_CHARS,
-    SEPARATOR,
-    Version,
-    VersionUpgrade,
-    get_session,
-)
+from datajunction_server.utils import Version, VersionUpgrade, get_session
 
 _logger = logging.getLogger(__name__)
 
@@ -290,7 +284,6 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         data.metrics,
         data.dimensions,
     )
-    node_columns = []
     status = (
         NodeStatus.VALID
         if (
@@ -299,19 +292,21 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         )
         else NodeStatus.INVALID
     )
-    display_name_mapping = {}
+
+    # Build the "columns" for this node based on the cube elements. These are used
+    # for marking partition columns when the cube gets materialized.
+    node_columns = []
     for col in metric_columns + dimension_columns:
         referenced_node = col.node_revision()
-        if referenced_node.type == NodeType.METRIC:  # type: ignore
-            display_name_mapping[col.name] = col.display_name
-        else:
-            col_name = f"{referenced_node.name}.{col.name}"  # type: ignore
-            col_name = col_name.replace(SEPARATOR, f"_{LOOKUP_CHARS.get(SEPARATOR)}_")
-            display_name_mapping[col_name] = col.display_name
+        full_element_name = (
+            referenced_node.name  # type: ignore
+            if referenced_node.type == NodeType.METRIC  # type: ignore
+            else f"{referenced_node.name}.{col.name}"  # type: ignore
+        )
         node_columns.append(
             Column(
-                name=col.name,
-                display_name=display_name_mapping.get(col.name),
+                name=full_element_name,
+                display_name=col.display_name,
                 type=col.type,
                 attributes=col.attributes,
             ),
@@ -832,6 +827,7 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
             if isinstance(data, CreateNode):
                 update_node.query = data.query
 
+            print("Calling", update_node)
             update_node_with_query(
                 name=data.name,
                 data=update_node,

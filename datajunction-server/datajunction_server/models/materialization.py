@@ -9,7 +9,12 @@ from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.engine import Engine, EngineInfo, EngineRef
-from datajunction_server.models.partition import Backfill, BackfillOutput
+from datajunction_server.models.partition import (
+    Backfill,
+    BackfillOutput,
+    PartitionColumnOutput,
+    PartitionType,
+)
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.typing import UTCDatetime
 
@@ -200,12 +205,53 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         return {
             measure.name: {
                 "fieldName": measure.field_name,
-                "name": measure.name,
+                "name": measure.field_name,
                 "type": DRUID_AGG_MAPPING[(measure.type.lower(), measure.agg.lower())],
             }
             for measure_group in self.measures.values()  # type: ignore
             for measure in measure_group.measures
         }
+
+    def temporal_partition(
+        self,
+        node_revision: "NodeRevision",
+    ) -> List[PartitionColumnOutput]:
+        """
+        The temporal partition column names on the intermediate measures table
+        """
+        user_defined_temporal_columns = node_revision.temporal_partition_columns()
+        user_defined_temporal_column = user_defined_temporal_columns[0]
+        return [
+            PartitionColumnOutput(
+                name=col.name,
+                format=user_defined_temporal_column.partition.format,
+                type_=user_defined_temporal_column.partition.type_,
+                expression=str(
+                    user_defined_temporal_column.partition.temporal_expression(),
+                ),
+            )
+            for col in self.columns  # type: ignore
+            if col.semantic_entity == user_defined_temporal_column.name
+        ]
+
+    def categorical_partitions(
+        self,
+        node_revision: "NodeRevision",
+    ) -> List[PartitionColumnOutput]:
+        """
+        The categorical partition column names on the intermediate measures table
+        """
+        user_defined_categorical_columns = {
+            col.name for col in node_revision.categorical_partition_columns()
+        }
+        return [
+            PartitionColumnOutput(
+                name=col.name,
+                type_=PartitionType.CATEGORICAL,
+            )
+            for col in self.columns  # type: ignore
+            if col.column in user_defined_categorical_columns
+        ]
 
     def build_druid_spec(self, node_revision: "NodeRevision"):
         """
@@ -218,13 +264,15 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         output_temporal_partition_column = [
             col.name
             for col in self.columns  # type: ignore
-            if col.column == user_defined_temporal_partition.name
+            if col.semantic_entity == user_defined_temporal_partition.name
         ][0]
         druid_datasource_name = (
             self.prefix  # type: ignore
             + node_name.replace(".", "_DOT_")  # type: ignore
             + self.suffix  # type: ignore
         )
+        # if there are categorical partitions, we can additionally include one of them
+        # in the partitionDimension field under partitionsSpec
         druid_spec: Dict = {
             "dataSchema": {
                 "dataSource": druid_datasource_name,
@@ -244,6 +292,14 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
                     "segmentGranularity": user_defined_temporal_partition.partition.granularity,
                     "intervals": [],  # this should be set at runtime
                 },
+            },
+            "tuningConfig": {
+                "partitionsSpec": {
+                    "targetPartitionSize": 5000000,
+                    "type": "hashed",
+                },
+                "useCombiner": True,
+                "type": "hadoop",
             },
         }
         return druid_spec
