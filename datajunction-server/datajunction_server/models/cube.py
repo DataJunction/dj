@@ -68,7 +68,7 @@ class DimensionValue(BaseSQLModel):
     Dimension value and count
     """
 
-    value: str
+    value: List[str]
     count: Optional[int]
 
 
@@ -77,5 +77,6 @@ class DimensionValues(BaseSQLModel):
     Dimension values
     """
 
+    dimensions: List[str]
     values: List[DimensionValue]
     cardinality: int

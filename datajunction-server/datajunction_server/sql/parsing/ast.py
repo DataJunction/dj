@@ -2388,7 +2388,7 @@ class Select(SelectExpression):
         if self.organization:
             select += f"\n{self.organization}"
         if self.limit:
-            select += f"LIMIT {self.limit}"
+            select += f"\nLIMIT {self.limit}"
 
         if self.alias:
             as_ = " AS " if self.as_ else " "
