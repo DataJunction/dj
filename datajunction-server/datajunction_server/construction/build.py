@@ -434,7 +434,7 @@ def rename_dimension_primary_keys_to_foreign_keys(
         and dimension_node.type == NodeType.DIMENSION
     ):
         dimension_pk = ",".join(
-            [col.name for col in dimension_node.current.primary_key()],
+            [pk_col.name for pk_col in dimension_node.current.primary_key()],
         )
         if dimension_pk == col.alias_or_name.name:
             foreign_key = [
@@ -450,6 +450,7 @@ def rename_dimension_primary_keys_to_foreign_keys(
             col.set_alias(
                 ast.Name(amenable_name(dimension_node.name + SEPARATOR + dimension_pk)),
             )
+            print("COLUMN ALIAS", col)
     return col
 
 
@@ -766,6 +767,40 @@ def group_metrics_by_parent(
     return common_parents
 
 
+def validate_shared_dimensions(
+    metric_nodes: List[Node],
+    dimensions: List[str],
+    filters: List[str],
+):
+    """
+    Determine if dimensions are shared.
+    """
+    shared_dimensions = [dim.name for dim in get_shared_dimensions(metric_nodes)]
+    for dimension_attribute in dimensions:
+        if dimension_attribute not in shared_dimensions:
+            raise DJInvalidInputException(
+                f"The dimension attribute `{dimension_attribute}` is not "
+                "available on every metric and thus cannot be included.",
+            )
+
+    for filter_ in filters:
+        temp_select = parse(f"select * where {filter_}").select
+        columns_in_filter = temp_select.where.find_all(ast.Column)  # type: ignore
+        dims_without_prefix = {dim.split(".")[-1]: dim for dim in shared_dimensions}
+        for col in columns_in_filter:
+            if str(col) not in shared_dimensions:
+                potential_dimension_match = (
+                    f" Did you mean `{dims_without_prefix[str(col)]}`?"
+                    if str(col) in dims_without_prefix
+                    else ""
+                )
+                raise DJInvalidInputException(
+                    f"The filter `{filter_}` references the dimension attribute "
+                    f"`{col}`, which is not available on every"
+                    f" metric and thus cannot be included.{potential_dimension_match}",
+                )
+
+
 def build_metric_nodes(
     session: Session,
     metric_nodes: List[Node],
@@ -794,30 +829,7 @@ def build_metric_nodes(
             "of them aren't metric nodes.",
         )
 
-    shared_dimensions = [dim.name for dim in get_shared_dimensions(metric_nodes)]
-    for dimension_attribute in dimensions:
-        if dimension_attribute not in shared_dimensions:
-            raise DJInvalidInputException(
-                f"The dimension attribute `{dimension_attribute}` is not "
-                "available on every metric and thus cannot be included.",
-            )
-
-    for filter_ in filters:
-        temp_select = parse(f"select * where {filter_}").select
-        columns_in_filter = temp_select.where.find_all(ast.Column)  # type: ignore
-        dims_without_prefix = {dim.split(".")[-1]: dim for dim in shared_dimensions}
-        for col in columns_in_filter:
-            if str(col) not in shared_dimensions:
-                potential_dimension_match = (
-                    f" Did you mean `{dims_without_prefix[str(col)]}`?"
-                    if str(col) in dims_without_prefix
-                    else ""
-                )
-                raise DJInvalidInputException(
-                    f"The filter `{filter_}` references the dimension attribute "
-                    f"`{col}`, which is not available on every"
-                    f" metric and thus cannot be included.{potential_dimension_match}",
-                )
+    validate_shared_dimensions(metric_nodes, dimensions, filters)
 
     combined_ast: ast.Query = ast.Query(
         select=ast.Select(from_=ast.From(relations=[])),
@@ -1031,14 +1043,18 @@ def build_materialized_cube_node(
         select=ast.Select(from_=ast.From(relations=[])),
         ctes=[],
     )
-    default_materialization_config = [
-        materialization
-        for materialization in cube.materializations
-        if materialization.name == "default"
-    ][0].config
-    cube_config = GenericCubeConfig.parse_obj(default_materialization_config)
+    materialization_config = cube.materializations[0]
+    cube_config = GenericCubeConfig.parse_obj(materialization_config.config)
 
-    selected_metric_keys = [col.name for col in selected_metrics]
+    if materialization_config.name == "default":
+        # TODO: remove after we migrate old Druid materializations  # pylint: disable=fixme
+        selected_metric_keys = [
+            col.name for col in selected_metrics
+        ]  # pragma: no cover
+    else:
+        selected_metric_keys = [
+            col.node_revision().name for col in selected_metrics  # type: ignore
+        ]
 
     # Assemble query for materialized cube based on the previously saved measures
     # combiner expression for each metric
@@ -1047,7 +1063,12 @@ def build_materialized_cube_node(
             metric_measures = cube_config.measures[metric_key]
             measures_combiner_ast = parse(f"SELECT {metric_measures.combiner}")
             measures_type_lookup = {
-                measure.name: measure.type for measure in metric_measures.measures
+                (
+                    measure.name
+                    if materialization_config.name == "default"
+                    else measure.field_name
+                ): measure.type
+                for measure in metric_measures.measures
             }
             for col in measures_combiner_ast.find_all(ast.Column):
                 col.add_type(
@@ -1057,7 +1078,7 @@ def build_materialized_cube_node(
                 )
             combined_ast.select.projection.extend(
                 [
-                    proj.set_alias(ast.Name(metric_key))
+                    proj.set_alias(ast.Name(amenable_name(metric_key)))
                     for proj in measures_combiner_ast.select.projection
                 ],
             )
@@ -1342,6 +1363,12 @@ def get_measures_query(
         ).append(
             col,
         )
+    print(
+        "dimension_grouping",
+        dimension_grouping,
+        initial_dimension_columns,
+        all_dimension_columns,
+    )
 
     dimension_columns = [
         ast.Function(name=ast.Name("COALESCE"), args=list(columns)).set_alias(

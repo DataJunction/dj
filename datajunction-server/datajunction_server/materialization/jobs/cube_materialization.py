@@ -15,6 +15,7 @@ from datajunction_server.models.materialization import (
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.utils import amenable_name
 
 
 class DefaultCubeMaterialization(
@@ -55,6 +56,12 @@ class DruidCubeMaterializationJob(MaterializationJob):
         druid_spec = cube_config.build_druid_spec(
             materialization.node_revision,
         )
+        measures_temporal_partition = cube_config.temporal_partition(
+            materialization.node_revision,
+        )
+        categorical_partitions = cube_config.categorical_partitions(
+            materialization.node_revision,
+        )
         final_query = build_materialization_query(
             cube_config.query,
             materialization.node_revision,
@@ -73,6 +80,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 # Cube materialization involves creating an intermediate dataset,
                 # which will have measures columns for all metrics in the cube
                 columns=cube_config.columns,
+                partitions=measures_temporal_partition + categorical_partitions,
             ),
         )
 
@@ -85,11 +93,12 @@ def build_materialization_query(
     Build materialization query (based on configured temporal partitions).
     """
     cube_materialization_query_ast = parse(base_cube_query)
+    print("cube_materialization_query_ast", cube_materialization_query_ast)
     temporal_partitions = node_revision.temporal_partition_columns()
     temporal_partition_col = [
         col
         for col in cube_materialization_query_ast.select.projection
-        if col.alias_or_name.name.endswith(temporal_partitions[0].name)  # type: ignore
+        if col.alias_or_name.name == amenable_name(temporal_partitions[0].name)  # type: ignore
     ]
 
     final_query = ast.Query(

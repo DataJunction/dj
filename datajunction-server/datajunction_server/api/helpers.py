@@ -23,6 +23,7 @@ from datajunction_server.construction.build import (
     build_metric_nodes,
     build_node,
     rename_columns,
+    validate_shared_dimensions,
 )
 from datajunction_server.construction.dj_query import build_dj_query
 from datajunction_server.errors import (
@@ -719,6 +720,11 @@ def validate_cube(  # pylint: disable=too-many-locals
             message=("Metrics and dimensions must be part of a common catalog"),
         )
 
+    validate_shared_dimensions(
+        metric_nodes,
+        [dim.full_name() for dim in dimensions],
+        [],
+    )
     return metrics, metric_nodes, dimension_nodes, dimensions, catalog
 
 
@@ -774,13 +780,16 @@ def find_existing_cube(
     """
     element_names = [col.name for col in (metric_columns + dimension_columns)]
     statement = select(NodeRevision)
+    print("element_names", element_names)
     for name in element_names:
         statement = statement.filter(
             NodeRevision.cube_elements.any(Column.name == name),  # type: ignore  # pylint: disable=no-member
         )
 
     existing_cubes = session.exec(statement).unique().all()
+    print("existing_cubes", existing_cubes)
     for cube in existing_cubes:
+        print("avail", cube.availability)
         if not materialized or (  # pragma: no cover
             materialized and cube.materializations and cube.availability
         ):
