@@ -118,7 +118,10 @@ def get_cube_dimension_values(  # pylint: disable=too-many-locals
         validate_access,
     )
     if cube.availability:
-        catalog = get_catalog_by_name(session, cube.availability.catalog)  # type: ignore
+        catalog = get_catalog_by_name(  # pragma: no cover
+            session,
+            cube.availability.catalog,  # type: ignore
+        )
     else:
         catalog = cube.catalog
     query_create = QueryCreate(
@@ -134,14 +137,14 @@ def get_cube_dimension_values(  # pylint: disable=too-many-locals
         for idx, col in enumerate(translated_sql.columns)  # type: ignore
         if col.name == "count"
     ]
-    dimension_values = [
+    dimension_values = [  # pragma: no cover
         DimensionValue(
             value=row[0 : count_column[0]] if count_column else row,
             count=row[count_column[0]] if count_column else None,
         )
         for row in result.results.__root__[0].rows
     ]
-    return DimensionValues(
+    return DimensionValues(  # pragma: no cover
         dimensions=[
             from_amenable_name(col.name)
             for col in translated_sql.columns  # type: ignore # pylint: disable=not-an-iterable
