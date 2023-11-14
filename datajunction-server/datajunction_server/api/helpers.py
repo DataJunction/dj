@@ -780,16 +780,13 @@ def find_existing_cube(
     """
     element_names = [col.name for col in (metric_columns + dimension_columns)]
     statement = select(NodeRevision)
-    print("element_names", element_names)
     for name in element_names:
         statement = statement.filter(
             NodeRevision.cube_elements.any(Column.name == name),  # type: ignore  # pylint: disable=no-member
         )
 
     existing_cubes = session.exec(statement).unique().all()
-    print("existing_cubes", existing_cubes)
     for cube in existing_cubes:
-        print("avail", cube.availability)
         if not materialized or (  # pragma: no cover
             materialized and cube.materializations and cube.availability
         ):

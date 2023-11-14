@@ -52,7 +52,7 @@ class ColumnMetadata(BaseSQLModel):
     semantic_type: Optional[str]
 
     def __hash__(self):
-        return hash((self.name, self.type))
+        return hash((self.name, self.type))  # pragma: no cover
 
 
 class StatementResults(BaseSQLModel):

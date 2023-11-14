@@ -827,7 +827,6 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
             if isinstance(data, CreateNode):
                 update_node.query = data.query
 
-            print("Calling", update_node)
             update_node_with_query(
                 name=data.name,
                 data=update_node,

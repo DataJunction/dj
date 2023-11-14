@@ -450,7 +450,6 @@ def rename_dimension_primary_keys_to_foreign_keys(
             col.set_alias(
                 ast.Name(amenable_name(dimension_node.name + SEPARATOR + dimension_pk)),
             )
-            print("COLUMN ALIAS", col)
     return col
 
 
@@ -1363,12 +1362,6 @@ def get_measures_query(
         ).append(
             col,
         )
-    print(
-        "dimension_grouping",
-        dimension_grouping,
-        initial_dimension_columns,
-        all_dimension_columns,
-    )
 
     dimension_columns = [
         ast.Function(name=ast.Name("COALESCE"), args=list(columns)).set_alias(

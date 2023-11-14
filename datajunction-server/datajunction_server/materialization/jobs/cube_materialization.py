@@ -93,7 +93,6 @@ def build_materialization_query(
     Build materialization query (based on configured temporal partitions).
     """
     cube_materialization_query_ast = parse(base_cube_query)
-    print("cube_materialization_query_ast", cube_materialization_query_ast)
     temporal_partitions = node_revision.temporal_partition_columns()
     temporal_partition_col = [
         col
