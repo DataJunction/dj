@@ -1,6 +1,6 @@
 """Node materialization helper functions"""
 import zlib
-from typing import Dict, List, Set, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 from pydantic import ValidationError
 from sqlmodel import Session
@@ -82,12 +82,14 @@ def rewrite_metrics_expressions(
             measures_for_metric.append(
                 Measure(
                     name=full_column_name,
-                    field_name=full_column_name,
+                    field_name=measures_to_output_columns_lookup[full_column_name],
                     type=str(col.type),
                     agg="sum",
                 ),
             )
-            if full_column_name in measures_to_output_columns_lookup:
+            if (
+                full_column_name in measures_to_output_columns_lookup
+            ):  # pragma: no cover
                 col._table = None  # pylint: disable=protected-access
                 col.name = ast.Name(
                     measures_to_output_columns_lookup[full_column_name],
@@ -100,7 +102,7 @@ def rewrite_metrics_expressions(
         metrics_expressions[metric.name] = MetricMeasures(
             metric=metric.name,
             measures=measures_for_metric,
-            combiner=str(metric_ast),
+            combiner=str(metric_ast.select.projection[0]),
         )
     return metrics_expressions
 
@@ -295,7 +297,7 @@ def decompose_expression(  # pylint: disable=too-many-return-statements
     be decomposed to SUM(x)/COUNT(x).
     """
     if isinstance(expr, ast.Alias):
-        expr = expr.child
+        expr = expr.child  # pragma: no cover
 
     if isinstance(expr, ast.Number):
         return expr, []  # type: ignore
@@ -375,18 +377,3 @@ def decompose_expression(  # pylint: disable=too-many-return-statements
     raise DJInvalidInputException(  # pragma: no cover
         f"Metric expression {expr} cannot be decomposed into its constituent measures",
     )
-
-
-def decompose_metrics(
-    combined_ast: ast.Query,
-    dimensions_set: Set[str],
-) -> Dict[Union[ast.Aliasable, ast.Expression], Tuple[ast.Expression, List[ast.Alias]]]:
-    """
-    Decompose each metric into simple constituent measures and return a dict
-    that maps each metric to its measures.
-    """
-    metrics_to_measures = {}
-    for expr in combined_ast.select.projection:
-        if expr.alias_or_name.name not in dimensions_set:  # type: ignore
-            metrics_to_measures[expr] = decompose_expression(expr)
-    return metrics_to_measures

@@ -173,6 +173,12 @@ class Column(BaseSQLModel, table=True):  # type: ignore
         available_revisions = sorted(self.node_revisions, key=lambda n: n.updated_at)
         return available_revisions[-1] if available_revisions else None
 
+    def full_name(self) -> str:
+        """
+        Full column name that includes the node it belongs to, i.e., default.hard_hat.first_name
+        """
+        return f"{self.node_revision().name}.{self.name}"  # type: ignore
+
 
 class ColumnAttributeInput(BaseSQLModel):
     """

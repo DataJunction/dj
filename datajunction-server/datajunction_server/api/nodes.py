@@ -1135,6 +1135,7 @@ def set_column_partition(  # pylint: disable=too-many-locals
             granularity=input_partition.granularity,
             format=input_partition.format,
         )
+        print("partition", partition.format)
         session.add(partition)
         session.add(upsert_partition_event)
 
