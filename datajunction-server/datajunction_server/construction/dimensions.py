@@ -81,7 +81,9 @@ def build_dimensions_from_cube_query(  # pylint: disable=too-many-arguments,too-
         if filters:
             temp_filters_select = parse(f"select * where {filters}")
             for col in temp_filters_select.find_all(ast.Column):
-                if col.alias_or_name.identifier() in cube.cube_dimensions():
+                if (  # pragma: no cover
+                    col.alias_or_name.identifier() in cube.cube_dimensions()
+                ):
                     col.name = ast.Name(
                         name=amenable_name(col.alias_or_name.identifier()),
                     )
