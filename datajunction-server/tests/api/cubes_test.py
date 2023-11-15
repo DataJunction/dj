@@ -1864,3 +1864,306 @@ def test_updating_cube_with_existing_materialization(
         "specified on the cube. Please make sure at least one cube element has a temporal "
         "partition defined"
     )
+
+
+def test_get_materialized_cube_dimension_sql(
+    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test building SQL to get unique dimension values for a materialized cube
+    """
+    client_with_repairs_cube.post(
+        "/data/default.repairs_cube/availability/",
+        json={
+            "catalog": "default",
+            "schema_": "roads",
+            "table": "repairs_cube",
+            "valid_through_ts": 1010129120,
+        },
+    )
+
+    # Asking for an unavailable dimension should fail
+    response = client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/dimensions/sql",
+        params={
+            "dimensions": ["default.hard_hat.city", "default.contractor.company_name"],
+        },
+    )
+    assert response.json()["message"] == (
+        "The following dimensions {'default.contractor.company_name'} are "
+        "not available in the cube default.repairs_cube."
+    )
+
+    # Ask for single dimension
+    response = client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/dimensions/sql",
+        params={
+            "dimensions": ["default.hard_hat.city"],
+        },
+    )
+    results = response.json()
+    assert results["columns"] == [
+        {
+            "column": None,
+            "name": "default_DOT_hard_hat_DOT_city",
+            "node": None,
+            "semantic_entity": "default.hard_hat.city",
+            "semantic_type": "dimension",
+            "type": "string",
+        },
+    ]
+    assert compare_query_strings(
+        results["sql"],
+        "SELECT default_DOT_hard_hat_DOT_city FROM repairs_cube "
+        "GROUP BY default_DOT_hard_hat_DOT_city",
+    )
+
+    # Ask for single dimension with counts
+    response = client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/dimensions/sql",
+        params={
+            "dimensions": ["default.hard_hat.city"],
+            "include_counts": True,
+        },
+    )
+    results = response.json()
+    assert results["columns"] == [
+        {
+            "column": None,
+            "name": "default_DOT_hard_hat_DOT_city",
+            "node": None,
+            "semantic_entity": "default.hard_hat.city",
+            "semantic_type": "dimension",
+            "type": "string",
+        },
+        {
+            "column": None,
+            "name": "count",
+            "node": None,
+            "semantic_entity": None,
+            "semantic_type": None,
+            "type": "int",
+        },
+    ]
+    assert compare_query_strings(
+        results["sql"],
+        "SELECT default_DOT_hard_hat_DOT_city, COUNT(*) FROM repairs_cube "
+        "GROUP BY  default_DOT_hard_hat_DOT_city "
+        "ORDER BY 2 DESC",
+    )
+
+    # Ask for multiple dimensions with counts
+    response = client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/dimensions/sql",
+        params={
+            "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
+            "include_counts": True,
+        },
+    )
+    results = response.json()
+    assert results["columns"] == [
+        {
+            "column": None,
+            "name": "default_DOT_hard_hat_DOT_city",
+            "node": None,
+            "semantic_entity": "default.hard_hat.city",
+            "semantic_type": "dimension",
+            "type": "string",
+        },
+        {
+            "column": None,
+            "name": "default_DOT_dispatcher_DOT_company_name",
+            "node": None,
+            "semantic_entity": "default.dispatcher.company_name",
+            "semantic_type": "dimension",
+            "type": "string",
+        },
+        {
+            "column": None,
+            "name": "count",
+            "node": None,
+            "semantic_entity": None,
+            "semantic_type": None,
+            "type": "int",
+        },
+    ]
+    assert compare_query_strings(
+        results["sql"],
+        "SELECT default_DOT_hard_hat_DOT_city, default_DOT_dispatcher_DOT_company_name, COUNT(*) "
+        "FROM repairs_cube "
+        "GROUP BY default_DOT_hard_hat_DOT_city, default_DOT_dispatcher_DOT_company_name "
+        "ORDER BY 3 DESC",
+    )
+
+    # Ask for multiple dimensions with filters and limit
+    response = client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/dimensions/sql",
+        params={
+            "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
+            "filters": "default.dispatcher.company_name = 'Pothole Pete'",
+            "limit": 4,
+            "include_counts": True,
+        },
+    )
+    results = response.json()
+    assert compare_query_strings(
+        results["sql"],
+        "SELECT default_DOT_hard_hat_DOT_city, default_DOT_dispatcher_DOT_company_name, COUNT(*) "
+        "FROM repairs_cube "
+        "WHERE default_DOT_dispatcher_DOT_company_name = 'Pothole Pete' "
+        "GROUP BY default_DOT_hard_hat_DOT_city, default_DOT_dispatcher_DOT_company_name "
+        "ORDER BY 3 DESC LIMIT 4",
+    )
+
+
+def test_get_unmaterialized_cube_dimensions_values(
+    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test building SQL + getting data for dimension values for an unmaterialized cube
+    """
+    # Get SQL for single dimension
+    response = client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/dimensions/sql",
+        params={
+            "dimensions": ["default.hard_hat.city"],
+        },
+    )
+    results = response.json()
+    assert "SELECT  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "GROUP BY  default_DOT_hard_hat_DOT_city" in results["sql"]
+
+    # Get data for single dimension
+    response = client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/dimensions/data",
+        params={
+            "dimensions": ["default.hard_hat.city"],
+        },
+    )
+    results = response.json()
+    assert results == {
+        "cardinality": 9,
+        "dimensions": ["default.hard_hat.city"],
+        "values": [
+            {"count": None, "value": ["Jersey City"]},
+            {"count": None, "value": ["Billerica"]},
+            {"count": None, "value": ["Southgate"]},
+            {"count": None, "value": ["Phoenix"]},
+            {"count": None, "value": ["Southampton"]},
+            {"count": None, "value": ["Powder Springs"]},
+            {"count": None, "value": ["Middletown"]},
+            {"count": None, "value": ["Muskogee"]},
+            {"count": None, "value": ["Niagara Falls"]},
+        ],
+    }
+
+    # Ask for single dimension with counts
+    response = client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/dimensions/sql",
+        params={
+            "dimensions": ["default.hard_hat.city"],
+            "include_counts": True,
+        },
+    )
+    results = response.json()
+    assert "SELECT  default_DOT_hard_hat_DOT_city,\n\tCOUNT(*)" in results["sql"]
+    assert "GROUP BY  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "ORDER BY 2 DESC" in results["sql"]
+
+    # Get data for single dimension with counts
+    response = client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/dimensions/data",
+        params={
+            "dimensions": ["default.hard_hat.city"],
+            "include_counts": True,
+        },
+    )
+    assert response.json() == {
+        "cardinality": 9,
+        "dimensions": ["default.hard_hat.city"],
+        "values": [
+            {"count": 25, "value": ["Southgate"]},
+            {"count": 16, "value": ["Jersey City"]},
+            {"count": 16, "value": ["Southampton"]},
+            {"count": 9, "value": ["Billerica"]},
+            {"count": 9, "value": ["Powder Springs"]},
+            {"count": 4, "value": ["Phoenix"]},
+            {"count": 4, "value": ["Middletown"]},
+            {"count": 1, "value": ["Muskogee"]},
+            {"count": 1, "value": ["Niagara Falls"]},
+        ],
+    }
+
+    # Get data for multiple dimensions with counts
+    response = client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/dimensions/data",
+        params={
+            "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
+            "include_counts": True,
+        },
+    )
+    assert response.json() == {
+        "cardinality": 17,
+        "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
+        "values": [
+            {"count": 9, "value": ["Jersey City", "Pothole Pete"]},
+            {"count": 4, "value": ["Southgate", "Asphalts R Us"]},
+            {"count": 4, "value": ["Billerica", "Asphalts R Us"]},
+            {"count": 4, "value": ["Southgate", "Federal Roads Group"]},
+            {"count": 4, "value": ["Southampton", "Pothole Pete"]},
+            {"count": 4, "value": ["Powder Springs", "Asphalts R Us"]},
+            {"count": 4, "value": ["Middletown", "Federal Roads Group"]},
+            {"count": 1, "value": ["Jersey City", "Federal Roads Group"]},
+            {"count": 1, "value": ["Billerica", "Pothole Pete"]},
+            {"count": 1, "value": ["Phoenix", "Asphalts R Us"]},
+            {"count": 1, "value": ["Southampton", "Asphalts R Us"]},
+            {"count": 1, "value": ["Southampton", "Federal Roads Group"]},
+            {"count": 1, "value": ["Phoenix", "Federal Roads Group"]},
+            {"count": 1, "value": ["Muskogee", "Federal Roads Group"]},
+            {"count": 1, "value": ["Powder Springs", "Pothole Pete"]},
+            {"count": 1, "value": ["Niagara Falls", "Federal Roads Group"]},
+            {"count": 1, "value": ["Southgate", "Pothole Pete"]},
+        ],
+    }
+
+    # Get data for multiple dimensions with filters
+    response = client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/dimensions/data",
+        params={
+            "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
+            "filters": "default.dispatcher.company_name = 'Pothole Pete'",
+            "include_counts": True,
+        },
+    )
+    assert response.json() == {
+        "cardinality": 5,
+        "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
+        "values": [
+            {"count": 9, "value": ["Jersey City", "Pothole Pete"]},
+            {"count": 4, "value": ["Southampton", "Pothole Pete"]},
+            {"count": 1, "value": ["Billerica", "Pothole Pete"]},
+            {"count": 1, "value": ["Powder Springs", "Pothole Pete"]},
+            {"count": 1, "value": ["Southgate", "Pothole Pete"]},
+        ],
+    }
+
+    # Get data for multiple dimensions with filters and limit
+    response = client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/dimensions/data",
+        params={
+            "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
+            "filters": "default.dispatcher.company_name = 'Pothole Pete'",
+            "limit": 4,
+            "include_counts": True,
+        },
+    )
+    assert response.json() == {
+        "cardinality": 4,
+        "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
+        "values": [
+            {"count": 9, "value": ["Jersey City", "Pothole Pete"]},
+            {"count": 4, "value": ["Southampton", "Pothole Pete"]},
+            {"count": 1, "value": ["Billerica", "Pothole Pete"]},
+            {"count": 1, "value": ["Powder Springs", "Pothole Pete"]},
+        ],
+    }

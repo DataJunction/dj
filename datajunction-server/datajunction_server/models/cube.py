@@ -7,6 +7,7 @@ from typing import List, Optional
 from pydantic import Field, root_validator
 from sqlmodel import SQLModel
 
+from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.node import AvailabilityState, ColumnOutput, NodeType
 from datajunction_server.models.partition import PartitionOutput
@@ -60,3 +61,22 @@ class CubeRevisionMetadata(SQLModel):
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True
+
+
+class DimensionValue(BaseSQLModel):
+    """
+    Dimension value and count
+    """
+
+    value: List[str]
+    count: Optional[int]
+
+
+class DimensionValues(BaseSQLModel):
+    """
+    Dimension values
+    """
+
+    dimensions: List[str]
+    values: List[DimensionValue]
+    cardinality: int
