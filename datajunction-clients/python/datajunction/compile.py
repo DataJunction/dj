@@ -73,13 +73,13 @@ class NodeYAML(BaseModel):
 
     deploy_order: int = 0
 
-    @classmethod
-    def from_yaml(cls, path: Path):
-        """
-        Instantiate a NodeYAML instance from a path to a YAML file
-        """
-        with open(path, encoding="utf-8") as f_yaml:
-            return parse_yaml_raw_as(cls, f_yaml)
+    # @classmethod
+    # def from_yaml(cls, path: Path):
+    #     """
+    #     Instantiate a NodeYAML instance from a path to a YAML file
+    #     """
+    #     with open(path, encoding="utf-8") as f_yaml:
+    #         return parse_yaml_raw_as(cls, f_yaml)
 
 
 class SourceYAML(NodeYAML):
@@ -138,17 +138,34 @@ class SourceYAML(NodeYAML):
         name: str,
         prefix: str,
         client: DJBuilder,
+        table: Table,
     ):
         """
         Deploy any links from columns on this node to columns on dimension nodes
         """
         if self.dimension_links:
-            node = client.source(f"{prefix}.{name}")
+            prefixed_name = f"{prefix}.{name}"
+            node = client.source(prefixed_name)
             for column, dimension_column in self.dimension_links.items():
+                prefixed_dimension = render_prefixes(
+                    dimension_column["dimension"],
+                    prefix,
+                )
+                dimension_column = dimension_column["column"]
                 node.link_dimension(
                     column,
-                    render_prefixes(dimension_column["dimension"], prefix),
-                    render_prefixes(dimension_column["column"], prefix),
+                    prefixed_dimension,
+                    dimension_column,
+                )
+                table.add_row(
+                    *[
+                        prefixed_name,
+                        "[b]link[/]",
+                        (
+                            f"[green]Column {column} linked to column {dimension_column} "
+                            f"on dimension {prefixed_dimension}"
+                        ),
+                    ]
                 )
 
 
@@ -187,17 +204,34 @@ class TransformYAML(NodeYAML):
         name: str,
         prefix: str,
         client: DJBuilder,
+        table: Table,
     ):
         """
         Deploy any links from columns on this node to columns on dimension nodes
         """
         if self.dimension_links:
-            node = client.transform(f"{prefix}.{name}")
+            prefixed_name = f"{prefix}.{name}"
+            node = client.transform(prefixed_name)
             for column, dimension_column in self.dimension_links.items():
+                prefixed_dimension = render_prefixes(
+                    dimension_column["dimension"],
+                    prefix,
+                )
+                dimension_column = dimension_column["column"]
                 node.link_dimension(
                     column,
-                    render_prefixes(dimension_column["dimension"], prefix),
-                    render_prefixes(dimension_column["column"], prefix),
+                    prefixed_dimension,
+                    dimension_column,
+                )
+                table.add_row(
+                    *[
+                        prefixed_name,
+                        "[b]link[/]",
+                        (
+                            f"[green]Column {column} linked to column {dimension_column} "
+                            f"on dimension {prefixed_dimension}"
+                        ),
+                    ]
                 )
 
 
@@ -236,17 +270,34 @@ class DimensionYAML(NodeYAML):
         name: str,
         prefix: str,
         client: DJBuilder,
+        table: Table,
     ):
         """
         Deploy any links from columns on this node to columns on dimension nodes
         """
         if self.dimension_links:
-            node = client.dimension(f"{prefix}.{name}")
+            prefixed_name = f"{prefix}.{name}"
+            node = client.dimension(prefixed_name)
             for column, dimension_column in self.dimension_links.items():
+                prefixed_dimension = render_prefixes(
+                    dimension_column["dimension"],
+                    prefix,
+                )
+                dimension_column = dimension_column["column"]
                 node.link_dimension(
                     column,
-                    render_prefixes(dimension_column["dimension"], prefix),
-                    render_prefixes(dimension_column["column"], prefix),
+                    prefixed_dimension,
+                    dimension_column,
+                )
+                table.add_row(
+                    *[
+                        prefixed_name,
+                        "[b]link[/]",
+                        (
+                            f"[green]Column {column} linked to column {dimension_column} "
+                            f"on dimension {prefixed_dimension}"
+                        ),
+                    ]
                 )
 
 
@@ -499,22 +550,12 @@ class CompiledProject(Project):
                 (SourceYAML, TransformYAML, DimensionYAML),
             ):
                 try:
-                    if node_config.definition.dimension_links:
-                        node_config.definition.deploy_dimension_links(
-                            name=node_config.name,
-                            prefix=prefix,
-                            client=client,
-                        )
-                        table.add_row(
-                            *[
-                                node_config.name,
-                                "[b]link[/]",
-                                (
-                                    "[green]Dimensions successfully linked "
-                                    f"for node {prefix}.{node_config.name}"
-                                ),
-                            ]
-                        )
+                    node_config.definition.deploy_dimension_links(
+                        name=node_config.name,
+                        prefix=prefix,
+                        client=client,
+                        table=table,
+                    )
                 except DJClientException as exc:
                     table.add_row(
                         *[node_config.name, "[b]link[/]", f"[i][red]{str(exc)}"]
@@ -574,6 +615,7 @@ class CompiledProject(Project):
             )
 
     def validate(self, client, console: Console = Console()):
+        console.clear()
         validation_id = "".join(random.choices(string.ascii_letters, k=16))
         system_prefix = f"system.{validation_id}.{self.prefix}"
         self._deploy(client=client, prefix=system_prefix, console=console)

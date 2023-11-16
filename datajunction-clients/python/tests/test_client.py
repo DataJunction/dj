@@ -370,7 +370,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         Check that `client.list_catalogs()` works as expected.
         """
         result = client.list_catalogs()
-        assert result == ["unknown", "draft", "default", "public"]
+        assert result == ["draft", "default", "public"]
 
     def test_list_engines(self, client):
         """
