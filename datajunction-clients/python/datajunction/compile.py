@@ -27,11 +27,7 @@ from rich.table import Table
 
 from datajunction import DJBuilder
 from datajunction._internal import RequestsSessionWithEndpoint
-from datajunction.exceptions import (
-    DJClientException,
-    DJDeploymentFailure,
-    DJInvalidProject,
-)
+from datajunction.exceptions import DJClientException, DJDeploymentFailure
 from datajunction.models import Column, NodeMode, NodeType, Tag
 from datajunction.nodes import Cube, Dimension, Metric, Source, Transform
 
@@ -76,14 +72,6 @@ class NodeYAML(BaseModel):
     """
 
     deploy_order: int = 0
-
-    # @classmethod
-    # def from_yaml(cls, path: Path):
-    #     """
-    #     Instantiate a NodeYAML instance from a path to a YAML file
-    #     """
-    #     with open(path, encoding="utf-8") as f_yaml:
-    #         return parse_yaml_raw_as(cls, f_yaml)
 
 
 class SourceYAML(NodeYAML):
@@ -377,6 +365,7 @@ class NodeConfig(BaseModel):
 
     name: str
     definition: NodeYAML
+    path: str
 
 
 class Project(BaseModel):
@@ -387,8 +376,7 @@ class Project(BaseModel):
     name: str
     prefix: str
     tags: Optional[List[Tag]]
-    # nodes: List[str]
-    priority: List[str]
+    priority: List[str] = []
     root_path: str = ""
     mode: NodeMode = NodeMode.PUBLISHED
 
@@ -486,7 +474,7 @@ class CompiledProject(Project):
                             f"[green]Namespace {prefixed_name} successfully created",
                         ]
                     )
-                else:
+                else:  # pragma: no cover
                     table.add_row(*[namespace, "namespace", f"[i][red]{str(exc)}"])
                     self.errors.append(
                         {
@@ -586,15 +574,13 @@ class CompiledProject(Project):
     def _deploy(
         self,
         client: DJBuilder,
-        prefix: Optional[str] = None,
+        prefix: str,
         console: Console = Console(),
     ):
         """
         Deploy the compiled project
         """
         self.errors = []
-        if not prefix:
-            prefix = self.prefix
 
         # Split out cube nodes to be deployed after dimensional graph
         cubes = [
@@ -644,7 +630,7 @@ class CompiledProject(Project):
         system_prefix = f"system.{validation_id}.{self.prefix}"
         self._deploy(client=client, prefix=system_prefix, console=console)
         if self.errors:
-            raise DJInvalidProject(project_name=self.name, errors=self.errors)
+            raise DJDeploymentFailure(project_name=self.name, errors=self.errors)
         self.validated = True
 
     def deploy(self, client: DJBuilder, console: Console = Console()):
@@ -655,7 +641,12 @@ class CompiledProject(Project):
         if not self.validated:
             self.validate(client=client, console=console)
         self._deploy(client=client, prefix=self.prefix, console=console)
-        if self.errors:
+        if self.errors:  # pragma: no cover
+            # .deploy() requires .validate() to have been called first so
+            # theoretically this exception should never or rarely ever be
+            # hit. This is just a safe fallback in cases where deploying
+            # worked during validation but failed by a subsequent deployment
+            # of the same set of definitions
             raise DJDeploymentFailure(project_name=self.name, errors=self.errors)
 
 
@@ -664,17 +655,16 @@ def get_name_from_path(repository: Path, path: Path) -> str:
     Compute the name of a node given its path and the repository path.
     """
     # strip anything before the repository
-    name = str(path.relative_to(repository).with_suffix(""))
+    relative_path = path.relative_to(repository).with_suffix("")
 
-    # remove node type extension
-    if name.count(".") != 1:
+    # Check that there are no additional dots in the node filename
+    if relative_path.stem.count("."):
         raise DJClientException(
-            f"Invalid node definition filename stem {name}, stem must"
-            "only have a single dot separator and end with a node type "
-            "i.e. my_node.source",
+            f"Invalid node definition filename stem {relative_path.stem}, "
+            "stem must only have a single dot separator and end with a node type "
+            "i.e. my_node.source.yaml",
         )
-    name = name.split(".", maxsplit=1)[0]
-
+    name = str(relative_path).split(".", maxsplit=1)[0]
     return name.replace(os.path.sep, ".")
 
 
@@ -704,6 +694,7 @@ async def load_data(
             return NodeConfig(
                 name=get_name_from_path(repository=repository, path=path),
                 definition=definition,
+                path=str(path),
             )
     raise DJClientException(
         "Definition file stem must end with .source, "

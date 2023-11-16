@@ -9,7 +9,7 @@ import pytest
 
 from datajunction import DJBuilder
 from datajunction.compile import Project
-from datajunction.exceptions import DJClientException
+from datajunction.exceptions import DJClientException, DJDeploymentFailure
 from datajunction.models import NodeMode
 
 
@@ -150,3 +150,114 @@ def test_compile_redeploying_a_project(
     compiled_project = project.compile()
     compiled_project.deploy(client=builder_client)
     compiled_project.deploy(client=builder_client)
+
+
+def test_compile_raising_on_invalid_table_name(
+    change_to_project_dir: Callable,
+):
+    """
+    Test raising when a table name is missing a catalog
+    """
+    change_to_project_dir("project2")
+    project = Project.load_current()
+    with pytest.raises(DJClientException) as exc_info:
+        project.compile()
+    assert (
+        "Invalid table name roads.us_states, table name "
+        "must be fully qualified: <catalog>.<schema>.<table>"
+    ) in str(exc_info.value)
+
+
+def test_compile_raising_on_invalid_file_name(
+    change_to_project_dir: Callable,
+):
+    """
+    Test raising when a YAML file is missing a required node type identifier
+    """
+    change_to_project_dir("project3")
+    project = Project.load_current()
+    with pytest.raises(DJClientException) as exc_info:
+        project.compile()
+    assert (
+        "Definition file stem must end with .source, .transform, "
+        ".dimension, .metric, or .cube"
+    ) in str(exc_info.value)
+
+    change_to_project_dir("project5")
+    project = Project.load_current()
+    with pytest.raises(DJClientException) as exc_info:
+        project.compile()
+    assert (
+        "Invalid node definition filename stem some_node.a.b.c, stem must only have a "
+        "single dot separator and end with a node type i.e. my_node.source.yaml"
+    ) in str(exc_info.value)
+
+
+def test_compile_deeply_nested_namespace(
+    change_to_project_dir: Callable,
+    builder_client: DJBuilder,
+):
+    """
+    Test compiling a node in a deeply nested namespace
+    """
+    change_to_project_dir("project4")
+    project = Project.load_current()
+    project.compile()
+    compiled_project = project.compile()
+    compiled_project.deploy(client=builder_client)
+
+
+def test_compile_error_on_individual_node(
+    change_to_project_dir: Callable,
+    builder_client: DJBuilder,
+):
+    """
+    Test compiling and receiving an error on an individual node definition
+    """
+    change_to_project_dir("project6")
+    project = Project.load_current()
+    project.compile()
+    compiled_project = project.compile()
+    with pytest.raises(DJDeploymentFailure) as exc_info:
+        compiled_project.deploy(client=builder_client)
+
+    assert str("Node definition contains references to nodes that do not exist") in str(
+        exc_info.value.errors[0],
+    )
+
+
+def test_compile_error_on_invalid_dimension_link(
+    change_to_project_dir: Callable,
+    builder_client: DJBuilder,
+):
+    """
+    Test compiling and receiving an error on a dimension link
+    """
+    change_to_project_dir("project7")
+    project = Project.load_current()
+    project.compile()
+    compiled_project = project.compile()
+    with pytest.raises(DJDeploymentFailure) as exc_info:
+        compiled_project.deploy(client=builder_client)
+
+    assert str("Node definition contains references to nodes that do not exist") in str(
+        exc_info.value.errors[0],
+    )
+
+
+def test_compile_raise_on_priority_with_node_missing_a_definition(
+    change_to_project_dir: Callable,
+):
+    """
+    Test raising an error when the priority list includes a node name
+    that has no corresponding definition
+    """
+    change_to_project_dir("project8")
+    project = Project.load_current()
+    with pytest.raises(DJClientException) as exc_info:
+        project.compile()
+
+    assert str(
+        "Priority list includes node name node.that.does.not.exist "
+        "which has no corresponding definition",
+    ) in str(exc_info.value)

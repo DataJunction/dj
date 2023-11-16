@@ -24,17 +24,6 @@ class DJNodeAlreadyExists(DJClientException):
         super().__init__(self.message, *args)
 
 
-class DJInvalidProject(DJClientException):
-    """
-    Raised when a project fails validation
-    """
-
-    def __init__(self, project_name: str, errors: List[dict], *args) -> None:
-        self.errors = errors
-        self.message = f"Some failures while validating project `{project_name}`"
-        super().__init__(self.message, *args)
-
-
 class DJDeploymentFailure(DJClientException):
     """
     Raised when a deployment of a project includes any errors
