@@ -91,6 +91,13 @@ class UpdateNode(BaseModel):
     table: Optional[str]
     columns: Optional[List[SourceColumn]] = []
 
+    # cube nodes only
+    metrics: Optional[List[str]]
+    dimensions: Optional[List[str]]
+    filters: Optional[List[str]]
+    orderby: Optional[List[str]]
+    limit: Optional[int]
+
 
 class QueryState(str, enum.Enum):
     """

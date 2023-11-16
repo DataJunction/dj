@@ -3,6 +3,7 @@ Fixtures for testing DJ client.
 """
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 
+import os
 from http.client import HTTPException
 from typing import Iterator, List, Optional
 from unittest.mock import MagicMock
@@ -27,6 +28,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel
 from starlette.testclient import TestClient
 
+from datajunction import DJBuilder
 from tests.examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS
 
 
@@ -196,6 +198,24 @@ def session_with_examples(server: TestClient) -> TestClient:
     for endpoint, json in EXAMPLES:
         post_and_raise_if_error(server=server, endpoint=endpoint, json=json)  # type: ignore
     return server
+
+
+@pytest.fixture
+def builder_client(session_with_examples: Session):
+    """
+    Returns a DJ client instance
+    """
+    return DJBuilder(requests_session=session_with_examples)  # type: ignore
+
+
+@pytest.fixture
+def change_to_example_project_dir(request):
+    """
+    Changes to the examples project directory for a single test
+    """
+    os.chdir(os.path.join(request.fspath.dirname, "examples"))
+    yield
+    os.chdir(request.config.invocation_params.dir)
 
 
 def pytest_addoption(parser):

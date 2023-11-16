@@ -1,0 +1,27 @@
+description: Hard hat dimension
+query: |
+  SELECT
+    hh.hard_hat_id,
+    last_name,
+    first_name,
+    title,
+    birth_date,
+    hire_date,
+    address,
+    city,
+    state,
+    postal_code,
+    country,
+    manager,
+    contractor_id,
+    hhs.state_id AS state_id
+  FROM ${prefix}roads.hard_hats hh
+  LEFT JOIN ${prefix}roads.hard_hat_state hhs
+  ON hh.hard_hat_id = hhs.hard_hat_id
+  WHERE hh.state_id = 'NY'
+primary_key:
+  - hard_hat_id
+dimension_links:
+  state_id:
+    dimension: ${prefix}roads.us_state
+    column: state_abbr
