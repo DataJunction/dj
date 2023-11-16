@@ -209,13 +209,23 @@ def builder_client(session_with_examples: Session):
 
 
 @pytest.fixture
-def change_to_example_project_dir(request):
+def change_to_project_dir(request):
     """
-    Changes to the examples project directory for a single test
+    Returns a function that changes to a specified project directory
+    only for a single test. At the end of the test, this will change back
+    to the tests directory to prevent any side-effects.
     """
-    os.chdir(os.path.join(request.fspath.dirname, "examples"))
-    yield
-    os.chdir(request.config.invocation_params.dir)
+
+    def _change_to_project_dir(project: str):
+        """
+        Changes to the directory for a specific example project
+        """
+        os.chdir(os.path.join(request.fspath.dirname, "examples", project))
+
+    try:
+        yield _change_to_project_dir
+    finally:
+        os.chdir(request.config.invocation_params.dir)
 
 
 def pytest_addoption(parser):

@@ -3,6 +3,7 @@ Test YAML project related things
 """
 # pylint: disable=unused-argument
 import os
+from typing import Callable
 
 import pytest
 
@@ -12,13 +13,14 @@ from datajunction.exceptions import DJClientException
 from datajunction.models import NodeMode
 
 
-def test_loading_a_project(change_to_example_project_dir: None):
+def test_compile_loading_a_project(change_to_project_dir: Callable):
     """
     Test loading a project
     """
+    change_to_project_dir("project1")
     project = Project.load_current()
-    assert project.name == "My DJ Project"
-    assert project.prefix == "users.me"
+    assert project.name == "My DJ Project 1"
+    assert project.prefix == "projects.project1"
     assert project.priority == [
         "roads.date",
         "roads.date_dim",
@@ -36,17 +38,18 @@ def test_loading_a_project(change_to_example_project_dir: None):
         "roads.municipality_type",
     ]
     assert project.mode == NodeMode.PUBLISHED
-    assert project.root_path.endswith("examples")
+    assert project.root_path.endswith("project1")
 
 
-def test_loading_a_project_from_a_nested_dir(change_to_example_project_dir: None):
+def test_compile_loading_a_project_from_a_nested_dir(change_to_project_dir: Callable):
     """
     Test loading a project while in a nested directory
     """
+    change_to_project_dir("project1")
     os.chdir(os.path.join(os.getcwd(), "roads"))
     project = Project.load_current()
-    assert project.name == "My DJ Project"
-    assert project.prefix == "users.me"
+    assert project.name == "My DJ Project 1"
+    assert project.prefix == "projects.project1"
     assert project.priority == [
         "roads.date",
         "roads.date_dim",
@@ -64,10 +67,10 @@ def test_loading_a_project_from_a_nested_dir(change_to_example_project_dir: None
         "roads.municipality_type",
     ]
     assert project.mode == NodeMode.PUBLISHED
-    assert project.root_path.endswith("examples")
+    assert project.root_path.endswith("project1")
 
 
-def test_raising_when_not_in_a_project_dir():
+def test_compile_raising_when_not_in_a_project_dir():
     """
     Test raising when using Project.load_current() while not in a project dir
     """
@@ -79,14 +82,15 @@ def test_raising_when_not_in_a_project_dir():
     ) in str(exc_info.value)
 
 
-def test_compiling_a_project(change_to_example_project_dir: None):
+def test_compile_compiling_a_project(change_to_project_dir: Callable):
     """
     Test loading and compiling a project
     """
+    change_to_project_dir("project1")
     project = Project.load_current()
     compiled_project = project.compile()
-    assert compiled_project.name == "My DJ Project"
-    assert compiled_project.prefix == "users.me"
+    assert compiled_project.name == "My DJ Project 1"
+    assert compiled_project.prefix == "projects.project1"
     assert compiled_project.mode == NodeMode.PUBLISHED
     assert compiled_project.priority == [
         "roads.date",
@@ -104,41 +108,44 @@ def test_compiling_a_project(change_to_example_project_dir: None):
         "roads.municipality_municipality_type",
         "roads.municipality_type",
     ]
-    assert compiled_project.root_path.endswith("examples")
+    assert compiled_project.root_path.endswith("project1")
     assert not compiled_project.validated
 
 
-def test_validating_a_project(
-    change_to_example_project_dir: None,
+def test_compile_validating_a_project(
+    change_to_project_dir: Callable,
     builder_client: DJBuilder,
 ):
     """
     Test loading, compiling, and validating a project
     """
+    change_to_project_dir("project1")
     project = Project.load_current()
     compiled_project = project.compile()
     compiled_project.validate(client=builder_client)
 
 
-def test_deploying_a_project(
-    change_to_example_project_dir: None,
+def test_compile_deploying_a_project(
+    change_to_project_dir: Callable,
     builder_client: DJBuilder,
 ):
     """
     Test loading, compiling, validating, and deploying a project
     """
+    change_to_project_dir("project1")
     project = Project.load_current()
     compiled_project = project.compile()
     compiled_project.deploy(client=builder_client)  # Deploying will validate as well
 
 
-def test_redeploying_a_project(
-    change_to_example_project_dir: None,
+def test_compile_redeploying_a_project(
+    change_to_project_dir: Callable,
     builder_client: DJBuilder,
 ):
     """
     Test deploying and then redeploying a project
     """
+    change_to_project_dir("project1")
     project = Project.load_current()
     compiled_project = project.compile()
     compiled_project.deploy(client=builder_client)

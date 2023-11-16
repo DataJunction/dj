@@ -27,7 +27,11 @@ from rich.table import Table
 
 from datajunction import DJBuilder
 from datajunction._internal import RequestsSessionWithEndpoint
-from datajunction.exceptions import DJClientException
+from datajunction.exceptions import (
+    DJClientException,
+    DJDeploymentFailure,
+    DJInvalidProject,
+)
 from datajunction.models import Column, NodeMode, NodeType, Tag
 from datajunction.nodes import Cube, Dimension, Metric, Source, Transform
 
@@ -441,6 +445,7 @@ class CompiledProject(Project):
     namespaces: List[str]
     definitions: List[NodeConfig]
     validated: bool = False
+    errors: List[dict] = []
 
     def __init__(self, project: Project):
         project_dict = project.dict()
@@ -483,6 +488,13 @@ class CompiledProject(Project):
                     )
                 else:
                     table.add_row(*[namespace, "namespace", f"[i][red]{str(exc)}"])
+                    self.errors.append(
+                        {
+                            "name": prefixed_name,
+                            "type": "namespace",
+                            "error": exc,
+                        },
+                    )
         return table
 
     def _deploy_nodes(
@@ -539,6 +551,13 @@ class CompiledProject(Project):
                         f"[i][red]{str(exc)}",
                     ]
                 )
+                self.errors.append(
+                    {
+                        "name": node_config.name,
+                        "type": "node",
+                        "error": exc,
+                    },
+                )
 
     def _deploy_dimension_links(self, prefix: str, table: Table, client: DJBuilder):
         """
@@ -560,6 +579,9 @@ class CompiledProject(Project):
                     table.add_row(
                         *[node_config.name, "[b]link[/]", f"[i][red]{str(exc)}"]
                     )
+                    self.errors.append(
+                        {"name": node_config.name, "type": "link", "error": exc},
+                    )
 
     def _deploy(
         self,
@@ -570,6 +592,7 @@ class CompiledProject(Project):
         """
         Deploy the compiled project
         """
+        self.errors = []
         if not prefix:
             prefix = self.prefix
 
@@ -615,10 +638,13 @@ class CompiledProject(Project):
             )
 
     def validate(self, client, console: Console = Console()):
+        self.errors = []
         console.clear()
         validation_id = "".join(random.choices(string.ascii_letters, k=16))
         system_prefix = f"system.{validation_id}.{self.prefix}"
         self._deploy(client=client, prefix=system_prefix, console=console)
+        if self.errors:
+            raise DJInvalidProject(project_name=self.name, errors=self.errors)
         self.validated = True
 
     def deploy(self, client: DJBuilder, console: Console = Console()):
@@ -629,6 +655,8 @@ class CompiledProject(Project):
         if not self.validated:
             self.validate(client=client, console=console)
         self._deploy(client=client, prefix=self.prefix, console=console)
+        if self.errors:
+            raise DJDeploymentFailure(project_name=self.name, errors=self.errors)
 
 
 def get_name_from_path(repository: Path, path: Path) -> str:
