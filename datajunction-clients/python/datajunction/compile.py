@@ -14,6 +14,7 @@ import logging
 import os
 import random
 import string
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List, Literal, Optional
 
@@ -395,7 +396,15 @@ class Project(BaseModel):
         """
         Compile a loaded project by reading all of the node definition files
         """
-        return CompiledProject(self)
+        definitions = load_node_configs_notebook_safe(
+            repository=Path(self.root_path),
+            priority=self.priority,
+        )
+        compiled = self.dict()
+        compiled.update(
+            {"namespaces": collect_namespaces(definitions), "definitions": definitions},
+        )
+        return CompiledProject(**compiled)
 
 
 def collect_namespaces(node_configs: List[NodeConfig], prefix: str = ""):
@@ -433,19 +442,6 @@ class CompiledProject(Project):
     definitions: List[NodeConfig]
     validated: bool = False
     errors: List[dict] = []
-
-    def __init__(self, project: Project):
-        project_dict = project.dict()
-        # Loop through and load node definitions
-        definitions = asyncio.run(
-            load_node_configs(
-                repository=Path(project.root_path),
-                priority=project.priority,
-            ),
-        )
-        project_dict["definitions"] = definitions
-        project_dict["namespaces"] = collect_namespaces(definitions)
-        super().__init__(**project_dict)
 
     def _deploy_namespaces(self, prefix: str, table: Table, client: DJBuilder):
         """
@@ -696,6 +692,25 @@ async def load_data(
         "Definition file stem must end with .source, "
         f".transform, .dimension, .metric, or .cube: {path}",
     )
+
+
+def load_node_configs_notebook_safe(repository: Path, priority: List[str]):
+    """
+    Notebook safe wrapper for load_node_configs function
+    """
+    try:
+        asyncio.get_running_loop()
+        with ThreadPoolExecutor(1) as pool:
+            node_configs = pool.submit(
+                lambda: asyncio.run(
+                    load_node_configs(repository=repository, priority=priority),
+                ),
+            ).result()
+    except RuntimeError:
+        node_configs = asyncio.run(
+            load_node_configs(repository=repository, priority=priority),
+        )
+    return node_configs
 
 
 async def load_node_configs(repository: Path, priority: List[str]) -> List[NodeYAML]:
