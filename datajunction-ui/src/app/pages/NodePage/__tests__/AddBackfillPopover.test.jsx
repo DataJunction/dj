@@ -36,7 +36,6 @@ describe('<AddBackfillPopover />', () => {
     fireEvent.click(getByLabelText('AddBackfill'));
 
     fireEvent.click(getByText('Save'));
-    getByText('Save').click();
 
     // Expect setAttributes to be called
     await waitFor(() => {
