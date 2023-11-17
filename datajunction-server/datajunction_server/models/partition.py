@@ -138,6 +138,17 @@ class PartitionOutput(SQLModel):
     expression: Optional[str]
 
 
+class PartitionColumnOutput(SQLModel):
+    """
+    Output for partition columns
+    """
+
+    name: str
+    type_: PartitionType
+    format: Optional[str]
+    expression: Optional[str]
+
+
 class Backfill(BaseSQLModel, table=True):  # type: ignore
     """
     A backfill run is linked to a materialization config, where users provide the range

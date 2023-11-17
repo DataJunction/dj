@@ -1,8 +1,6 @@
 """
 Cube materialization jobs
 """
-from typing import Dict
-
 from datajunction_server.materialization.jobs.materialization_job import (
     MaterializationJob,
 )
@@ -17,21 +15,7 @@ from datajunction_server.models.materialization import (
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-
-DRUID_AGG_MAPPING = {
-    ("bigint", "sum"): "longSum",
-    ("double", "sum"): "doubleSum",
-    ("float", "sum"): "floatSum",
-    ("double", "min"): "doubleMin",
-    ("double", "max"): "doubleMax",
-    ("float", "min"): "floatMin",
-    ("float", "max"): "floatMax",
-    ("bigint", "min"): "longMin",
-    ("bigint", "max"): "longMax",
-    ("bigint", "count"): "longSum",
-    ("double", "count"): "longSum",
-    ("float", "count"): "longSum",
-}
+from datajunction_server.utils import amenable_name
 
 
 class DefaultCubeMaterialization(
@@ -60,57 +44,6 @@ class DruidCubeMaterializationJob(MaterializationJob):
 
     dialect = Dialect.DRUID
 
-    def build_druid_spec(
-        self,
-        cube_config: DruidCubeConfig,
-        node_revision: NodeRevision,
-    ) -> Dict:
-        """
-        Builds the Druid ingestion spec from a materialization config.
-        """
-        node_name = node_revision.name
-        druid_datasource_name = (
-            cube_config.prefix  # type: ignore
-            + node_name.replace(".", "_DOT_")  # type: ignore
-            + cube_config.suffix  # type: ignore
-        )
-        _metrics_spec = {
-            measure.name: {
-                "fieldName": measure.field_name,
-                "name": measure.name,
-                "type": DRUID_AGG_MAPPING[(measure.type.lower(), measure.agg.lower())],
-            }
-            for measure_group in cube_config.measures.values()  # type: ignore
-            for measure in measure_group.measures
-        }
-
-        metrics_spec = list(_metrics_spec.values())
-        temporal_partition_cols = node_revision.temporal_partition_columns()
-        temporal_partition_column = temporal_partition_cols[0]
-
-        druid_spec: Dict = {
-            "dataSchema": {
-                "dataSource": druid_datasource_name,
-                "parser": {
-                    "parseSpec": {
-                        "format": "parquet",
-                        "dimensionsSpec": {"dimensions": cube_config.dimensions},
-                        "timestampSpec": {
-                            "column": temporal_partition_column.name,
-                            "format": temporal_partition_column.partition.format,
-                        },
-                    },
-                },
-                "metricsSpec": metrics_spec,
-                "granularitySpec": {
-                    "type": "uniform",
-                    "segmentGranularity": temporal_partition_column.partition.granularity,
-                    "intervals": [],  # this should be set at runtime
-                },
-            },
-        }
-        return druid_spec
-
     def schedule(
         self,
         materialization: Materialization,
@@ -120,8 +53,13 @@ class DruidCubeMaterializationJob(MaterializationJob):
         Use the query service to kick off the materialization setup.
         """
         cube_config = DruidCubeConfig.parse_obj(materialization.config)
-        druid_spec = self.build_druid_spec(
-            cube_config,
+        druid_spec = cube_config.build_druid_spec(
+            materialization.node_revision,
+        )
+        measures_temporal_partition = cube_config.temporal_partition(
+            materialization.node_revision,
+        )
+        categorical_partitions = cube_config.categorical_partitions(
             materialization.node_revision,
         )
         final_query = build_materialization_query(
@@ -142,6 +80,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 # Cube materialization involves creating an intermediate dataset,
                 # which will have measures columns for all metrics in the cube
                 columns=cube_config.columns,
+                partitions=measures_temporal_partition + categorical_partitions,
             ),
         )
 
@@ -158,7 +97,7 @@ def build_materialization_query(
     temporal_partition_col = [
         col
         for col in cube_materialization_query_ast.select.projection
-        if col.alias_or_name.name.endswith(temporal_partitions[0].name)  # type: ignore
+        if col.alias_or_name.name == amenable_name(temporal_partitions[0].name)  # type: ignore
     ]
 
     final_query = ast.Query(

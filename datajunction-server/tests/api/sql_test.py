@@ -25,7 +25,11 @@ def test_sql(
     """
     database = Database(name="test", URI="blah://", tables=[])
 
-    source_node = Node(name="my_table", type=NodeType.SOURCE, current_version="1")
+    source_node = Node(
+        name="default.my_table",
+        type=NodeType.SOURCE,
+        current_version="1",
+    )
     source_node_rev = NodeRevision(
         name=source_node.name,
         node=source_node,
@@ -36,12 +40,12 @@ def test_sql(
         type=NodeType.SOURCE,
     )
 
-    node = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
+    node = Node(name="default.a_metric", type=NodeType.METRIC, current_version="1")
     node_revision = NodeRevision(
         name=node.name,
         node=node,
         version="1",
-        query="SELECT COUNT(*) FROM my_table",
+        query="SELECT COUNT(*) FROM default.my_table",
         type=NodeType.METRIC,
     )
     session.add(database)
@@ -49,19 +53,19 @@ def test_sql(
     session.add(source_node_rev)
     session.commit()
 
-    response = client.get("/sql/a-metric/").json()
+    response = client.get("/sql/default.a_metric/").json()
     assert compare_query_strings(
         response["sql"],
-        "SELECT  COUNT(*) a_MINUS_metric \n FROM rev.my_table AS my_table\n",
+        "SELECT  COUNT(*) default_DOT_a_metric \n FROM rev.my_table AS default_DOT_my_table\n",
     )
     assert response["columns"] == [
         {
-            "column": "a_MINUS_metric",
-            "name": "a_MINUS_metric",
-            "node": "a-metric",
+            "column": "a_metric",
+            "name": "default_DOT_a_metric",
+            "node": "default",
             "type": "bigint",
             "semantic_type": None,
-            "semantic_entity": None,
+            "semantic_entity": "default.a_metric",
         },
     ]
     assert response["dialect"] is None
@@ -105,7 +109,7 @@ def test_sql(
                     "column": "state",
                     "name": "default_DOT_hard_hat_DOT_state",
                     "node": "default.hard_hat",
-                    "semantic_entity": None,
+                    "semantic_entity": "default.hard_hat.state",
                     "semantic_type": None,
                     "type": "string",
                 },
@@ -113,7 +117,7 @@ def test_sql(
                     "column": "dispatched_date",
                     "name": "default_DOT_repair_orders_DOT_dispatched_date",
                     "node": "default.repair_orders",
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.dispatched_date",
                     "semantic_type": None,
                     "type": "timestamp",
                 },
@@ -121,7 +125,7 @@ def test_sql(
                     "column": "dispatcher_id",
                     "name": "default_DOT_repair_orders_DOT_dispatcher_id",
                     "node": "default.repair_orders",
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.dispatcher_id",
                     "semantic_type": None,
                     "type": "int",
                 },
@@ -129,7 +133,7 @@ def test_sql(
                     "column": "hard_hat_id",
                     "name": "default_DOT_repair_orders_DOT_hard_hat_id",
                     "node": "default.repair_orders",
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.hard_hat_id",
                     "semantic_type": None,
                     "type": "int",
                 },
@@ -137,7 +141,7 @@ def test_sql(
                     "column": "municipality_id",
                     "name": "default_DOT_repair_orders_DOT_municipality_id",
                     "node": "default.repair_orders",
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.municipality_id",
                     "semantic_type": None,
                     "type": "string",
                 },
@@ -145,7 +149,7 @@ def test_sql(
                     "column": "order_date",
                     "name": "default_DOT_repair_orders_DOT_order_date",
                     "node": "default.repair_orders",
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.order_date",
                     "semantic_type": None,
                     "type": "timestamp",
                 },
@@ -153,7 +157,7 @@ def test_sql(
                     "column": "repair_order_id",
                     "name": "default_DOT_repair_orders_DOT_repair_order_id",
                     "node": "default.repair_orders",
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.repair_order_id",
                     "semantic_type": None,
                     "type": "int",
                 },
@@ -161,7 +165,7 @@ def test_sql(
                     "column": "required_date",
                     "name": "default_DOT_repair_orders_DOT_required_date",
                     "node": "default.repair_orders",
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.required_date",
                     "semantic_type": None,
                     "type": "timestamp",
                 },
@@ -203,7 +207,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "timestamp",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.order_date",
                 },
                 {
                     "column": "dispatched_date",
@@ -211,7 +215,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "timestamp",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.dispatched_date",
                 },
                 {
                     "column": "dispatcher_id",
@@ -219,7 +223,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.dispatcher_id",
                 },
                 {
                     "column": "hard_hat_id",
@@ -227,7 +231,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.hard_hat_id",
                 },
                 {
                     "column": "municipality_id",
@@ -235,7 +239,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.municipality_id",
                 },
                 {
                     "column": "repair_order_id",
@@ -243,7 +247,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.repair_order_id",
                 },
                 {
                     "column": "required_date",
@@ -251,7 +255,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "timestamp",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.required_date",
                 },
             ],
             [],
@@ -291,7 +295,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.long_events.country",
                 },
                 {
                     "column": "events_cnt",
@@ -299,7 +303,7 @@ def test_sql(
                     "node": "default.country_dim",
                     "type": "bigint",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.country_dim.events_cnt",
                 },
                 {
                     "column": "device_id",
@@ -307,7 +311,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.long_events.device_id",
                 },
                 {
                     "column": "event_id",
@@ -315,7 +319,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.long_events.event_id",
                 },
                 {
                     "column": "event_latency",
@@ -323,7 +327,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.long_events.event_latency",
                 },
             ],
             [],
@@ -361,7 +365,7 @@ def test_sql(
                     "node": "default.country_dim",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.country_dim.country",
                 },
                 {
                     "column": "device_id",
@@ -369,7 +373,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.long_events.device_id",
                 },
                 {
                     "column": "event_id",
@@ -377,7 +381,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.long_events.event_id",
                 },
                 {
                     "column": "event_latency",
@@ -385,7 +389,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.long_events.event_latency",
                 },
             ],
             [],
@@ -420,7 +424,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.long_events.country",
                 },
                 {
                     "column": "device_id",
@@ -428,7 +432,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.long_events.device_id",
                 },
                 {
                     "column": "event_id",
@@ -436,7 +440,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.long_events.event_id",
                 },
                 {
                     "column": "event_latency",
@@ -444,7 +448,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.long_events.event_latency",
                 },
             ],
             [],
@@ -471,7 +475,7 @@ def test_sql(
                     "node": "default.municipality",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.municipality.contact_name",
                 },
                 {
                     "column": "contact_title",
@@ -479,7 +483,7 @@ def test_sql(
                     "node": "default.municipality",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.municipality.contact_title",
                 },
                 {
                     "column": "state_id",
@@ -487,7 +491,7 @@ def test_sql(
                     "node": "default.municipality",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.municipality.state_id",
                 },
                 {
                     "column": "local_region",
@@ -495,7 +499,7 @@ def test_sql(
                     "node": "default.municipality",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.municipality.local_region",
                 },
                 {
                     "column": "municipality_id",
@@ -503,7 +507,7 @@ def test_sql(
                     "node": "default.municipality",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.municipality.municipality_id",
                 },
                 {
                     "column": "phone",
@@ -511,7 +515,7 @@ def test_sql(
                     "node": "default.municipality",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.municipality.phone",
                 },
             ],
             [],
@@ -545,7 +549,7 @@ def test_sql(
                     "node": "default.num_repair_orders",
                     "type": "bigint",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
                 },
             ],
             [[25]],
@@ -591,7 +595,7 @@ def test_sql(
                     "node": "default.hard_hat",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.hard_hat.state",
                 },
                 {
                     "column": "default_DOT_num_repair_orders",
@@ -599,7 +603,7 @@ def test_sql(
                     "node": "default.num_repair_orders",
                     "type": "bigint",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
                 },
             ],
             [],
@@ -667,7 +671,7 @@ def test_sql(
                     "node": "default.dispatcher",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.dispatcher.company_name",
                 },
                 {
                     "name": "default_DOT_hard_hat_DOT_city",
@@ -675,7 +679,7 @@ def test_sql(
                     "node": "default.hard_hat",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.hard_hat.city",
                 },
                 {
                     "name": "default_DOT_hard_hat_DOT_last_name",
@@ -683,7 +687,7 @@ def test_sql(
                     "node": "default.hard_hat",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.hard_hat.last_name",
                 },
                 {
                     "name": "default_DOT_municipality_dim_DOT_local_region",
@@ -691,7 +695,7 @@ def test_sql(
                     "node": "default.municipality_dim",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.municipality_dim.local_region",
                 },
                 {
                     "name": "default_DOT_num_repair_orders",
@@ -699,7 +703,7 @@ def test_sql(
                     "node": "default.num_repair_orders",
                     "type": "bigint",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
                 },
             ],
             [],
@@ -742,7 +746,7 @@ def test_sql(
                     "node": "default.hard_hat",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.hard_hat.city",
                 },
                 {
                     "column": "default_DOT_avg_repair_price",
@@ -750,7 +754,7 @@ def test_sql(
                     "node": "default.avg_repair_price",
                     "type": "double",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.avg_repair_price.default_DOT_avg_repair_price",
                 },
             ],
             [
@@ -808,7 +812,7 @@ def test_sql(
                     "node": "default.dispatcher",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.dispatcher.company_name",
                 },
                 {
                     "column": "city",
@@ -816,7 +820,7 @@ def test_sql(
                     "node": "default.hard_hat",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.hard_hat.city",
                 },
                 {
                     "column": "default_DOT_avg_repair_price",
@@ -824,7 +828,7 @@ def test_sql(
                     "node": "default.avg_repair_price",
                     "type": "double",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.avg_repair_price.default_DOT_avg_repair_price",
                 },
             ],
             [
@@ -887,7 +891,7 @@ def test_sql(
                     "node": "default.us_state",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.us_state.state_short",
                 },
                 {
                     "column": "default_DOT_num_repair_orders",
@@ -895,7 +899,7 @@ def test_sql(
                     "node": "default.num_repair_orders",
                     "type": "bigint",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
                 },
             ],
             [
@@ -948,7 +952,7 @@ def test_sql(
                     "node": "default.hard_hat",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.hard_hat.state",
                 },
                 {
                     "column": "dispatched_date",
@@ -956,7 +960,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "timestamp",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.dispatched_date",
                 },
                 {
                     "column": "dispatcher_id",
@@ -964,7 +968,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.dispatcher_id",
                 },
                 {
                     "column": "hard_hat_id",
@@ -972,7 +976,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.hard_hat_id",
                 },
                 {
                     "column": "municipality_id",
@@ -980,7 +984,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "string",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.municipality_id",
                 },
                 {
                     "column": "order_date",
@@ -988,7 +992,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "timestamp",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.order_date",
                 },
                 {
                     "column": "repair_order_id",
@@ -996,7 +1000,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "int",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.repair_order_id",
                 },
                 {
                     "column": "required_date",
@@ -1004,7 +1008,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "timestamp",
                     "semantic_type": None,
-                    "semantic_entity": None,
+                    "semantic_entity": "default.repair_orders.required_date",
                 },
             ],
             [
@@ -1600,64 +1604,64 @@ def test_get_sql_for_metrics(client_with_roads: TestClient):
             "column": "default_DOT_discounted_orders_rate",
             "name": "default_DOT_discounted_orders_rate",
             "node": "default.discounted_orders_rate",
-            "semantic_entity": None,
-            "semantic_type": None,
+            "semantic_entity": "default.discounted_orders_rate.default_DOT_discounted_orders_rate",
+            "semantic_type": "metric",
             "type": "double",
         },
         {
             "column": "default_DOT_num_repair_orders",
             "name": "default_DOT_num_repair_orders",
             "node": "default.num_repair_orders",
-            "semantic_entity": None,
-            "semantic_type": None,
+            "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
+            "semantic_type": "metric",
             "type": "bigint",
         },
         {
             "column": "company_name",
             "name": "default_DOT_dispatcher_DOT_company_name",
             "node": "default.dispatcher",
-            "semantic_entity": None,
-            "semantic_type": None,
+            "semantic_entity": "default.dispatcher.company_name",
+            "semantic_type": "dimension",
             "type": "string",
         },
         {
             "column": "city",
             "name": "default_DOT_hard_hat_DOT_city",
             "node": "default.hard_hat",
-            "semantic_entity": None,
-            "semantic_type": None,
+            "semantic_entity": "default.hard_hat.city",
+            "semantic_type": "dimension",
             "type": "string",
         },
         {
             "column": "country",
             "name": "default_DOT_hard_hat_DOT_country",
             "node": "default.hard_hat",
-            "semantic_entity": None,
-            "semantic_type": None,
+            "semantic_entity": "default.hard_hat.country",
+            "semantic_type": "dimension",
             "type": "string",
         },
         {
             "column": "postal_code",
             "name": "default_DOT_hard_hat_DOT_postal_code",
             "node": "default.hard_hat",
-            "semantic_entity": None,
-            "semantic_type": None,
+            "semantic_entity": "default.hard_hat.postal_code",
+            "semantic_type": "dimension",
             "type": "string",
         },
         {
             "column": "state",
             "name": "default_DOT_hard_hat_DOT_state",
             "node": "default.hard_hat",
-            "semantic_entity": None,
-            "semantic_type": None,
+            "semantic_entity": "default.hard_hat.state",
+            "semantic_type": "dimension",
             "type": "string",
         },
         {
             "column": "local_region",
             "name": "default_DOT_municipality_dim_DOT_local_region",
             "node": "default.municipality_dim",
-            "semantic_entity": None,
-            "semantic_type": None,
+            "semantic_entity": "default.municipality_dim.local_region",
+            "semantic_type": "dimension",
             "type": "string",
         },
     ]
@@ -1796,40 +1800,40 @@ def test_get_sql_including_dimensions_with_disambiguated_columns(
             "column": "default_DOT_total_repair_cost",
             "name": "default_DOT_total_repair_cost",
             "node": "default.total_repair_cost",
-            "semantic_type": None,
-            "semantic_entity": None,
+            "semantic_entity": "default.total_repair_cost.default_DOT_total_repair_cost",
+            "semantic_type": "metric",
             "type": "double",
         },
         {
             "column": "municipality_type_desc",
             "name": "default_DOT_municipality_dim_DOT_municipality_type_desc",
             "node": "default.municipality_dim",
-            "semantic_type": None,
-            "semantic_entity": None,
+            "semantic_entity": "default.municipality_dim.municipality_type_desc",
+            "semantic_type": "dimension",
             "type": "string",
         },
         {
             "column": "municipality_type_id",
             "name": "default_DOT_municipality_dim_DOT_municipality_type_id",
             "node": "default.municipality_dim",
-            "semantic_type": None,
-            "semantic_entity": None,
+            "semantic_entity": "default.municipality_dim.municipality_type_id",
+            "semantic_type": "dimension",
             "type": "string",
         },
         {
             "column": "state_id",
             "name": "default_DOT_municipality_dim_DOT_state_id",
             "node": "default.municipality_dim",
-            "semantic_type": None,
-            "semantic_entity": None,
+            "semantic_entity": "default.municipality_dim.state_id",
+            "semantic_type": "dimension",
             "type": "int",
         },
         {
             "column": "municipality_id",
             "name": "default_DOT_municipality_dim_DOT_municipality_id",
             "node": "default.municipality_dim",
-            "semantic_type": None,
-            "semantic_entity": None,
+            "semantic_entity": "default.municipality_dim.municipality_id",
+            "semantic_type": "dimension",
             "type": "string",
         },
     ]

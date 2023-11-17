@@ -17,17 +17,10 @@ from datajunction_server.api.helpers import (
     validate_cube,
     validate_node_data,
 )
-from datajunction_server.construction.build import build_metric_nodes
 from datajunction_server.errors import DJDoesNotExistException, DJException
-from datajunction_server.internal.engines import get_engine
 from datajunction_server.internal.materializations import (
-    build_cube_config,
     create_new_materialization,
     schedule_materialization_jobs,
-)
-from datajunction_server.materialization.jobs import (
-    DefaultCubeMaterialization,
-    DruidCubeMaterializationJob,
 )
 from datajunction_server.models import (
     AttributeType,
@@ -37,6 +30,7 @@ from datajunction_server.models import (
     Node,
     NodeRevision,
     User,
+    access,
 )
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
@@ -48,11 +42,7 @@ from datajunction_server.models.history import (
     EntityType,
     status_change_history,
 )
-from datajunction_server.models.materialization import (
-    DruidCubeConfig,
-    Materialization,
-    UpsertMaterialization,
-)
+from datajunction_server.models.materialization import UpsertMaterialization
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -72,14 +62,7 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.sql.parsing.backends.exceptions import DJParseException
-from datajunction_server.utils import (
-    LOOKUP_CHARS,
-    SEPARATOR,
-    Version,
-    VersionUpgrade,
-    get_session,
-)
+from datajunction_server.utils import Version, VersionUpgrade, get_session
 
 _logger = logging.getLogger(__name__)
 
@@ -301,100 +284,55 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         data.metrics,
         data.dimensions,
     )
-
-    combined_ast = build_metric_nodes(
-        session,
-        metric_nodes,
-        filters=data.filters or [],
-        dimensions=data.dimensions or [],
-        orderby=data.orderby or [],
-        limit=data.limit or None,
+    status = (
+        NodeStatus.VALID
+        if (
+            all(metric.current.status == NodeStatus.VALID for metric in metric_nodes)
+            and all(dim.current.status == NodeStatus.VALID for dim in dimension_nodes)
+        )
+        else NodeStatus.INVALID
     )
-    dimension_attribute = session.exec(
-        select(AttributeType).where(AttributeType.name == "dimension"),
-    ).one()
-    dimensions_set = {
-        dim.replace(SEPARATOR, f"_{LOOKUP_CHARS.get('.')}_") for dim in data.dimensions
-    }
 
+    # Build the "columns" for this node based on the cube elements. These are used
+    # for marking partition columns when the cube gets materialized.
     node_columns = []
-    status = NodeStatus.VALID
-    type_inference_failed_columns = []
-    display_name_mapping = {}
     for col in metric_columns + dimension_columns:
         referenced_node = col.node_revision()
-        if referenced_node.type == NodeType.METRIC:  # type: ignore
-            display_name_mapping[col.name] = col.display_name
-        else:
-            col_name = f"{referenced_node.name}.{col.name}"  # type: ignore
-            col_name = col_name.replace(SEPARATOR, f"_{LOOKUP_CHARS.get(SEPARATOR)}_")
-            display_name_mapping[col_name] = col.display_name
-
-    for col in combined_ast.select.projection:
-        try:
-            column_type = col.type  # type: ignore
-            column_attributes = (
-                [ColumnAttribute(attribute_type=dimension_attribute)]
-                if col.alias_or_name.name in dimensions_set
-                else []
-            )
-            node_columns.append(
-                Column(
-                    name=col.alias_or_name.name,
-                    display_name=display_name_mapping.get(col.alias_or_name.name),
-                    type=column_type,
-                    attributes=column_attributes,
-                ),
-            )
-        except DJParseException:  # pragma: no cover
-            type_inference_failed_columns.append(col.alias_or_name.name)  # type: ignore
-            status = NodeStatus.INVALID
+        full_element_name = (
+            referenced_node.name  # type: ignore
+            if referenced_node.type == NodeType.METRIC  # type: ignore
+            else f"{referenced_node.name}.{col.name}"  # type: ignore
+        )
+        node_column = Column(
+            name=full_element_name,
+            display_name=col.display_name,
+            type=col.type,
+            attributes=[
+                ColumnAttribute(attribute_type_id=attr.attribute_type_id)
+                for attr in col.attributes
+            ],
+        )
+        # node_column.attributes = [
+        #     ColumnAttribute(
+        #         attribute_type_id=attr.attribute_type_id, column=node_column,
+        #     )
+        #     for attr in col.attributes
+        # ]
+        node_columns.append(node_column)
 
     node_revision = NodeRevision(
         name=data.name,
+        display_name=data.display_name or labelize(data.name),
         namespace=data.namespace,
         description=data.description,
         type=NodeType.CUBE,
-        query=str(combined_ast),
+        query="",
         columns=node_columns,
         cube_elements=metric_columns + dimension_columns,
         parents=list(set(dimension_nodes + metric_nodes)),
         status=status,
         catalog=catalog,
     )
-
-    # Set up a default materialization for the cube. Note that this does not get used
-    # for any actual materialization, but is for storing info needed for materialization
-    node_revision.materializations = []
-    default_materialization = UpsertMaterialization(
-        name="placeholder",
-        engine=node_revision.catalog.engines[0],  # pylint: disable=no-member
-        schedule="@daily",
-        config={},
-        job="CubeMaterializationJob",
-    )
-    engine = get_engine(
-        session,
-        name=default_materialization.engine.name,
-        version=default_materialization.engine.version,
-    )
-    cube_custom_config = build_cube_config(
-        node_revision,
-        combined_ast,
-    )
-    new_materialization = Materialization(
-        name="default",
-        node_revision=node_revision,
-        engine=engine,
-        config=cube_custom_config,
-        schedule=default_materialization.schedule,
-        job=(
-            DefaultCubeMaterialization.__name__
-            if not isinstance(cube_custom_config, DruidCubeConfig)
-            else DruidCubeMaterializationJob.__name__
-        ),
-    )
-    node_revision.materializations.append(new_materialization)
     return node_revision
 
 
@@ -450,6 +388,7 @@ def update_any_node(  # pylint: disable=too-many-arguments
     query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
     background_tasks: BackgroundTasks = None,
+    validate_access: access.ValidateAccessFn = None,
 ) -> Node:
     """
     Node update helper function that handles updating any node
@@ -463,6 +402,7 @@ def update_any_node(  # pylint: disable=too-many-arguments
             query_service_client=query_service_client,
             current_user=current_user,
             background_tasks=background_tasks,
+            validate_access=validate_access,  # type: ignore
         )
         return node_revision.node if node_revision else node
     return update_node_with_query(
@@ -472,6 +412,7 @@ def update_any_node(  # pylint: disable=too-many-arguments
         query_service_client=query_service_client,
         current_user=current_user,
         background_tasks=background_tasks,
+        validate_access=validate_access,  # type: ignore
     )
 
 
@@ -483,6 +424,7 @@ def update_node_with_query(
     query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
     background_tasks: BackgroundTasks,
+    validate_access: access.ValidateAccessFn,
 ) -> Node:
     """
     Update the named node with the changes defined in the UpdateNode object.
@@ -532,13 +474,14 @@ def update_node_with_query(
     ]
     if active_materializations and new_revision.query != old_revision.query:
         for old in active_materializations:
-            new_revision.materializations.append(
+            new_revision.materializations.append(  # pylint: disable=no-member
                 create_new_materialization(
                     session,
                     new_revision,
                     UpsertMaterialization(
                         **old.dict(), **{"engine": old.engine.dict()}
                     ),
+                    validate_access,
                 ),
             )
         background_tasks.add_task(
@@ -575,6 +518,7 @@ def update_node_with_query(
         query_service_client=query_service_client,
         current_user=current_user,
         background_tasks=background_tasks,
+        validate_access=validate_access,
     )
 
     session.refresh(node.current)
@@ -623,6 +567,7 @@ def update_cube_node(  # pylint: disable=too-many-locals
     query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
     background_tasks: BackgroundTasks,
+    validate_access: access.ValidateAccessFn,
 ) -> Optional[NodeRevision]:
     """
     Update cube node based on changes
@@ -679,13 +624,14 @@ def update_cube_node(  # pylint: disable=too-many-locals
     ]
     if major_changes and active_materializations:
         for old in active_materializations:
-            new_cube_revision.materializations.append(
+            new_cube_revision.materializations.append(  # pylint: disable=no-member
                 create_new_materialization(
                     session,
                     new_cube_revision,
                     UpsertMaterialization(
                         **old.dict(), **{"engine": old.engine.dict()}
                     ),
+                    validate_access,
                 ),
             )
             session.add(
@@ -721,6 +667,7 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
     query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
     background_tasks: BackgroundTasks,
+    validate_access: access.ValidateAccessFn,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -753,6 +700,7 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
                     ),
                     query_service_client=query_service_client,
                     background_tasks=background_tasks,
+                    validate_access=validate_access,
                 )
                 continue
 
@@ -850,6 +798,7 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
     current_user: Optional[User] = None,
     query_service_client: QueryServiceClient,
     background_tasks: BackgroundTasks = None,
+    validate_access: access.ValidateAccessFn = None,
 ) -> Optional[Node]:
     """
     If the node existed and is inactive the re-creation takes different steps than
@@ -893,6 +842,7 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 query_service_client=query_service_client,
                 current_user=current_user,
                 background_tasks=background_tasks,
+                validate_access=validate_access,  # type: ignore
             )
         else:
             update_cube_node(
@@ -901,6 +851,7 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 data,
                 query_service_client=query_service_client,
                 background_tasks=background_tasks,
+                validate_access=validate_access,  # type: ignore
             )
         try:
             activate_node(name=data.name, session=session, current_user=current_user)

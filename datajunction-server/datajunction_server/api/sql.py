@@ -103,7 +103,7 @@ def get_sql(
         access_control=access_control,
     )
     columns = [
-        assemble_column_metadata(col, node_name)  # type: ignore
+        assemble_column_metadata(col)  # type: ignore
         for col in query_ast.select.projection
     ]
     return TranslatedSQL(
