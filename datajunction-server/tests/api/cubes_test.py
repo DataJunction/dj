@@ -62,27 +62,6 @@ def test_read_cube(client_with_account_revenue: TestClient) -> None:
     assert data["display_name"] == "Default: Number Of Accounts By Account Type"
     assert data["version"] == "v1.0"
     assert data["description"] == "A cube of number of accounts grouped by account type"
-    # assert compare_query_strings(
-    #     data["query"],
-    #     """
-    #     WITH default_DOT_account_type AS (
-    #       SELECT
-    #         default_DOT_account_type.account_type_name
-    #           default_DOT_account_type_DOT_account_type_name,
-    #         count(default_DOT_account_type.id)
-    #           default_DOT_number_of_account_types
-    #       FROM (SELECT  default_DOT_account_type_table.account_type_classification,
-    #           default_DOT_account_type_table.account_type_name,
-    #           default_DOT_account_type_table.id
-    #       FROM accounting.account_type_table AS default_DOT_account_type_table)
-    #       AS default_DOT_account_type
-    #       GROUP BY  default_DOT_account_type.account_type_name
-    #     )
-    #     SELECT  default_DOT_account_type.default_DOT_number_of_account_types,
-    #         default_DOT_account_type.default_DOT_account_type_DOT_account_type_name
-    #      FROM default_DOT_account_type
-    #     """,
-    # )
 
 
 def test_create_invalid_cube(client_with_account_revenue: TestClient):
@@ -1094,7 +1073,6 @@ def test_cube_sql_generation_with_availability(
             "valid_through_ts": 1010129120,
         },
     )
-    print("response!!!", response.json())
 
     # Ask for SQL with metrics, dimensions, filters, order by, and limit
     response = client_with_repairs_cube.get(
