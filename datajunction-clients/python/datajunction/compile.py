@@ -700,7 +700,7 @@ def load_node_configs_notebook_safe(repository: Path, priority: List[str]):
     """
     try:
         asyncio.get_running_loop()
-        with ThreadPoolExecutor(1) as pool:
+        with ThreadPoolExecutor(1) as pool:  # pragma: no cover
             node_configs = pool.submit(
                 lambda: asyncio.run(
                     load_node_configs(repository=repository, priority=priority),
