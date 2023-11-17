@@ -839,7 +839,7 @@ def repairs_cube_with_materialization(
     Repairs cube with a configured materialization
     """
     set_temporal_partition_cube(client_with_repairs_cube)
-    return client_with_repairs_cube.post(
+    response = client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "engine": {"name": "druid", "version": ""},
@@ -849,6 +849,8 @@ def repairs_cube_with_materialization(
             "schedule": "",
         },
     )
+    print("response!!!", response.json())
+    return response
 
 
 def test_add_materialization_config_to_cube(

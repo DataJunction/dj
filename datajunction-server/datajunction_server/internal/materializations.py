@@ -66,11 +66,13 @@ def rewrite_metrics_expressions(
     """
     context = CompileContext(session, DJException())
     metrics_expressions = {}
+    print("rewrite, measures_query.columns", measures_query.columns)
     measures_to_output_columns_lookup = {
         column.semantic_entity: column.name
         for column in measures_query.columns  # type: ignore # pylint: disable=not-an-iterable
         if column.semantic_type == "measure"
     }
+    print("measures_to_output_columns_lookup", measures_to_output_columns_lookup)
     for metric in current_revision.cube_metrics():
         measures_for_metric = []
         metric_ast = parse(metric.current.query)
@@ -151,6 +153,9 @@ def build_cube_materialization_config(
             upstream_tables=measures_query.upstream_tables,
             columns=measures_query.columns,
         )
+        for mcol in measures_query.columns:
+            print("mcol:", mcol)
+        print("generic_config", generic_config)
         return generic_config
     except (KeyError, ValidationError, AttributeError) as exc:  # pragma: no cover
         raise DJInvalidInputException(  # pragma: no cover

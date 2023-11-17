@@ -64,6 +64,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
         )
         final_query = build_materialization_query(
             cube_config.query,
+            cube_config.columns,
             materialization.node_revision,
         )
         return query_service_client.materialize(
@@ -87,17 +88,19 @@ class DruidCubeMaterializationJob(MaterializationJob):
 
 def build_materialization_query(
     base_cube_query: str,
+    cube_columns,
     node_revision: NodeRevision,
 ) -> ast.Query:
     """
     Build materialization query (based on configured temporal partitions).
     """
+    cube_column_mapping = {col.name: col.semantic_entity for col in cube_columns}
     cube_materialization_query_ast = parse(base_cube_query)
     temporal_partitions = node_revision.temporal_partition_columns()
     temporal_partition_col = [
         col
         for col in cube_materialization_query_ast.select.projection
-        if col.alias_or_name.name == amenable_name(temporal_partitions[0].name)  # type: ignore
+        if cube_column_mapping[col.alias_or_name.name] == temporal_partitions[0].name  # type: ignore
     ]
 
     final_query = ast.Query(

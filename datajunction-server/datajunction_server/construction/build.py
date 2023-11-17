@@ -18,6 +18,7 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import BuildCriteria, Node, NodeRevision, NodeType
+from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
@@ -731,10 +732,15 @@ def rename_columns(built_ast: ast.Query, node: NodeRevision):
             if expression.alias_or_name.name in node_columns:  # type: ignore
                 alias_name = node.name + SEPARATOR + expression.alias_or_name.name  # type: ignore
             expression = expression.copy()
-            expression.set_alias(ast.Name(amenable_name(alias_name)))
+            expression.set_semantic_entity(alias_name)
+            print("expression.semantic_entity", expression.semantic_entity)
             projection.append(expression)
         else:
             expression = expression.copy()
+            expression.set_semantic_entity(
+                from_amenable_name(expression.alias_or_name.name),
+            )
+            print("expression.semantic_entity", expression.semantic_entity)
             projection.append(expression)  # type: ignore
     built_ast.select.projection = projection
 
@@ -935,8 +941,12 @@ def build_metric_nodes(
                 for metric_node in metrics:
                     if amenable_name(metric_node.name) in col.alias_or_name.name:
                         final_mapping[metric_node.name] = col
+                        col.set_semantic_entity(metric_node.name)
+                        col.set_semantic_type("metric")
                 metric_columns.append(col)
             else:
+                col.set_semantic_entity(from_amenable_name(col.alias_or_name.name))
+                col.set_semantic_type("dimension")
                 dimension_columns.append(col)
 
         all_dimension_columns += dimension_columns
@@ -1299,8 +1309,10 @@ def get_measures_query(
             column_identifier = expr.alias_or_name.identifier(False)  # type: ignore
             if from_amenable_name(column_identifier) in dimensions:
                 dimensional_columns.append(expr)
+                expr.set_semantic_type("dimension")
             else:
                 measure_columns.append(expr)
+                expr.set_semantic_type("measure")
         parent_ast.compile(context)
 
         # Add the WITH statements to the combined query
@@ -1316,16 +1328,28 @@ def get_measures_query(
         # Add dimensions to the final query layer's SELECT
         outer_dimensional_columns = []
         for col in dimensional_columns:
-            col_without_alias = col.copy().use_alias_as_name()  # type: ignore
+            print("dimensional", col, col.semantic_type, col.semantic_entity)
+            col_without_alias = ast.Column(
+                name=ast.Name(col.alias_or_name.name),
+            )  #  col.copy().use_alias_as_name()  # type: ignore
             col_without_alias._table = parent_ast  # pylint: disable=protected-access
             col_without_alias._type = col.type  # type: ignore  # pylint: disable=protected-access
+            col_without_alias.set_semantic_entity(col.semantic_entity)
+            col_without_alias.set_semantic_type(col.semantic_type)
             outer_dimensional_columns.append(col_without_alias)
         all_dimension_columns += outer_dimensional_columns
 
         # Add measures to the final query layer's SELECT
-        combined_ast.select.projection.extend(
-            [col.copy().use_alias_as_name() for col in measure_columns],  # type: ignore
-        )
+        for col in measure_columns:
+            combined_ast.select.projection.append(
+                ast.Column(
+                    name=ast.Name(col.alias_or_name.name),
+                    _table=parent_ast,
+                    _type=col.type,
+                    semantic_entity=col.semantic_entity,
+                    semantic_type=col.semantic_type,
+                ),
+            )
 
         # Each time we build another parent node CTE clause, add it
         # to the join clause with the current CTEs on the selected dimensions
@@ -1366,7 +1390,7 @@ def get_measures_query(
     dimension_columns = [
         ast.Function(name=ast.Name("COALESCE"), args=list(columns)).set_alias(
             ast.Name(col_name),
-        )
+        ).set_semantic_entity(columns[0].semantic_entity).set_semantic_type(columns[0].semantic_type)
         if len(columns) > 1
         else columns[0]
         for col_name, columns in dimension_grouping.items()
@@ -1375,24 +1399,15 @@ def get_measures_query(
 
     # Assemble column metadata
     columns_metadata = []
-    measures_to_output_columns_lookup = {}
-    dimension_column_names = {
-        dim.alias_or_name.identifier(False) for dim in all_dimension_columns
-    }
+    dimension_column_names = {dim.semantic_entity for dim in all_dimension_columns}
     for col in combined_ast.select.projection:
-        if metadata := assemble_column_metadata(  # pragma: no cover
+        metadata = assemble_column_metadata(  # pragma: no cover
             cast(ast.Column, col),
-            [parent.name for parent in common_parents],
-        ):
-            metadata.semantic_entity = metadata.node + SEPARATOR + metadata.column  # type: ignore
-            metadata.semantic_type = (
-                "dimension" if metadata.name in dimension_column_names else "measure"
-            )
-            columns_metadata.append(metadata)
-            if metadata.semantic_type == "measure":
-                measures_to_output_columns_lookup[
-                    metadata.semantic_entity
-                ] = metadata.name
+        )
+        # metadata.semantic_type = (
+        #     "dimension" if col.semantic_entity in dimension_column_names else "measure"
+        # )
+        columns_metadata.append(metadata)
     dependencies, _ = combined_ast.extract_dependencies(
         CompileContext(session, DJException()),
     )

@@ -265,6 +265,7 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         metrics_spec = list(self.metrics_spec().values())
         user_defined_temporal_partitions = node_revision.temporal_partition_columns()
         user_defined_temporal_partition = user_defined_temporal_partitions[0]
+        print("COLUMNS", user_defined_temporal_partition.name, self.columns)
         output_temporal_partition_column = [
             col.name
             for col in self.columns  # type: ignore
