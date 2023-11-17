@@ -1,5 +1,5 @@
 description: This is a source for details on individual repair orders
-table: warehouse.roads.repair_order_details
+table: default.roads.repair_order_details
 columns:
   - name: repair_order_id
     type: int

@@ -1,5 +1,5 @@
 description: Municipality information
-table: warehouse.roads.municipality_municipality_type
+table: default.roads.municipality_municipality_type
 columns:
   - name: municipality_id
     type: string

@@ -1,5 +1,5 @@
 description: US region info
-table: warehouse.roads.us_region
+table: default.roads.us_region
 columns:
   - name: us_region_id
     type: int

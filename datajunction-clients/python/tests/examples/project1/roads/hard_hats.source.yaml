@@ -1,5 +1,5 @@
 description: Internal employees table
-table: warehouse.roads.hard_hats
+table: default.roads.hard_hats
 columns:
   - name: hard_hat_id
     type: int

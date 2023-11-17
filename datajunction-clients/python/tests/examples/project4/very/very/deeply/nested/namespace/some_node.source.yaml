@@ -1,5 +1,5 @@
 description: A source node definition
-table: warehouse.myschema.mytable
+table: default.myschema.mytable
 columns:
   - name: foo
     type: int

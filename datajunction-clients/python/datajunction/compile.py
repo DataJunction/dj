@@ -26,7 +26,6 @@ from rich.live import Live
 from rich.table import Table
 
 from datajunction import DJBuilder
-from datajunction._internal import RequestsSessionWithEndpoint
 from datajunction.exceptions import DJClientException, DJDeploymentFailure
 from datajunction.models import Column, NodeMode, NodeType, Tag
 from datajunction.nodes import Cube, Dimension, Metric, Source, Transform
@@ -596,9 +595,6 @@ class CompiledProject(Project):
 
         table = Table(show_footer=False)
         table_centered = Align.center(table)
-        session = RequestsSessionWithEndpoint(endpoint="http://localhost:8000")
-        session.post("/basic/login/", data={"username": "dj", "password": "dj"})
-        client = DJBuilder(requests_session=session)
         with Live(table_centered, console=console, screen=False, refresh_per_second=20):
             table.title = (
                 f"{self.name}\nDeployment Prefix: [bold green]{prefix}[/ bold green]"

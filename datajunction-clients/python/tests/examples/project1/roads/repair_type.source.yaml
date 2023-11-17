@@ -1,5 +1,5 @@
 description: Information on different types of repairs
-table: warehouse.roads.repair_type
+table: default.roads.repair_type
 columns:
   - name: repair_type_id
     type: int

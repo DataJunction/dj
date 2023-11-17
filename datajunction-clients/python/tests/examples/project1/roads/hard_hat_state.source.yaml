@@ -1,5 +1,5 @@
 description: State locale lookup table for employees
-table: warehouse.roads.hard_hat_state
+table: default.roads.hard_hat_state
 columns:
   - name: hard_hat_id
     type: int

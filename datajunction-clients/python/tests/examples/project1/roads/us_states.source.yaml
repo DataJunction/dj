@@ -1,5 +1,5 @@
 description: US state data
-table: warehouse.roads.us_states
+table: default.roads.us_states
 columns:
   - name: state_id
     type: int

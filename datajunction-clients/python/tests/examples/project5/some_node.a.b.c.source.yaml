@@ -1,5 +1,5 @@
 description: A source that raises an error because it's missing the .source.yaml extension
-table: warehouse.myschema.mytable
+table: default.myschema.mytable
 columns:
   - name: foo
     type: int

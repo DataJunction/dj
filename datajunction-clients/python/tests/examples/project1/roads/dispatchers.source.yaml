@@ -1,5 +1,5 @@
 description: Dispatcher information
-table: warehouse.roads.dispatchers
+table: default.roads.dispatchers
 columns:
   - name: dispatcher_id
     type: int

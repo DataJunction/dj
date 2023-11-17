@@ -1,5 +1,5 @@
 description: Information on companies contracted for repairs
-table: warehouse.roads.contractors
+table: default.roads.contractors
 columns:
   - name: contractor_id
     type: int

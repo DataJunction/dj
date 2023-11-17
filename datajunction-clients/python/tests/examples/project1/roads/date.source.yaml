@@ -1,5 +1,5 @@
 description: Date dimension
-table: warehouse.roads.date
+table: default.roads.date
 columns:
   - name: dateint
     type: timestamp
