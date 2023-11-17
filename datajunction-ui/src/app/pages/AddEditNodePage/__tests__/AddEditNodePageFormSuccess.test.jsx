@@ -120,7 +120,7 @@ describe('AddEditNodePage submission succeeded', () => {
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
         'default.num_repair_orders',
-        ['purpose'],
+        [{ display_name: 'Purpose', name: 'purpose' }],
       );
 
       expect(mockDjClient.DataJunctionAPI.listMetricMetadata).toBeCalledTimes(
