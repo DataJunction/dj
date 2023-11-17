@@ -1209,7 +1209,7 @@ def metrics_to_measures(
     }
     """
     ctx = CompileContext(session, DJException())
-    metric_to_measures_mapping = collections.defaultdict(set)
+    metric_to_measures = collections.defaultdict(set)
     parents_to_measures = collections.defaultdict(set)
     for metric_node in metric_nodes:
         metric_ast = parse(metric_node.current.query)
@@ -1219,10 +1219,10 @@ def metrics_to_measures(
                 parents_to_measures[col.table.dj_node.name].add(  # type: ignore
                     col.alias_or_name.name,
                 )
-                metric_to_measures_mapping[metric_node.name].add(
+                metric_to_measures[metric_node.name].add(
                     col.alias_or_name.name,
                 )
-    return parents_to_measures, metric_to_measures_mapping
+    return parents_to_measures, metric_to_measures
 
 
 def get_measures_query(
