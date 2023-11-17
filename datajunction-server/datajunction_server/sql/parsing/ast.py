@@ -490,6 +490,8 @@ class Aliasable(Node):
 
     alias: Optional["Name"] = None
     as_: Optional[bool] = None
+    semantic_entity: Optional[str] = None
+    semantic_type: Optional[str] = None
 
     def set_alias(self: TNode, alias: Optional["Name"]) -> TNode:
         self.alias = alias
@@ -497,6 +499,14 @@ class Aliasable(Node):
 
     def set_as(self: TNode, as_: bool) -> TNode:
         self.as_ = as_
+        return self
+
+    def set_semantic_entity(self: TNode, semantic_entity: str) -> TNode:
+        self.semantic_entity = semantic_entity
+        return self
+
+    def set_semantic_type(self: TNode, semantic_type: str) -> TNode:
+        self.semantic_type = semantic_type
         return self
 
     @property
