@@ -368,6 +368,14 @@ class NodeConfig(BaseModel):
     path: str
 
 
+class BuildConfig(BaseModel):
+    """
+    A build configuration for a project
+    """
+
+    priority: List[str] = []
+
+
 class Project(BaseModel):
     """
     A project configuration
@@ -375,9 +383,9 @@ class Project(BaseModel):
 
     name: str
     prefix: str
-    tags: Optional[List[Tag]]
-    priority: List[str] = []
+    build: BuildConfig = BuildConfig()
     root_path: str = ""
+    tags: Optional[List[Tag]]
     mode: NodeMode = NodeMode.PUBLISHED
 
     @classmethod
@@ -398,7 +406,7 @@ class Project(BaseModel):
         """
         definitions = load_node_configs_notebook_safe(
             repository=Path(self.root_path),
-            priority=self.priority,
+            priority=self.build.priority,
         )
         compiled = self.dict()
         compiled.update(
@@ -703,7 +711,10 @@ def load_node_configs_notebook_safe(repository: Path, priority: List[str]):
         with ThreadPoolExecutor(1) as pool:  # pragma: no cover
             node_configs = pool.submit(
                 lambda: asyncio.run(
-                    load_node_configs(repository=repository, priority=priority),
+                    load_node_configs(
+                        repository=repository,
+                        priority=priority,
+                    ),
                 ),
             ).result()
     except RuntimeError:
@@ -713,7 +724,10 @@ def load_node_configs_notebook_safe(repository: Path, priority: List[str]):
     return node_configs
 
 
-async def load_node_configs(repository: Path, priority: List[str]) -> List[NodeYAML]:
+async def load_node_configs(
+    repository: Path,
+    priority: List[str],
+) -> List[NodeYAML]:
     """
     Load all configs from a repository.
     """
@@ -734,7 +748,7 @@ async def load_node_configs(repository: Path, priority: List[str]) -> List[NodeY
             )
         except KeyError as exc:
             raise DJClientException(
-                f"Priority list includes node name {node_name} "
+                f"Build priority list includes node name {node_name} "
                 "which has no corresponding definition "
                 f"{paths.keys()}",
             ) from exc

@@ -21,7 +21,7 @@ def test_compile_loading_a_project(change_to_project_dir: Callable):
     project = Project.load_current()
     assert project.name == "My DJ Project 1"
     assert project.prefix == "projects.project1"
-    assert project.priority == [
+    assert project.build.priority == [
         "roads.date",
         "roads.date_dim",
         "roads.repair_orders",
@@ -50,7 +50,7 @@ def test_compile_loading_a_project_from_a_nested_dir(change_to_project_dir: Call
     project = Project.load_current()
     assert project.name == "My DJ Project 1"
     assert project.prefix == "projects.project1"
-    assert project.priority == [
+    assert project.build.priority == [
         "roads.date",
         "roads.date_dim",
         "roads.repair_orders",
@@ -92,7 +92,7 @@ def test_compile_compiling_a_project(change_to_project_dir: Callable):
     assert compiled_project.name == "My DJ Project 1"
     assert compiled_project.prefix == "projects.project1"
     assert compiled_project.mode == NodeMode.PUBLISHED
-    assert compiled_project.priority == [
+    assert compiled_project.build.priority == [
         "roads.date",
         "roads.date_dim",
         "roads.repair_orders",
@@ -258,6 +258,6 @@ def test_compile_raise_on_priority_with_node_missing_a_definition(
         project.compile()
 
     assert str(
-        "Priority list includes node name node.that.does.not.exist "
-        "which has no corresponding definition",
+        "Build priority list includes node name "
+        "node.that.does.not.exist which has no corresponding definition",
     ) in str(exc_info.value)
