@@ -303,14 +303,22 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
             if referenced_node.type == NodeType.METRIC  # type: ignore
             else f"{referenced_node.name}.{col.name}"  # type: ignore
         )
-        node_columns.append(
-            Column(
-                name=full_element_name,
-                display_name=col.display_name,
-                type=col.type,
-                attributes=col.attributes,
-            ),
+        node_column = Column(
+            name=full_element_name,
+            display_name=col.display_name,
+            type=col.type,
+            attributes=[
+                ColumnAttribute(attribute_type_id=attr.attribute_type_id)
+                for attr in col.attributes
+            ],
         )
+        # node_column.attributes = [
+        #     ColumnAttribute(
+        #         attribute_type_id=attr.attribute_type_id, column=node_column,
+        #     )
+        #     for attr in col.attributes
+        # ]
+        node_columns.append(node_column)
 
     node_revision = NodeRevision(
         name=data.name,

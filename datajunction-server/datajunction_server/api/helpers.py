@@ -70,7 +70,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import END_JOB_STATES, UTCDatetime
-from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR, amenable_name
+from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR
 
 _logger = logging.getLogger(__name__)
 
@@ -906,7 +906,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
         access_control=access_control,
     )
     columns = [
-        assemble_column_metadata(col, metrics)  # type: ignore
+        assemble_column_metadata(col)  # type: ignore
         for col in query_ast.select.projection
     ]
     return (
@@ -1279,27 +1279,29 @@ def hard_delete_node(
 
 def assemble_column_metadata(
     column: ast.Column,
-    node_name: Union[List[str], str],
+    # node_name: Union[List[str], str],
 ) -> ColumnMetadata:
     """
     Extract column metadata from AST
     """
-    column_name_on_ast = column.alias_or_name.name
-    if not isinstance(node_name, List):
-        node_name = [node_name]
-    node_name_mapping = {amenable_name(name): name for name in node_name}
-    metric_node = node_name_mapping.get(column_name_on_ast)
-
-    amenable_separator = f"_{LOOKUP_CHARS.get(SEPARATOR)}_"
-    column_name_on_node = column_name_on_ast.split(amenable_separator)[-1]
-    reference_node_name = ".".join(column_name_on_ast.split(amenable_separator)[0:-1])
-    if metric_node:
-        column_name_on_node = column_name_on_ast
-        reference_node_name = metric_node
-
-    return ColumnMetadata(
-        name=column_name_on_ast,
+    metadata = ColumnMetadata(
+        name=column.alias_or_name.name,
         type=str(column.type),
-        column=column_name_on_node,
-        node=reference_node_name,
+        column=(
+            column.semantic_entity.split(SEPARATOR)[-1]
+            if hasattr(column, "semantic_entity") and column.semantic_entity
+            else None
+        ),
+        node=(
+            SEPARATOR.join(column.semantic_entity.split(SEPARATOR)[:-1])
+            if hasattr(column, "semantic_entity") and column.semantic_entity
+            else None
+        ),
+        semantic_entity=column.semantic_entity
+        if hasattr(column, "semantic_entity")
+        else None,
+        semantic_type=column.semantic_type
+        if hasattr(column, "semantic_type")
+        else None,
     )
+    return metadata
