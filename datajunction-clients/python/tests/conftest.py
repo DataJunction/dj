@@ -5,6 +5,7 @@ Fixtures for testing DJ client.
 
 import os
 from http.client import HTTPException
+from pathlib import Path
 from typing import Iterator, List, Optional
 from unittest.mock import MagicMock
 
@@ -224,6 +225,19 @@ def change_to_project_dir(request):
 
     try:
         yield _change_to_project_dir
+    finally:
+        os.chdir(request.config.invocation_params.dir)
+
+
+@pytest.fixture
+def change_to_package_root_dir(request):
+    """
+    Changes to the datajunction package root dir only for a single test
+    At the end of the test, this will change back
+    to the tests directory to prevent any side-effects.
+    """
+    try:
+        os.chdir(Path(request.fspath.dirname).parent)
     finally:
         os.chdir(request.config.invocation_params.dir)
 

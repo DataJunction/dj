@@ -1,0 +1,100 @@
+{
+  "title": "Project",
+  "description": "A project configuration",
+  "type": "object",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "prefix": {
+      "title": "Prefix",
+      "type": "string"
+    },
+    "build": {
+      "title": "Build",
+      "default": {
+        "priority": []
+      },
+      "allOf": [
+        {
+          "$ref": "#/definitions/BuildConfig"
+        }
+      ]
+    },
+    "root_path": {
+      "title": "Root Path",
+      "default": "",
+      "type": "string"
+    },
+    "tags": {
+      "title": "Tags",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Tag"
+      }
+    },
+    "mode": {
+      "default": "published",
+      "allOf": [
+        {
+          "$ref": "#/definitions/NodeMode"
+        }
+      ]
+    }
+  },
+  "required": [
+    "name",
+    "prefix"
+  ],
+  "definitions": {
+    "BuildConfig": {
+      "title": "BuildConfig",
+      "description": "A build configuration for a project",
+      "type": "object",
+      "properties": {
+        "priority": {
+          "title": "Priority",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Tag": {
+      "title": "Tag",
+      "description": "Node tags",
+      "type": "object",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "tag_type": {
+          "title": "Tag Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "display_name",
+        "tag_type"
+      ]
+    },
+    "NodeMode": {
+      "title": "NodeMode",
+      "description": "DJ node's mode",
+      "enum": [
+        "draft",
+        "published"
+      ],
+      "type": "string"
+    }
+  }
+}

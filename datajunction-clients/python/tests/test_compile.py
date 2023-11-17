@@ -261,3 +261,19 @@ def test_compile_raise_on_priority_with_node_missing_a_definition(
         "Build priority list includes node name "
         "node.that.does.not.exist which has no corresponding definition",
     ) in str(exc_info.value)
+
+
+def test_compile_json_schema_up_to_date(change_to_package_root_dir):
+    """
+    Load dj.project.schema.json and make sure it's current
+
+    If it needs to be updated, that can be done via the Project pydantic model
+
+    ```py
+    from datajunction import Project
+    with open("dj.project.schema.json", "w") as f:
+       f.write(Project.schema_json(indent=2))
+    ```
+    """
+    with open("dj.project.schema.json", "r", encoding="utf-8") as schema_file:
+        assert schema_file.read() == Project.schema_json(indent=2)
