@@ -271,8 +271,8 @@ def test_compile_json_schema_up_to_date(change_to_package_root_dir):
 
     ```py
     from datajunction import Project
-    with open("dj.project.schema.json", "w") as f:
-       f.write(Project.schema_json(indent=2))
+    with open("dj.project.schema.json", "w", encoding="utf-8") as schema_file:
+       schema_file.write(Project.schema_json(indent=2))
     ```
     """
     with open("dj.project.schema.json", "r", encoding="utf-8") as schema_file:
