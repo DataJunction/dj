@@ -1,0 +1,6 @@
+name: My DJ Project 8
+prefix: projects.project8
+mode: published
+build:
+  priority:
+  - node.that.does.not.exist

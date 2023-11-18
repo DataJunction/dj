@@ -367,4 +367,12 @@ class Cube(Node):  # pylint: disable=abstract-method
     columns: Optional[List[models.Column]]
 
     def _update(self):  # pragma: no cover
-        pass
+        update_node = models.UpdateNode(
+            description=self.description,
+            mode=self.mode,
+            metrics=self.metrics,
+            dimensions=self.dimensions,
+            filters=self.filters,
+            columns=self.columns,
+        )
+        return self.dj_client._update_node(self.name, update_node)

@@ -1,0 +1,15 @@
+description: Municipality data
+table: default.roads.municipality
+columns:
+  - name: municipality_id
+    type: string
+  - name: contact_name
+    type: string
+  - name: contact_title
+    type: string
+  - name: local_region
+    type: string
+  - name: phone
+    type: string
+  - name: state_id
+    type: int

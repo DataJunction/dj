@@ -1,0 +1,29 @@
+description: Internal employees table
+table: default.roads.hard_hats
+columns:
+  - name: hard_hat_id
+    type: int
+  - name: last_name
+    type: string
+  - name: first_name
+    type: string
+  - name: title
+    type: string
+  - name: birth_date
+    type: date
+  - name: hire_date
+    type: date
+  - name: address
+    type: string
+  - name: city
+    type: string
+  - name: state
+    type: string
+  - name: postal_code
+    type: string
+  - name: country
+    type: string
+  - name: manager
+    type: int
+  - name: contractor_id
+    type: int

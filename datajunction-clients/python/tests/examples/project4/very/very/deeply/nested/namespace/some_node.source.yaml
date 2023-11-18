@@ -1,0 +1,7 @@
+description: A source node definition
+table: default.myschema.mytable
+columns:
+  - name: foo
+    type: int
+  - name: bar
+    type: string

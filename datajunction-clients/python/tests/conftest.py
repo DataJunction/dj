@@ -3,7 +3,9 @@ Fixtures for testing DJ client.
 """
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 
+import os
 from http.client import HTTPException
+from pathlib import Path
 from typing import Iterator, List, Optional
 from unittest.mock import MagicMock
 
@@ -27,6 +29,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel
 from starlette.testclient import TestClient
 
+from datajunction import DJBuilder
 from tests.examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS
 
 
@@ -196,6 +199,47 @@ def session_with_examples(server: TestClient) -> TestClient:
     for endpoint, json in EXAMPLES:
         post_and_raise_if_error(server=server, endpoint=endpoint, json=json)  # type: ignore
     return server
+
+
+@pytest.fixture
+def builder_client(session_with_examples: Session):
+    """
+    Returns a DJ client instance
+    """
+    return DJBuilder(requests_session=session_with_examples)  # type: ignore
+
+
+@pytest.fixture
+def change_to_project_dir(request):
+    """
+    Returns a function that changes to a specified project directory
+    only for a single test. At the end of the test, this will change back
+    to the tests directory to prevent any side-effects.
+    """
+
+    def _change_to_project_dir(project: str):
+        """
+        Changes to the directory for a specific example project
+        """
+        os.chdir(os.path.join(request.fspath.dirname, "examples", project))
+
+    try:
+        yield _change_to_project_dir
+    finally:
+        os.chdir(request.config.invocation_params.dir)
+
+
+@pytest.fixture
+def change_to_package_root_dir(request):
+    """
+    Changes to the datajunction package root dir only for a single test
+    At the end of the test, this will change back
+    to the tests directory to prevent any side-effects.
+    """
+    try:
+        os.chdir(Path(request.fspath.dirname).parent)
+    finally:
+        os.chdir(request.config.invocation_params.dir)
 
 
 def pytest_addoption(parser):

@@ -1,0 +1,17 @@
+description: This is a source for details on individual repair orders
+table: default.roads.repair_order_details
+columns:
+  - name: repair_order_id
+    type: int
+  - name: repair_type_id
+    type: int
+  - name: price
+    type: float
+  - name: quantity
+    type: int
+  - name: discount
+    type: float
+dimension_links:
+  repair_order_id:
+    dimension: ${prefix}roads.repair_order
+    column: repair_order_id
