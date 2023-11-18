@@ -1,0 +1,15 @@
+description: Contractor dimension
+query: |
+  SELECT
+  contractor_id,
+  company_name,
+  contact_name,
+  contact_title,
+  address,
+  city,
+  state,
+  postal_code,
+  country
+  FROM ${prefix}roads.contractors
+primary_key:
+  - contractor_id

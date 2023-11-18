@@ -1,0 +1,13 @@
+description: Information on different types of repairs
+table: default.roads.repair_type
+columns:
+  - name: repair_type_id
+    type: int
+  - name: repair_type_name
+    type: string
+  - name: contractor_id
+    type: int
+dimension_links:
+  contractor_id:
+    dimension: ${prefix}roads.contractor
+    column: contractor_id

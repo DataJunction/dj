@@ -6,6 +6,7 @@ from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 from datajunction.admin import DJAdmin
 from datajunction.builder import DJBuilder
 from datajunction.client import DJClient
+from datajunction.compile import Project
 from datajunction.models import (
     AvailabilityState,
     ColumnAttribute,
@@ -49,4 +50,5 @@ __all__ = [
     "NodeMode",
     "Namespace",
     "Engine",
+    "Project",
 ]

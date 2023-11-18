@@ -1,0 +1,7 @@
+description: State locale lookup table for employees
+table: default.roads.hard_hat_state
+columns:
+  - name: hard_hat_id
+    type: int
+  - name: state_id
+    type: string

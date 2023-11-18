@@ -1,4 +1,5 @@
 """DJ client exceptions"""
+from typing import List
 
 
 class DJClientException(Exception):
@@ -20,4 +21,15 @@ class DJNodeAlreadyExists(DJClientException):
 
     def __init__(self, node_name: str, *args) -> None:
         self.message = f"Node `{node_name}` already exists."
+        super().__init__(self.message, *args)
+
+
+class DJDeploymentFailure(DJClientException):
+    """
+    Raised when a deployment of a project includes any errors
+    """
+
+    def __init__(self, project_name: str, errors: List[dict], *args) -> None:
+        self.errors = errors
+        self.message = f"Some failures while deploying project `{project_name}`"
         super().__init__(self.message, *args)

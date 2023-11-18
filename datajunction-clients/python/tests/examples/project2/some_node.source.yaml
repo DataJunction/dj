@@ -1,0 +1,7 @@
+description: A node that will raise due to missing a catalog in the table name
+table: roads.us_states
+columns:
+  - name: foo
+    type: int
+  - name: bar
+    type: string

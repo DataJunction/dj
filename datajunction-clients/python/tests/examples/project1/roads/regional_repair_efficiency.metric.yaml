@@ -1,0 +1,16 @@
+description: |
+  For each US region (as defined in the us_region table), we want to calculate:
+    Regional Repair Efficiency = (Number of Completed Repairs / Total Repairs Dispatched) ×
+                                (Total Repair Amount in Region / Total Repair Amount Nationwide) × 100
+    Here:
+        A "Completed Repair" is one where the dispatched_date is not null.
+        "Total Repair Amount in Region" is the total amount spent on repairs in a given region.
+        "Total Repair Amount Nationwide" is the total amount spent on all repairs nationwide.
+query: |
+  SELECT
+  (SUM(rm.completed_repairs) * 1.0 / SUM(rm.total_repairs_dispatched)) *
+  (SUM(rm.total_amount_in_region) * 1.0 / SUM(na.total_amount_nationwide)) * 100
+  FROM
+  ${prefix}roads.regional_level_agg rm
+  CROSS JOIN
+  ${prefix}roads.national_level_agg na

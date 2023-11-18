@@ -1,0 +1,2 @@
+description: Average length of employment
+query: SELECT avg(NOW() - hire_date) FROM ${prefix}roads.hard_hats

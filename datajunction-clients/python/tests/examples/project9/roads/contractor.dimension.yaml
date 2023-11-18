@@ -1,0 +1,19 @@
+description: A dimension node that will fail because it's selecting from a node that doesn't exist
+query: |
+  SELECT
+  contractor_id,
+  company_name,
+  contact_name,
+  contact_title,
+  address,
+  city,
+  state,
+  postal_code,
+  country
+  FROM some_non_existent_node
+primary_key:
+  - contractor_id
+dimension_links:
+  repair_order_id:
+    dimension: ${prefix}does.not.exist
+    column: id
