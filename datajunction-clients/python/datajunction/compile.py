@@ -486,24 +486,15 @@ class CompiledProject(Project):
                             f"[green]Tag {prefixed_name} successfully created",
                         ]
                     )
-                except DJClientException as exc:
-                    if "already exists" in str(exc):
-                        table.add_row(
-                            *[
-                                prefixed_name,
-                                "[b][#3A4F6C]tag",
-                                f"[green]Tag {prefixed_name} successfully created",
-                            ]
-                        )
-                    else:  # pragma: no cover
-                        table.add_row(*[tag.name, "tag", f"[i][red]{str(exc)}"])
-                        self.errors.append(
-                            {
-                                "name": prefixed_name,
-                                "type": "tag",
-                                "error": exc,
-                            },
-                        )
+                except DJClientException as exc:  # pragma: no cover
+                    table.add_row(*[tag.name, "tag", f"[i][red]{str(exc)}"])
+                    self.errors.append(
+                        {
+                            "name": prefixed_name,
+                            "type": "tag",
+                            "error": exc,
+                        },
+                    )
         return table
 
     def _deploy_namespaces(self, prefix: str, table: Table, client: DJBuilder):

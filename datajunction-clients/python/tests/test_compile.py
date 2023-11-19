@@ -204,7 +204,6 @@ def test_compile_deeply_nested_namespace(
     """
     change_to_project_dir("project4")
     project = Project.load_current()
-    project.compile()
     compiled_project = project.compile()
     compiled_project.deploy(client=builder_client)
 
@@ -218,7 +217,6 @@ def test_compile_error_on_individual_node(
     """
     change_to_project_dir("project6")
     project = Project.load_current()
-    project.compile()
     compiled_project = project.compile()
     with pytest.raises(DJDeploymentFailure) as exc_info:
         compiled_project.deploy(client=builder_client)
@@ -237,7 +235,6 @@ def test_compile_error_on_invalid_dimension_link(
     """
     change_to_project_dir("project7")
     project = Project.load_current()
-    project.compile()
     compiled_project = project.compile()
     with pytest.raises(DJDeploymentFailure) as exc_info:
         compiled_project.deploy(client=builder_client)
@@ -267,13 +264,16 @@ def test_compile_raise_on_priority_with_node_missing_a_definition(
 
 def test_compile_duplicate_tags(
     change_to_project_dir: Callable,
+    builder_client: DJBuilder,
 ):
     """
-    Test that duplicate tags are gracefully handled
+    Test that deploying duplicate tags are gracefully handled
     """
     change_to_project_dir("project10")
     project = Project.load_current()
-    project.compile()
+    compiled_project = project.compile()
+    compiled_project.deploy(client=builder_client)
+    compiled_project.deploy(client=builder_client)
 
 
 def test_compile_json_schema_up_to_date(change_to_package_root_dir):
