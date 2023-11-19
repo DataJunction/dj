@@ -105,7 +105,7 @@ class UpdateTag(BaseModel):
     """
 
     description: str
-    tag_metadata: dict
+    tag_metadata: Optional[Dict]
 
 
 class QueryState(str, enum.Enum):

@@ -288,7 +288,10 @@ class DJClient:
         """
         Call tag update API with attributes to update.
         """
-        return self._session.patch(f"/tags/{tag_name}/", json=update_input.dict())
+        return self._session.patch(
+            f"/tags/{tag_name}/",
+            json=update_input.dict(exclude_none=True),
+        )
 
     def _publish_node(self, node_name: str, update_input: models.UpdateNode):
         """
