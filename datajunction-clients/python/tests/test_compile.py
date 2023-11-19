@@ -21,6 +21,7 @@ def test_compile_loading_a_project(change_to_project_dir: Callable):
     project = Project.load_current()
     assert project.name == "My DJ Project 1"
     assert project.prefix == "projects.project1"
+    assert project.tags[0].name == "deprecated"
     assert project.build.priority == [
         "roads.date",
         "roads.date_dim",
@@ -50,6 +51,7 @@ def test_compile_loading_a_project_from_a_nested_dir(change_to_project_dir: Call
     project = Project.load_current()
     assert project.name == "My DJ Project 1"
     assert project.prefix == "projects.project1"
+    assert project.tags[0].name == "deprecated"
     assert project.build.priority == [
         "roads.date",
         "roads.date_dim",
