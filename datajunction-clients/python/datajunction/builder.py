@@ -265,13 +265,14 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     #
     # Tag
     #
-    def create_tag(self, tag: str, tag_metadata: Dict, tag_type: str) -> Tag:
+    def create_tag(self, name: str, description: Optional[str], tag_metadata: Dict, tag_type: str) -> Tag:
         """
         Create a tag with a given name.
         """
         new_tag = Tag(
             dj_client=self,
-            name=tag,
+            name=name,
+            description=description,
             tag_type=tag_type,
             tag_metadata=tag_metadata,
         )
