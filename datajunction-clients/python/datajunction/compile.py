@@ -16,7 +16,7 @@ import random
 import string
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, validator
 from pydantic_yaml import parse_yaml_raw_as
@@ -28,8 +28,9 @@ from rich.table import Table
 
 from datajunction import DJBuilder
 from datajunction.exceptions import DJClientException, DJDeploymentFailure
-from datajunction.models import Column, NodeMode, NodeType, Tag
+from datajunction.models import Column, NodeMode, NodeType
 from datajunction.nodes import Cube, Dimension, Metric, Source, Transform
+from datajunction.tags import Tag
 
 _logger = logging.getLogger(__name__)
 
@@ -64,6 +65,17 @@ def find_project_root():
             )
 
     return checked_dir
+
+
+class TagYAML(BaseModel):
+    """
+    YAML representation of a tag
+    """
+
+    name: str
+    description: str = ""
+    tag_type: str
+    tag_metadata: Optional[Dict] = None
 
 
 class NodeYAML(BaseModel):
@@ -385,7 +397,7 @@ class Project(BaseModel):
     prefix: str
     build: BuildConfig = BuildConfig()
     root_path: str = ""
-    tags: Optional[List[Tag]]
+    tags: Optional[List[TagYAML]] = []
     mode: NodeMode = NodeMode.PUBLISHED
 
     @classmethod
@@ -450,6 +462,49 @@ class CompiledProject(Project):
     definitions: List[NodeConfig]
     validated: bool = False
     errors: List[dict] = []
+
+    def _deploy_tags(self, prefix: str, table: Table, client: DJBuilder):
+        """
+        Deploy tags
+        """
+        if self.tags:
+            for tag in self.tags:
+                prefixed_name = f"{prefix}.{tag.name}"
+                try:
+                    new_tag = Tag(
+                        name=prefixed_name,
+                        description=tag.description,
+                        tag_type=tag.tag_type,
+                        tag_metadata=tag.tag_metadata,
+                        dj_client=client,
+                    )
+                    new_tag.save()
+                    table.add_row(
+                        *[
+                            prefixed_name,
+                            "[b][#3A4F6C]tag",
+                            f"[green]Tag {prefixed_name} successfully created",
+                        ]
+                    )
+                except DJClientException as exc:
+                    if "already exists" in str(exc):
+                        table.add_row(
+                            *[
+                                prefixed_name,
+                                "[b][#3A4F6C]tag",
+                                f"[green]Tag {prefixed_name} successfully created",
+                            ]
+                        )
+                    else:  # pragma: no cover
+                        table.add_row(*[tag.name, "tag", f"[i][red]{str(exc)}"])
+                        self.errors.append(
+                            {
+                                "name": prefixed_name,
+                                "type": "tag",
+                                "error": exc,
+                            },
+                        )
+        return table
 
     def _deploy_namespaces(self, prefix: str, table: Table, client: DJBuilder):
         """
@@ -607,6 +662,7 @@ class CompiledProject(Project):
             table.add_column("Name", no_wrap=True)
             table.add_column("Type", no_wrap=True)
             table.add_column("", no_wrap=True)
+            self._deploy_tags(prefix=prefix, table=table, client=client)
             self._deploy_namespaces(prefix=prefix, table=table, client=client)
             self._deploy_nodes(
                 node_configs=non_cubes,

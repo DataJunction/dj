@@ -1,6 +1,10 @@
 name: My DJ Project 1
 prefix: projects.project1
 mode: published
+tags:
+  - name: deprecated
+    description: This node is deprecated
+    tag_type: Maintenance
 build:
   priority:
     - roads.date

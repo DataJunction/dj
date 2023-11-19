@@ -1,12 +1,13 @@
 """DataJunction builder client module."""
 
 from http import HTTPStatus
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from datajunction import models
 from datajunction.client import DJClient
 from datajunction.exceptions import DJClientException, DJNamespaceAlreadyExists
 from datajunction.nodes import Cube, Dimension, Metric, Namespace, Source, Transform
+from datajunction.tags import Tag
 
 
 class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
@@ -111,7 +112,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         display_name: Optional[str] = None,
         columns: Optional[List[models.Column]] = None,
         primary_key: Optional[List[str]] = None,
-        tags: Optional[List[models.Tag]] = None,
+        tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
     ) -> "Source":
         """
@@ -155,7 +156,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         description: Optional[str] = None,
         display_name: Optional[str] = None,
         primary_key: Optional[List[str]] = None,
-        tags: Optional[List[models.Tag]] = None,
+        tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
     ) -> "Transform":
         """
@@ -184,7 +185,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         primary_key: Optional[List[str]],
         description: Optional[str] = None,
         display_name: Optional[str] = None,
-        tags: Optional[List[models.Tag]] = None,
+        tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
     ) -> "Transform":
         """
@@ -213,7 +214,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         description: Optional[str] = None,
         display_name: Optional[str] = None,
         primary_key: Optional[List[str]] = None,
-        tags: Optional[List[models.Tag]] = None,
+        tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
     ) -> "Transform":
         """
@@ -260,3 +261,20 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         self._create_node(node=new_node, mode=mode)  # pragma: no cover
         new_node.refresh()
         return new_node  # pragma: no cover
+
+    #
+    # Tag
+    #
+    def create_tag(self, tag: str, tag_metadata: Dict, tag_type: str) -> Tag:
+        """
+        Create a tag with a given name.
+        """
+        new_tag = Tag(
+            dj_client=self,
+            name=tag,
+            tag_type=tag_type,
+            tag_metadata=tag_metadata,
+        )
+        self._create_tag(tag=new_tag)
+        new_tag.refresh()
+        return new_tag

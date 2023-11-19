@@ -9,6 +9,7 @@ from pydantic import validator
 from datajunction import models
 from datajunction._internal import ClientEntity
 from datajunction.exceptions import DJClientException
+from datajunction.tags import Tag
 
 
 class Namespace(ClientEntity):  # pylint: disable=protected-access
@@ -69,7 +70,7 @@ class Node(ClientEntity):  # pylint: disable=protected-access
     status: Optional[str] = None
     display_name: Optional[str]
     availability: Optional[models.AvailabilityState]
-    tags: Optional[List[models.Tag]]
+    tags: Optional[List[Tag]]
     primary_key: Optional[List[str]]
     materializations: Optional[List[Dict[str, Any]]]
     version: Optional[str]

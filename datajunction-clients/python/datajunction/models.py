@@ -99,6 +99,15 @@ class UpdateNode(BaseModel):
     limit: Optional[int]
 
 
+class UpdateTag(BaseModel):
+    """
+    Model for a tag update
+    """
+
+    description: str
+    tag_metadata: dict
+
+
 class QueryState(str, enum.Enum):
     """
     Different states of a query.
@@ -118,16 +127,6 @@ class QueryState(str, enum.Enum):
         List of available query states as strings
         """
         return list(map(lambda c: c.value, cls))  # type: ignore
-
-
-class Tag(BaseModel):
-    """
-    Node tags
-    """
-
-    name: str
-    display_name: str
-    tag_type: str
 
 
 class AvailabilityState(BaseModel):
