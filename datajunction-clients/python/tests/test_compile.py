@@ -265,6 +265,17 @@ def test_compile_raise_on_priority_with_node_missing_a_definition(
     ) in str(exc_info.value)
 
 
+def test_compile_duplicate_tags(
+    change_to_project_dir: Callable,
+):
+    """
+    Test that duplicate tags are gracefully handled
+    """
+    change_to_project_dir("project10")
+    project = Project.load_current()
+    project.compile()
+
+
 def test_compile_json_schema_up_to_date(change_to_package_root_dir):
     """
     Load dj.project.schema.json and make sure it's current
