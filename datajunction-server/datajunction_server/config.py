@@ -88,6 +88,9 @@ class Settings(
     # Google OAuth application client secret file
     google_oauth_client_secret_file: Optional[str] = None
 
+    # Interval in seconds with which to expire caching of any indexes
+    index_cache_expire = 60
+
     @property
     def celery(self) -> Celery:
         """

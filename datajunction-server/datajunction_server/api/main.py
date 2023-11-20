@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
 from jose import JWTError
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from sqlmodel import select
@@ -104,6 +106,14 @@ app.include_router(client.router)
 app.include_router(dimensions.router)
 app.include_router(graphql_app, prefix="/graphql")
 app.include_router(whoami.router)
+
+
+@app.on_event("startup")
+async def startup():
+    """
+    Initialize FastAPI cache when the server starts up
+    """
+    FastAPICache.init(InMemoryBackend(), prefix="inmemory-cache")
 
 
 @app.exception_handler(DJException)
