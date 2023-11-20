@@ -17,6 +17,7 @@ dependencies = [
     "pydantic>=1.10.7,<2",
     "alive-progress>=3.1.2",
     "pydantic-yaml>=1.2.0",
+    "fastapi-cache2>=0.2.1",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.md"

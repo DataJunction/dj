@@ -20,4 +20,4 @@ AUTH_COOKIE = "__dj"
 LOGGED_IN_FLAG_COOKIE = "__djlif"
 
 # Maximum amount of nodes to return for requests to list all nodes
-NODE_LIST_MAX = 50000
+NODE_LIST_MAX = 1000
