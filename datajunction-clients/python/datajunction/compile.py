@@ -501,8 +501,7 @@ class CompiledProject(Project):
         """
         Deploy namespaces
         """
-        if prefix:
-            self.namespaces.append(prefix)
+        self.namespaces.append(prefix)
         for namespace in self.namespaces:
             prefixed_name = f"{prefix}.{namespace}" if namespace != prefix else prefix
             try:
