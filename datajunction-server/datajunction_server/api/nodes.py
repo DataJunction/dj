@@ -9,6 +9,7 @@ from typing import List, Optional, Union, cast
 
 from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
+from fastapi_cache.decorator import cache
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 from starlette.requests import Request
@@ -215,6 +216,7 @@ def list_nodes(
 
 
 @router.get("/nodes/details/", response_model=List[NodeIndexItem])
+@cache(expire=settings.index_cache_expire)
 def list_all_nodes_with_details(
     node_type: Optional[NodeType] = None,
     *,
