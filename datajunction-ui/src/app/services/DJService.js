@@ -34,6 +34,14 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  materializationInfo: async function () {
+    return await (
+      await fetch(`${DJ_URL}/materialization/info`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
   node: async function (name) {
     const data = await (
       await fetch(`${DJ_URL}/nodes/${name}/`, {
@@ -643,9 +651,9 @@ export const DataJunctionAPI = {
   },
   materialize: async function (
     nodeName,
-    engineName,
-    engineVersion,
+    jobType,
     schedule,
+    strategy,
     config,
   ) {
     const response = await fetch(
@@ -656,10 +664,7 @@ export const DataJunctionAPI = {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          engine: {
-            name: engineName,
-            version: engineVersion,
-          },
+          job_type: jobType,
           schedule: schedule,
           config: JSON.parse(config),
         }),

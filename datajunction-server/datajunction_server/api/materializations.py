@@ -21,10 +21,13 @@ from datajunction_server.internal.materializations import (
 )
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models import access
+from datajunction_server.models.base import labelize
 from datajunction_server.models.history import ActivityType, EntityType, History
 from datajunction_server.models.materialization import (
     MaterializationConfigInfoUnified,
     MaterializationInfo,
+    MaterializationJobType,
+    MaterializationStrategy,
     UpsertMaterialization,
 )
 from datajunction_server.models.node import NodeType
@@ -42,6 +45,27 @@ from datajunction_server.utils import (
 _logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["materializations"])
+
+
+@router.get(
+    "/materialization/info",
+    status_code=200,
+    name="Materialization Jobs Info",
+)
+def materialization_jobs_info() -> JSONResponse:
+    return JSONResponse(
+        status_code=200,
+        content={
+            "job_types": [
+                {"name": value, "label": labelize(value)}
+                for value in MaterializationJobType
+            ],
+            "strategies": [
+                {"name": value, "label": labelize(value)}
+                for value in MaterializationStrategy
+            ],
+        },
+    )
 
 
 @router.post(
@@ -70,6 +94,13 @@ def upsert_materialization(  # pylint: disable=too-many-locals
             http_status_code=HTTPStatus.BAD_REQUEST,
             message=f"Cannot set materialization config for source node `{node_name}`!",
         )
+    if data.strategy == MaterializationStrategy.INCREMENTAL_TIME:
+        if not node.current.temporal_partition_columns():
+            raise DJException(
+                http_status_code=HTTPStatus.BAD_REQUEST,
+                message="Cannot create materialization with strategy "
+                f"`{data.strategy}` without specifying a time partition column!",
+            )
     current_revision = node.current
     old_materializations = {mat.name: mat for mat in current_revision.materializations}
 

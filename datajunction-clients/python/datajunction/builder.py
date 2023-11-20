@@ -105,7 +105,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         self,
         name: str,
         catalog: str,
-        schema_: str,
+        schema: str,
         table: str,
         description: Optional[str] = None,
         display_name: Optional[str] = None,
@@ -125,7 +125,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             tags=tags,
             primary_key=primary_key,
             catalog=catalog,
-            schema_=schema_,
+            schema_=schema,
             table=table,
             columns=columns,
         )

@@ -37,6 +37,72 @@ class DefaultCubeMaterialization(
         return  # pragma: no cover
 
 
+"""
+Funnel: if you only materialize at cube level, pick full_snapshot.
+Then choose filters as test=222
+Start/end timestamp ranges from 2023-01-01 to 2023-05-01
+This is your "filterset" on the cube.
+Then when you materialize, DJ will create a table like:
+hash(test_id_22222__start_dateint_20230101__end_dateint_20230501)
+dj.{node_name}__{node_version}__{hash}
+
+Alt: materialize at transform. This will have strategy of "incremental_time"
+lookback_window=ms to lookback
+Each run will write to a range of time partitions
+from DJ_LOGICAL_TIMESTAMP() to DJ_LOGICAL_TIMESTAMP() - lookback_window
+Still need to materialize at cube level, but cheaper?
+
+Cube materialization:
+    - Strategies: FULL, FULL_SNAPSHOT, INCREMENTAL_TIME, VIEW
+    * Druid (outputs to a datasource in Druid)
+        - FULL:
+            - Can partition by time and one additional partition
+            - Overwrite entire datasource each time
+        - FULL_SNAPSHOT:
+            - Can partition by time and one additional partition
+            - Snapshots captured by filterset + timestamp
+            - New datasource every time
+        - INCREMENTAL_TIME:
+            Can partition by temporal partitions
+            For each materialization run, will write to a time partition in a single table.
+            Time partition increments based on the processing timestamp
+    * Spark (outputs to a table in data warehouse)
+        - Partition by both categorical and temporal partitions
+        - Snapshots captured by filterset + timestamp
+
+Snapshot:
+- name
+- timestamp
+- filters (if any, only for Druid)
+- full table name (catalog, schema, table)
+- vtts
+
+Transform materialization:
+    * Spark (outputs to a table in data warehouse)
+        - Strategies: FULL, FULL_SNAPSHOT, INCREMENTAL_TIME, VIEW
+        (single table)
+        - FULL:
+            Can partition by both categorical and temporal partitions.
+            For each materialization run, will fully overwrite partitions in a single table.
+        - INCREMENTAL_TIME:
+            Can partition by temporal partitions
+            For each materialization run, will write to a time partition in a single table.
+            Time partition increments based on the processing timestamp
+
+        (snapshot tables)
+        - FULL_SNAPSHOT:
+            If you have parameters other than DJ_LOGICAL_TIMESTAMP in your query, must choose this option.
+            Can partition by both categorical and temporal partitions.
+            For each materialization run, will write to a snapshot table, where the table name
+            is determined by the processing timestamp
+
+        (not materialized)
+        - VIEW:
+            Creates the view with a node-versioned name. Will not change the view unless the node
+            version increments.
+"""
+
+
 class DruidCubeMaterializationJob(MaterializationJob):
     """
     Druid materialization for a cube node.
@@ -72,6 +138,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 node_name=materialization.node_revision.name,
                 node_version=materialization.node_revision.version,
                 node_type=materialization.node_revision.type,
+                strategy=materialization.strategy,
                 schedule=materialization.schedule,
                 query=str(final_query),
                 spark_conf=cube_config.spark.__root__ if cube_config.spark else {},

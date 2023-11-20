@@ -8,6 +8,7 @@ from pydantic import Field, root_validator
 from sqlmodel import SQLModel
 
 from datajunction_server.models.base import BaseSQLModel
+from datajunction_server.models.filterset import Filterset, FiltersetBase
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.node import AvailabilityState, ColumnOutput, NodeType
 from datajunction_server.models.partition import PartitionOutput
@@ -52,12 +53,13 @@ class CubeRevisionMetadata(SQLModel):
     display_name: str
     version: str
     description: str = ""
-    availability: Optional[AvailabilityState] = None
+    availability: List[AvailabilityState] = None
     cube_elements: List[CubeElementMetadata]
     query: str
     columns: List[ColumnOutput]
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]
+    filtersets: List[FiltersetBase]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True

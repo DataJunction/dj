@@ -584,16 +584,14 @@ def _get_node_table(
         else:
             name = to_namespaced_name(node.name)
         table = ast.Table(name, _dj_node=node)
-    elif node.availability and node.availability.is_available(
+    elif availability := node.find_available_materialization(
         criteria=build_criteria,
     ):  # pragma: no cover
         table = ast.Table(
             ast.Name(
-                node.availability.table,
+                availability.table,
                 namespace=(
-                    ast.Name(node.availability.schema_)
-                    if node.availability.schema_
-                    else None
+                    ast.Name(availability.schema_) if availability.schema_ else None
                 ),
             ),
             _dj_node=node,

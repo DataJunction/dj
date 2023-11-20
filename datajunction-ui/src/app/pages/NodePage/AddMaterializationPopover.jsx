@@ -9,18 +9,18 @@ import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
 export default function AddMaterializationPopover({ node, onSubmit }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [popoverAnchor, setPopoverAnchor] = useState(false);
-  const [engines, setEngines] = useState([]);
-  const [defaultEngine, setDefaultEngine] = useState('');
+  const [options, setOptions] = useState([]);
+  const [defaultJob, setDefaultJob] = useState('');
 
   const ref = useRef(null);
 
   useEffect(() => {
     const fetchData = async () => {
-      const engines = await djClient.engines();
-      setEngines(engines);
-      setDefaultEngine(
-        engines && engines.length > 0
-          ? engines[0].name + '__' + engines[0].version
+      const options = await djClient.materializationInfo();
+      setOptions(options);
+      setDefaultJob(
+        options.job_types && options.job_types.length > 0
+          ? options.job_types[0].name
           : '',
       );
     };
@@ -41,13 +41,12 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
     { setSubmitting, setStatus },
   ) => {
     setSubmitting(false);
-    const engineVersion = values.engine.split('__').slice(-1).join('');
-    const engineName = values.engine.split('__').slice(0, -1).join('');
+    values.config.lookback_window = values.lookback_window;
     const response = await djClient.materialize(
       values.node,
-      engineName,
-      engineVersion,
+      values.job_type,
       values.schedule,
+      values.strategy,
       values.config,
     );
     if (response.status === 200 || response.status === 201) {
@@ -90,9 +89,10 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
         <Formik
           initialValues={{
             node: node?.name,
-            engine: defaultEngine,
+            job: defaultJob,
             config: '{"spark": {"spark.executor.memory": "6g"}}',
             schedule: '@daily',
+            lookback_window: '1 DAY',
           }}
           onSubmit={configureMaterialization}
         >
@@ -102,13 +102,11 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                 <h2>Configure Materialization</h2>
                 {displayMessageAfterSubmit(status)}
                 <span data-testid="edit-partition">
-                  <label htmlFor="engine">Engine</label>
-                  <Field as="select" name="engine">
+                  <label htmlFor="job_type">Job Type</label>
+                  <Field as="select" name="job_type">
                     <>
-                      {engines?.map(engine => (
-                        <option value={engine.name + '__' + engine.version}>
-                          {engine.name} {engine.version}
-                        </option>
+                      {options.job_types?.map(job => (
+                        <option value={job.name}>{job.label}</option>
                       ))}
                       <option value=""></option>
                     </>
@@ -122,6 +120,19 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                 />
                 <br />
                 <br />
+                <span data-testid="edit-partition">
+                  <label htmlFor="strategy">Strategy</label>
+                  <Field as="select" name="strategy">
+                    <>
+                      {options.strategies?.map(strategy => (
+                        <option value={strategy.name}>{strategy.label}</option>
+                      ))}
+                      <option value=""></option>
+                    </>
+                  </Field>
+                </span>
+                <br />
+                <br />
                 <label htmlFor="schedule">Schedule</label>
                 <Field
                   type="text"
@@ -131,6 +142,18 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                   default="@daily"
                 />
                 <br />
+                <br />
+                <div className="DescriptionInput">
+                  <ErrorMessage name="description" component="span" />
+                  <label htmlFor="Config">Lookback Window</label>
+                  <Field
+                    type="text"
+                    name="lookback_window"
+                    id="lookback_window"
+                    placeholder="1 DAY"
+                    default="1 DAY"
+                  />
+                </div>
                 <br />
                 <div className="DescriptionInput">
                   <ErrorMessage name="description" component="span" />

@@ -83,7 +83,7 @@ class Partition(PartitionInput, table=True):  # type: ignore
         },
     )
 
-    def temporal_expression(self):
+    def temporal_expression(self, offset=None):
         """
         This expression evaluates to the temporal partition value for scheduled runs. Defaults to
         CAST(FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS <column type>)
@@ -92,18 +92,26 @@ class Partition(PartitionInput, table=True):  # type: ignore
             ast,
         )
 
+        logical_timestamp = ast.Cast(
+            expression=ast.Function(
+                ast.Name("DJ_LOGICAL_TIMESTAMP"),
+                args=[],
+            ),
+            data_type=TimestampType(),
+        )
+
         if self.type_ == PartitionType.TEMPORAL:
             return ast.Cast(
                 expression=ast.Function(
                     ast.Name("DATE_FORMAT"),
                     args=[
-                        ast.Cast(
-                            expression=ast.Function(
-                                ast.Name("DJ_LOGICAL_TIMESTAMP"),
-                                args=[],
-                            ),
-                            data_type=TimestampType(),
-                        ),
+                        ast.BinaryOp(
+                            op=ast.BinaryOpKind.Minus,
+                            left=logical_timestamp,
+                            right=offset,
+                        )
+                        if offset
+                        else logical_timestamp,
                         ast.String(f"'{self.format}'"),
                     ],
                 ),

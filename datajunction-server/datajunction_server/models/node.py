@@ -31,6 +31,7 @@ from datajunction_server.models.catalog import Catalog
 from datajunction_server.models.column import Column, ColumnYAML
 from datajunction_server.models.database import Database
 from datajunction_server.models.engine import Dialect
+from datajunction_server.models.filterset import Filterset
 from datajunction_server.models.materialization import (
     Materialization,
     MaterializationConfigOutput,
@@ -387,6 +388,9 @@ class AvailabilityStateBase(TemporalPartitionRange):
     table: str
     valid_through_ts: int
     url: Optional[str]
+
+    # Reference to the filterset that this availability state encompasses
+    filterset: Optional[str]
 
     # An ordered list of categorical partitions like ["country", "group_id"]
     # or ["region_id", "age_group"]
@@ -770,6 +774,20 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         },
     )
 
+    # Primarily used for cubes
+    filtersets: List[Filterset] = Relationship(
+        # link_model=NodeFilterset,
+        sa_relationship_kwargs={
+            # "primaryjoin": "NodeRevision.id==NodeFilterset.node_revision_id",
+            # "secondaryjoin": "NodeFilterset.filterset_id==Filterset.id",
+            # "primaryjoin": "and_(NodeFilterset.node_revision_id==NodeRevision.id, "
+            #                "NodeFilterset.filterset_id==Filterset.id)",
+            "cascade": "all, delete",
+            "uselist": True,
+        },
+        back_populates="node_revision",
+    )
+
     # A list of metric columns and dimension columns, only used by cube nodes
     cube_elements: List["Column"] = Relationship(
         link_model=CubeRelationship,
@@ -822,13 +840,13 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     # The availability of materialized data needs to be stored on the NodeRevision
     # level in order to support pinned versions, where a node owner wants to pin
     # to a particular upstream node version.
-    availability: Optional[AvailabilityState] = Relationship(
+    availability: List[AvailabilityState] = Relationship(
         link_model=NodeAvailabilityState,
         sa_relationship_kwargs={
             "primaryjoin": "NodeRevision.id==NodeAvailabilityState.node_id",
             "secondaryjoin": "AvailabilityState.id==NodeAvailabilityState.availability_id",
             "cascade": "all, delete",
-            "uselist": False,
+            "uselist": True,
         },
     )
 
@@ -956,16 +974,18 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         extra = Extra.allow
 
-    def has_available_materialization(self, build_criteria: BuildCriteria) -> bool:
+    def find_available_materialization(
+        self, criteria: Optional[BuildCriteria] = None,
+    ) -> Optional[AvailabilityState]:
         """
-        Has a materialization available
+        Find a compatible materialized dataset for this node, if one exists
         """
-        return (
-            self.availability is not None  # pragma: no cover
-            and self.availability.is_available(  # pylint: disable=no-member
-                criteria=build_criteria,
-            )
-        )
+        options = [option for option in self.availability if not option.filterset]
+        if options and options[0].is_available(  # pylint: disable=no-member
+            criteria=criteria,
+        ):
+            return options[0]
+        return None
 
     def cube_elements_with_nodes(self) -> List[Tuple[Column, Optional["NodeRevision"]]]:
         """
@@ -1339,7 +1359,7 @@ class NodeRevisionOutput(SQLModel):
     table: Optional[str]
     description: str = ""
     query: Optional[str] = None
-    availability: Optional[AvailabilityState] = None
+    availability: Optional[List[AvailabilityState]] = None
     columns: List[ColumnOutput]
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]

@@ -57,30 +57,11 @@ class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
         """
 
 
-class TrinoMaterializationJob(  # pylint: disable=too-few-public-methods # pragma: no cover
-    MaterializationJob,
-):
-    """
-    Trino materialization job. Left unimplemented for the time being.
-    """
-
-    dialect = Dialect.TRINO
-
-    def schedule(
-        self,
-        materialization: Materialization,
-        query_service_client: QueryServiceClient,
-    ) -> MaterializationInfo:
-        """
-        Placeholder for the actual implementation.
-        """
-
-
 class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pragma: no cover
     MaterializationJob,
 ):
     """
-    Spark SQL materialization job. Left unimplemented for the time being.
+    Spark SQL materialization job.
     """
 
     dialect = Dialect.SPARK
@@ -93,6 +74,12 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
         """
         Placeholder for the actual implementation.
         """
+        print(
+            "SparkSqlMaterializationJob.schedule",
+            materialization.name,
+            materialization.config,
+        )
+
         generic_config = GenericMaterializationConfig.parse_obj(materialization.config)
         temporal_partitions = materialization.node_revision.temporal_partition_columns()
         query_ast = parse(
@@ -102,6 +89,9 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
             ),
         )
         final_query = query_ast
+        lookback_window_interval = parse(
+            f"SELECT INTERVAL {generic_config.lookback_window}",
+        ).select.projection[0]
         if temporal_partitions:
             temporal_partition_col = [
                 col
@@ -115,24 +105,32 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
                         for col in query_ast.select.projection
                     ],
                     from_=query_ast.select.from_,
-                    where=ast.BinaryOp(
-                        left=ast.Column(
+                    where=ast.Between(
+                        expr=ast.Column(
                             name=ast.Name(
                                 temporal_partition_col[0].alias_or_name.name,  # type: ignore
                             ),
                         ),
-                        right=temporal_partitions[0].partition.temporal_expression(),
-                        op=ast.BinaryOpKind.Eq,
+                        low=temporal_partitions[0].partition.temporal_expression(
+                            offset=lookback_window_interval,
+                        ),
+                        high=temporal_partitions[0].partition.temporal_expression(),
                     ),
                 ),
                 ctes=query_ast.ctes,
             )
+        print(
+            "PARTIT",
+            generic_config.temporal_partition(materialization.node_revision),
+        )
         result = query_service_client.materialize(
             GenericMaterializationInput(
                 name=materialization.name,  # type: ignore
                 node_name=materialization.node_revision.name,
                 node_version=materialization.node_revision.version,
                 node_type=materialization.node_revision.type.value,
+                strategy=materialization.strategy,
+                lookback_window=generic_config.lookback_window,
                 schedule=materialization.schedule,
                 query=str(final_query),
                 upstream_tables=generic_config.upstream_tables,
@@ -140,6 +138,10 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
                 if generic_config.spark
                 else {},
                 columns=generic_config.columns,
+                partitions=generic_config.temporal_partition(
+                    materialization.node_revision,
+                )
+                + generic_config.categorical_partitions(materialization.node_revision),
             ),
         )
         return result

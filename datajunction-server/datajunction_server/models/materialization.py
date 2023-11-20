@@ -1,10 +1,12 @@
 """Models for materialization"""
+import enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from pydantic import AnyHttpUrl, BaseModel, validator
 from sqlalchemy import JSON
 from sqlalchemy import Column as SqlaColumn
 from sqlalchemy import DateTime, String
+from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 from datajunction_server.models.base import BaseSQLModel
@@ -41,6 +43,35 @@ DRUID_AGG_MAPPING = {
 }
 
 
+class MaterializationStrategy(str, enum.Enum):
+    """
+    Materialization strategies
+    """
+
+    # Typically used for smaller transforms tables, where for each run we
+    # fully overwrite the table.
+    # Availability state: single table
+    FULL = "full"
+
+    # Full materialization into a new snapshot for each scheduled materialization run.
+    # DJ will manage the location of the snapshot tables and return the appropriate snapshot
+    # when requested
+    # Availability state: multiple tables, one per snapshot. The snapshot key should be based on
+    # when the upstream tables were last updated, with a new snapshot generated only if they were
+    # updated
+    SNAPSHOT = "snapshot"
+
+    # Materialize incrementally based on the temporal partition column(s). This column may be
+    # a single column or more than one column, and the user will need to tell us the temporal
+    # component referenced by each column (i.e., this column refers to day, hour etc).
+    # Availability state: single table
+    INCREMENTAL_TIME = "incremental_time"
+
+    # No materialization, but a view is created
+    # Availability state: single view
+    VIEW = "view"
+
+
 class GenericMaterializationInput(BaseModel):
     """
     The input when calling the query service's materialization
@@ -51,6 +82,7 @@ class GenericMaterializationInput(BaseModel):
     node_name: str
     node_version: str
     node_type: str
+    strategy: MaterializationStrategy
     schedule: str
     query: str
     upstream_tables: List[str]
@@ -113,6 +145,7 @@ class GenericMaterializationConfigInput(BaseModel):
 
     # Spark config
     spark: Optional[SparkConf]
+    lookback_window: Optional[str]
 
 
 class GenericMaterializationConfig(GenericMaterializationConfigInput):
@@ -124,6 +157,48 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
     query: Optional[str]
     columns: Optional[List[ColumnMetadata]]
     upstream_tables: Optional[List[str]]
+
+    def temporal_partition(
+        self,
+        node_revision: "NodeRevision",
+    ) -> List[PartitionColumnOutput]:
+        """
+        The temporal partition column names on the intermediate measures table
+        """
+        user_defined_temporal_columns = node_revision.temporal_partition_columns()
+        user_defined_temporal_column = user_defined_temporal_columns[0]
+        return [
+            PartitionColumnOutput(
+                name=col.name,
+                format=user_defined_temporal_column.partition.format,
+                type_=user_defined_temporal_column.partition.type_,
+                expression=str(
+                    user_defined_temporal_column.partition.temporal_expression(),
+                ),
+            )
+            for col in self.columns  # type: ignore
+            if col.semantic_entity == user_defined_temporal_column.name
+            or col.name == user_defined_temporal_column.name
+        ]
+
+    def categorical_partitions(
+        self,
+        node_revision: "NodeRevision",
+    ) -> List[PartitionColumnOutput]:
+        """
+        The categorical partition column names on the intermediate measures table
+        """
+        user_defined_categorical_columns = {
+            col.name for col in node_revision.categorical_partition_columns()
+        }
+        return [
+            PartitionColumnOutput(
+                name=col.name,
+                type_=PartitionType.CATEGORICAL,
+            )
+            for col in self.columns  # type: ignore
+            if col.column in user_defined_categorical_columns
+        ]
 
 
 class DruidConf(BaseSQLModel):
@@ -211,47 +286,6 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
             for measure_group in self.measures.values()  # type: ignore
             for measure in measure_group.measures
         }
-
-    def temporal_partition(
-        self,
-        node_revision: "NodeRevision",
-    ) -> List[PartitionColumnOutput]:
-        """
-        The temporal partition column names on the intermediate measures table
-        """
-        user_defined_temporal_columns = node_revision.temporal_partition_columns()
-        user_defined_temporal_column = user_defined_temporal_columns[0]
-        return [
-            PartitionColumnOutput(
-                name=col.name,
-                format=user_defined_temporal_column.partition.format,
-                type_=user_defined_temporal_column.partition.type_,
-                expression=str(
-                    user_defined_temporal_column.partition.temporal_expression(),
-                ),
-            )
-            for col in self.columns  # type: ignore
-            if col.semantic_entity == user_defined_temporal_column.name
-        ]
-
-    def categorical_partitions(
-        self,
-        node_revision: "NodeRevision",
-    ) -> List[PartitionColumnOutput]:
-        """
-        The categorical partition column names on the intermediate measures table
-        """
-        user_defined_categorical_columns = {
-            col.name for col in node_revision.categorical_partition_columns()
-        }
-        return [
-            PartitionColumnOutput(
-                name=col.name,
-                type_=PartitionType.CATEGORICAL,
-            )
-            for col in self.columns  # type: ignore
-            if col.column in user_defined_categorical_columns
-        ]
 
     def build_druid_spec(self, node_revision: "NodeRevision"):
         """
@@ -341,6 +375,10 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
 
     name: str
 
+    strategy: MaterializationStrategy = Field(
+        sa_column=SqlaColumn(Enum(MaterializationStrategy)),
+    )
+
     # A cron schedule to materialize this node by
     schedule: str
 
@@ -376,16 +414,27 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
         return value.dict()
 
 
+class MaterializationJobType(str, enum.Enum):
+    """
+    Availability materialization job types
+    """
+
+    SPARK_SQL = "spark_sql"
+    DRUID_CUBE = "druid_cube"
+
+
 class UpsertMaterialization(BaseSQLModel):
     """
     An upsert object for materialization configs
     """
 
     name: Optional[str]
-    engine: EngineRef
+    job: MaterializationJobType = MaterializationJobType.SPARK_SQL
     config: Union[
         DruidCubeConfigInput,
         GenericCubeConfigInput,
         GenericMaterializationConfigInput,
     ]
     schedule: str
+    strategy: MaterializationStrategy
+    filterset: Optional[str]

@@ -848,53 +848,55 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
 
     validate_orderby(orderby, metrics, dimensions)
 
-    if cube and cube.materializations and cube.availability:
-        if access_control:  # pragma: no cover
-            access_control.add_request_by_node(cube)
-            access_control.state = access.AccessControlState.INDIRECT
-            access_control.raise_if_invalid_requests()
-        materialized_cube_catalog = get_catalog_by_name(
-            session,
-            cube.availability.catalog,
-        )
-        query_ast = build_materialized_cube_node(  # pylint: disable=E1121
-            metric_columns,
-            dimension_columns,
-            cube,
-            filters,
-            orderby,
-            limit,
-        )
-        query_metric_columns = [
-            ColumnMetadata(
-                name=col.name,
-                type=str(col.type),
-                column=col.name,
-                node=col.node_revision().name,  # type: ignore
+    if cube:
+        if materialized_cube := cube.find_available_materialization():
+            if access_control:  # pragma: no cover
+                access_control.add_request_by_node(cube)
+                access_control.state = access.AccessControlState.INDIRECT
+                access_control.raise_if_invalid_requests()
+
+            materialized_cube_catalog = get_catalog_by_name(
+                session,
+                materialized_cube.catalog,
             )
-            for col in metric_columns
-        ]
-        query_dimension_columns = [
-            ColumnMetadata(
-                name=(col.node_revision().name + SEPARATOR + col.name).replace(  # type: ignore
-                    SEPARATOR,
-                    f"_{LOOKUP_CHARS.get(SEPARATOR)}_",
+            query_ast = build_materialized_cube_node(  # pylint: disable=E1121
+                metric_columns,
+                dimension_columns,
+                cube,
+                filters,
+                orderby,
+                limit,
+            )
+            query_metric_columns = [
+                ColumnMetadata(
+                    name=col.name,
+                    type=str(col.type),
+                    column=col.name,
+                    node=col.node_revision().name,  # type: ignore
+                )
+                for col in metric_columns
+            ]
+            query_dimension_columns = [
+                ColumnMetadata(
+                    name=(col.node_revision().name + SEPARATOR + col.name).replace(  # type: ignore
+                        SEPARATOR,
+                        f"_{LOOKUP_CHARS.get(SEPARATOR)}_",
+                    ),
+                    type=str(col.type),
+                    node=col.node_revision().name,  # type: ignore
+                    column=col.name,  # type: ignore
+                )
+                for col in dimension_columns
+            ]
+            return (
+                TranslatedSQL(
+                    sql=str(query_ast),
+                    columns=query_metric_columns + query_dimension_columns,
+                    dialect=materialized_cube_catalog.engines[0].dialect,
                 ),
-                type=str(col.type),
-                node=col.node_revision().name,  # type: ignore
-                column=col.name,  # type: ignore
+                engine,
+                cube.catalog,
             )
-            for col in dimension_columns
-        ]
-        return (
-            TranslatedSQL(
-                sql=str(query_ast),
-                columns=query_metric_columns + query_dimension_columns,
-                dialect=materialized_cube_catalog.engines[0].dialect,
-            ),
-            engine,
-            cube.catalog,
-        )
 
     query_ast = build_metric_nodes(
         session,

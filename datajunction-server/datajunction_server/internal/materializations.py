@@ -12,15 +12,14 @@ from datajunction_server.materialization.jobs import (
     DruidCubeMaterializationJob,
     MaterializationJob,
     SparkSqlMaterializationJob,
-    TrinoMaterializationJob,
 )
 from datajunction_server.models import Engine, NodeRevision, access
-from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
     DruidCubeConfig,
     GenericMaterializationConfig,
     Materialization,
     MaterializationInfo,
+    MaterializationJobType,
     Measure,
     MetricMeasures,
     UpsertMaterialization,
@@ -37,22 +36,22 @@ from datajunction_server.utils import SEPARATOR
 MAX_COLUMN_NAME_LENGTH = 128
 
 
-def materialization_job_from_engine(engine: Engine) -> MaterializationJob:
+def materialization_job_from_selection(
+    job: MaterializationJobType,
+) -> MaterializationJob:
     """
     Finds the appropriate materialization job based on the choice of engine.
     """
-    engine_to_job_mapping = {
-        Dialect.SPARK: SparkSqlMaterializationJob,
-        Dialect.TRINO: TrinoMaterializationJob,
-        Dialect.DRUID: DruidCubeMaterializationJob,
+    job_mapping = {
+        MaterializationJobType.SPARK_SQL: SparkSqlMaterializationJob,
+        MaterializationJobType.DRUID_CUBE: DruidCubeMaterializationJob,
         None: SparkSqlMaterializationJob,
     }
-    if engine.dialect not in engine_to_job_mapping:
+    if job not in job_mapping:
         raise DJInvalidInputException(  # pragma: no cover
-            f"The engine used for materialization ({engine.name}) "
-            "must have a dialect configured.",
+            f"The materialization job selected ({job.name}) " "is not available.",
         )
-    return engine_to_job_mapping[engine.dialect]  # type: ignore
+    return job_mapping[job]  # type: ignore
 
 
 def rewrite_metrics_expressions(
@@ -178,6 +177,7 @@ def build_non_cube_materialization_config(
         orderby=[],
     )
     generic_config = GenericMaterializationConfig(
+        lookback_window=upsert.config.lookback_window,
         query=str(materialization_ast),
         spark=upsert.config.spark if upsert.config.spark else {},
         upstream_tables=[
@@ -236,10 +236,10 @@ def create_new_materialization(
     return Materialization(
         name=materialization_name,
         node_revision=current_revision,
-        engine=engine,
         config=generic_config,
         schedule=upsert.schedule or "@daily",
-        job=materialization_job_from_engine(engine).__name__,  # type: ignore
+        strategy=upsert.strategy,
+        job=materialization_job_from_selection(upsert.job).__name__,  # type: ignore
     )
 
 
@@ -250,6 +250,7 @@ def schedule_materialization_jobs(
     """
     Schedule recurring materialization jobs
     """
+    print("Calling", materializations)
     materialization_jobs = {
         cls.__name__: cls for cls in MaterializationJob.__subclasses__()
     }

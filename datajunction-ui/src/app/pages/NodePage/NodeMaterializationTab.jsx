@@ -171,54 +171,55 @@ export default function NodeMaterializationTab({ node, djClient }) {
             >
               <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
                 <tr>
-                  <th className="text-start">Catalog</th>
-                  <th>Schema</th>
-                  <th>Table</th>
+                  <th className="text-start">Output Table</th>
                   <th>Valid Through</th>
                   <th>Partitions</th>
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td>{node.availability.schema_}</td>
-                  <td>
-                    {
-                      <div
-                        className={`table__full`}
-                        key={node.availability.table}
-                      >
-                        <div className="table__header">
-                          <TableIcon />{' '}
-                          <span className={`entity-info`}>
-                            {node.availability.catalog +
-                              '.' +
-                              node.availability.schema_}
+                {node.availability.map(availability => {
+                  return (
+                    <tr>
+                      <td>
+                        {
+                          <div
+                            className={`table__full`}
+                            key={availability.table}
+                          >
+                            <div className="table__header">
+                              <TableIcon />{' '}
+                              <span className={`entity-info`}>
+                                {availability.catalog +
+                                  '.' +
+                                  availability.schema_}
+                              </span>
+                            </div>
+                            <div className={`table__body upstream_tables`}>
+                              <a href={availability.url}>
+                                {availability.table}
+                              </a>
+                            </div>
+                          </div>
+                        }
+                      </td>
+                      <td>{new Date(availability.valid_through_ts).toString()}</td>
+                      <td>
+                        <span
+                          className={`badge partition_value`}
+                          style={{ fontSize: '100%' }}
+                        >
+                          <span className={`badge partition_value_highlight`}>
+                            {availability.min_temporal_partition}
                           </span>
-                        </div>
-                        <div className={`table__body upstream_tables`}>
-                          <a href={node.availability.url}>
-                            {node.availability.table}
-                          </a>
-                        </div>
-                      </div>
-                    }
-                  </td>
-                  <td>{node.availability.valid_through_ts}</td>
-                  <td>
-                    <span
-                      className={`badge partition_value`}
-                      style={{ fontSize: '100%' }}
-                    >
-                      <span className={`badge partition_value_highlight`}>
-                        {node.availability.min_temporal_partition}
-                      </span>
-                      to
-                      <span className={`badge partition_value_highlight`}>
-                        {node.availability.max_temporal_partition}
-                      </span>
-                    </span>
-                  </td>
-                </tr>
+                          to
+                          <span className={`badge partition_value_highlight`}>
+                            {availability.max_temporal_partition}
+                          </span>
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           ) : (
