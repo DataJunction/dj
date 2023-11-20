@@ -1,0 +1,10 @@
+description: This is a source for information on outstanding and fulfilled repair orders
+query: |
+  SELECT
+    dateint,
+    month,
+    year,
+    day
+  FROM ${prefix}roads.date
+primary_key:
+  - dateint

@@ -1,0 +1,2 @@
+description: Average repair price
+query: SELECT avg(price) FROM ${prefix}roads.repair_order_details

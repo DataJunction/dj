@@ -1,0 +1,2 @@
+description: National level aggregates
+query: SELECT SUM(rd.price * rd.quantity) AS total_amount_nationwide FROM ${prefix}roads.repair_order_details rd

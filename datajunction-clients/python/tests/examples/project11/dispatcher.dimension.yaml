@@ -1,0 +1,9 @@
+description: Dispatcher dimension
+query: |
+  SELECT
+    dispatcher_id,
+    company_name,
+    phone
+  FROM ${prefix}roads.dispatchers
+primary_key:
+  - dispatcher_id

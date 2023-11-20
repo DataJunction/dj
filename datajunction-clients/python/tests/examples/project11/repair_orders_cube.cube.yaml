@@ -1,0 +1,9 @@
+description: Repair Orders Cube
+metrics:
+  - ${prefix}roads.num_repair_orders
+  - ${prefix}roads.avg_repair_price
+  - ${prefix}roads.total_repair_cost
+dimensions:
+  - ${prefix}roads.hard_hat.state
+  - ${prefix}roads.dispatcher.company_name
+filter: []

@@ -1,0 +1,7 @@
+description: Descriptions for different types of municipalities
+table: default.roads.municipality_type
+columns:
+  - name: municipality_type_id
+    type: string
+  - name: municipality_type_desc
+    type: string

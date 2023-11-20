@@ -1,0 +1,29 @@
+description: Hard hat dimension
+query: |
+  SELECT
+    hard_hat_id,
+    last_name,
+    first_name,
+    title,
+    birth_date,
+    hire_date,
+    address,
+    city,
+    state,
+    postal_code,
+    country,
+    manager,
+    contractor_id
+  FROM ${prefix}roads.hard_hats
+primary_key:
+  - hard_hat_id
+dimension_links:
+  state:
+    dimension: ${prefix}roads.us_state
+    column: state_abbr
+  birth_date:
+    dimension: ${prefix}roads.date_dim
+    column: dateint
+  hire_date:
+    dimension: ${prefix}roads.date_dim
+    column: dateint

@@ -1,0 +1,23 @@
+name: My DJ Project 11
+prefix: projects.project11
+mode: published
+tags:
+  - name: deprecated
+    description: This node is deprecated
+    tag_type: Maintenance
+build:
+  priority:
+    - roads.date
+    - roads.date_dim
+    - roads.repair_orders
+    - roads.repair_order_transform
+    - roads.repair_order_details
+    - roads.contractors
+    - roads.hard_hats
+    - roads.hard_hat_state
+    - roads.us_states
+    - roads.us_region
+    - roads.dispatchers
+    - roads.municipality
+    - roads.municipality_municipality_type
+    - roads.municipality_type
