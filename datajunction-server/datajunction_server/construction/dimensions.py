@@ -9,6 +9,7 @@ from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.build import get_measures_query
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models import NodeRevision, access
+from datajunction_server.models.column import SemanticType
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.sql.parsing import ast
@@ -114,7 +115,7 @@ def build_dimensions_from_cube_query(  # pylint: disable=too-many-arguments,too-
                 name=col.name.name,  # type: ignore
                 type=str(types_lookup.get(col.name.name)),  # type: ignore
                 semantic_entity=from_amenable_name(col.name.name),  # type: ignore
-                semantic_type="dimension",
+                semantic_type=SemanticType.DIMENSION,
             )
             if col.name.name in types_lookup  # type: ignore
             else ColumnMetadata(name="count", type=str(IntegerType()))
