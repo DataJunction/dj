@@ -1,0 +1,9 @@
+description: Some column pruning for the repair order dimension
+query: |
+  SELECT
+    repair_order_id,
+    municipality_id,
+    hard_hat_id,
+    dispatcher_id
+  FROM ${prefix}roads.repair_orders
+  WHERE dispatcher_id IS NOT NULL

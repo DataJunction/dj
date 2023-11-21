@@ -1,0 +1,9 @@
+description: Dispatcher information
+table: default.roads.dispatchers
+columns:
+  - name: dispatcher_id
+    type: int
+  - name: company_name
+    type: string
+  - name: phone
+    type: string

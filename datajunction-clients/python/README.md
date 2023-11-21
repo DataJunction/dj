@@ -188,6 +188,36 @@ djbuilder.restore_namespace("foo")
 The `cascade` parameter in both of above methods allows for cascading
 effect applied to all underlying nodes and namespaces. Use it with caution!
 
+### Tags
+
+You can read existing tags as well as create new ones.
+```python
+djbuilder.tag(name="deprecated", description="This node has been deprecated.", tag_type="standard", tag_metadata={"contact": "Foo Bar"})
+
+Tag(dj_client=..., name='deprecated', description='This node has been deprecated.', tag_type='standard', tag_metadata={"contact": "Foo Bar"})
+```
+```python
+djbuilder.tag("official")
+
+[DJClientException]: Tag `official` does not exist.
+```
+
+To create a tag:
+
+```python
+djbuilder.create_tag(name="deprecated", description="This node has been deprecated.", tag_type="standard", tag_metadata={"contact": "Foo Bar"})
+
+Tag(dj_client=..., name="deprecated", description="This node has been deprecated.", tag_type="standard", tag_metadata={"contact": "Foo Bar"})
+```
+
+To add a tag to a node:
+
+```python
+repair_orders = djbuilder.source("default.repair_orders")
+repair_orders.tags.append(djbuilder.tag("deprecated"))
+repair_orders.save()
+```
+
 ### Nodes
 
 To learn what **Node** means in the context of DJ, please check out [this datajuntion.io page](https://datajunction.io/docs/0.1.0/dj-concepts/nodes/).

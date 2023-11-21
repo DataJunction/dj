@@ -1,0 +1,2 @@
+description: Number of repair orders
+query: SELECT count(repair_order_id) FROM ${prefix}roads.repair_orders

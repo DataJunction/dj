@@ -1,0 +1,13 @@
+description: US state dimension
+query: |
+  SELECT
+    state_id,
+    state_name,
+    state_abbr,
+    state_region,
+    r.us_region_description AS state_region_description
+  FROM ${prefix}roads.us_states s
+  LEFT JOIN ${prefix}roads.us_region r
+  ON s.state_region = r.us_region_description
+primary_key:
+  - state_id

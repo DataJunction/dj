@@ -1,0 +1,21 @@
+description: This is a source for information on outstanding and fulfilled repair orders
+table: default.roads.repair_orders
+columns:
+  - name: repair_order_id
+    type: int
+  - name: municipality_id
+    type: string
+  - name: hard_hat_id
+    type: int
+  - name: order_date
+    type: date
+  - name: required_date
+    type: date
+  - name: dispatched_date
+    type: date
+  - name: dispatcher_id
+    type: int
+dimension_links:
+  repair_order_id:
+    dimension: ${prefix}roads.repair_order
+    column: repair_order_id

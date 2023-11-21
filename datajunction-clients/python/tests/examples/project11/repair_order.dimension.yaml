@@ -1,0 +1,20 @@
+description: Repair order dimension
+query: |
+  SELECT
+    repair_order_id,
+    municipality_id,
+    hard_hat_id,
+    dispatcher_id
+  FROM ${prefix}roads.repair_order_transform
+primary_key:
+  - repair_order_id
+dimension_links:
+  dispatcher_id:
+    dimension: ${prefix}roads.dispatcher
+    column: dispatcher_id
+  hard_hat_id:
+    dimension: ${prefix}roads.hard_hat
+    column: hard_hat_id
+  municipality_id:
+    dimension: ${prefix}roads.municipality_dim
+    column: municipality_id

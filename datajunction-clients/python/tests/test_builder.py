@@ -6,6 +6,7 @@ from datajunction.exceptions import (
     DJClientException,
     DJNamespaceAlreadyExists,
     DJNodeAlreadyExists,
+    DJTagAlreadyExists,
 )
 from datajunction.models import (
     AvailabilityState,
@@ -798,3 +799,86 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
                 "partition": None,
             },
         ]
+
+    #
+    # Tags
+    #
+    def test_creating_a_tag(self, client):
+        """
+        Test creating a tag
+        """
+        client.create_tag(
+            name="foo",
+            description="Foo Bar",
+            tag_type="test",
+            tag_metadata={"foo": "bar"},
+        )
+        tag = client.tag("foo")
+        assert tag.name == "foo"
+        assert tag.description == "Foo Bar"
+        assert tag.tag_type == "test"
+        assert tag.tag_metadata == {"foo": "bar"}
+
+    def test_tag_already_exists(self, client):
+        """
+        Test that the client raises properly when a tag already exists
+        """
+        client.create_tag(
+            name="foo",
+            description="Foo Bar",
+            tag_type="test",
+            tag_metadata={"foo": "bar"},
+        )
+        with pytest.raises(DJTagAlreadyExists) as exc_info:
+            client.create_tag(
+                name="foo",
+                description="Foo Bar",
+                tag_type="test",
+                tag_metadata={"foo": "bar"},
+            )
+        assert "Tag `foo` already exists" in str(exc_info.value)
+
+    def test_updating_a_tag(self, client):
+        """
+        Test updating a tag
+        """
+        client.create_tag(
+            name="foo",
+            description="Foo Bar",
+            tag_type="test",
+            tag_metadata={"foo": "bar"},
+        )
+        tag = client.tag("foo")
+        assert tag.name == "foo"
+        assert tag.description == "Foo Bar"
+        assert tag.tag_type == "test"
+        assert tag.tag_metadata == {"foo": "bar"}
+        tag.description = "This is an updated description."
+        tag.save()
+        repulled_tag = client.tag("foo")
+        assert repulled_tag.description == "This is an updated description."
+
+    def test_tag_does_not_exist(self, client):
+        """
+        Test that the client raises properly when a tag does not exist
+        """
+        with pytest.raises(DJClientException) as exc_info:
+            client.tag("does-not-exist")
+        assert "Tag `does-not-exist` does not exist" in str(exc_info.value)
+
+    def test_tag_a_node(self, client):
+        """
+        Test that a node can be tagged properly
+        """
+        client.create_tag(
+            name="foo",
+            description="Foo Bar",
+            tag_type="test",
+            tag_metadata={"foo": "bar"},
+        )
+        tag = client.tag("foo")
+        node = client.source("default.repair_orders")
+        node.tags.append(tag)
+        node.save()
+        repull_node = client.source("default.repair_orders")
+        assert repull_node.tags == [tag]

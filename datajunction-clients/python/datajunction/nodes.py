@@ -9,6 +9,7 @@ from pydantic import validator
 from datajunction import models
 from datajunction._internal import ClientEntity
 from datajunction.exceptions import DJClientException
+from datajunction.tags import TagInfo
 
 
 class Namespace(ClientEntity):  # pylint: disable=protected-access
@@ -69,7 +70,7 @@ class Node(ClientEntity):  # pylint: disable=protected-access
     status: Optional[str] = None
     display_name: Optional[str]
     availability: Optional[models.AvailabilityState]
-    tags: Optional[List[models.Tag]]
+    tags: Optional[List[TagInfo]] = None
     primary_key: Optional[List[str]]
     materializations: Optional[List[Dict[str, Any]]]
     version: Optional[str]
@@ -91,6 +92,19 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         Update the node for fields that have changed.
         """
 
+    def _update_tags(self) -> None:
+        """
+        Update the tags on a node
+        """
+        response = self.dj_client._update_node_tags(
+            node_name=self.name,
+            tags=[tag.name for tag in self.tags] if self.tags else None,
+        )
+        if not response.ok:  # pragma: no cover
+            raise DJClientException(
+                f"Error updating tags for node {self.name}, {self.tags}",
+            )
+
     def save(self, mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED) -> dict:
         """
         Saves the node to DJ, whether it existed before or not.
@@ -98,6 +112,7 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         existing_node = self.dj_client._get_node(node_name=self.name)
         if "name" in existing_node:
             # update
+            self._update_tags()
             response = self._update()
             if not response.ok:  # pragma: no cover
                 raise DJClientException(
@@ -114,6 +129,9 @@ class Node(ClientEntity):  # pylint: disable=protected-access
                 raise DJClientException(
                     f"Error creating new node `{self.name}`: {response.text}",
                 )
+            self._update_tags()
+            self.refresh()
+
         return response.json()
 
     def refresh(self):

@@ -117,3 +117,6 @@ djqs.db
 
 # oauth credentials
 client_secret*
+
+# random notebooks
+Untitled*

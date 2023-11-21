@@ -1,0 +1,2 @@
+description: Total repair cost
+query: SELECT sum(price) FROM ${prefix}roads.repair_order_details

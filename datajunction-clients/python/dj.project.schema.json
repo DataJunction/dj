@@ -29,9 +29,10 @@
     },
     "tags": {
       "title": "Tags",
+      "default": [],
       "type": "array",
       "items": {
-        "$ref": "#/definitions/Tag"
+        "$ref": "#/definitions/TagYAML"
       }
     },
     "mode": {
@@ -63,27 +64,31 @@
         }
       }
     },
-    "Tag": {
-      "title": "Tag",
-      "description": "Node tags",
+    "TagYAML": {
+      "title": "TagYAML",
+      "description": "YAML representation of a tag",
       "type": "object",
       "properties": {
         "name": {
           "title": "Name",
           "type": "string"
         },
-        "display_name": {
-          "title": "Display Name",
+        "description": {
+          "title": "Description",
+          "default": "",
           "type": "string"
         },
         "tag_type": {
           "title": "Tag Type",
           "type": "string"
+        },
+        "tag_metadata": {
+          "title": "Tag Metadata",
+          "type": "object"
         }
       },
       "required": [
         "name",
-        "display_name",
         "tag_type"
       ]
     },

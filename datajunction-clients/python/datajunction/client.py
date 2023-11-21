@@ -9,6 +9,7 @@ from alive_progress import alive_bar
 from datajunction import _internal, models
 from datajunction.exceptions import DJClientException
 from datajunction.nodes import Cube, Dimension, Metric, Source, Transform
+from datajunction.tags import Tag
 
 
 class DJClient(_internal.DJClient):
@@ -365,5 +366,17 @@ class DJClient(_internal.DJClient):
             **node_dict,
             metrics=metrics,
             dimensions=dimensions,
+            dj_client=self,
+        )
+
+    def tag(self, tag_name: str) -> "Tag":  # pragma: no cover
+        """
+        Retrieves a Tag with that name if one exists.
+        """
+        tag_dict = self._get_tag(tag_name)
+        if "name" not in tag_dict:
+            raise DJClientException(f"Tag `{tag_name}` does not exist")
+        return Tag(
+            **tag_dict,
             dj_client=self,
         )
