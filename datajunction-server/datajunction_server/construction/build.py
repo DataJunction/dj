@@ -13,7 +13,7 @@ from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import User, access
-from datajunction_server.models.column import Column
+from datajunction_server.models.column import Column, SemanticType
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.metric import TranslatedSQL
@@ -949,11 +949,11 @@ def build_metric_nodes(
                         col.set_semantic_entity(
                             metric_node.name + SEPARATOR + metric_node.columns[0].name,
                         )
-                        col.set_semantic_type("metric")
+                        col.set_semantic_type(SemanticType.METRIC)
                 metric_columns.append(col)
             else:
                 col.set_semantic_entity(from_amenable_name(col.alias_or_name.name))
-                col.set_semantic_type("dimension")
+                col.set_semantic_type(SemanticType.DIMENSION)
                 dimension_columns.append(col)
 
         all_dimension_columns += dimension_columns
@@ -1316,10 +1316,10 @@ def get_measures_query(
             column_identifier = expr.alias_or_name.identifier(False)  # type: ignore
             if from_amenable_name(column_identifier) in dimensions:
                 dimensional_columns.append(expr)
-                expr.set_semantic_type("dimension")  # type: ignore
+                expr.set_semantic_type(SemanticType.DIMENSION)  # type: ignore
             else:
                 measure_columns.append(expr)
-                expr.set_semantic_type("measure")  # type: ignore
+                expr.set_semantic_type(SemanticType.MEASURE)  # type: ignore
         parent_ast.compile(context)
 
         # Add the WITH statements to the combined query

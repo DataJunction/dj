@@ -1,6 +1,7 @@
 """
 Models for columns.
 """
+import enum
 from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
 
 from pydantic import root_validator
@@ -188,3 +189,13 @@ class ColumnAttributeInput(BaseSQLModel):
     attribute_type_namespace: Optional[str] = "system"
     attribute_type_name: str
     column_name: str
+
+
+class SemanticType(str, enum.Enum):
+    """
+    Semantic type of a column
+    """
+
+    MEASURE = "measure"
+    METRIC = "metric"
+    DIMENSION = "dimension"
