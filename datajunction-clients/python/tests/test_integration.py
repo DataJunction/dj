@@ -34,7 +34,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
         name=f"{namespace}.repair_orders",
         description="Repair orders",
         catalog="warehouse",
-        schema_="roads",
+        schema="roads",
         table="repair_orders",
         columns=[
             {"name": "repair_order_id", "type": "int"},
@@ -51,7 +51,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
         name=f"{namespace}.repair_order_details",
         description="Details on repair orders",
         display_name="Default: Repair Order Details",
-        schema_="roads",
+        schema="roads",
         catalog="warehouse",
         table="repair_order_details",
         columns=[
@@ -115,7 +115,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
         name=f"{namespace}.dispatchers",
         description="Different third party dispatcher companies that coordinate repairs",
         catalog="warehouse",
-        schema_="roads",
+        schema="roads",
         table="dispatchers",
         columns=[
             {"name": "dispatcher_id", "type": "int"},
