@@ -7,16 +7,9 @@ from sqlmodel import Session
 
 from datajunction_server.construction.build import build_node, get_measures_query
 from datajunction_server.errors import DJException, DJInvalidInputException
-from datajunction_server.internal.engines import get_engine
-from datajunction_server.materialization.jobs import (
-    DruidCubeMaterializationJob,
-    MaterializationJob,
-    SparkSqlMaterializationJob,
-    TrinoMaterializationJob,
-)
-from datajunction_server.models import Engine, NodeRevision, access
+from datajunction_server.materialization.jobs import MaterializationJob
+from datajunction_server.models import NodeRevision, access
 from datajunction_server.models.column import SemanticType
-from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
     DruidCubeConfig,
     GenericMaterializationConfig,
@@ -27,7 +20,7 @@ from datajunction_server.models.materialization import (
     UpsertMaterialization,
 )
 from datajunction_server.models.metric import TranslatedSQL
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
@@ -36,24 +29,6 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR
 
 MAX_COLUMN_NAME_LENGTH = 128
-
-
-def materialization_job_from_engine(engine: Engine) -> MaterializationJob:
-    """
-    Finds the appropriate materialization job based on the choice of engine.
-    """
-    engine_to_job_mapping = {
-        Dialect.SPARK: SparkSqlMaterializationJob,
-        Dialect.TRINO: TrinoMaterializationJob,
-        Dialect.DRUID: DruidCubeMaterializationJob,
-        None: SparkSqlMaterializationJob,
-    }
-    if engine.dialect not in engine_to_job_mapping:
-        raise DJInvalidInputException(  # pragma: no cover
-            f"The engine used for materialization ({engine.name}) "
-            "must have a dialect configured.",
-        )
-    return engine_to_job_mapping[engine.dialect]  # type: ignore
 
 
 def rewrite_metrics_expressions(
@@ -111,7 +86,6 @@ def rewrite_metrics_expressions(
 def build_cube_materialization_config(
     session: Session,
     current_revision: NodeRevision,
-    engine: Engine,
     upsert: UpsertMaterialization,
     validate_access: access.ValidateAccessFn,
 ) -> DruidCubeConfig:
@@ -157,9 +131,9 @@ def build_cube_materialization_config(
         raise DJInvalidInputException(  # pragma: no cover
             message=(
                 "No change has been made to the materialization config for "
-                f"node `{current_revision.name}` and engine `{engine.name}` as"
+                f"node `{current_revision.name}` and job `{upsert.job.name}` as"
                 " the config does not have valid configuration for "
-                f"engine `{engine.name}`."
+                f"engine `{upsert.job.name}`."
             ),
         ) from exc
 
@@ -179,6 +153,7 @@ def build_non_cube_materialization_config(
         orderby=[],
     )
     generic_config = GenericMaterializationConfig(
+        lookback_window=upsert.config.lookback_window,
         query=str(materialization_ast),
         spark=upsert.config.spark if upsert.config.spark else {},
         upstream_tables=[
@@ -203,7 +178,6 @@ def create_new_materialization(
     Create a new materialization based on the input values.
     """
     generic_config = None
-    engine = get_engine(session, upsert.engine.name, upsert.engine.version)
     temporal_partition = current_revision.temporal_partition_columns()
     if current_revision.type in (
         NodeType.DIMENSION,
@@ -225,22 +199,20 @@ def create_new_materialization(
         generic_config = build_cube_materialization_config(
             session,
             current_revision,
-            engine,
             upsert,
             validate_access,
         )
     materialization_name = (
-        f"{temporal_partition[0].name}_{engine.name}"
-        if temporal_partition
-        else engine.name
+        f"{upsert.job.name.lower()}__{upsert.strategy.name.lower()}"
+        + (f"__{temporal_partition[0].name}" if temporal_partition else "")
     )
     return Materialization(
         name=materialization_name,
         node_revision=current_revision,
-        engine=engine,
         config=generic_config,
         schedule=upsert.schedule or "@daily",
-        job=materialization_job_from_engine(engine).__name__,  # type: ignore
+        strategy=upsert.strategy,
+        job=upsert.job.value.job_class,  # type: ignore
     )
 
 

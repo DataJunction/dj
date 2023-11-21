@@ -31,11 +31,8 @@ from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import History, User, access
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.metric import TranslatedSQL
-from datajunction_server.models.node import (
-    AvailabilityState,
-    AvailabilityStateBase,
-    NodeType,
-)
+from datajunction_server.models.node import AvailabilityState, AvailabilityStateBase
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (

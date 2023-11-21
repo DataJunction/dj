@@ -57,30 +57,11 @@ class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
         """
 
 
-class TrinoMaterializationJob(  # pylint: disable=too-few-public-methods # pragma: no cover
-    MaterializationJob,
-):
-    """
-    Trino materialization job. Left unimplemented for the time being.
-    """
-
-    dialect = Dialect.TRINO
-
-    def schedule(
-        self,
-        materialization: Materialization,
-        query_service_client: QueryServiceClient,
-    ) -> MaterializationInfo:
-        """
-        Placeholder for the actual implementation.
-        """
-
-
 class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pragma: no cover
     MaterializationJob,
 ):
     """
-    Spark SQL materialization job. Left unimplemented for the time being.
+    Spark SQL materialization job.
     """
 
     dialect = Dialect.SPARK
@@ -133,6 +114,8 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
                 node_name=materialization.node_revision.name,
                 node_version=materialization.node_revision.version,
                 node_type=materialization.node_revision.type.value,
+                strategy=materialization.strategy,
+                lookback_window=generic_config.lookback_window,
                 schedule=materialization.schedule,
                 query=str(final_query),
                 upstream_tables=generic_config.upstream_tables,
@@ -140,6 +123,12 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
                 if generic_config.spark
                 else {},
                 columns=generic_config.columns,
+                partitions=(
+                    generic_config.temporal_partition(materialization.node_revision)
+                    + generic_config.categorical_partitions(
+                        materialization.node_revision,
+                    )
+                ),
             ),
         )
         return result

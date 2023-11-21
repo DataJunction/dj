@@ -14,12 +14,33 @@ class Engine(BaseModel):
     version: Optional[str]
 
 
-class MaterializationConfig(BaseModel):
+class MaterializationJobType(str, enum.Enum):
+    """
+    Materialization job types
+    """
+
+    SPARK_SQL = "spark_sql"
+    DRUID_CUBE = "druid_cube"
+
+
+class MaterializationStrategy(str, enum.Enum):
+    """
+    Materialization strategies
+    """
+
+    FULL = "full"
+    SNAPSHOT = "snapshot"
+    INCREMENTAL_TIME = "incremental_time"
+    VIEW = "view"
+
+
+class Materialization(BaseModel):
     """
     A node's materialization config
     """
 
-    engine: Engine
+    job: MaterializationJobType
+    strategy: MaterializationStrategy
     schedule: str
     config: Dict
 
