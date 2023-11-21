@@ -3,7 +3,7 @@ Node namespace related APIs.
 """
 import logging
 from http import HTTPStatus
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import Depends, Query
 from fastapi.responses import JSONResponse
@@ -15,7 +15,6 @@ from datajunction_server.api.helpers import (
     deactivate_node,
     get_node_namespace,
 )
-from datajunction_server.api.cubes import get_cube
 from datajunction_server.errors import DJAlreadyExistsException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -32,7 +31,6 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_restored,
     validate_namespace,
 )
-from datajunction_server.internal.nodes import get_node_by_name
 from datajunction_server.models import User, access
 from datajunction_server.models.node import (
     NamespaceOutput,
@@ -41,7 +39,6 @@ from datajunction_server.models.node import (
     NodeNamespace,
     NodeType,
 )
-from datajunction_server.models.cube import CubeRevisionMetadata
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
 _logger = logging.getLogger(__name__)
@@ -307,27 +304,20 @@ def hard_delete_node_namespace(
     )
 
 
-def get_cube(
-    name: str, session: Session
-) -> CubeRevisionMetadata:
-    """
-    Get information on a cube
-    """
-    node = get_node_by_name(session=session, name=name, node_type=NodeType.CUBE)
-    return node.current
-
-@router.get("/namespaces/{namespace}/export/", name="Download a namespace as a YAML project")
+@router.get(
+    "/namespaces/{namespace}/export/",
+    name="Download a namespace as a YAML project",
+)
 def export_a_namespace(
     namespace: str,
     *,
     session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
-):
+) -> List[Dict]:
     """
     Generates a zip of YAML files for the contents of the given namespace
     as well as a project definition file.
     """
     return get_project_config(
-        nodes = get_nodes_in_namespace_detailed(session, namespace),
+        nodes=get_nodes_in_namespace_detailed(session, namespace),
         namespace_requested=namespace,
     )

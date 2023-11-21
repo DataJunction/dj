@@ -134,7 +134,6 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
     return node
 
 
-
 def raise_if_node_exists(session: Session, name: str) -> None:
     """
     Raise an error if the node with the given name already exists.

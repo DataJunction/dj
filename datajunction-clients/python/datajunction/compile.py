@@ -16,7 +16,7 @@ import random
 import string
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 import yaml
 from pydantic import BaseModel, validator
@@ -428,7 +428,7 @@ class Project(BaseModel):
         return CompiledProject(**compiled)
 
     @staticmethod
-    def pull(client: DJBuilder, namespace: str, target_path: str | Path):
+    def pull(client: DJBuilder, namespace: str, target_path: Union[str, Path]):
         """
         Pull down a namespace to a local project
         """
