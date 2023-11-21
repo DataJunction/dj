@@ -15,6 +15,7 @@ from datajunction_server.materialization.jobs import (
     TrinoMaterializationJob,
 )
 from datajunction_server.models import Engine, NodeRevision, access
+from datajunction_server.models.column import SemanticType
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
     DruidCubeConfig,
@@ -69,7 +70,7 @@ def rewrite_metrics_expressions(
     measures_to_output_columns_lookup = {
         column.semantic_entity: column.name
         for column in measures_query.columns  # type: ignore # pylint: disable=not-an-iterable
-        if column.semantic_type == "measure"
+        if column.semantic_type == SemanticType.MEASURE
     }
     for metric in current_revision.cube_metrics():
         measures_for_metric = []
@@ -144,7 +145,7 @@ def build_cube_materialization_config(
             dimensions=[
                 col.name
                 for col in measures_query.columns  # type: ignore # pylint: disable=not-an-iterable
-                if col.semantic_type == "dimension"
+                if col.semantic_type == SemanticType.DIMENSION
             ],
             measures=metrics_expressions,
             spark=upsert.config.spark,
