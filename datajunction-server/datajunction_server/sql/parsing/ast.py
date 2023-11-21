@@ -29,6 +29,7 @@ from sqlmodel import Session
 
 from datajunction_server.construction.utils import get_dj_node, to_namespaced_name
 from datajunction_server.errors import DJError, DJErrorException, DJException, ErrorCode
+from datajunction_server.models.column import SemanticType
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node import NodeRevision
 from datajunction_server.models.node import NodeRevision as DJNode
@@ -491,7 +492,7 @@ class Aliasable(Node):
     alias: Optional["Name"] = None
     as_: Optional[bool] = None
     semantic_entity: Optional[str] = None
-    semantic_type: Optional[str] = None
+    semantic_type: Optional[SemanticType] = None
 
     def set_alias(self: TNode, alias: Optional["Name"]) -> TNode:
         self.alias = alias
@@ -505,7 +506,7 @@ class Aliasable(Node):
         self.semantic_entity = semantic_entity
         return self
 
-    def set_semantic_type(self: TNode, semantic_type: str) -> TNode:
+    def set_semantic_type(self: TNode, semantic_type: SemanticType) -> TNode:
         self.semantic_type = semantic_type
         return self
 
