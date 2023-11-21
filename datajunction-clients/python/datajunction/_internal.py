@@ -293,6 +293,15 @@ class DJClient:
             json=update_input.dict(exclude_none=True),
         )
 
+    def _update_node_tags(self, node_name: str, tags: Optional[List[str]]):
+        """
+        Update tags on a node
+        """
+        return self._session.post(
+            f"/nodes/{node_name}/tags/",
+            params={"tag_names": tags} if tags else None,
+        )
+
     def _publish_node(self, node_name: str, update_input: models.UpdateNode):
         """
         Retrieves a node.

@@ -4,20 +4,28 @@ Models related to tags
 # pylint: disable=protected-access
 from typing import Dict, Optional
 
+from pydantic import BaseModel
+
 from datajunction._internal import ClientEntity
 from datajunction.exceptions import DJClientException
 from datajunction.models import UpdateTag
 
 
-class Tag(ClientEntity):
+class TagInfo(BaseModel):
     """
-    Node tags
+    Metadata about a tag
     """
 
     name: str
     description: str = ""
     tag_type: str
     tag_metadata: Optional[Dict] = None
+
+
+class Tag(TagInfo, ClientEntity):
+    """
+    Node tags
+    """
 
     def _update(self) -> "Tag":
         """

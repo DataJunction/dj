@@ -865,3 +865,20 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         with pytest.raises(DJClientException) as exc_info:
             client.tag("does-not-exist")
         assert "Tag `does-not-exist` does not exist" in str(exc_info.value)
+
+    def test_tag_a_node(self, client):
+        """
+        Test that a node can be tagged properly
+        """
+        client.create_tag(
+            name="foo",
+            description="Foo Bar",
+            tag_type="test",
+            tag_metadata={"foo": "bar"},
+        )
+        tag = client.tag("foo")
+        node = client.source("default.repair_orders")
+        node.tags.append(tag)
+        node.save()
+        repull_node = client.source("default.repair_orders")
+        assert repull_node.tags == [tag]

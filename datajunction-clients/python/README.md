@@ -210,6 +210,14 @@ djbuilder.create_tag(name="deprecated", description="This node has been deprecat
 Tag(dj_client=..., name="deprecated", description="This node has been deprecated.", tag_type="standard", tag_metadata={"contact": "Foo Bar"})
 ```
 
+To add a tag to a node:
+
+```python
+repair_orders = djbuilder.source("default.repair_orders")
+repair_orders.tags.append(dj.tag("deprecated"))
+repair_orders.save()
+```
+
 ### Nodes
 
 To learn what **Node** means in the context of DJ, please check out [this datajuntion.io page](https://datajunction.io/docs/0.1.0/dj-concepts/nodes/).
