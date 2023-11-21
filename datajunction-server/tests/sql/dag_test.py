@@ -4,7 +4,8 @@ Tests for ``datajunction_server.sql.dag``.
 
 from datajunction_server.models.column import Column
 from datajunction_server.models.database import Database
-from datajunction_server.models.node import Node, NodeRevision, NodeType
+from datajunction_server.models.node import Node, NodeRevision
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.table import Table
 from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.parsing.types import IntegerType, StringType

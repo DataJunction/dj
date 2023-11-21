@@ -35,6 +35,7 @@ from datajunction_server.models.materialization import (
     Materialization,
     MaterializationConfigOutput,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionOutput, PartitionType
 from datajunction_server.models.tag import Tag, TagNodeRelationship
 from datajunction_server.sql.parsing.types import ColumnType
@@ -121,26 +122,6 @@ class BoundDimensionsRelationship(BaseSQLModel, table=True):  # type: ignore
         foreign_key="column.id",
         primary_key=True,
     )
-
-
-class NodeType(str, enum.Enum):
-    """
-    Node type.
-
-    A node can have 4 types, currently:
-
-    1. SOURCE nodes are root nodes in the DAG, and point to tables or views in a DB.
-    2. TRANSFORM nodes are SQL transformations, reading from SOURCE/TRANSFORM nodes.
-    3. METRIC nodes are leaves in the DAG, and have a single aggregation query.
-    4. DIMENSION nodes are special SOURCE nodes that can be auto-joined with METRICS.
-    5. CUBE nodes contain a reference to a set of METRICS and a set of DIMENSIONS.
-    """
-
-    SOURCE = "source"
-    TRANSFORM = "transform"
-    METRIC = "metric"
-    DIMENSION = "dimension"
-    CUBE = "cube"
 
 
 class NodeMode(str, enum.Enum):
@@ -834,7 +815,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
 
     # Nodes of type SOURCE will not have this property as their materialization
     # is not managed as a part of this service
-    materializations: List[Materialization] = Relationship(
+    materializations: List["Materialization"] = Relationship(
         back_populates="node_revision",
         sa_relationship_kwargs={
             "cascade": "all, delete-orphan",

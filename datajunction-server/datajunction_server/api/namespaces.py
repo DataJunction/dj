@@ -37,8 +37,8 @@ from datajunction_server.models.node import (
     Node,
     NodeMinimumDetail,
     NodeNamespace,
-    NodeType,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
 _logger = logging.getLogger(__name__)

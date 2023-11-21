@@ -11,7 +11,9 @@ from datajunction.models import (
     AvailabilityState,
     ColumnAttribute,
     Engine,
-    MaterializationConfig,
+    Materialization,
+    MaterializationJobType,
+    MaterializationStrategy,
     NodeMode,
 )
 from datajunction.nodes import (
@@ -44,7 +46,9 @@ __all__ = [
     "Source",
     "Dimension",
     "Transform",
-    "MaterializationConfig",
+    "Materialization",
+    "MaterializationJobType",
+    "MaterializationStrategy",
     "Metric",
     "Cube",
     "Node",

@@ -9,7 +9,8 @@ from sqlmodel import SQLModel
 
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.materialization import MaterializationConfigOutput
-from datajunction_server.models.node import AvailabilityState, ColumnOutput, NodeType
+from datajunction_server.models.node import AvailabilityState, ColumnOutput
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionOutput
 from datajunction_server.typing import UTCDatetime
 

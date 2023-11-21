@@ -197,7 +197,7 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         self.refresh()
         return link_response
 
-    def add_materialization(self, config: models.MaterializationConfig):
+    def add_materialization(self, config: models.Materialization):
         """
         Adds a materialization for the node. This will not work for source nodes
         as they don't need to be materialized.

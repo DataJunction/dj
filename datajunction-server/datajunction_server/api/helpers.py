@@ -61,8 +61,8 @@ from datajunction_server.models.node import (
     NodeRevision,
     NodeRevisionBase,
     NodeStatus,
-    NodeType,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import ColumnMetadata, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_nodes_with_dimension

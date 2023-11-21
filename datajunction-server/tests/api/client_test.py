@@ -132,10 +132,8 @@ def test_generated_python_client_code_adding_materialization(
     custom_client.post(
         "/nodes/basic.transform.country_agg/materialization/",
         json={
-            "engine": {
-                "name": "spark",
-                "version": "2.4.4",
-            },
+            "job": "spark_sql",
+            "strategy": "full",
             "config": {
                 "spark": {},
             },
@@ -143,7 +141,8 @@ def test_generated_python_client_code_adding_materialization(
         },
     )
     response = custom_client.get(
-        "/datajunction-clients/python/add_materialization/basic.transform.country_agg/spark",
+        "/datajunction-clients/python/add_materialization/"
+        "basic.transform.country_agg/spark_sql__full",
     )
     assert (
         response.json()
@@ -153,10 +152,8 @@ country_agg = dj.transform(
     "basic.transform.country_agg"
 )
 materialization = MaterializationConfig(
-    engine=Engine(
-        name="spark",
-        version="2.4.4",
-    ),
+    job="spark_sql",
+    strategy="full",
     schedule="0 * * * *",
     config={
         "spark": {}
