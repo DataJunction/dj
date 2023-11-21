@@ -270,7 +270,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             description="A source table for account type data",
             display_name="Default: Account Type Table",
             catalog="default",
-            schema_="store",
+            schema="store",
             table="account_type_table",
             columns=[
                 Column(name="id", type="int"),
@@ -297,7 +297,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             description="A source table for account type data",
             display_name="Default: Account Type Table",
             catalog="default",
-            schema_="store",
+            schema="store",
             table="account_type_table",
             columns=[
                 Column(name="id", type="int"),
@@ -315,7 +315,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             description="A source table for payment type data",
             display_name="Default: Payment Type Table",
             catalog="default",
-            schema_="store",
+            schema="store",
             table="payment_type_table",
             columns=[
                 Column(name="id", type="int"),
@@ -332,7 +332,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             description="Record of payments",
             display_name="Default: Payment Records",
             catalog="default",
-            schema_="accounting",
+            schema="accounting",
             table="revenue",
             columns=[
                 Column(name="payment_id", type="int"),
@@ -353,7 +353,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
                 description="Record of payments",
                 display_name="Default: Payment Records",
                 catalog="default",
-                schema_="accounting",
+                schema="accounting",
                 table="revenue",
                 columns=[
                     Column(name="payment_id", type="int"),
