@@ -306,7 +306,7 @@ def hard_delete_node_namespace(
 
 @router.get(
     "/namespaces/{namespace}/export/",
-    name="Download a namespace as a YAML project",
+    name="Export a namespace as a single project's metadata",
 )
 def export_a_namespace(
     namespace: str,
