@@ -21,6 +21,7 @@ def test_compile_loading_a_project(change_to_project_dir: Callable):
     project = Project.load_current()
     assert project.name == "My DJ Project 1"
     assert project.prefix == "projects.project1"
+    assert project.tags[0].name == "deprecated"
     assert project.build.priority == [
         "roads.date",
         "roads.date_dim",
@@ -50,6 +51,7 @@ def test_compile_loading_a_project_from_a_nested_dir(change_to_project_dir: Call
     project = Project.load_current()
     assert project.name == "My DJ Project 1"
     assert project.prefix == "projects.project1"
+    assert project.tags[0].name == "deprecated"
     assert project.build.priority == [
         "roads.date",
         "roads.date_dim",
@@ -68,6 +70,35 @@ def test_compile_loading_a_project_from_a_nested_dir(change_to_project_dir: Call
     ]
     assert project.mode == NodeMode.PUBLISHED
     assert project.root_path.endswith("project1")
+
+
+def test_compile_loading_a_project_from_a_flat_dir(change_to_project_dir: Callable):
+    """
+    Test loading a project where everythign is flat (no sub-directories)
+    """
+    change_to_project_dir("project11")
+    project = Project.load_current()
+    assert project.name == "My DJ Project 11"
+    assert project.prefix == "projects.project11"
+    assert project.tags[0].name == "deprecated"
+    assert project.build.priority == [
+        "roads.date",
+        "roads.date_dim",
+        "roads.repair_orders",
+        "roads.repair_order_transform",
+        "roads.repair_order_details",
+        "roads.contractors",
+        "roads.hard_hats",
+        "roads.hard_hat_state",
+        "roads.us_states",
+        "roads.us_region",
+        "roads.dispatchers",
+        "roads.municipality",
+        "roads.municipality_municipality_type",
+        "roads.municipality_type",
+    ]
+    assert project.mode == NodeMode.PUBLISHED
+    assert project.root_path.endswith("project11")
 
 
 def test_compile_raising_when_not_in_a_project_dir():
@@ -202,7 +233,6 @@ def test_compile_deeply_nested_namespace(
     """
     change_to_project_dir("project4")
     project = Project.load_current()
-    project.compile()
     compiled_project = project.compile()
     compiled_project.deploy(client=builder_client)
 
@@ -216,7 +246,6 @@ def test_compile_error_on_individual_node(
     """
     change_to_project_dir("project6")
     project = Project.load_current()
-    project.compile()
     compiled_project = project.compile()
     with pytest.raises(DJDeploymentFailure) as exc_info:
         compiled_project.deploy(client=builder_client)
@@ -235,7 +264,6 @@ def test_compile_error_on_invalid_dimension_link(
     """
     change_to_project_dir("project7")
     project = Project.load_current()
-    project.compile()
     compiled_project = project.compile()
     with pytest.raises(DJDeploymentFailure) as exc_info:
         compiled_project.deploy(client=builder_client)
@@ -261,6 +289,20 @@ def test_compile_raise_on_priority_with_node_missing_a_definition(
         "Build priority list includes node name "
         "node.that.does.not.exist which has no corresponding definition",
     ) in str(exc_info.value)
+
+
+def test_compile_duplicate_tags(
+    change_to_project_dir: Callable,
+    builder_client: DJBuilder,
+):
+    """
+    Test that deploying duplicate tags are gracefully handled
+    """
+    change_to_project_dir("project10")
+    project = Project.load_current()
+    compiled_project = project.compile()
+    compiled_project.deploy(client=builder_client)
+    compiled_project.deploy(client=builder_client)
 
 
 def test_compile_json_schema_up_to_date(change_to_package_root_dir):

@@ -22,10 +22,15 @@ from pydantic import BaseModel, Field
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 
 from datajunction import models
-from datajunction.exceptions import DJClientException, DJNodeAlreadyExists
+from datajunction.exceptions import (
+    DJClientException,
+    DJNodeAlreadyExists,
+    DJTagAlreadyExists,
+)
 
 if TYPE_CHECKING:
     from datajunction.nodes import Node  # pragma: no cover
+    from datajunction.tags import Tag  # pragma: no cover
 
 DEFAULT_NAMESPACE = "default"
 _logger = logging.getLogger(__name__)
@@ -279,6 +284,24 @@ class DJClient:
         """
         return self._session.patch(f"/nodes/{node_name}/", json=update_input.dict())
 
+    def _update_tag(self, tag_name: str, update_input: models.UpdateNode):
+        """
+        Call tag update API with attributes to update.
+        """
+        return self._session.patch(
+            f"/tags/{tag_name}/",
+            json=update_input.dict(exclude_none=True),
+        )
+
+    def _update_node_tags(self, node_name: str, tags: Optional[List[str]]):
+        """
+        Update tags on a node
+        """
+        return self._session.post(
+            f"/nodes/{node_name}/tags/",
+            params={"tag_names": tags} if tags else None,
+        )
+
     def _publish_node(self, node_name: str, update_input: models.UpdateNode):
         """
         Retrieves a node.
@@ -429,6 +452,34 @@ class DJClient:
         """
         response = self._session.post(f"/nodes/{node_name}/refresh/")
         return response.json()
+
+    def _get_tag(self, tag_name: str):
+        """
+        Retrieves a tag.
+        """
+        try:
+            response = self._session.get(f"/tags/{tag_name}/")
+            return response.json()
+        except DJClientException as exc:  # pragma: no cover
+            return exc.__dict__
+
+    def _create_tag(
+        self,
+        tag: "Tag",
+    ):
+        """
+        Helper function to create a tag.
+        Raises an error if tag already exists.
+        """
+        existing_tag = self._get_tag(tag_name=tag.name)
+        if "name" in existing_tag:
+            raise DJTagAlreadyExists(tag_name=tag.name)
+        response = self._session.post(
+            "/tags/",
+            timeout=self._timeout,
+            json=tag.dict(exclude_none=True),
+        )
+        return response
 
 
 class ClientEntity(BaseModel):

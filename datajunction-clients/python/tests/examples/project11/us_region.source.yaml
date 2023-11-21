@@ -1,0 +1,7 @@
+description: US region info
+table: default.roads.us_region
+columns:
+  - name: us_region_id
+    type: int
+  - name: us_region_description
+    type: string

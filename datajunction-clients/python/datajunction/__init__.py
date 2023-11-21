@@ -23,6 +23,7 @@ from datajunction.nodes import (
     Source,
     Transform,
 )
+from datajunction.tags import Tag
 
 try:
     # Change here if project is renamed and does not equal the package name
@@ -51,4 +52,5 @@ __all__ = [
     "Namespace",
     "Engine",
     "Project",
+    "Tag",
 ]

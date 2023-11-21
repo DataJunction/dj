@@ -543,6 +543,10 @@ tbody th {
   font-size: 12px;
 }
 
+.dimension_option_subheading:empty {
+  display: none;
+}
+
 .upstreams {
   width: 260px;
   display: flex;

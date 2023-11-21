@@ -1,0 +1,7 @@
+description: Municipality information
+table: default.roads.municipality_municipality_type
+columns:
+  - name: municipality_id
+    type: string
+  - name: municipality_type_id
+    type: string

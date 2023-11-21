@@ -1,0 +1,11 @@
+name: My DJ Project 10
+description: Tests that duplicate tags are handled
+prefix: projects.project10
+mode: published
+tags:
+  - name: deprecated
+    description: This node is deprecated
+    tag_type: Maintenance
+  - name: deprecated
+    description: This node is deprecated
+    tag_type: Maintenance

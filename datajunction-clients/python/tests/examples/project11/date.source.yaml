@@ -1,0 +1,11 @@
+description: Date dimension
+table: default.roads.date
+columns:
+  - name: dateint
+    type: timestamp
+  - name: year
+    type: int
+  - name: month
+    type: int
+  - name: day
+    type: int
