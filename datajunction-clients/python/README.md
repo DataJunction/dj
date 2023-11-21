@@ -214,7 +214,7 @@ To add a tag to a node:
 
 ```python
 repair_orders = djbuilder.source("default.repair_orders")
-repair_orders.tags.append(dj.tag("deprecated"))
+repair_orders.tags.append(djbuilder.tag("deprecated"))
 repair_orders.save()
 ```
 
