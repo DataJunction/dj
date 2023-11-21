@@ -12,8 +12,9 @@ from datajunction.models import (
     AvailabilityState,
     Column,
     ColumnAttribute,
-    Engine,
-    MaterializationConfig,
+    Materialization,
+    MaterializationJobType,
+    MaterializationStrategy,
     NodeMode,
 )
 
@@ -421,23 +422,24 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         client.transform("default.large_revenue_payments_only")
 
         result = large_revenue_payments_only.add_materialization(
-            MaterializationConfig(
-                engine=Engine(name="spark", version="3.1.1"),
+            Materialization(
+                job=MaterializationJobType.SPARK_SQL,
+                strategy=MaterializationStrategy.FULL,
                 schedule="0 * * * *",
                 config={},
             ),
         )
         assert result == {
-            "message": "Successfully updated materialization config named `spark` for "
+            "message": "Successfully updated materialization config named `spark_sql__full` for "
             "node `default.large_revenue_payments_only`",
             "urls": [["http://fake.url/job"]],
         }
 
         result = large_revenue_payments_only.deactivate_materialization(
-            materialization_name="default",
+            materialization_name="spark_sql__full",
         )
         assert result == {
-            "message": "The materialization named `default` on node "
+            "message": "The materialization named `spark_sql__full` on node "
             "`default.large_revenue_payments_only` has been successfully deactivated",
         }
 

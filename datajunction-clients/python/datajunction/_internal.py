@@ -380,7 +380,7 @@ class DJClient:
     def _upsert_materialization(
         self,
         node_name: str,
-        config: models.MaterializationConfig,
+        config: models.Materialization,
     ):
         """
         Upserts a materialization config for the node.

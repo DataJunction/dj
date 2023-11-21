@@ -42,7 +42,10 @@ from datajunction_server.models.history import (
     EntityType,
     status_change_history,
 )
-from datajunction_server.models.materialization import UpsertMaterialization
+from datajunction_server.models.materialization import (
+    MaterializationJobTypeEnum,
+    UpsertMaterialization,
+)
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -54,9 +57,9 @@ from datajunction_server.models.node import (
     MissingParent,
     NodeMode,
     NodeStatus,
-    NodeType,
     UpdateNode,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import Partition
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
@@ -479,7 +482,10 @@ def update_node_with_query(
                     session,
                     new_revision,
                     UpsertMaterialization(
-                        **old.dict(), **{"engine": old.engine.dict()}
+                        **old.dict(exclude={"job"}),
+                        **{
+                            "job": MaterializationJobTypeEnum.find_match(old.job),
+                        },
                     ),
                     validate_access,
                 ),
@@ -629,7 +635,10 @@ def update_cube_node(  # pylint: disable=too-many-locals
                     session,
                     new_cube_revision,
                     UpsertMaterialization(
-                        **old.dict(), **{"engine": old.engine.dict()}
+                        **old.dict(exclude={"job"}),
+                        **{
+                            "job": MaterializationJobTypeEnum.find_match(old.job),
+                        },
                     ),
                     validate_access,
                 ),

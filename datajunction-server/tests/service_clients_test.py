@@ -10,7 +10,7 @@ from requests import Request
 from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.models import Engine
 from datajunction_server.models.materialization import GenericMaterializationInput
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import (

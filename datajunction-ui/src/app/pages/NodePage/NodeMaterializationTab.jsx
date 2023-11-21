@@ -53,9 +53,9 @@ export default function NodeMaterializationTab({ node, djClient }) {
           <div className={`cron-description`}>{cron(materialization)} </div>
         </td>
         <td>
-          {materialization.engine.name}
+          {materialization.job}
           <br />
-          {materialization.engine.version}
+          {materialization.strategy}
           <ClientCodePopover code={materialization.clientCode} />
         </td>
         <td>

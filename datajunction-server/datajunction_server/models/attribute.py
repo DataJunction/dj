@@ -9,7 +9,7 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import Field, Relationship
 
 from datajunction_server.models.base import BaseSQLModel
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.node_type import NodeType
 
 if TYPE_CHECKING:
     from datajunction_server.models import Column

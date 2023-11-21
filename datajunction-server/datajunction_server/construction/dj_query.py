@@ -7,7 +7,8 @@ from sqlmodel import Session
 
 from datajunction_server.construction.build import build_metric_nodes, build_node
 from datajunction_server.construction.utils import try_get_dj_node
-from datajunction_server.models.node import Node, NodeType
+from datajunction_server.models.node import Node
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import amenable_name

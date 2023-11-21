@@ -13,9 +13,9 @@ from datajunction_server.models.node import (
     AvailabilityState,
     Node,
     NodeRevision,
-    NodeType,
     PartitionAvailability,
 )
+from datajunction_server.models.node_type import NodeType
 
 
 def test_node_relationship(session: Session) -> None:

@@ -18,7 +18,7 @@ from datajunction_server.models.cube import (
     DimensionValues,
 )
 from datajunction_server.models.metric import TranslatedSQL
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (

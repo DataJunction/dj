@@ -1,14 +1,17 @@
 """Models for materialization"""
+import enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from pydantic import AnyHttpUrl, BaseModel, validator
 from sqlalchemy import JSON
 from sqlalchemy import Column as SqlaColumn
 from sqlalchemy import DateTime, String
+from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.base import BaseSQLModel
-from datajunction_server.models.engine import Engine, EngineInfo, EngineRef
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import (
     Backfill,
     BackfillOutput,
@@ -39,6 +42,40 @@ DRUID_AGG_MAPPING = {
     ("double", "count"): "longSum",
     ("float", "count"): "longSum",
 }
+
+
+class MaterializationStrategy(str, enum.Enum):
+    """
+    Materialization strategies
+    """
+
+    # Replace the target dataset in full. Typically used for smaller transforms tables
+    # -> Availability state: single table
+    FULL = "full"
+
+    # Full materialization into a new snapshot for each scheduled materialization run.
+    # DJ will manage the location of the snapshot tables and return the appropriate snapshot
+    # when requested
+    # -> Availability state: multiple tables, one per snapshot. The snapshot key should be based on
+    # when the upstream tables were last updated, with a new snapshot generated only if they were
+    # updated
+    SNAPSHOT = "snapshot"
+
+    # Snapshot the query as a new partition in the target dataset, stamped with the current
+    # date/time. This may be used to produce dimensional snapshot tables. The materialized table
+    # will contain an appropriate snapshot column.
+    # -> Availability state: single table.
+    SNAPSHOT_PARTITION = "snapshot_partition"
+
+    # Materialize incrementally based on the temporal partition column(s). This strategy will
+    # process the last N periods (defined by lookback_window) of data and load the results into
+    # corresponding target partitions. Requires a time column.
+    # -> Availability state: single table
+    INCREMENTAL_TIME = "incremental_time"
+
+    # Create a database view from the query, doesn't materialize any data
+    # -> Availability state: single view
+    VIEW = "view"
 
 
 class GenericMaterializationInput(BaseModel):
@@ -84,11 +121,11 @@ class MaterializationConfigOutput(SQLModel):
     """
 
     name: Optional[str]
-    engine: EngineInfo
     config: Dict
     schedule: str
-    job: str
+    job: Optional[str]
     backfills: List[BackfillOutput]
+    strategy: Optional[str]
 
 
 class MaterializationConfigInfoUnified(
@@ -114,6 +151,11 @@ class GenericMaterializationConfigInput(BaseModel):
     # Spark config
     spark: Optional[SparkConf]
 
+    # The time window to lookback when overwriting materialized datasets
+    # This will only be used if a time partition was set on the node and
+    # the materialization strategy is INCREMENTAL_TIME
+    lookback_window: Optional[str]
+
 
 class GenericMaterializationConfig(GenericMaterializationConfigInput):
     """
@@ -124,6 +166,49 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
     query: Optional[str]
     columns: Optional[List[ColumnMetadata]]
     upstream_tables: Optional[List[str]]
+
+    def temporal_partition(
+        self,
+        node_revision: "NodeRevision",
+    ) -> List[PartitionColumnOutput]:
+        """
+        The temporal partition column names on the intermediate measures table
+        """
+        user_defined_temporal_columns = node_revision.temporal_partition_columns()
+        if not user_defined_temporal_columns:
+            return []
+        user_defined_temporal_column = user_defined_temporal_columns[0]
+        return [
+            PartitionColumnOutput(
+                name=col.name,
+                format=user_defined_temporal_column.partition.format,
+                type_=user_defined_temporal_column.partition.type_,
+                expression=str(
+                    user_defined_temporal_column.partition.temporal_expression(),
+                ),
+            )
+            for col in self.columns  # type: ignore
+            if user_defined_temporal_column.name in (col.semantic_entity, col.name)
+        ]
+
+    def categorical_partitions(
+        self,
+        node_revision: "NodeRevision",
+    ) -> List[PartitionColumnOutput]:
+        """
+        The categorical partition column names on the intermediate measures table
+        """
+        user_defined_categorical_columns = {
+            col.name for col in node_revision.categorical_partition_columns()
+        }
+        return [
+            PartitionColumnOutput(
+                name=col.name,
+                type_=PartitionType.CATEGORICAL,
+            )
+            for col in self.columns  # type: ignore
+            if col.column in user_defined_categorical_columns
+        ]
 
 
 class DruidConf(BaseSQLModel):
@@ -212,47 +297,6 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
             for measure in measure_group.measures
         }
 
-    def temporal_partition(
-        self,
-        node_revision: "NodeRevision",
-    ) -> List[PartitionColumnOutput]:
-        """
-        The temporal partition column names on the intermediate measures table
-        """
-        user_defined_temporal_columns = node_revision.temporal_partition_columns()
-        user_defined_temporal_column = user_defined_temporal_columns[0]
-        return [
-            PartitionColumnOutput(
-                name=col.name,
-                format=user_defined_temporal_column.partition.format,
-                type_=user_defined_temporal_column.partition.type_,
-                expression=str(
-                    user_defined_temporal_column.partition.temporal_expression(),
-                ),
-            )
-            for col in self.columns  # type: ignore
-            if col.semantic_entity == user_defined_temporal_column.name
-        ]
-
-    def categorical_partitions(
-        self,
-        node_revision: "NodeRevision",
-    ) -> List[PartitionColumnOutput]:
-        """
-        The categorical partition column names on the intermediate measures table
-        """
-        user_defined_categorical_columns = {
-            col.name for col in node_revision.categorical_partition_columns()
-        }
-        return [
-            PartitionColumnOutput(
-                name=col.name,
-                type_=PartitionType.CATEGORICAL,
-            )
-            for col in self.columns  # type: ignore
-            if col.column in user_defined_categorical_columns
-        ]
-
     def build_druid_spec(self, node_revision: "NodeRevision"):
         """
         Builds the Druid ingestion spec from a materialization config.
@@ -318,8 +362,7 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
         UniqueConstraint(
             "name",
             "node_revision_id",
-            "engine_id",
-            name="node_revision_engine_uniq",
+            name="name_node_revision_uniq",
         ),
     )
 
@@ -336,15 +379,16 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
         back_populates="materializations",
     )
 
-    engine_id: int = Field(foreign_key="engine.id")
-    engine: Engine = Relationship()
-
     name: str
+
+    strategy: MaterializationStrategy = Field(
+        sa_column=SqlaColumn(Enum(MaterializationStrategy)),
+    )
 
     # A cron schedule to materialize this node by
     schedule: str
 
-    # Arbitrary config relevant to the materialization engine
+    # Arbitrary config relevant to the materialization job
     config: Union[GenericMaterializationConfig, DruidCubeConfig] = Field(
         default={},
         sa_column=SqlaColumn(JSON),
@@ -376,16 +420,88 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
         return value.dict()
 
 
+class MaterializationJobType(BaseSQLModel):
+    """
+    Materialization job types. These job types will map to their implementations
+    under the subclasses of `MaterializationJob`.
+    """
+
+    name: str
+    label: str
+    description: str
+
+    # Node types that can be materialized with this job type
+    allowed_node_types: List[NodeType]
+
+    # The class that implements this job type, must subclass `MaterializationJob`
+    job_class: str
+
+
+class MaterializationJobTypeEnum(enum.Enum):
+    """
+    Available materialization job types
+    """
+
+    SPARK_SQL = MaterializationJobType(
+        name="spark_sql",
+        label="Spark SQL",
+        description="Spark SQL materialization job",
+        allowed_node_types=[NodeType.TRANSFORM, NodeType.DIMENSION, NodeType.CUBE],
+        job_class="SparkSqlMaterializationJob",
+    )
+
+    DRUID_CUBE = MaterializationJobType(
+        name="druid_cube",
+        label="Druid Cube",
+        description=(
+            "Used to materialize a cube to Druid for low-latency access to a set of metrics "
+            "and dimensions. While the logical cube definition is at the level of metrics "
+            "and dimensions, a materialized Druid cube will reference measures and dimensions,"
+            " with rollup configured on the measures where appropriate."
+        ),
+        allowed_node_types=[NodeType.CUBE],
+        job_class="DruidCubeMaterializationJob",
+    )
+
+    @classmethod
+    def find_match(cls, job_name: str) -> "MaterializationJobTypeEnum":
+        """Find a matching enum value for the given job name"""
+        return [job_type for job_type in cls if job_type.value.job_class == job_name][0]
+
+
 class UpsertMaterialization(BaseSQLModel):
     """
     An upsert object for materialization configs
     """
 
     name: Optional[str]
-    engine: EngineRef
+    job: MaterializationJobTypeEnum
     config: Union[
         DruidCubeConfigInput,
         GenericCubeConfigInput,
         GenericMaterializationConfigInput,
     ]
     schedule: str
+    strategy: MaterializationStrategy
+
+    @validator("job", pre=True)
+    def validate_job(  # pylint: disable=no-self-argument
+        cls,
+        job: Union[str, MaterializationJobTypeEnum],
+    ) -> MaterializationJobTypeEnum:
+        """
+        Validates the `job` field. Converts to an enum if `job` is a string.
+        """
+        if isinstance(job, str):
+            job_name = job.upper()
+            options = (
+                MaterializationJobTypeEnum._member_names_  # pylint: disable=protected-access,no-member
+            )
+            if job_name not in options:
+                raise DJInvalidInputException(
+                    http_status_code=404,
+                    message=f"Materialization job type `{job.upper()}` not found. "
+                    f"Available job types: {[job.name for job in MaterializationJobTypeEnum]}",
+                )
+            return MaterializationJobTypeEnum[job_name]
+        return job

@@ -8,7 +8,8 @@ from sqlalchemy.orm.exc import NoResultFound
 from sqlmodel import Session, select
 
 from datajunction_server.errors import DJError, DJErrorException, ErrorCode
-from datajunction_server.models.node import Node, NodeRevision, NodeType
+from datajunction_server.models.node import Node, NodeRevision
+from datajunction_server.models.node_type import NodeType
 
 if TYPE_CHECKING:
     from datajunction_server.sql.parsing.ast import Column, Name

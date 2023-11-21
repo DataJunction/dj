@@ -9,12 +9,8 @@ from sqlmodel import Session, select
 
 from datajunction_server.models import Column
 from datajunction_server.models.base import NodeColumns
-from datajunction_server.models.node import (
-    DimensionAttributeOutput,
-    Node,
-    NodeRevision,
-    NodeType,
-)
+from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeRevision
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR, get_settings
 
 settings = get_settings()

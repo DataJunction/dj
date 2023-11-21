@@ -17,7 +17,8 @@ from datajunction_server.models.column import Column, SemanticType
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.metric import TranslatedSQL
-from datajunction_server.models.node import BuildCriteria, Node, NodeRevision, NodeType
+from datajunction_server.models.node import BuildCriteria, Node, NodeRevision
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse

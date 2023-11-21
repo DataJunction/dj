@@ -21,13 +21,16 @@ from datajunction_server.internal.materializations import (
 )
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models import access
+from datajunction_server.models.base import labelize
 from datajunction_server.models.history import ActivityType, EntityType, History
 from datajunction_server.models.materialization import (
     MaterializationConfigInfoUnified,
     MaterializationInfo,
+    MaterializationJobTypeEnum,
+    MaterializationStrategy,
     UpsertMaterialization,
 )
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import Backfill, PartitionBackfill
 from datajunction_server.models.user import User
 from datajunction_server.service_clients import QueryServiceClient
@@ -42,6 +45,27 @@ from datajunction_server.utils import (
 _logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["materializations"])
+
+
+@router.get(
+    "/materialization/info",
+    status_code=200,
+    name="Materialization Jobs Info",
+)
+def materialization_jobs_info() -> JSONResponse:
+    """
+    Materialization job types and strategies
+    """
+    return JSONResponse(
+        status_code=200,
+        content={
+            "job_types": [value.value.dict() for value in MaterializationJobTypeEnum],
+            "strategies": [
+                {"name": value, "label": labelize(value)}
+                for value in MaterializationStrategy
+            ],
+        },
+    )
 
 
 @router.post(
@@ -72,6 +96,14 @@ def upsert_materialization(  # pylint: disable=too-many-locals
         )
     current_revision = node.current
     old_materializations = {mat.name: mat for mat in current_revision.materializations}
+
+    if data.strategy == MaterializationStrategy.INCREMENTAL_TIME:
+        if not node.current.temporal_partition_columns():
+            raise DJException(  # pragma: no cover
+                http_status_code=HTTPStatus.BAD_REQUEST,
+                message="Cannot create materialization with strategy "
+                f"`{data.strategy}` without specifying a time partition column!",
+            )
 
     # Create a new materialization
     new_materialization = create_new_materialization(
@@ -206,7 +238,6 @@ def list_node_materializations(
             )
             materialization = MaterializationConfigInfoUnified(
                 **materialization.dict(),
-                **{"engine": materialization.engine.dict()},
                 **info.dict(),
                 backfills=materialization.backfills,
             )

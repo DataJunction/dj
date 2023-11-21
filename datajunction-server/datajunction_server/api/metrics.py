@@ -23,8 +23,8 @@ from datajunction_server.models.node import (
     MetricMetadataOptions,
     MetricUnit,
     Node,
-    NodeType,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
