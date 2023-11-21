@@ -2,7 +2,8 @@
 Helper methods for namespaces endpoints.
 """
 from datetime import datetime
-from typing import Dict, List, Optional
+import os
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import or_
 from sqlalchemy.sql.operators import is_
@@ -17,6 +18,7 @@ from datajunction_server.errors import (
 from datajunction_server.models import History, User
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import Node, NodeNamespace, NodeRevision, NodeType
+from datajunction_server.models.cube import CubeRevisionMetadata
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
 
@@ -43,6 +45,30 @@ def get_nodes_in_namespace(
         NodeRevision.mode,
         NodeRevision.updated_at,
     ).where(
+        or_(
+            col(Node.namespace).like(f"{namespace}.%"),  # pylint: disable=no-member
+            Node.namespace == namespace,
+        ),
+        Node.current_version == NodeRevision.version,
+        Node.name == NodeRevision.name,
+        Node.type == node_type if node_type else True,
+    )
+    if include_deactivated is False:
+        list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))
+    return session.exec(list_nodes_query).all()
+
+
+def get_nodes_in_namespace_detailed(
+    session: Session,
+    namespace: str,
+    node_type: NodeType = None,
+    include_deactivated: bool = False,
+) -> List[Dict]:
+    """
+    Gets a list of node names (w/ full details) in the namespace
+    """
+    get_node_namespace(session, namespace)
+    list_nodes_query = select(Node).where(
         or_(
             col(Node.namespace).like(f"{namespace}.%"),  # pylint: disable=no-member
             Node.namespace == namespace,
@@ -234,3 +260,111 @@ def hard_delete_namespace(
         }
         session.delete(_namespace)
     return impacts
+
+def _get_dir_and_filename(node_name: str, node_type: str, namespace_requested: str) -> Tuple[str, str]:
+    """
+    Get the directory and filename where a node name would be located
+    """
+    dot_split = node_name.replace(f"{namespace_requested}.", "").split(".")
+    filename = f"{dot_split[-1]}.{node_type}.yaml"
+    directory = os.path.sep.join(dot_split[:-1])
+    return filename, directory
+
+def _source_project_config(node: Node, namespace_requested: str) -> Dict:
+    """
+    Returns a project config definition for a source node
+    """
+    filename, directory = _get_dir_and_filename(node_name=node.name, node_type=node.type, namespace_requested=namespace_requested)
+    return {
+        "filename": filename,
+        "directory": directory,
+        "description": node.current.description,
+        "table": f"{node.current.catalog}.{node.current.schema_}.{node.current.table}",
+        "columns": [{"name": column.name, "type": str(column.type)} for column in node.current.columns]
+    }
+
+def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
+    """
+    Returns a project config definition for a transform node
+    """
+    filename, directory = _get_dir_and_filename(node_name=node.name, node_type=node.type, namespace_requested=namespace_requested)
+    return {
+        "filename": filename,
+        "directory": directory,
+        "description": node.current.description,
+        "query": node.current.query,
+    }
+
+def _dimension_project_config(node: Node, namespace_requested: str) -> Dict:
+    """
+    Returns a project config definition for a dimension node
+    """
+    filename, directory = _get_dir_and_filename(node_name=node.name, node_type=node.type, namespace_requested=namespace_requested)
+    return {
+        "filename": filename,
+        "directory": directory,
+        "description": node.current.description,
+        "query": node.current.query,
+        "primary_key": [pk.name for pk in node.current.primary_key()],
+    }
+
+def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
+    """
+    Returns a project config definition for a metric node
+    """
+    filename, directory = _get_dir_and_filename(node_name=node.name, node_type=node.type, namespace_requested=namespace_requested)
+    return {
+        "filename": filename,
+        "directory": directory,
+        "description": node.current.description,
+        "query": node.current.query,
+    }
+
+def _cube_project_config(node: Node, namespace_requested: str) -> Dict:
+    """
+    Returns a project config definition for a cube node
+    """
+    filename, directory = _get_dir_and_filename(node_name=node.name, node_type=NodeType.CUBE, namespace_requested=namespace_requested)
+    cube_revision = CubeRevisionMetadata.from_orm(node.current)
+    metrics = []
+    dimensions = []
+    for element in cube_revision.cube_elements:
+        if element.type == NodeType.METRIC:
+            metrics.append(element.node_name)
+        elif element.type == NodeType.DIMENSION:
+            dimensions.append(f"{element.node_name}.{element.name}")
+    return {
+        "filename": filename,
+        "directory": directory,
+        "description": cube_revision.description,
+        "metrics": metrics,
+        "dimensions": dimensions,
+    }
+
+def get_project_config(nodes: List[Node], namespace_requested: str) -> Dict:
+    """
+    Returns a project config definition
+    """
+    project_components = []
+    for node in nodes:
+        if node.type == NodeType.SOURCE:
+            project_components.append(
+                _source_project_config(node=node, namespace_requested=namespace_requested)
+            )
+        elif node.type == NodeType.TRANSFORM:
+            project_components.append(
+                _transform_project_config(node=node, namespace_requested=namespace_requested)
+            )
+        elif node.type == NodeType.DIMENSION:
+            project_components.append(
+                _dimension_project_config(node=node, namespace_requested=namespace_requested)
+            )
+        elif node.type == NodeType.METRIC:
+            project_components.append(
+                _metric_project_config(node=node, namespace_requested=namespace_requested)
+            )
+        if node.type == NodeType.CUBE:
+            project_components.append(
+                _cube_project_config(node=node, namespace_requested=namespace_requested)
+            )
+    return project_components

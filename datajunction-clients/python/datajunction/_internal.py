@@ -453,6 +453,13 @@ class DJClient:
         response = self._session.post(f"/nodes/{node_name}/refresh/")
         return response.json()
 
+    def _export_namespace(self, namespace):
+        """
+        Export an array of definitions contained within a namespace
+        """
+        response = self._session.get(f"/namespaces/{namespace}/export/")
+        return response.json()
+
     def _get_tag(self, tag_name: str):
         """
         Retrieves a tag.
