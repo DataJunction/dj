@@ -253,10 +253,20 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> QueryWithResults:
     """
     Return data for a set of metrics with dimensions and filters
     """
+    access_control = access.AccessControlStore(
+        validate_access=validate_access,
+        user=current_user,
+        base_verb=access.ResourceRequestVerb.READ,
+    )
+
     translated_sql, engine, catalog = build_sql_for_multiple_metrics(
         session,
         metrics,
@@ -266,6 +276,7 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
         limit,
         engine_name,
         engine_version,
+        access_control,
     )
 
     query_create = QueryCreate(
