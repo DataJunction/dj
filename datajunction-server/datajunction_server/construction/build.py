@@ -893,6 +893,11 @@ def build_metric_nodes(
                     parent_ast.select.group_by[i] = parent_ast.select.group_by[i].copy()
                     parent_ast.select.group_by[i].alias = None
 
+            if parent_ast.select.where:
+                for col in parent_ast.select.where.find_all(ast.Column):
+                    if hasattr(col, "alias"):  # pragma: no cover
+                        col.alias = None
+
         for expr in parent_ast.select.projection:
             expr.set_alias(
                 ast.Name(amenable_name(expr.alias_or_name.identifier(False))),  # type: ignore
