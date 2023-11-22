@@ -602,6 +602,18 @@ def test_export_namespaces(client_with_examples: TestClient):
     """
     Test exporting a namespace to a project definition
     """
+    # Create a cube so that the cube definition export path is tested
+    response = client_with_examples.post(
+        "/nodes/cube/",
+        json={
+            "name": "default.example_cube",
+            "description": "An example cube so that the export path is tested",
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.city"],
+            "mode": "published",
+        },
+    )
+    assert response.ok
     response = client_with_examples.get(
         "/namespaces/default/export/",
     )
@@ -662,5 +674,6 @@ def test_export_namespaces(client_with_examples: TestClient):
         "special_country_dim.dimension.yaml",
         "user_dim.dimension.yaml",
         "avg_user_age.metric.yaml",
+        "example_cube.cube.yaml",
     }
     assert {d["directory"] for d in project_definition} == {""}

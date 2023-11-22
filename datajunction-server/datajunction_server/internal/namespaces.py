@@ -62,7 +62,6 @@ def get_nodes_in_namespace_detailed(
     session: Session,
     namespace: str,
     node_type: NodeType = None,
-    include_deactivated: bool = False,
 ) -> List[Node]:
     """
     Gets a list of node names (w/ full details) in the namespace
@@ -77,8 +76,6 @@ def get_nodes_in_namespace_detailed(
         Node.name == NodeRevision.name,
         Node.type == node_type if node_type else True,
     )
-    if include_deactivated is False:
-        list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))
     return session.exec(list_nodes_query).all()
 
 
@@ -364,7 +361,7 @@ def _cube_project_config(node: Node, namespace_requested: str) -> Dict:
     for element in cube_revision.cube_elements:
         if element.type == NodeType.METRIC:
             metrics.append(element.node_name)
-        elif element.type == NodeType.DIMENSION:
+        else:
             dimensions.append(f"{element.node_name}.{element.name}")
     return {
         "filename": filename,
@@ -409,7 +406,7 @@ def get_project_config(nodes: List[Node], namespace_requested: str) -> List[Dict
                     namespace_requested=namespace_requested,
                 ),
             )
-        if node.type == NodeType.CUBE:
+        else:
             project_components.append(
                 _cube_project_config(
                     node=node,
