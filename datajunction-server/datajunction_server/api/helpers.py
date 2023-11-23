@@ -651,6 +651,7 @@ def validate_cube(  # pylint: disable=too-many-locals
     session: Session,
     metric_names: List[str],
     dimension_names: List[str],
+    check_dimensions: bool = True,
 ) -> Tuple[List[Column], List[Node], List[Node], List[Column], Optional[Catalog]]:
     """
     Validate that a set of metrics and dimensions can be built together.
@@ -689,20 +690,20 @@ def validate_cube(  # pylint: disable=too-many-locals
 
     # Verify that the provided dimension attributes exist
     for dimension_attribute in dimension_names:
-        node_name, column_name = dimension_attribute.rsplit(".", 1)
         try:
+            node_name, column_name = dimension_attribute.rsplit(".", 1)
             dimension_node = get_node_by_name(session=session, name=node_name)
-        except DJNodeNotFound as exc:  # pragma: no cover
+        except (ValueError, DJNodeNotFound) as exc:  # pragma: no cover
             raise DJException(
-                f"{exc.message} Please make sure that `{column_name}` "
-                f"is an attribute on a dimension node `{node_name}`.",
+                f"Please make sure that `{dimension_attribute}` "
+                "is a dimensional attribute.",
             ) from exc
         dimension_nodes.append(dimension_node)
         columns = {col.name: col for col in dimension_node.current.columns}
         if column_name in columns:  # pragma: no cover
             dimensions.append(columns[column_name])
 
-    if not dimensions:
+    if check_dimensions and not dimensions:
         raise DJException(
             message=("At least one dimension is required"),
             http_status_code=http.client.UNPROCESSABLE_ENTITY,
@@ -817,6 +818,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
         session,
         metrics,
         dimensions,
+        check_dimensions=False,
     )
     leading_metric_node = get_node_by_name(session, metrics[0])
     available_engines = leading_metric_node.current.catalog.engines
