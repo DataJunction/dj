@@ -1988,7 +1988,7 @@ LIMIT 100""",
         ),
     ],
 )
-def test_get_sql_for_multiple_metrics(
+def test_get_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments
     metrics,
     dimensions,
     filters,
