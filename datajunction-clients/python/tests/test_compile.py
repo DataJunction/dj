@@ -328,7 +328,7 @@ def test_compile_pull_a_namespaces(builder_client: DJBuilder, tmp_path):
     # Link a dimension so that we can test that path
     node = builder_client.source("default.repair_order_details")
     node.link_dimension(column="repair_order_id", dimension="default.repair_order")
-    
+
     os.chdir(tmp_path)
     Project.pull(client=builder_client, namespace="default", target_path=tmp_path)
     project = Project.load_current()
