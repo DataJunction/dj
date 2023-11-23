@@ -291,6 +291,11 @@ def _source_project_config(node: Node, namespace_requested: str) -> Dict:
             {"name": column.name, "type": str(column.type)}
             for column in node.current.columns
         ],
+        "dimension_links": {
+            column.name: {"dimension": column.dimension.name}
+            for column in node.current.columns
+            if column.dimension
+        },
     }
 
 
@@ -308,6 +313,11 @@ def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
         "directory": directory,
         "description": node.current.description,
         "query": node.current.query,
+        "dimension_links": {
+            column.name: {"dimension": column.dimension.name}
+            for column in node.current.columns
+            if column.dimension
+        },
     }
 
 
@@ -326,6 +336,11 @@ def _dimension_project_config(node: Node, namespace_requested: str) -> Dict:
         "description": node.current.description,
         "query": node.current.query,
         "primary_key": [pk.name for pk in node.current.primary_key()],
+        "dimension_links": {
+            column.name: {"dimension": column.dimension.name}
+            for column in node.current.columns
+            if column.dimension
+        },
     }
 
 

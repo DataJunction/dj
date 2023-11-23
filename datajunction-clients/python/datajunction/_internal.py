@@ -345,15 +345,18 @@ class DJClient:
         node_name: str,
         column_name: str,
         dimension_name: str,
-        dimension_column: Optional[str] = None,
+        dimension_column: Optional[str],
     ):
         """
         Helper function to link a dimension to the node.
         """
+        params = {"dimension": dimension_name}
+        if dimension_column:
+            params["dimension_column"] = dimension_column
         response = self._session.post(
-            f"/nodes/{node_name}/columns/{column_name}/"
-            f"?dimension={dimension_name}&dimension_column={dimension_column}",
+            f"/nodes/{node_name}/columns/{column_name}/",
             timeout=self._timeout,
+            params=params,
         )
         return response.json()
 

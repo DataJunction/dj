@@ -38,6 +38,20 @@ _logger = logging.getLogger(__name__)
 CONFIG_FILENAME = "dj.yaml"
 
 
+def str_presenter(dumper, data):
+    """
+    YAML representer that uses the | (pipe) character for multiline strings
+    """
+    if len(data.splitlines()) > 1 or "\n" in data:
+        text_list = [line.rstrip() for line in data.splitlines()]
+        fixed_data = "\n".join(text_list)
+        return dumper.represent_scalar("tag:yaml.org,2002:str", fixed_data, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+yaml.add_representer(str, str_presenter)
+
+
 def _parent_dir(path: Path):
     """
     Returns the parent directory
@@ -156,19 +170,16 @@ class SourceYAML(NodeYAML):
                     dimension_column["dimension"],
                     prefix,
                 )
-                dimension_column = dimension_column["column"]
                 node.link_dimension(
                     column,
                     prefixed_dimension,
-                    dimension_column,
                 )
                 table.add_row(
                     *[
                         prefixed_name,
                         "[b]link[/]",
                         (
-                            f"[green]Column {column} linked to column {dimension_column} "
-                            f"on dimension {prefixed_dimension}"
+                            f"[green]Column {column} linked to dimension {prefixed_dimension}"
                         ),
                     ]
                 )
@@ -222,11 +233,9 @@ class TransformYAML(NodeYAML):
                     dimension_column["dimension"],
                     prefix,
                 )
-                dimension_column = dimension_column["column"]
                 node.link_dimension(
                     column,
                     prefixed_dimension,
-                    dimension_column,
                 )
                 table.add_row(
                     *[
@@ -288,11 +297,9 @@ class DimensionYAML(NodeYAML):
                     dimension_column["dimension"],
                     prefix,
                 )
-                dimension_column = dimension_column["column"]
                 node.link_dimension(
                     column,
                     prefixed_dimension,
-                    dimension_column,
                 )
                 table.add_row(
                     *[
@@ -454,19 +461,23 @@ class Project(BaseModel):
         for node in node_definitions:
             node_definition_dir = Path(node.pop("directory"))
             Path.mkdir(node_definition_dir, parents=True, exist_ok=True)
-            if node["filename"].endswith(".dimension.yaml") or node[
-                "filename"
-            ].endswith(".transform.yaml"):
-                node["query"] = node["query"].replace(f"{namespace}.", "${prefix}")
+            if (
+                node["filename"].endswith(".dimension.yaml")
+                or node["filename"].endswith(".transform.yaml")
+                or node["filename"].endswith(".metric.yaml")
+            ):
+                node["query"] = inject_prefixes(node["query"], namespace)
             elif node["filename"].endswith(".cube.yaml"):
                 node["metrics"] = [
-                    metric.replace(f"{namespace}.", "${prefix}")
-                    for metric in node["metrics"]
+                    inject_prefixes(metric, namespace) for metric in node["metrics"]
                 ]
                 node["dimensions"] = [
-                    dimension.replace(f"{namespace}.", "${prefix}")
+                    inject_prefixes(dimension, namespace)
                     for dimension in node["dimensions"]
                 ]
+            if node.get("dimension_links"):
+                for _, dim in node["dimension_links"].items():
+                    dim["dimension"] = inject_prefixes(dim["dimension"], namespace)
             with open(
                 node_definition_dir / Path(node.pop("filename")),
                 "w",
@@ -499,6 +510,13 @@ def render_prefixes(parameterized_string: str, prefix: str):
     Replaces ${prefix} in a string
     """
     return parameterized_string.replace("${prefix}", f"{prefix}.")
+
+
+def inject_prefixes(unparameterized_string: str, prefix: str):
+    """
+    Replaces a namespace in a string with ${prefix}
+    """
+    return unparameterized_string.replace(f"{prefix}.", "${prefix}")
 
 
 class CompiledProject(Project):
@@ -549,8 +567,7 @@ class CompiledProject(Project):
         """
         Deploy namespaces
         """
-        self.namespaces.append(prefix)
-        for namespace in self.namespaces:
+        for namespace in self.namespaces + [prefix]:
             prefixed_name = f"{prefix}.{namespace}" if namespace != prefix else prefix
             try:
                 client.create_namespace(
