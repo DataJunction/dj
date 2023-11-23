@@ -1452,7 +1452,7 @@ def test_get_sql_for_metrics_failures(client_with_account_revenue: TestClient):
         "warnings": [],
     }
 
-    # Getting sql with no dimensions fails appropriately
+    # Getting sql for metric with no dimensions works
     response = client_with_account_revenue.get(
         "/sql/",
         params={
@@ -1461,13 +1461,7 @@ def test_get_sql_for_metrics_failures(client_with_account_revenue: TestClient):
             "filters": [],
         },
     )
-    assert response.status_code == 422
-    data = response.json()
-    assert data == {
-        "message": "At least one dimension is required",
-        "errors": [],
-        "warnings": [],
-    }
+    assert response.status_code == 200
 
 
 def test_get_sql_for_metrics_no_access(client_with_roads: TestClient):
@@ -1514,16 +1508,63 @@ def test_get_sql_for_metrics_no_access(client_with_roads: TestClient):
     assert data["errors"][0]["code"] == 500
 
 
-def test_get_sql_for_metrics(client_with_roads: TestClient):
-    """
-    Test getting sql for multiple metrics.
-    """
+@pytest.mark.parametrize(
+    "metrics, dimensions, filters, orderby, sql, columns, rows",
+    [
+        # querying on metrics with no dimensions and no filters
+        (
+            ["default.discounted_orders_rate", "default.num_repair_orders"],
+            [],
+            [],
+            [],
+            """WITH
+default_DOT_repair_orders_fact AS (SELECT  CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate,
+    count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders
+ FROM (SELECT  default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay,
+    default_DOT_repair_order_details.discount,
+    default_DOT_repair_order_details.price,
+    default_DOT_repair_order_details.quantity,
+    default_DOT_repair_order_details.repair_type_id,
+    default_DOT_repair_orders.dispatched_date,
+    default_DOT_repair_orders.dispatcher_id,
+    default_DOT_repair_orders.hard_hat_id,
+    default_DOT_repair_orders.municipality_id,
+    default_DOT_repair_orders.order_date,
+    default_DOT_repair_orders.repair_order_id,
+    default_DOT_repair_orders.required_date,
+    default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
+    default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost
+ FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id)
+ AS default_DOT_repair_orders_fact
+)
 
-    response = client_with_roads.get(
-        "/sql/",
-        params={
-            "metrics": ["default.discounted_orders_rate", "default.num_repair_orders"],
-            "dimensions": [
+SELECT  default_DOT_repair_orders_fact.default_DOT_discounted_orders_rate,
+    default_DOT_repair_orders_fact.default_DOT_num_repair_orders
+ FROM default_DOT_repair_orders_fact LIMIT 100""",
+            [
+                {
+                    "column": "default_DOT_discounted_orders_rate",
+                    "name": "default_DOT_discounted_orders_rate",
+                    "node": "default.discounted_orders_rate",
+                    "semantic_entity": "default.discounted_orders_rate.default_DOT_discounted_orders_rate",
+                    "semantic_type": "metric",
+                    "type": "double",
+                },
+                {
+                    "column": "default_DOT_num_repair_orders",
+                    "name": "default_DOT_num_repair_orders",
+                    "node": "default.num_repair_orders",
+                    "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
+                    "semantic_type": "metric",
+                    "type": "bigint",
+                },
+            ],
+            [[1.0, 25]],
+        ),
+        # querying on metrics with dimensions but no filters
+        (
+            ["default.discounted_orders_rate", "default.num_repair_orders"],
+            [
                 "default.hard_hat.country",
                 "default.hard_hat.postal_code",
                 "default.hard_hat.city",
@@ -1531,19 +1572,14 @@ def test_get_sql_for_metrics(client_with_roads: TestClient):
                 "default.dispatcher.company_name",
                 "default.municipality_dim.local_region",
             ],
-            "filters": [],
-            "orderby": [
+            [],
+            [
                 "default.hard_hat.country",
                 "default.num_repair_orders",
                 "default.dispatcher.company_name",
                 "default.discounted_orders_rate",
             ],
-            "limit": 100,
-        },
-    )
-    data = response.json()
-    expected_sql = """
-    WITH
+            """WITH
     default_DOT_repair_orders_fact AS (SELECT  default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
         default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
         default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
@@ -1596,75 +1632,408 @@ def test_get_sql_for_metrics(client_with_roads: TestClient):
         default_DOT_repair_orders_fact.default_DOT_municipality_dim_DOT_local_region
      FROM default_DOT_repair_orders_fact
     ORDER BY default_DOT_hard_hat_DOT_country, default_DOT_num_repair_orders, default_DOT_dispatcher_DOT_company_name, default_DOT_discounted_orders_rate
-    LIMIT 100
+    LIMIT 100""",
+            [
+                {
+                    "column": "default_DOT_discounted_orders_rate",
+                    "name": "default_DOT_discounted_orders_rate",
+                    "node": "default.discounted_orders_rate",
+                    "semantic_entity": "default.discounted_orders_rate.default_DOT_discounted_orders_rate",
+                    "semantic_type": "metric",
+                    "type": "double",
+                },
+                {
+                    "column": "default_DOT_num_repair_orders",
+                    "name": "default_DOT_num_repair_orders",
+                    "node": "default.num_repair_orders",
+                    "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
+                    "semantic_type": "metric",
+                    "type": "bigint",
+                },
+                {
+                    "column": "company_name",
+                    "name": "default_DOT_dispatcher_DOT_company_name",
+                    "node": "default.dispatcher",
+                    "semantic_entity": "default.dispatcher.company_name",
+                    "semantic_type": "dimension",
+                    "type": "string",
+                },
+                {
+                    "column": "city",
+                    "name": "default_DOT_hard_hat_DOT_city",
+                    "node": "default.hard_hat",
+                    "semantic_entity": "default.hard_hat.city",
+                    "semantic_type": "dimension",
+                    "type": "string",
+                },
+                {
+                    "column": "country",
+                    "name": "default_DOT_hard_hat_DOT_country",
+                    "node": "default.hard_hat",
+                    "semantic_entity": "default.hard_hat.country",
+                    "semantic_type": "dimension",
+                    "type": "string",
+                },
+                {
+                    "column": "postal_code",
+                    "name": "default_DOT_hard_hat_DOT_postal_code",
+                    "node": "default.hard_hat",
+                    "semantic_entity": "default.hard_hat.postal_code",
+                    "semantic_type": "dimension",
+                    "type": "string",
+                },
+                {
+                    "column": "state",
+                    "name": "default_DOT_hard_hat_DOT_state",
+                    "node": "default.hard_hat",
+                    "semantic_entity": "default.hard_hat.state",
+                    "semantic_type": "dimension",
+                    "type": "string",
+                },
+                {
+                    "column": "local_region",
+                    "name": "default_DOT_municipality_dim_DOT_local_region",
+                    "node": "default.municipality_dim",
+                    "semantic_entity": "default.municipality_dim.local_region",
+                    "semantic_type": "dimension",
+                    "type": "string",
+                },
+            ],
+            [
+                [
+                    1.0,
+                    1,
+                    "Federal Roads Group",
+                    "Jersey City",
+                    "USA",
+                    "37421",
+                    "NJ",
+                    "Manhattan",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Pothole Pete",
+                    "Billerica",
+                    "USA",
+                    "13440",
+                    "MA",
+                    "Manhattan",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Asphalts R Us",
+                    "Southgate",
+                    "USA",
+                    "33125",
+                    "MI",
+                    "Manhattan",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Pothole Pete",
+                    "Jersey City",
+                    "USA",
+                    "37421",
+                    "NJ",
+                    "Deep Ellum",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Asphalts R Us",
+                    "Phoenix",
+                    "USA",
+                    "85021",
+                    "AZ",
+                    "Alamo Heights",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Asphalts R Us",
+                    "Billerica",
+                    "USA",
+                    "13440",
+                    "MA",
+                    "Manhattan",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Asphalts R Us",
+                    "Southampton",
+                    "USA",
+                    "71730",
+                    "PA",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    2,
+                    "Federal Roads Group",
+                    "Southgate",
+                    "USA",
+                    "33125",
+                    "MI",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Asphalts R Us",
+                    "Billerica",
+                    "USA",
+                    "13440",
+                    "MA",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Federal Roads Group",
+                    "Southampton",
+                    "USA",
+                    "71730",
+                    "PA",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    2,
+                    "Pothole Pete",
+                    "Southampton",
+                    "USA",
+                    "71730",
+                    "PA",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Federal Roads Group",
+                    "Phoenix",
+                    "USA",
+                    "85021",
+                    "AZ",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    2,
+                    "Asphalts R Us",
+                    "Powder Springs",
+                    "USA",
+                    "42001",
+                    "GA",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    2,
+                    "Federal Roads Group",
+                    "Middletown",
+                    "USA",
+                    "27292",
+                    "CT",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Federal Roads Group",
+                    "Muskogee",
+                    "USA",
+                    "74403",
+                    "OK",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Pothole Pete",
+                    "Powder Springs",
+                    "USA",
+                    "42001",
+                    "GA",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    2,
+                    "Pothole Pete",
+                    "Jersey City",
+                    "USA",
+                    "37421",
+                    "NJ",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Federal Roads Group",
+                    "Niagara Falls",
+                    "USA",
+                    "14304",
+                    "NY",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Pothole Pete",
+                    "Southgate",
+                    "USA",
+                    "33125",
+                    "MI",
+                    "Center City",
+                ],
+                [
+                    1.0,
+                    1,
+                    "Asphalts R Us",
+                    "Southgate",
+                    "USA",
+                    "33125",
+                    "MI",
+                    "Center City",
+                ],
+            ],
+        ),
+        # querying on metrics with dimensions and filters
+        (
+            ["default.discounted_orders_rate", "default.num_repair_orders"],
+            ["default.dispatcher.company_name", "default.hard_hat.state"],
+            [
+                "default.dispatcher.company_name = 'Pothole Pete'",
+                "default.hard_hat.state = 'MI'",
+            ],
+            [],
+            """WITH
+default_DOT_repair_orders_fact AS (SELECT  default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
+    default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state,
+    CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate,
+    count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders
+ FROM (SELECT  default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay,
+    default_DOT_repair_order_details.discount,
+    default_DOT_repair_order_details.price,
+    default_DOT_repair_order_details.quantity,
+    default_DOT_repair_order_details.repair_type_id,
+    default_DOT_repair_orders.dispatched_date,
+    default_DOT_repair_orders.dispatcher_id,
+    default_DOT_repair_orders.hard_hat_id,
+    default_DOT_repair_orders.municipality_id,
+    default_DOT_repair_orders.order_date,
+    default_DOT_repair_orders.repair_order_id,
+    default_DOT_repair_orders.required_date,
+    default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
+    default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost
+ FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id)
+ AS default_DOT_repair_orders_fact LEFT OUTER JOIN (SELECT  default_DOT_dispatchers.company_name,
+    default_DOT_dispatchers.dispatcher_id
+ FROM roads.dispatchers AS default_DOT_dispatchers)
+ AS default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
+    default_DOT_hard_hats.state
+ FROM roads.hard_hats AS default_DOT_hard_hats)
+ AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+ WHERE  default_DOT_dispatcher.company_name = 'Pothole Pete' AND default_DOT_hard_hat.state = 'MI'
+ GROUP BY  default_DOT_dispatcher.company_name, default_DOT_hard_hat.state
+)
+
+SELECT  default_DOT_repair_orders_fact.default_DOT_discounted_orders_rate,
+    default_DOT_repair_orders_fact.default_DOT_num_repair_orders,
+    default_DOT_repair_orders_fact.default_DOT_dispatcher_DOT_company_name,
+    default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_state
+ FROM default_DOT_repair_orders_fact
+
+LIMIT 100""",
+            [
+                {
+                    "column": "default_DOT_discounted_orders_rate",
+                    "name": "default_DOT_discounted_orders_rate",
+                    "node": "default.discounted_orders_rate",
+                    "semantic_entity": "default.discounted_orders_rate.default_DOT_discounted_orders_rate",
+                    "semantic_type": "metric",
+                    "type": "double",
+                },
+                {
+                    "column": "company_name",
+                    "name": "default_DOT_dispatcher_DOT_company_name",
+                    "node": "default.dispatcher",
+                    "semantic_entity": "default.dispatcher.company_name",
+                    "semantic_type": "dimension",
+                    "type": "string",
+                },
+                {
+                    "column": "state",
+                    "name": "default_DOT_hard_hat_DOT_state",
+                    "node": "default.hard_hat",
+                    "semantic_entity": "default.hard_hat.state",
+                    "semantic_type": "dimension",
+                    "type": "string",
+                },
+                {
+                    "column": "default_DOT_num_repair_orders",
+                    "name": "default_DOT_num_repair_orders",
+                    "node": "default.num_repair_orders",
+                    "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
+                    "semantic_type": "metric",
+                    "type": "bigint",
+                },
+            ],
+            [[1.0, 1, "Pothole Pete", "MI"]],
+        ),
+    ],
+)
+def test_get_sql_for_multiple_metrics(
+    metrics,
+    dimensions,
+    filters,
+    orderby,
+    sql,
+    columns,
+    rows,
+    client_with_query_service_example_loader: Callable[
+        [Optional[List[str]]],
+        TestClient,
+    ],
+):
     """
-    assert compare_query_strings(data["sql"], expected_sql)
-    assert data["columns"] == [
-        {
-            "column": "default_DOT_discounted_orders_rate",
-            "name": "default_DOT_discounted_orders_rate",
-            "node": "default.discounted_orders_rate",
-            "semantic_entity": "default.discounted_orders_rate.default_DOT_discounted_orders_rate",
-            "semantic_type": "metric",
-            "type": "double",
+    Test getting sql for multiple metrics.
+    """
+    custom_client = client_with_query_service_example_loader(["ROADS"])
+    response = custom_client.get(
+        "/sql",
+        params={
+            "metrics": metrics,
+            "dimensions": dimensions,
+            "filters": filters,
+            "orderby": orderby,
+            "limit": 100,
         },
-        {
-            "column": "default_DOT_num_repair_orders",
-            "name": "default_DOT_num_repair_orders",
-            "node": "default.num_repair_orders",
-            "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
-            "semantic_type": "metric",
-            "type": "bigint",
+    )
+    data = response.json()
+    assert compare_query_strings(data["sql"], sql)
+    assert sorted(data["columns"], key=lambda x: x["name"]) == sorted(
+        columns,
+        key=lambda x: x["name"],
+    )
+
+    # Run the query against local duckdb file
+    response = custom_client.get(
+        "/data",
+        params={
+            "metrics": metrics,
+            "dimensions": dimensions,
+            "filters": filters,
+            "limit": 100,
         },
-        {
-            "column": "company_name",
-            "name": "default_DOT_dispatcher_DOT_company_name",
-            "node": "default.dispatcher",
-            "semantic_entity": "default.dispatcher.company_name",
-            "semantic_type": "dimension",
-            "type": "string",
-        },
-        {
-            "column": "city",
-            "name": "default_DOT_hard_hat_DOT_city",
-            "node": "default.hard_hat",
-            "semantic_entity": "default.hard_hat.city",
-            "semantic_type": "dimension",
-            "type": "string",
-        },
-        {
-            "column": "country",
-            "name": "default_DOT_hard_hat_DOT_country",
-            "node": "default.hard_hat",
-            "semantic_entity": "default.hard_hat.country",
-            "semantic_type": "dimension",
-            "type": "string",
-        },
-        {
-            "column": "postal_code",
-            "name": "default_DOT_hard_hat_DOT_postal_code",
-            "node": "default.hard_hat",
-            "semantic_entity": "default.hard_hat.postal_code",
-            "semantic_type": "dimension",
-            "type": "string",
-        },
-        {
-            "column": "state",
-            "name": "default_DOT_hard_hat_DOT_state",
-            "node": "default.hard_hat",
-            "semantic_entity": "default.hard_hat.state",
-            "semantic_type": "dimension",
-            "type": "string",
-        },
-        {
-            "column": "local_region",
-            "name": "default_DOT_municipality_dim_DOT_local_region",
-            "node": "default.municipality_dim",
-            "semantic_entity": "default.municipality_dim.local_region",
-            "semantic_type": "dimension",
-            "type": "string",
-        },
-    ]
+    )
+    data = response.json()
+    assert data["results"][0]["rows"] == rows
 
 
 def test_get_sql_including_dimension_ids(client_with_roads: TestClient):
