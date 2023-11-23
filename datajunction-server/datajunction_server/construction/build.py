@@ -930,9 +930,10 @@ def build_metric_nodes(
         # bind the table for this built metric to all columns in the
         organization = cast(ast.Organization, parent_ast.select.organization)
         parent_ast.select.organization = None
-        for col in organization.find_all(ast.Column):
-            col.add_table(current_cte_as_table)  # pragma: no cover
-        orderby_sort_items += organization.order  # type: ignore
+        if organization:
+            for col in organization.find_all(ast.Column):
+                col.add_table(current_cte_as_table)  # pragma: no cover
+            orderby_sort_items += organization.order  # type: ignore
 
         final_select_columns = [
             ast.Column(
