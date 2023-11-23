@@ -1365,6 +1365,7 @@ class BinaryOpKind(DJEnum):
     Plus = "+"
     Minus = "-"
     Modulo = "%"
+    NullSafeEq = "<=>"
 
 
 @dataclass(eq=False)
