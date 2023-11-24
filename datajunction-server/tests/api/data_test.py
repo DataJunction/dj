@@ -75,14 +75,6 @@ class TestDataForNode:
                             "type": "int",
                         },
                         {
-                            "column": "payment_type_classification",
-                            "name": "default_DOT_payment_type_DOT_payment_type_classification",
-                            "node": "default.payment_type",
-                            "semantic_type": None,
-                            "semantic_entity": "default.payment_type.payment_type_classification",
-                            "type": "string",
-                        },
-                        {
                             "column": "payment_type_name",
                             "name": "default_DOT_payment_type_DOT_payment_type_name",
                             "node": "default.payment_type",
@@ -90,9 +82,17 @@ class TestDataForNode:
                             "semantic_entity": "default.payment_type.payment_type_name",
                             "type": "string",
                         },
+                        {
+                            "column": "payment_type_classification",
+                            "name": "default_DOT_payment_type_DOT_payment_type_classification",
+                            "node": "default.payment_type",
+                            "semantic_type": None,
+                            "semantic_entity": "default.payment_type.payment_type_classification",
+                            "type": "string",
+                        },
                     ],
                     "row_count": 0,
-                    "rows": [[1, "CARD", "VISA"], [2, "CARD", "MASTERCARD"]],
+                    "rows": [[1, "VISA", "CARD"], [2, "MASTERCARD", "CARD"]],
                     "sql": mock.ANY,
                 },
             ],
@@ -185,151 +185,151 @@ class TestDataForNode:
                 {
                     "columns": [
                         {
-                            "column": "discount",
-                            "name": "default_DOT_repair_orders_fact_DOT_discount",
+                            "column": "repair_order_id",
+                            "name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
                             "node": "default.repair_orders_fact",
+                            "semantic_entity": "default.repair_orders_fact.repair_order_id",
                             "semantic_type": None,
-                            "semantic_entity": "default.repair_orders_fact.discount",
-                            "type": "float",
-                        },
-                        {
-                            "column": "dispatch_delay",
-                            "name": "default_DOT_repair_orders_fact_DOT_dispatch_delay",
-                            "node": "default.repair_orders_fact",
-                            "semantic_type": None,
-                            "semantic_entity": "default.repair_orders_fact.dispatch_delay",
-                            "type": "timestamp",
-                        },
-                        {
-                            "column": "dispatched_date",
-                            "name": "default_DOT_repair_orders_fact_DOT_dispatched_date",
-                            "node": "default.repair_orders_fact",
-                            "semantic_type": None,
-                            "semantic_entity": "default.repair_orders_fact.dispatched_date",
-                            "type": "timestamp",
-                        },
-                        {
-                            "column": "dispatcher_id",
-                            "name": "default_DOT_repair_orders_fact_DOT_dispatcher_id",
-                            "node": "default.repair_orders_fact",
-                            "semantic_type": None,
-                            "semantic_entity": "default.repair_orders_fact.dispatcher_id",
-                            "type": "int",
-                        },
-                        {
-                            "column": "hard_hat_id",
-                            "name": "default_DOT_repair_orders_fact_DOT_hard_hat_id",
-                            "node": "default.repair_orders_fact",
-                            "semantic_type": None,
-                            "semantic_entity": "default.repair_orders_fact.hard_hat_id",
                             "type": "int",
                         },
                         {
                             "column": "municipality_id",
                             "name": "default_DOT_repair_orders_fact_DOT_municipality_id",
                             "node": "default.repair_orders_fact",
-                            "semantic_type": None,
                             "semantic_entity": "default.repair_orders_fact.municipality_id",
+                            "semantic_type": None,
                             "type": "string",
+                        },
+                        {
+                            "column": "hard_hat_id",
+                            "name": "default_DOT_repair_orders_fact_DOT_hard_hat_id",
+                            "node": "default.repair_orders_fact",
+                            "semantic_entity": "default.repair_orders_fact.hard_hat_id",
+                            "semantic_type": None,
+                            "type": "int",
+                        },
+                        {
+                            "column": "dispatcher_id",
+                            "name": "default_DOT_repair_orders_fact_DOT_dispatcher_id",
+                            "node": "default.repair_orders_fact",
+                            "semantic_entity": "default.repair_orders_fact.dispatcher_id",
+                            "semantic_type": None,
+                            "type": "int",
                         },
                         {
                             "column": "order_date",
                             "name": "default_DOT_repair_orders_fact_DOT_order_date",
                             "node": "default.repair_orders_fact",
-                            "semantic_type": None,
                             "semantic_entity": "default.repair_orders_fact.order_date",
+                            "semantic_type": None,
                             "type": "timestamp",
+                        },
+                        {
+                            "column": "dispatched_date",
+                            "name": "default_DOT_repair_orders_fact_DOT_dispatched_date",
+                            "node": "default.repair_orders_fact",
+                            "semantic_entity": "default.repair_orders_fact.dispatched_date",
+                            "semantic_type": None,
+                            "type": "timestamp",
+                        },
+                        {
+                            "column": "required_date",
+                            "name": "default_DOT_repair_orders_fact_DOT_required_date",
+                            "node": "default.repair_orders_fact",
+                            "semantic_entity": "default.repair_orders_fact.required_date",
+                            "semantic_type": None,
+                            "type": "timestamp",
+                        },
+                        {
+                            "column": "discount",
+                            "name": "default_DOT_repair_orders_fact_DOT_discount",
+                            "node": "default.repair_orders_fact",
+                            "semantic_entity": "default.repair_orders_fact.discount",
+                            "semantic_type": None,
+                            "type": "float",
                         },
                         {
                             "column": "price",
                             "name": "default_DOT_repair_orders_fact_DOT_price",
                             "node": "default.repair_orders_fact",
-                            "semantic_type": None,
                             "semantic_entity": "default.repair_orders_fact.price",
+                            "semantic_type": None,
                             "type": "float",
                         },
                         {
                             "column": "quantity",
                             "name": "default_DOT_repair_orders_fact_DOT_quantity",
                             "node": "default.repair_orders_fact",
-                            "semantic_type": None,
                             "semantic_entity": "default.repair_orders_fact.quantity",
-                            "type": "int",
-                        },
-                        {
-                            "column": "repair_order_id",
-                            "name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
-                            "node": "default.repair_orders_fact",
                             "semantic_type": None,
-                            "semantic_entity": "default.repair_orders_fact.repair_order_id",
                             "type": "int",
                         },
                         {
                             "column": "repair_type_id",
                             "name": "default_DOT_repair_orders_fact_DOT_repair_type_id",
                             "node": "default.repair_orders_fact",
-                            "semantic_type": None,
                             "semantic_entity": "default.repair_orders_fact.repair_type_id",
+                            "semantic_type": None,
                             "type": "int",
-                        },
-                        {
-                            "column": "required_date",
-                            "name": "default_DOT_repair_orders_fact_DOT_required_date",
-                            "node": "default.repair_orders_fact",
-                            "semantic_type": None,
-                            "semantic_entity": "default.repair_orders_fact.required_date",
-                            "type": "timestamp",
-                        },
-                        {
-                            "column": "time_to_dispatch",
-                            "name": "default_DOT_repair_orders_fact_DOT_time_to_dispatch",
-                            "node": "default.repair_orders_fact",
-                            "semantic_type": None,
-                            "semantic_entity": "default.repair_orders_fact.time_to_dispatch",
-                            "type": "timestamp",
                         },
                         {
                             "column": "total_repair_cost",
                             "name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
                             "node": "default.repair_orders_fact",
-                            "semantic_type": None,
                             "semantic_entity": "default.repair_orders_fact.total_repair_cost",
+                            "semantic_type": None,
                             "type": "float",
+                        },
+                        {
+                            "column": "time_to_dispatch",
+                            "name": "default_DOT_repair_orders_fact_DOT_time_to_dispatch",
+                            "node": "default.repair_orders_fact",
+                            "semantic_entity": "default.repair_orders_fact.time_to_dispatch",
+                            "semantic_type": None,
+                            "type": "timestamp",
+                        },
+                        {
+                            "column": "dispatch_delay",
+                            "name": "default_DOT_repair_orders_fact_DOT_dispatch_delay",
+                            "node": "default.repair_orders_fact",
+                            "semantic_entity": "default.repair_orders_fact.dispatch_delay",
+                            "semantic_type": None,
+                            "type": "timestamp",
                         },
                     ],
                     "row_count": 0,
                     "rows": [
                         [
-                            0.05000000074505806,
-                            -595,
-                            "2007-12-01",
-                            3,
-                            1,
-                            "New York",
-                            "2007-07-04",
-                            63708.0,
-                            1,
                             10001,
+                            "New York",
                             1,
+                            3,
+                            "2007-07-04",
+                            "2007-12-01",
                             "2009-07-18",
-                            150,
+                            0.05000000074505806,
                             63708.0,
+                            1,
+                            1,
+                            63708.0,
+                            150,
+                            -595,
                         ],
                         [
-                            0.05000000074505806,
-                            -636,
-                            "2007-12-01",
-                            1,
-                            3,
-                            "New York",
-                            "2007-07-05",
-                            67253.0,
-                            1,
                             10002,
-                            4,
+                            "New York",
+                            3,
+                            1,
+                            "2007-07-05",
+                            "2007-12-01",
                             "2009-08-28",
-                            149,
+                            0.05000000074505806,
                             67253.0,
+                            1,
+                            4,
+                            67253.0,
+                            149,
+                            -636,
                         ],
                     ],
                     "sql": mock.ANY,
@@ -533,10 +533,10 @@ class TestDataForNode:
                         "column": "default_DOT_num_repair_orders",
                         "name": "default_DOT_num_repair_orders",
                         "node": "default.num_repair_orders",
-                        "semantic_type": None,
                         "semantic_entity": (
                             "default.num_repair_orders.default_DOT_num_repair_orders"
                         ),
+                        "semantic_type": None,
                         "type": "bigint",
                     },
                 ],
@@ -544,23 +544,23 @@ class TestDataForNode:
                 "rows": [[25]],
                 "sql": "SELECT  count(default_DOT_repair_orders_fact.repair_order_id) "
                 "default_DOT_num_repair_orders \n"
-                " FROM (SELECT  default_DOT_repair_orders.dispatched_date - "
-                "default_DOT_repair_orders.required_date AS dispatch_delay,\n"
+                " FROM (SELECT  default_DOT_repair_orders.repair_order_id,\n"
+                "\tdefault_DOT_repair_orders.municipality_id,\n"
+                "\tdefault_DOT_repair_orders.hard_hat_id,\n"
+                "\tdefault_DOT_repair_orders.dispatcher_id,\n"
+                "\tdefault_DOT_repair_orders.order_date,\n"
+                "\tdefault_DOT_repair_orders.dispatched_date,\n"
+                "\tdefault_DOT_repair_orders.required_date,\n"
                 "\tdefault_DOT_repair_order_details.discount,\n"
                 "\tdefault_DOT_repair_order_details.price,\n"
                 "\tdefault_DOT_repair_order_details.quantity,\n"
                 "\tdefault_DOT_repair_order_details.repair_type_id,\n"
-                "\tdefault_DOT_repair_orders.dispatched_date,\n"
-                "\tdefault_DOT_repair_orders.dispatcher_id,\n"
-                "\tdefault_DOT_repair_orders.hard_hat_id,\n"
-                "\tdefault_DOT_repair_orders.municipality_id,\n"
-                "\tdefault_DOT_repair_orders.order_date,\n"
-                "\tdefault_DOT_repair_orders.repair_order_id,\n"
-                "\tdefault_DOT_repair_orders.required_date,\n"
+                "\tdefault_DOT_repair_order_details.price * "
+                "default_DOT_repair_order_details.quantity AS total_repair_cost,\n"
                 "\tdefault_DOT_repair_orders.dispatched_date - "
                 "default_DOT_repair_orders.order_date AS time_to_dispatch,\n"
-                "\tdefault_DOT_repair_order_details.price * "
-                "default_DOT_repair_order_details.quantity AS total_repair_cost \n"
+                "\tdefault_DOT_repair_orders.dispatched_date - "
+                "default_DOT_repair_orders.required_date AS dispatch_delay \n"
                 " FROM roads.repair_orders AS default_DOT_repair_orders JOIN "
                 "roads.repair_order_details AS default_DOT_repair_order_details ON "
                 "default_DOT_repair_orders.repair_order_id = "

@@ -72,15 +72,15 @@ async def test_build_metric_with_dimensions_aggs(request):
     )
     expected = """
         SELECT
+          COUNT(1) AS basic_DOT_num_comments,
           basic_DOT_dimension_DOT_users.country,
-          basic_DOT_dimension_DOT_users.gender,
-          COUNT(1) AS basic_DOT_num_comments
+          basic_DOT_dimension_DOT_users.gender
         FROM basic.source.comments AS basic_DOT_source_DOT_comments
         LEFT OUTER JOIN (
           SELECT
+            basic_DOT_source_DOT_users.id,
             basic_DOT_source_DOT_users.country,
-            basic_DOT_source_DOT_users.gender,
-            basic_DOT_source_DOT_users.id
+            basic_DOT_source_DOT_users.gender
           FROM basic.source.users AS basic_DOT_source_DOT_users
         ) AS basic_DOT_dimension_DOT_users ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
          GROUP BY
@@ -106,17 +106,17 @@ def test_build_metric_with_required_dimensions(request):
     )
     expected = """
         SELECT
-          basic_DOT_dimension_DOT_users.country,
-          basic_DOT_dimension_DOT_users.gender,
           COUNT(1) AS basic_DOT_num_comments_bnd,
           basic_DOT_source_DOT_comments.id,
-          basic_DOT_source_DOT_comments.text
+          basic_DOT_source_DOT_comments.text,
+          basic_DOT_dimension_DOT_users.country,
+          basic_DOT_dimension_DOT_users.gender
         FROM basic.source.comments AS basic_DOT_source_DOT_comments
         LEFT OUTER JOIN (
           SELECT
+            basic_DOT_source_DOT_users.id,
             basic_DOT_source_DOT_users.country,
-            basic_DOT_source_DOT_users.gender,
-            basic_DOT_source_DOT_users.id
+            basic_DOT_source_DOT_users.gender
           FROM basic.source.users AS basic_DOT_source_DOT_users
         ) AS basic_DOT_dimension_DOT_users ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
          GROUP BY
@@ -226,13 +226,13 @@ async def test_build_metric_with_dimensions_filters(request):
     )
     expected = """
     SELECT
-        basic_DOT_dimension_DOT_users.age,
-      COUNT(1) AS basic_DOT_num_comments
+        COUNT(1) AS basic_DOT_num_comments,
+        basic_DOT_dimension_DOT_users.age
     FROM basic.source.comments AS basic_DOT_source_DOT_comments
     LEFT OUTER JOIN (
       SELECT
-        basic_DOT_source_DOT_users.age,
-        basic_DOT_source_DOT_users.id
+        basic_DOT_source_DOT_users.id,
+        basic_DOT_source_DOT_users.age
       FROM basic.source.users AS basic_DOT_source_DOT_users
     ) AS basic_DOT_dimension_DOT_users
       ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id

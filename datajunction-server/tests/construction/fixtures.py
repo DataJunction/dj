@@ -67,18 +67,18 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
         """basic.dimension.users""": {
             None: (
                 True,
-                """SELECT  basic_DOT_dimension_DOT_users.age,
-    basic_DOT_dimension_DOT_users.country,
+                """SELECT  basic_DOT_dimension_DOT_users.id,
     basic_DOT_dimension_DOT_users.full_name,
+    basic_DOT_dimension_DOT_users.age,
+    basic_DOT_dimension_DOT_users.country,
     basic_DOT_dimension_DOT_users.gender,
-    basic_DOT_dimension_DOT_users.id,
     basic_DOT_dimension_DOT_users.preferred_language,
     basic_DOT_dimension_DOT_users.secret_number
- FROM (SELECT  basic_DOT_source_DOT_users.age,
-    basic_DOT_source_DOT_users.country,
+ FROM (SELECT  basic_DOT_source_DOT_users.id,
     basic_DOT_source_DOT_users.full_name,
+    basic_DOT_source_DOT_users.age,
+    basic_DOT_source_DOT_users.country,
     basic_DOT_source_DOT_users.gender,
-    basic_DOT_source_DOT_users.id,
     basic_DOT_source_DOT_users.preferred_language,
     basic_DOT_source_DOT_users.secret_number
  FROM basic.source.users AS basic_DOT_source_DOT_users)
@@ -94,11 +94,11 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
         """dbt.dimension.customers""": {
             None: (
                 True,
-                """SELECT  dbt_DOT_dimension_DOT_customers.first_name,
-    dbt_DOT_dimension_DOT_customers.id,
+                """SELECT  dbt_DOT_dimension_DOT_customers.id,
+    dbt_DOT_dimension_DOT_customers.first_name,
     dbt_DOT_dimension_DOT_customers.last_name
- FROM (SELECT  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name,
-    dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id,
+ FROM (SELECT  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id,
+    dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name,
     dbt_DOT_source_DOT_jaffle_shop_DOT_customers.last_name
  FROM dbt.source.jaffle_shop.customers AS dbt_DOT_source_DOT_jaffle_shop_DOT_customers)
  AS dbt_DOT_dimension_DOT_customers""",
@@ -117,11 +117,11 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
     basic_DOT_dimension_DOT_countries.user_cnt
  FROM (SELECT  basic_DOT_dimension_DOT_users.country,
     COUNT(1) AS user_cnt
- FROM (SELECT  basic_DOT_source_DOT_users.age,
-    basic_DOT_source_DOT_users.country,
+ FROM (SELECT  basic_DOT_source_DOT_users.id,
     basic_DOT_source_DOT_users.full_name,
+    basic_DOT_source_DOT_users.age,
+    basic_DOT_source_DOT_users.country,
     basic_DOT_source_DOT_users.gender,
-    basic_DOT_source_DOT_users.id,
     basic_DOT_source_DOT_users.preferred_language,
     basic_DOT_source_DOT_users.secret_number
  FROM basic.source.users AS basic_DOT_source_DOT_users)
@@ -163,12 +163,12 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
         """dbt.transform.customer_agg""": {
             None: (
                 True,
-                """SELECT  dbt_DOT_transform_DOT_customer_agg.first_name,
-    dbt_DOT_transform_DOT_customer_agg.id,
+                """SELECT  dbt_DOT_transform_DOT_customer_agg.id,
+    dbt_DOT_transform_DOT_customer_agg.first_name,
     dbt_DOT_transform_DOT_customer_agg.last_name,
     dbt_DOT_transform_DOT_customer_agg.order_cnt
- FROM (SELECT  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name,
-    dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id,
+ FROM (SELECT  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id,
+    dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name,
     dbt_DOT_source_DOT_jaffle_shop_DOT_customers.last_name,
     COUNT(1) AS order_cnt
  FROM dbt.source.jaffle_shop.orders AS dbt_DOT_source_DOT_jaffle_shop_DOT_orders JOIN dbt.source.jaffle_shop.customers AS dbt_DOT_source_DOT_jaffle_shop_DOT_customers ON dbt_DOT_source_DOT_jaffle_shop_DOT_orders.user_id = dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id
