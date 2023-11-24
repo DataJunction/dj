@@ -39,32 +39,32 @@ FROM default.hard_hat
     ]
     query = response.json()["results"][0]["sql"]
     expected_query = """WITH
-    node_query_0 AS (SELECT  default_DOT_hard_hat.address,
-        default_DOT_hard_hat.birth_date,
-        default_DOT_hard_hat.city,
-        default_DOT_hard_hat.contractor_id,
-        default_DOT_hard_hat.country,
-        default_DOT_hard_hat.first_name,
-        default_DOT_hard_hat.hard_hat_id,
-        default_DOT_hard_hat.hire_date,
+    node_query_0 AS (SELECT  default_DOT_hard_hat.hard_hat_id,
         default_DOT_hard_hat.last_name,
-        default_DOT_hard_hat.manager,
-        default_DOT_hard_hat.postal_code,
+        default_DOT_hard_hat.first_name,
+        default_DOT_hard_hat.title,
+        default_DOT_hard_hat.birth_date,
+        default_DOT_hard_hat.hire_date,
+        default_DOT_hard_hat.address,
+        default_DOT_hard_hat.city,
         default_DOT_hard_hat.state,
-        default_DOT_hard_hat.title
-     FROM (SELECT  default_DOT_hard_hats.address,
-        default_DOT_hard_hats.birth_date,
-        default_DOT_hard_hats.city,
-        default_DOT_hard_hats.contractor_id,
-        default_DOT_hard_hats.country,
-        default_DOT_hard_hats.first_name,
-        default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.hire_date,
+        default_DOT_hard_hat.postal_code,
+        default_DOT_hard_hat.country,
+        default_DOT_hard_hat.manager,
+        default_DOT_hard_hat.contractor_id
+     FROM (SELECT  default_DOT_hard_hats.hard_hat_id,
         default_DOT_hard_hats.last_name,
-        default_DOT_hard_hats.manager,
-        default_DOT_hard_hats.postal_code,
+        default_DOT_hard_hats.first_name,
+        default_DOT_hard_hats.title,
+        default_DOT_hard_hats.birth_date,
+        default_DOT_hard_hats.hire_date,
+        default_DOT_hard_hats.address,
+        default_DOT_hard_hats.city,
         default_DOT_hard_hats.state,
-        default_DOT_hard_hats.title
+        default_DOT_hard_hats.postal_code,
+        default_DOT_hard_hats.country,
+        default_DOT_hard_hats.manager,
+        default_DOT_hard_hats.contractor_id
      FROM roads.hard_hats AS default_DOT_hard_hats)
      AS default_DOT_hard_hat
 
@@ -120,34 +120,35 @@ def test_get_djsql_data_only_nested_metrics(
     query = response.json()["results"][0]["sql"]
     expected_query = """WITH
     metric_query_0 AS (SELECT  default_DOT_repair_orders_fact.default_DOT_avg_repair_price,
-        default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_city,
-        default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country
-     FROM (SELECT  default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-        default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
+        default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country,
+        default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_city
+     FROM (SELECT  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
+        default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
         avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price
-     FROM (SELECT  default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay,
+     FROM (SELECT  default_DOT_repair_orders.repair_order_id,
+        default_DOT_repair_orders.municipality_id,
+        default_DOT_repair_orders.hard_hat_id,
+        default_DOT_repair_orders.dispatcher_id,
+        default_DOT_repair_orders.order_date,
+        default_DOT_repair_orders.dispatched_date,
+        default_DOT_repair_orders.required_date,
         default_DOT_repair_order_details.discount,
         default_DOT_repair_order_details.price,
         default_DOT_repair_order_details.quantity,
         default_DOT_repair_order_details.repair_type_id,
-        default_DOT_repair_orders.dispatched_date,
-        default_DOT_repair_orders.dispatcher_id,
-        default_DOT_repair_orders.hard_hat_id,
-        default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.order_date,
-        default_DOT_repair_orders.repair_order_id,
-        default_DOT_repair_orders.required_date,
+        default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost,
         default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
-        default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost
+        default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay
      FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id)
-     AS default_DOT_repair_orders_fact LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
-        default_DOT_hard_hats.country,
-        default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.state
+     AS default_DOT_repair_orders_fact LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
+        default_DOT_hard_hats.city,
+        default_DOT_hard_hats.state,
+        default_DOT_hard_hats.country
      FROM roads.hard_hats AS default_DOT_hard_hats)
      AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
      GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
     ) AS default_DOT_repair_orders_fact
+
     LIMIT 5
     )
 
@@ -202,31 +203,31 @@ def test_get_djsql_data_only_multiple_metrics(
     expected_query = """WITH
     metric_query_0 AS (SELECT  default_DOT_repair_orders_fact.default_DOT_avg_repair_price,
         default_DOT_repair_orders_fact.default_DOT_total_repair_cost,
-        default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_city,
-        default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country
-     FROM (SELECT  default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-        default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
+        default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country,
+        default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_city
+     FROM (SELECT  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
+        default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
         avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
         sum(default_DOT_repair_orders_fact.total_repair_cost) default_DOT_total_repair_cost
-     FROM (SELECT  default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay,
+     FROM (SELECT  default_DOT_repair_orders.repair_order_id,
+        default_DOT_repair_orders.municipality_id,
+        default_DOT_repair_orders.hard_hat_id,
+        default_DOT_repair_orders.dispatcher_id,
+        default_DOT_repair_orders.order_date,
+        default_DOT_repair_orders.dispatched_date,
+        default_DOT_repair_orders.required_date,
         default_DOT_repair_order_details.discount,
         default_DOT_repair_order_details.price,
         default_DOT_repair_order_details.quantity,
         default_DOT_repair_order_details.repair_type_id,
-        default_DOT_repair_orders.dispatched_date,
-        default_DOT_repair_orders.dispatcher_id,
-        default_DOT_repair_orders.hard_hat_id,
-        default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.order_date,
-        default_DOT_repair_orders.repair_order_id,
-        default_DOT_repair_orders.required_date,
+        default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost,
         default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
-        default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost
+        default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay
      FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id)
-     AS default_DOT_repair_orders_fact LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
-        default_DOT_hard_hats.country,
-        default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.state
+     AS default_DOT_repair_orders_fact LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
+        default_DOT_hard_hats.city,
+        default_DOT_hard_hats.state,
+        default_DOT_hard_hats.country
      FROM roads.hard_hats AS default_DOT_hard_hats)
      AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
      GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city

@@ -651,7 +651,7 @@ def validate_cube(  # pylint: disable=too-many-locals
     session: Session,
     metric_names: List[str],
     dimension_names: List[str],
-    check_dimensions: bool = True,
+    require_dimensions: bool = True,
 ) -> Tuple[List[Column], List[Node], List[Node], List[Column], Optional[Catalog]]:
     """
     Validate that a set of metrics and dimensions can be built together.
@@ -703,7 +703,7 @@ def validate_cube(  # pylint: disable=too-many-locals
         if column_name in columns:  # pragma: no cover
             dimensions.append(columns[column_name])
 
-    if check_dimensions and not dimensions:
+    if require_dimensions and not dimensions:
         raise DJException(
             message=("At least one dimension is required"),
             http_status_code=http.client.UNPROCESSABLE_ENTITY,
@@ -818,7 +818,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
         session,
         metrics,
         dimensions,
-        check_dimensions=False,
+        require_dimensions=False,
     )
     leading_metric_node = get_node_by_name(session, metrics[0])
     available_engines = leading_metric_node.current.catalog.engines
