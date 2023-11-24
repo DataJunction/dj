@@ -3,7 +3,7 @@ Node namespace related APIs.
 """
 import logging
 from http import HTTPStatus
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import Depends, Query
 from fastapi.responses import JSONResponse
@@ -24,6 +24,8 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.namespaces import (
     create_namespace,
     get_nodes_in_namespace,
+    get_nodes_in_namespace_detailed,
+    get_project_config,
     hard_delete_namespace,
     mark_namespace_deactivated,
     mark_namespace_restored,
@@ -299,4 +301,23 @@ def hard_delete_node_namespace(
             "message": f"The namespace `{namespace}` has been completely removed.",
             "impact": impacts,
         },
+    )
+
+
+@router.get(
+    "/namespaces/{namespace}/export/",
+    name="Export a namespace as a single project's metadata",
+)
+def export_a_namespace(
+    namespace: str,
+    *,
+    session: Session = Depends(get_session),
+) -> List[Dict]:
+    """
+    Generates a zip of YAML files for the contents of the given namespace
+    as well as a project definition file.
+    """
+    return get_project_config(
+        nodes=get_nodes_in_namespace_detailed(session, namespace),
+        namespace_requested=namespace,
     )

@@ -596,3 +596,84 @@ def test_create_namespace(client_with_service_setup: TestClient):
             f"{invalid_namespace} is not a valid namespace. Namespace parts cannot start "
             "with numbers or be empty."
         )
+
+
+def test_export_namespaces(client_with_examples: TestClient):
+    """
+    Test exporting a namespace to a project definition
+    """
+    # Create a cube so that the cube definition export path is tested
+    response = client_with_examples.post(
+        "/nodes/cube/",
+        json={
+            "name": "default.example_cube",
+            "description": "An example cube so that the export path is tested",
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.city"],
+            "mode": "published",
+        },
+    )
+    assert response.ok
+    response = client_with_examples.get(
+        "/namespaces/default/export/",
+    )
+    project_definition = response.json()
+    assert {d["filename"] for d in project_definition} == {
+        "repair_orders.source.yaml",
+        "repair_order_details.source.yaml",
+        "repair_type.source.yaml",
+        "contractors.source.yaml",
+        "municipality_municipality_type.source.yaml",
+        "municipality_type.source.yaml",
+        "municipality.source.yaml",
+        "dispatchers.source.yaml",
+        "hard_hats.source.yaml",
+        "hard_hat_state.source.yaml",
+        "us_states.source.yaml",
+        "us_region.source.yaml",
+        "repair_order.dimension.yaml",
+        "contractor.dimension.yaml",
+        "hard_hat.dimension.yaml",
+        "local_hard_hats.dimension.yaml",
+        "us_state.dimension.yaml",
+        "dispatcher.dimension.yaml",
+        "municipality_dim.dimension.yaml",
+        "regional_level_agg.transform.yaml",
+        "national_level_agg.transform.yaml",
+        "repair_orders_fact.transform.yaml",
+        "regional_repair_efficiency.metric.yaml",
+        "num_repair_orders.metric.yaml",
+        "avg_repair_price.metric.yaml",
+        "total_repair_cost.metric.yaml",
+        "avg_length_of_employment.metric.yaml",
+        "discounted_orders_rate.metric.yaml",
+        "total_repair_order_discounts.metric.yaml",
+        "avg_repair_order_discounts.metric.yaml",
+        "avg_time_to_dispatch.metric.yaml",
+        "account_type_table.source.yaml",
+        "payment_type_table.source.yaml",
+        "revenue.source.yaml",
+        "payment_type.dimension.yaml",
+        "account_type.dimension.yaml",
+        "large_revenue_payments_only.transform.yaml",
+        "large_revenue_payments_and_business_only.transform.yaml",
+        "number_of_account_types.metric.yaml",
+        "event_source.source.yaml",
+        "long_events.transform.yaml",
+        "country_dim.dimension.yaml",
+        "device_ids_count.metric.yaml",
+        "long_events_distinct_countries.metric.yaml",
+        "sales.source.yaml",
+        "items.dimension.yaml",
+        "items_sold_count.metric.yaml",
+        "total_profit.metric.yaml",
+        "date.source.yaml",
+        "countries.source.yaml",
+        "users.source.yaml",
+        "date_dim.dimension.yaml",
+        "special_country_dim.dimension.yaml",
+        "user_dim.dimension.yaml",
+        "avg_user_age.metric.yaml",
+        "example_cube.cube.yaml",
+    }
+    assert {d["directory"] for d in project_definition} == {""}
