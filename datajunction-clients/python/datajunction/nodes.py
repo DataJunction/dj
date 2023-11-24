@@ -163,7 +163,7 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         self,
         column: str,
         dimension: str,
-        dimension_column: Optional[str],
+        dimension_column: Optional[str] = None,
     ):
         """
         Links the dimension to this node via the node's `column` and the dimension's
