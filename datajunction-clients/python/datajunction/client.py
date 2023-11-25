@@ -163,29 +163,18 @@ class DJClient(_internal.DJClient):
         engine_version: Optional[str] = None,
     ):
         """
-        Builds SQL for one (or multiple) metrics with the provided dimensions and filters.
+        Builds SQL for one or more metrics with the provided dimensions and filters.
         """
-        if len(metrics) == 1:
-            response = self._session.get(
-                f"/sql/{metrics[0]}/",
-                params={
-                    "dimensions": dimensions or [],
-                    "filters": filters or [],
-                    "engine_name": engine_name or self.engine_name,
-                    "engine_version": engine_version or self.engine_version,
-                },
-            )
-        else:
-            response = self._session.get(
-                "/sql/",
-                params={
-                    "metrics": metrics,
-                    "dimensions": dimensions or [],
-                    "filters": filters or [],
-                    "engine_name": engine_name or self.engine_name,
-                    "engine_version": engine_version or self.engine_version,
-                },
-            )
+        response = self._session.get(
+            "/sql/",
+            params={
+                "metrics": metrics,
+                "dimensions": dimensions or [],
+                "filters": filters or [],
+                "engine_name": engine_name or self.engine_name,
+                "engine_version": engine_version or self.engine_version,
+            },
+        )
         if response.status_code == 200:
             return response.json()["sql"]
         return response.json()

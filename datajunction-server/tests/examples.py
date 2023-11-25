@@ -1742,7 +1742,7 @@ LATERAL_VIEW = (  # type: ignore
         {
             "query": """
             SELECT
-              cast(color_id as varchar) color_id,
+              cast(color_id as string) color_id,
               color_name,
               opacity,
               luminosity,
@@ -1784,15 +1784,14 @@ LATERAL_VIEW = (  # type: ignore
             SELECT
               id AS mural_id,
               color_id,
-              color_name color_name
+              color_name
             FROM
             (
               select
                 id,
-                colors
+                EXPLODE(colors) AS (color_id, color_name)
               from basic.murals
-            ) murals
-            LATERAL VIEW EXPLODE(colors) AS color_id, color_name
+            )
             """,
             "description": "Mural paint colors",
             "mode": "published",
