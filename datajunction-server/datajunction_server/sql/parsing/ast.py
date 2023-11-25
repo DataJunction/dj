@@ -1365,6 +1365,7 @@ class BinaryOpKind(DJEnum):
     Plus = "+"
     Minus = "-"
     Modulo = "%"
+    NullSafeEq = "<=>"
 
 
 @dataclass(eq=False)
@@ -2174,7 +2175,7 @@ class FunctionTable(FunctionTableExpression):
             if self.column_list
             else ""
         )
-        column_list_str = f"({cols})" if alias and cols else ""
+        column_list_str = f"({cols})" if cols else ""
         args_str = f"({', '.join(str(col) for col in self.args)})" if self.args else ""
         return f"{self.name}{args_str}{as_}{alias}{column_list_str}"
 
@@ -2555,9 +2556,3 @@ class Query(TableExpression, UnNamed):
             access_control,
         )
         self.select.add_aliases_to_unnamed_columns()
-
-        # Make the generated query deterministic
-        self.select.projection = sorted(
-            self.select.projection,
-            key=lambda x: str(x.alias_or_name),
-        )[:]
