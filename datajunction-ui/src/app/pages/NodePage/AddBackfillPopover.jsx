@@ -97,13 +97,20 @@ export default function AddBackfillPopover({
                 {displayMessageAfterSubmit(status)}
                 <h2>Run Backfill</h2>
                 <span data-testid="edit-partition">
-                  <label htmlFor="engine" style={{ paddingBottom: '1rem' }}>
-                    Engine
+                  <label
+                    htmlFor="materializationName"
+                    style={{ paddingBottom: '1rem' }}
+                  >
+                    Materialization Name
                   </label>
-                  <Field as="select" name="engine" id="engine" disabled={true}>
-                    <option value={materialization?.engine?.name}>
-                      {materialization?.engine?.name}{' '}
-                      {materialization?.engine?.version}
+                  <Field
+                    as="select"
+                    name="materializationName"
+                    id="materializationName"
+                    disabled={true}
+                  >
+                    <option value={materialization?.name}>
+                      {materialization?.name}{' '}
                     </option>
                   </Field>
                 </span>

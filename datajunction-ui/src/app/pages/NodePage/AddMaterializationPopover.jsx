@@ -106,7 +106,9 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                   <Field as="select" name="job_type">
                     <>
                       {jobs?.map(job => (
-                        <option key={job.name} value={job.name}>{job.label}</option>
+                        <option key={job.name} value={job.name}>
+                          {job.label}
+                        </option>
                       ))}
                     </>
                   </Field>

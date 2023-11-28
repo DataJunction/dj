@@ -53,11 +53,9 @@ export default function NodeMaterializationTab({ node, djClient }) {
           <div className={`cron-description`}>{cron(materialization)} </div>
         </td>
         <td>
-          {materialization.job}
-          <br />
-          {materialization.strategy}
-          <ClientCodePopover code={materialization.clientCode} />
+          {materialization.job?.replace('MaterializationJob', '').toUpperCase()}
         </td>
+        <td>{materialization.strategy?.toUpperCase()}</td>
         <td>
           {node.columns
             .filter(col => col.partition !== null)
@@ -90,33 +88,43 @@ export default function NodeMaterializationTab({ node, djClient }) {
             </div>
           ))}
         </td>
-        <td>
-          {materialization.backfills.map(backfill => (
-            <a href={backfill.urls[0]} className="partitionLink">
-              <div className="partition__full" key={backfill.spec.column_name}>
-                <div className="partition__header">
-                  {partitionColumnsMap[backfill.spec.column_name]}
+        {materializations[0].strategy === 'incremental_time' ? (
+          <td>
+            {materialization.backfills.map(backfill => (
+              <a href={backfill.urls[0]} className="partitionLink">
+                <div
+                  className="partition__full"
+                  key={backfill.spec.column_name}
+                >
+                  <div className="partition__header">
+                    {partitionColumnsMap[backfill.spec.column_name]}
+                  </div>
+                  <div className="partition__body">
+                    <span className="badge partition_value">
+                      {backfill.spec.range[0]}
+                    </span>
+                    to
+                    <span className="badge partition_value">
+                      {backfill.spec.range[1]}
+                    </span>
+                  </div>
                 </div>
-                <div className="partition__body">
-                  <span className="badge partition_value">
-                    {backfill.spec.range[0]}
-                  </span>
-                  to
-                  <span className="badge partition_value">
-                    {backfill.spec.range[1]}
-                  </span>
-                </div>
-              </div>
-            </a>
-          ))}
-          <AddBackfillPopover node={node} materialization={materialization} />
-        </td>
+              </a>
+            ))}
+            <AddBackfillPopover node={node} materialization={materialization} />
+          </td>
+        ) : (
+          <></>
+        )}
         <td>
           {materialization.urls.map((url, idx) => (
             <a href={url} key={`url-${idx}`}>
               [{idx + 1}]
             </a>
           ))}
+        </td>
+        <td>
+          <ClientCodePopover code={materialization.clientCode} />
         </td>
       </tr>
     ));
@@ -136,10 +144,15 @@ export default function NodeMaterializationTab({ node, djClient }) {
               <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
                 <tr>
                   <th className="text-start">Schedule</th>
-                  <th>Engine</th>
+                  <th>Job Type</th>
+                  <th>Strategy</th>
                   <th>Partitions</th>
-                  <th>Output Tables</th>
-                  <th>Backfills</th>
+                  <th>Intended Output Tables</th>
+                  {materializations[0].strategy === 'incremental_time' ? (
+                    <th>Backfills</th>
+                  ) : (
+                    <></>
+                  )}
                   <th>URLs</th>
                 </tr>
               </thead>
@@ -171,16 +184,13 @@ export default function NodeMaterializationTab({ node, djClient }) {
             >
               <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
                 <tr>
-                  <th className="text-start">Catalog</th>
-                  <th>Schema</th>
-                  <th>Table</th>
+                  <th className="text-start">Output Dataset</th>
                   <th>Valid Through</th>
                   <th>Partitions</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td>{node.availability.schema_}</td>
                   <td>
                     {
                       <div
@@ -203,7 +213,9 @@ export default function NodeMaterializationTab({ node, djClient }) {
                       </div>
                     }
                   </td>
-                  <td>{node.availability.valid_through_ts}</td>
+                  <td>
+                    {new Date(node.availability.valid_through_ts).toISOString()}
+                  </td>
                   <td>
                     <span
                       className={`badge partition_value`}

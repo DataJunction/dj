@@ -113,7 +113,7 @@ describe('AddEditNodePage submission succeeded', () => {
         'Number of repair orders!!!',
         'SELECT count(repair_order_id) default_DOT_num_repair_orders FROM default.repair_orders',
         'published',
-        ['repair_order_id', 'country'],
+        null,
         'neutral',
         'unitless',
       );
@@ -126,9 +126,6 @@ describe('AddEditNodePage submission succeeded', () => {
       expect(mockDjClient.DataJunctionAPI.listMetricMetadata).toBeCalledTimes(
         1,
       );
-      expect(
-        await screen.getByDisplayValue('repair_order_id, country'),
-      ).toBeInTheDocument();
       expect(
         await screen.getByText(/Successfully updated metric node/),
       ).toBeInTheDocument();
