@@ -236,6 +236,8 @@ def list_node_materializations(
                 node.current.version,  # type: ignore
                 materialization.name,  # type: ignore
             )
+            if materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME:
+                info.urls = [info.urls[0]]
             materialization = MaterializationConfigInfoUnified(
                 **materialization.dict(),
                 **info.dict(),

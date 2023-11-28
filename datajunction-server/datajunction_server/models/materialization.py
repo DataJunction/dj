@@ -88,6 +88,8 @@ class GenericMaterializationInput(BaseModel):
     node_name: str
     node_version: str
     node_type: str
+    job: str
+    strategy: MaterializationStrategy
     schedule: str
     query: str
     upstream_tables: List[str]
