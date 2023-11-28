@@ -104,10 +104,23 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
                         ),
                         right=temporal_partitions[0].partition.temporal_expression(),
                         op=ast.BinaryOpKind.Eq,
+                    )
+                    if not generic_config.lookback_window
+                    else ast.Between(
+                        expr=ast.Column(
+                            name=ast.Name(
+                                temporal_partition_col[0].alias_or_name.name,  # type: ignore
+                            ),
+                        ),
+                        low=temporal_partitions[0].partition.temporal_expression(
+                            interval=generic_config.lookback_window,
+                        ),
+                        high=temporal_partitions[0].partition.temporal_expression(),
                     ),
                 ),
                 ctes=query_ast.ctes,
             )
+        print("QUERY!!!", str(final_query))
         result = query_service_client.materialize(
             GenericMaterializationInput(
                 name=materialization.name,  # type: ignore

@@ -2552,7 +2552,148 @@ JOIN roads.contractors AS default_DOT_contractors ON default_DOT_repair_type.con
  AS default_DOT_total_amount_in_region_from_struct_transform"""
         assert compare_query_strings(response.json()["sql"], expected)
 
-    def test_node_with_incremental_materialization(
+    def test_node_with_incremental_time_materialization(
+        self,
+        client_with_query_service_example_loader,
+        query_service_client,
+    ) -> None:
+        """
+        1. Create a transform node that uses dj_logical_timestamp (i.e., it is
+           meant to be incrementally materialized).
+        2. Create a metric node that references the above transform.
+        3. When SQL for the metric is requested without the transform having been materialized,
+           the request will fail.
+        """
+        custom_client = client_with_query_service_example_loader(["ROADS"])
+        custom_client.post(
+            "/nodes/transform/",
+            json={
+                "description": "Repair orders transform (partitioned)",
+                "query": """
+                    SELECT
+                        repair_order_id,
+                        municipality_id,
+                        hard_hat_id,
+                        order_date,
+                        required_date,
+                        dispatched_date,
+                        dispatcher_id
+                    FROM default.repair_orders
+                    """,
+                "mode": "published",
+                "name": "default.repair_orders_partitioned",
+                "primary_key": ["repair_order_id"],
+            },
+        )
+        # Mark one of the columns as a time partition
+        custom_client.post(
+            "/nodes/default.repair_orders_partitioned/columns/dispatched_date/partition",
+            json={
+                "type_": "temporal",
+                "granularity": "day",
+                "format": "yyyyMMdd",
+            },
+        )
+
+        # Set an incremental time materialization config with a lookback window of 100 days
+        custom_client.post(
+            "/nodes/default.repair_orders_partitioned/materialization/",
+            json={
+                "job": "spark_sql",
+                "strategy": "incremental_time",
+                "config": {
+                    "lookback_window": "100 DAYS",
+                },
+                "schedule": "0 * * * *",
+            },
+        )
+
+        args, _ = query_service_client.materialize.call_args_list[0]  # type: ignore
+        format_regex = r"\${(?P<capture>[^}]+)}"
+        match = re.search(format_regex, args[0].query)
+        assert match and match.group("capture") == "dj_logical_timestamp"
+        query = re.sub(format_regex, "DJ_LOGICAL_TIMESTAMP()", args[0].query)
+        expected_query = """
+        SELECT
+          repair_order_id,
+          municipality_id,
+          hard_hat_id,
+          order_date,
+          required_date,
+          dispatched_date,
+          dispatcher_id
+        FROM (
+          SELECT
+            default_DOT_repair_orders.repair_order_id,
+            default_DOT_repair_orders.municipality_id,
+            default_DOT_repair_orders.hard_hat_id,
+            default_DOT_repair_orders.order_date,
+            default_DOT_repair_orders.required_date,
+            default_DOT_repair_orders.dispatched_date,
+            default_DOT_repair_orders.dispatcher_id
+          FROM roads.repair_orders AS default_DOT_repair_orders
+        ) AS default_DOT_repair_orders_partitioned
+        WHERE
+          dispatched_date BETWEEN CAST(
+              DATE_FORMAT(
+                CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP) - INTERVAL 100 DAYS, 'yyyyMMdd'
+              ) AS TIMESTAMP
+            )
+            AND CAST(
+              DATE_FORMAT(
+                CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP),
+                'yyyyMMdd'
+              ) AS TIMESTAMP
+            )
+        """
+        compare_query_strings(query, expected_query)
+
+        # Set an incremental time materialization config without a lookback window
+        # (defaults to 1 day)
+        custom_client.post(
+            "/nodes/default.repair_orders_partitioned/materialization/",
+            json={
+                "job": "spark_sql",
+                "strategy": "incremental_time",
+                "config": {},
+                "schedule": "0 * * * *",
+            },
+        )
+
+        args, _ = query_service_client.materialize.call_args_list[0]  # type: ignore
+        match = re.search(format_regex, args[0].query)
+        assert match and match.group("capture") == "dj_logical_timestamp"
+        query = re.sub(format_regex, "DJ_LOGICAL_TIMESTAMP()", args[0].query)
+        expected_query = """
+        SELECT
+          repair_order_id,
+          municipality_id,
+          hard_hat_id,
+          order_date,
+          required_date,
+          dispatched_date,
+          dispatcher_id
+        FROM (
+          SELECT
+            default_DOT_repair_orders.repair_order_id,
+            default_DOT_repair_orders.municipality_id,
+            default_DOT_repair_orders.hard_hat_id,
+            default_DOT_repair_orders.order_date,
+            default_DOT_repair_orders.required_date,
+            default_DOT_repair_orders.dispatched_date,
+            default_DOT_repair_orders.dispatcher_id
+          FROM roads.repair_orders AS default_DOT_repair_orders
+        ) AS default_DOT_repair_orders_partitioned
+        WHERE  dispatched_date = CAST(
+          DATE_FORMAT(
+            CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP),
+            'yyyyMMdd'
+          ) AS TIMESTAMP
+        )
+        """
+        compare_query_strings(query, expected_query)
+
+    def test_node_with_dj_logical_timestamp(
         self,
         client_with_query_service_example_loader,
     ) -> None:

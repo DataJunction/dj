@@ -749,7 +749,8 @@ def rename_columns(built_ast: ast.Query, node: NodeRevision):
         else:
             expression = expression.copy()
             if isinstance(
-                expression, ast.Aliasable,
+                expression,
+                ast.Aliasable,
             ) and not isinstance(  # pragma: no cover
                 expression,
                 ast.Wildcard,
