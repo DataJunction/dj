@@ -584,7 +584,14 @@ def _get_node_table(
             )
         else:
             name = to_namespaced_name(node.name)
-        table = ast.Table(name, _dj_node=node)
+        table = ast.Table(
+            name,
+            _columns=[
+                ast.Column(name=ast.Name(col.name), _type=col.type)
+                for col in node.columns
+            ],
+            _dj_node=node,
+        )
     elif node.availability and node.availability.is_available(
         criteria=build_criteria,
     ):  # pragma: no cover
@@ -597,11 +604,15 @@ def _get_node_table(
                     else None
                 ),
             ),
+            _columns=[
+                ast.Column(name=ast.Name(col.name), _type=col.type)
+                for col in node.columns
+            ],
             _dj_node=node,
         )
     if table and as_select:  # pragma: no cover
         return ast.Select(
-            projection=[ast.Wildcard()],
+            projection=table.columns,  # type: ignore
             from_=ast.From(relations=[ast.Relation(table)]),
         )
     return table
