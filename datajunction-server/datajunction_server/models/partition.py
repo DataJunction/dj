@@ -83,27 +83,40 @@ class Partition(PartitionInput, table=True):  # type: ignore
         },
     )
 
-    def temporal_expression(self):
+    def temporal_expression(self, interval: Optional[str] = None):
         """
         This expression evaluates to the temporal partition value for scheduled runs. Defaults to
-        CAST(FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS <column type>)
+        CAST(FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS <column type>). Includes the interval
+        offset in the expression if provided.
         """
         from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
             ast,
         )
+
+        # pylint: disable=import-outside-toplevel
+        from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+        timestamp_expression = ast.Cast(
+            expression=ast.Function(
+                ast.Name("DJ_LOGICAL_TIMESTAMP"),
+                args=[],
+            ),
+            data_type=TimestampType(),
+        )
+        if interval:
+            interval_ast = parse(f"SELECT INTERVAL {interval}")
+            timestamp_expression = ast.BinaryOp(  # type: ignore
+                left=timestamp_expression,
+                right=interval_ast.select.projection[0],  # type: ignore
+                op=ast.BinaryOpKind.Minus,
+            )
 
         if self.type_ == PartitionType.TEMPORAL:
             return ast.Cast(
                 expression=ast.Function(
                     ast.Name("DATE_FORMAT"),
                     args=[
-                        ast.Cast(
-                            expression=ast.Function(
-                                ast.Name("DJ_LOGICAL_TIMESTAMP"),
-                                args=[],
-                            ),
-                            data_type=TimestampType(),
-                        ),
+                        timestamp_expression,
                         ast.String(f"'{self.format}'"),
                     ],
                 ),
