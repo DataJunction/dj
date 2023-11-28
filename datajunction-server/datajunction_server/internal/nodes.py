@@ -1003,6 +1003,10 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             pk_attribute = session.exec(
                 select(AttributeType).where(AttributeType.name == "primary_key"),
             ).one()
+            if set(data.primary_key) - set(col.name for col in new_revision.columns):
+                raise DJException(  # pragma: no cover
+                    f"Primary key {data.primary_key} does not exist on {new_revision.name}",
+                )
             for col in new_revision.columns:
                 # Remove the primary key attribute if it's not in the updated PK
                 if col.has_primary_key_attribute() and col.name not in data.primary_key:
