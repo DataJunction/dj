@@ -81,6 +81,8 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 # which will have measures columns for all metrics in the cube
                 columns=cube_config.columns,
                 partitions=measures_temporal_partition + categorical_partitions,
+                job=materialization.job,
+                strategy=materialization.strategy,
             ),
         )
 

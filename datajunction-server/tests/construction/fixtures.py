@@ -53,7 +53,17 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
             None: (
                 True,
                 """
-                SELECT * FROM basic.source.users
+                SELECT
+                    id,
+                    full_name,
+                    names_map,
+                    user_metadata,
+                    age,
+                    country,
+                    gender,
+                    preferred_language,
+                    secret_number
+                 FROM basic.source.users
                 """,
             ),
         },
@@ -61,7 +71,12 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
             None: (
                 True,
                 """
-                SELECT * FROM basic.source.comments
+                SELECT
+                    id,
+                    user_id,
+                    timestamp,
+                    text
+                 FROM basic.source.comments
                 """,
             ),
         },

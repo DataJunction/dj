@@ -114,6 +114,7 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
                 node_name=materialization.node_revision.name,
                 node_version=materialization.node_revision.version,
                 node_type=materialization.node_revision.type.value,
+                job=materialization.job,
                 strategy=materialization.strategy,
                 lookback_window=generic_config.lookback_window,
                 schedule=materialization.schedule,
