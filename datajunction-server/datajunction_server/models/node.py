@@ -1108,6 +1108,9 @@ class DimensionAttributeOutput(SQLModel):
     """
 
     name: str
+    node_name: Optional[str]
+    node_display_name: Optional[str]
+    is_primary_key: bool
     type: ColumnType
     path: List[str]
 
