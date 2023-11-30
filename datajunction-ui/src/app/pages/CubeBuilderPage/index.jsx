@@ -173,7 +173,7 @@ export function CubeBuilderPage() {
           validate={validator}
           onSubmit={handleSubmit}
         >
-          {function Render({ isSubmitting, status, setFieldValue }) {
+          {function Render({ isSubmitting, status, setFieldValue, props }) {
             return (
               <Form>
                 <div className="card">
@@ -250,23 +250,9 @@ export function CubeBuilderPage() {
                           onChange={e => {
                             setStagedMetrics(e.map(m => m.value));
                             setSelectedMetrics(stagedMetrics);
-                            setStagedDimensions(
-                              commonDimensionsList
-                                .map(grouping => grouping[1])
-                                .flat()
-                                .filter(_ => _.is_primary_key)
-                                .map(dim => dim.name),
-                            );
                           }}
                           onMenuClose={() => {
                             setSelectedMetrics(stagedMetrics);
-                            setStagedDimensions(
-                              commonDimensionsList
-                                .map(grouping => grouping[1])
-                                .flat()
-                                .filter(_ => _.is_primary_key)
-                                .map(dim => dim.name),
-                            );
                           }}
                         />
                       </span>
@@ -285,6 +271,12 @@ export function CubeBuilderPage() {
                       <span data-testid="select-dimensions">
                         {commonDimensionsList.map(grouping => {
                           const group = grouping[1];
+                          const dimensionGroupOptions = group.map(dim => {
+                            return {
+                              value: dim.name,
+                              label: labelize(dim.name.split('.').slice(-1)[0]),
+                            };
+                          });
                           return (
                             <>
                               <h5
@@ -298,31 +290,14 @@ export function CubeBuilderPage() {
                                   <b>{group[0].node_display_name}</b>
                                 </a>{' '}
                                 via{' '}
-                                <code className="HighlightPath">
-                                  {group[0].path}
-                                </code>
+                                <span className="HighlightPath">
+                                  {group[0].path.join(' ▶ ')}
+                                </span>
                               </h5>
                               <Select
                                 className=""
-                                name={'dimensions'}
-                                options={group.map(dim => {
-                                  return {
-                                    value: dim.name,
-                                    label: labelize(
-                                      dim.name.split('.').slice(-1)[0],
-                                    ),
-                                  };
-                                })}
-                                defaultValue={group
-                                  .filter(_ => _.is_primary_key)
-                                  .map(dim => {
-                                    return {
-                                      value: dim.name,
-                                      label: labelize(
-                                        dim.name.split('.').slice(-1)[0],
-                                      ),
-                                    };
-                                  })}
+                                name={'dimensions-' + group[0].node_name}
+                                options={dimensionGroupOptions}
                                 isMulti={true}
                                 isClearable
                                 closeMenuOnSelect={false}
