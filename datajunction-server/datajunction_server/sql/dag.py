@@ -75,7 +75,8 @@ def get_dimensions(
                         name=f"{current_node.name}.{column.name}",
                         node_name=current_node.current.name,
                         node_display_name=current_node.current.display_name,
-                        is_primary_key=column.name in {pk.name for pk in current_node.current.primary_key()},
+                        is_primary_key=column.name
+                        in {pk.name for pk in current_node.current.primary_key()},
                         type=column.type,
                         path=join_path_str,
                     ),
