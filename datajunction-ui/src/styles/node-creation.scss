@@ -39,6 +39,13 @@ form {
     padding: 0 20px;
   }
 
+  .CubeCreationInput {
+    margin: 0.5rem 0;
+    display: inline-grid;
+    width: 75%;
+    padding: 0 20px;
+  }
+
   .DisplayNameInput,
   .FullNameInput,
   .NamespaceInput {
@@ -194,4 +201,9 @@ form {
   display: inline-grid;
   width: 20%;
   padding: 0 20px;
+}
+
+.HighlightPath {
+  background: #f5efff;
+  padding: 5px;
 }

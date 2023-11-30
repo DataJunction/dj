@@ -146,6 +146,34 @@ export const DataJunctionAPI = {
     }
   },
 
+  createCube: async function (
+    name,
+    display_name,
+    description,
+    mode,
+    metrics,
+    dimensions,
+    filters,
+  ) {
+    const response = await fetch(`${DJ_URL}/nodes/cube`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: name,
+        display_name: display_name,
+        description: description,
+        metrics: metrics,
+        dimensions: dimensions,
+        filters: filters,
+        mode: mode,
+      }),
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
+
   registerTable: async function (catalog, schema, table) {
     const response = await fetch(
       `${DJ_URL}/register/table/${catalog}/${schema}/${table}`,
