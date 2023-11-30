@@ -4,7 +4,12 @@ Tests for ``datajunction_server.sql.dag``.
 
 from datajunction_server.models.column import Column
 from datajunction_server.models.database import Database
-from datajunction_server.models.node import Node, NodeRevision, NodeType
+from datajunction_server.models.node import (
+    DimensionAttributeOutput,
+    Node,
+    NodeRevision,
+    NodeType,
+)
 from datajunction_server.models.table import Table
 from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.parsing.types import IntegerType, StringType
@@ -69,7 +74,28 @@ def test_get_dimensions() -> None:
     child_ref.current = child
 
     assert get_dimensions(child_ref) == [
-        {"name": "A.b_id", "type": "int", "path": []},
-        {"name": "B.attribute", "type": "string", "path": ["b_id"]},
-        {"name": "B.id", "type": "int", "path": ["b_id"]},
+        DimensionAttributeOutput(
+            name="A.b_id",
+            node_name=None,
+            node_display_name=None,
+            is_primary_key=False,
+            type="int",
+            path=[],
+        ),
+        DimensionAttributeOutput(
+            name="B.attribute",
+            node_name=None,
+            node_display_name=None,
+            is_primary_key=False,
+            type="string",
+            path=["b_id"],
+        ),
+        DimensionAttributeOutput(
+            name="B.id",
+            node_name=None,
+            node_display_name=None,
+            is_primary_key=False,
+            type="int",
+            path=["b_id"],
+        ),
     ]
