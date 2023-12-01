@@ -565,6 +565,9 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         assert {
             "name": "foo.bar.dispatcher.company_name",
             "type": "string",
+            "node_name": "foo.bar.dispatcher",
+            "node_display_name": "Foo: Bar: Dispatcher",
+            "is_primary_key": False,
             "path": [
                 "foo.bar.repair_order_details.repair_order_id",
                 "foo.bar.repair_order.dispatcher_id",
