@@ -143,10 +143,12 @@ export function CubeBuilderPage() {
           selectedMetrics,
         );
         const grouped = Object.entries(
-          Object.groupBy(
-            commonDimensions,
-            ({ path, node_display_name }) => node_display_name + ' via ' + path,
-          ),
+          commonDimensions.reduce((group, dimension) => {
+            group[dimension.node_name + dimension.path] =
+              group[dimension.node_name + dimension.path] ?? [];
+            group[dimension.node_name + dimension.path].push(dimension);
+            return group;
+          }, {}),
         );
         setCommonDimensionsList(grouped);
         const uniqueFields = Object.fromEntries(
@@ -294,39 +296,45 @@ export function CubeBuilderPage() {
                                   {group[0].path.join(' ▶ ')}
                                 </span>
                               </h5>
-                              <Select
-                                className=""
-                                name={'dimensions-' + group[0].node_name}
-                                options={dimensionGroupOptions}
-                                isMulti={true}
-                                isClearable
-                                closeMenuOnSelect={false}
-                                onChange={e => {
-                                  const uniqDims = e.map(d => d.value);
-                                  const groupDimNames = group.map(d => d.name);
-                                  if (uniqDims.length === 0) {
-                                    setStagedDimensions(
-                                      stagedDimensions.filter(
-                                        s => !groupDimNames.includes(s),
-                                      ),
+                              <span
+                                data-testid={'dimensions-' + group[0].node_name}
+                              >
+                                <Select
+                                  className=""
+                                  name={'dimensions-' + group[0].node_name}
+                                  options={dimensionGroupOptions}
+                                  isMulti={true}
+                                  isClearable
+                                  closeMenuOnSelect={false}
+                                  onChange={e => {
+                                    const uniqDims = e.map(d => d.value);
+                                    const groupDimNames = group.map(
+                                      d => d.name,
                                     );
+                                    if (uniqDims.length === 0) {
+                                      setStagedDimensions(
+                                        stagedDimensions.filter(
+                                          s => !groupDimNames.includes(s),
+                                        ),
+                                      );
+                                      setSelectedDimensions(stagedDimensions);
+                                    } else {
+                                      setStagedDimensions(
+                                        Array.from(
+                                          new Set([
+                                            ...stagedDimensions,
+                                            ...uniqDims,
+                                          ]),
+                                        ),
+                                      );
+                                      setSelectedDimensions(stagedDimensions);
+                                    }
+                                  }}
+                                  onMenuClose={() => {
                                     setSelectedDimensions(stagedDimensions);
-                                  } else {
-                                    setStagedDimensions(
-                                      Array.from(
-                                        new Set([
-                                          ...stagedDimensions,
-                                          ...uniqDims,
-                                        ]),
-                                      ),
-                                    );
-                                    setSelectedDimensions(stagedDimensions);
-                                  }
-                                }}
-                                onMenuClose={() => {
-                                  setSelectedDimensions(stagedDimensions);
-                                }}
-                              />
+                                  }}
+                                />
+                              </span>
                             </>
                           );
                         })}
@@ -348,8 +356,13 @@ export function CubeBuilderPage() {
                         <option value="published">Published</option>
                       </Field>
                     </div>
-                    <button type="submit" disabled={isSubmitting}>
-                      {action === Action.Add ? 'Create' : 'Save'} {nodeType}
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      aria-label="CreateCube"
+                    >
+                      {action === Action.Add ? 'Create Cube' : 'Save'}{' '}
+                      {nodeType}
                     </button>
                   </div>
                 </div>
