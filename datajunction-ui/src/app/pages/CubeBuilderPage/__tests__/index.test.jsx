@@ -289,11 +289,7 @@ describe('CubeBuilderPage', () => {
         '',
         '',
         'draft',
-        [
-          'default.num_repair_orders',
-          'default.avg_repair_price',
-          'default.total_repair_cost',
-        ],
+        ['default.num_repair_orders', 'default.avg_repair_price'],
         [
           'default.date_dim.day',
           'default.date_dim.month',

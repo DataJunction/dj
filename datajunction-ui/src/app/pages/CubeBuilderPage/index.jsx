@@ -37,7 +37,6 @@ export function CubeBuilderPage() {
         setSubmitting(false);
       }, 400);
     } else {
-      console.log('submitted values', values);
       setTimeout(() => {
         patchNode(values, setStatus);
         setSubmitting(false);
