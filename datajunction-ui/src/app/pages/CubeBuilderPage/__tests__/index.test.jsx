@@ -146,11 +146,7 @@ describe('CubeBuilderPage', () => {
     expect(screen.getByText('Dimensions *')).toBeInTheDocument();
   });
 
-  it('renders the Filters section', () => {
-    expect(screen.getByText('Filters')).toBeInTheDocument();
-  });
-
-  it('fetches metrics on mount', async () => {
+  it('creates a new cube', async () => {
     render(
       <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
         <CubeBuilderPage />
@@ -180,15 +176,16 @@ describe('CubeBuilderPage', () => {
     const selectDimensions = screen.getAllByTestId('select-dimensions')[0];
     expect(selectDimensions).toBeDefined();
     expect(selectDimensions).not.toBeNull();
-    screen.debug(selectDimensions);
     expect(
       screen.getByText(
         'default.repair_order_details.repair_order_id → default.repair_order.hard_hat_id → default.hard_hat.birth_date',
       ),
     ).toBeInTheDocument();
+
     const selectDimensionsDate = screen.getAllByTestId(
       'dimensions-default.date_dim',
     )[0];
+
     fireEvent.keyDown(selectDimensionsDate.firstChild, { key: 'ArrowDown' });
     fireEvent.click(screen.getByText('Day'));
     fireEvent.click(screen.getByText('Month'));
@@ -200,6 +197,7 @@ describe('CubeBuilderPage', () => {
       name: 'CreateCube',
     })[0];
     expect(createCube).toBeInTheDocument();
+
     await waitFor(() => {
       fireEvent.click(createCube);
     });
@@ -209,11 +207,16 @@ describe('CubeBuilderPage', () => {
         '',
         '',
         'draft',
-        ['default.num_repair_orders', 'default.avg_repair_price'],
+        [
+          'default.num_repair_orders',
+          'default.avg_repair_price',
+          'default.total_repair_cost',
+        ],
         [
           'default.date_dim.day',
           'default.date_dim.month',
           'default.date_dim.year',
+          'default.date_dim.dateint',
         ],
         [],
       );

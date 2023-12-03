@@ -6,7 +6,7 @@ import Select from 'react-select';
 import React, { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 
-export const MetricsSelect = ({ nodeName = null, className = '' }) => {
+export const MetricsSelect = ({ cube }) => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const { values } = useFormikContext();
 
@@ -16,15 +16,14 @@ export const MetricsSelect = ({ nodeName = null, className = '' }) => {
 
   // All metrics options
   const [metrics, setMetrics] = useState([]);
-  const [node, setNode] = useState(undefined);
+
+  // The existing cube's metrics, if editing a cube
   const [defaultMetrics, setDefaultMetrics] = useState([]);
 
   // Get metrics
   useEffect(() => {
     const fetchData = async () => {
-      if (nodeName) {
-        const cube = await djClient.cube(nodeName);
-        setNode(cube);
+      if (cube) {
         const cubeMetrics = cube?.cube_elements
           .filter(element => element.type === 'metric')
           .map(metric => {
@@ -42,7 +41,7 @@ export const MetricsSelect = ({ nodeName = null, className = '' }) => {
       console.log('metrics', metrics);
     };
     fetchData().catch(console.error);
-  }, [djClient, djClient.metrics, nodeName]);
+  }, [djClient, djClient.metrics, cube]);
 
   const getValue = options => {
     if (options) {
@@ -53,10 +52,12 @@ export const MetricsSelect = ({ nodeName = null, className = '' }) => {
   };
 
   const render = () => {
-    if (metrics.length > 0 || node !== undefined) {
+    if (
+      metrics.length > 0 ||
+      (cube !== undefined && defaultMetrics.length > 0 && metrics.length > 0)
+    ) {
       return (
         <Select
-          className={className}
           defaultValue={defaultMetrics}
           options={metrics}
           name="metrics"
