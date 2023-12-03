@@ -363,7 +363,14 @@ export function AddEditNodePage() {
 
                       // Check if node type can be edited
                       if (!nodeCanBeEdited(data.type)) {
-                        navigate(`/nodes/${data.name}/edit-cube`);
+                        setNode(null);
+                        if (data.type === 'cube') {
+                          navigate(`/nodes/${data.name}/edit-cube`);
+                        }
+                        setMessage(
+                          `Node ${name} is of type ${data.type} and cannot be edited`,
+                        );
+                        return;
                       }
 
                       // Update fields with existing data to prepare for edit

@@ -38,16 +38,42 @@ export function CubeBuilderPage() {
       }, 400);
     } else {
       console.log('submitted values', values);
-      // setTimeout(() => {
-      //   patchNode(values, setStatus);
-      //   setSubmitting(false);
-      // }, 400);
+      setTimeout(() => {
+        patchNode(values, setStatus);
+        setSubmitting(false);
+      }, 400);
     }
     window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
   };
 
   const createNode = async (values, setStatus) => {
     const { status, json } = await djClient.createCube(
+      values.name,
+      values.display_name,
+      values.description,
+      values.mode,
+      values.metrics,
+      values.dimensions,
+      values.filters || [],
+    );
+    if (status === 200 || status === 201) {
+      setStatus({
+        success: (
+          <>
+            Successfully created {json.type} node{' '}
+            <a href={`/nodes/${json.name}`}>{json.name}</a>!
+          </>
+        ),
+      });
+    } else {
+      setStatus({
+        failure: `${json.message}`,
+      });
+    }
+  };
+
+  const patchNode = async (values, setStatus) => {
+    const { status, json } = await djClient.patchCube(
       values.name,
       values.display_name,
       values.description,
@@ -161,7 +187,7 @@ export function CubeBuilderPage() {
                         style={{ marginTop: '15px' }}
                       >
                         {action === Action.Edit ? (
-                          <MetricsSelect nodeName={name} />
+                          <MetricsSelect cube={node} />
                         ) : (
                           <MetricsSelect />
                         )}
@@ -180,7 +206,7 @@ export function CubeBuilderPage() {
                       </p>
                       <span data-testid="select-dimensions">
                         {action === Action.Edit ? (
-                          <DimensionsSelect nodeName={name} />
+                          <DimensionsSelect cube={node} />
                         ) : (
                           <DimensionsSelect />
                         )}

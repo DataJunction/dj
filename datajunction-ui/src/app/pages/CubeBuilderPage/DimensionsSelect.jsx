@@ -7,7 +7,7 @@ import React, { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import { labelize } from '../../../utils/form';
 
-export const DimensionsSelect = ({ nodeName }) => {
+export const DimensionsSelect = ({ cube }) => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const { values, setFieldValue } = useFormikContext();
 
@@ -23,19 +23,13 @@ export const DimensionsSelect = ({ nodeName }) => {
     {},
   );
 
-  // The existing cube node
-  const [node, setNode] = useState(undefined);
+  // The existing cube node's dimensions, if editing a cube
   const [defaultDimensions, setDefaultDimensions] = useState([]);
 
   useEffect(() => {
     const fetchData = async () => {
-      // Get cube data if an existing cube is being edited
-      let cube = undefined;
       let cubeDimensions = undefined;
-      if (nodeName) {
-        cube = await djClient.cube(nodeName);
-        console.log('cube', cube);
-        setNode(cube);
+      if (cube) {
         cubeDimensions = cube?.cube_elements
           .filter(element => element.type === 'dimension')
           .map(cubeDim => {
@@ -64,7 +58,7 @@ export const DimensionsSelect = ({ nodeName }) => {
         setAllDimensionsOptions(grouped);
 
         // Set the selected cube dimensions if an existing cube is being edited
-        if (cube !== undefined) {
+        if (cube) {
           const currentSelectedDimensionsByGroup = selectedDimensionsByGroup;
           grouped.forEach(grouping => {
             const dimensionsInGroup = grouping[1];
@@ -86,7 +80,7 @@ export const DimensionsSelect = ({ nodeName }) => {
       }
     };
     fetchData().catch(console.error);
-  }, [djClient, nodeName, setFieldValue, setValue, values.metrics]);
+  }, [djClient, setFieldValue, setValue, values.metrics, cube]);
 
   // Retrieves the selected values as a list (since it is a multi-select)
   const getValue = options => {
