@@ -183,7 +183,7 @@ describe('CubeBuilderPage', () => {
     screen.debug(selectDimensions);
     expect(
       screen.getByText(
-        'default.repair_order_details.repair_order_id ▶ default.repair_order.hard_hat_id ▶ default.hard_hat.birth_date',
+        'default.repair_order_details.repair_order_id → default.repair_order.hard_hat_id → default.hard_hat.birth_date',
       ),
     ).toBeInTheDocument();
     const selectDimensionsDate = screen.getAllByTestId(

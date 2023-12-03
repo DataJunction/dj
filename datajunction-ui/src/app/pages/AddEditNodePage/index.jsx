@@ -10,7 +10,7 @@ import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import 'styles/node-creation.scss';
 import AlertIcon from '../../icons/AlertIcon';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { FullNameField } from './FullNameField';
 import { FormikSelect } from './FormikSelect';
 import { NodeQueryField } from './NodeQueryField';
@@ -27,6 +27,7 @@ class Action {
 
 export function AddEditNodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
+  const navigate = useNavigate();
 
   let { nodeType, initialNamespace, name } = useParams();
   const action = name !== undefined ? Action.Edit : Action.Add;
@@ -362,11 +363,7 @@ export function AddEditNodePage() {
 
                       // Check if node type can be edited
                       if (!nodeCanBeEdited(data.type)) {
-                        setNode(null);
-                        setMessage(
-                          `Node ${name} is of type ${data.type} and cannot be edited`,
-                        );
-                        return;
+                        navigate(`/nodes/${data.name}/edit-cube`);
                       }
 
                       // Update fields with existing data to prepare for edit
