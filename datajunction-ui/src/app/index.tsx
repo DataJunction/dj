@@ -53,6 +53,11 @@ export function App() {
                           key="edit"
                           element={<AddEditNodePage />}
                         />
+                        <Route
+                          path=":name/edit-cube"
+                          key="edit-cube"
+                          element={<CubeBuilderPage />}
+                        />
                       </Route>
 
                       <Route path="/" element={<NamespacePage />} key="index" />
