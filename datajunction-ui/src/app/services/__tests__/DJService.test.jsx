@@ -174,6 +174,39 @@ describe('DataJunctionAPI', () => {
     });
   });
 
+  it('calls patchCube correctly', async () => {
+    const sampleArgs = [
+      'default.node_name',
+      'Node Display Name',
+      'Some readable description',
+      'draft',
+      ['default.num_repair_orders'],
+      [
+        'default.date_dim.year',
+        'default.date_dim.month',
+        'default.date_dim.day',
+      ],
+      [],
+    ];
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.patchCube(...sampleArgs);
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/nodes/default.node_name`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        display_name: sampleArgs[1],
+        description: sampleArgs[2],
+        metrics: sampleArgs[4],
+        dimensions: sampleArgs[5],
+        filters: sampleArgs[6],
+        mode: sampleArgs[3],
+      }),
+      credentials: 'include',
+    });
+  });
+
   it('calls upstreams correctly', async () => {
     const nodeName = 'sampleNode';
     fetch.mockResponseOnce(JSON.stringify({}));
