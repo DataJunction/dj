@@ -35,7 +35,9 @@ export const DimensionsSelect = ({ cube }) => {
           .map(cubeDim => {
             return {
               value: cubeDim.node_name + '.' + cubeDim.name,
-              label: labelize(cubeDim.name),
+              label:
+                labelize(cubeDim.name) +
+                (cubeDim.is_primary_key ? ' (PK)' : ''),
             };
           });
         setDefaultDimensions(cubeDimensions);
@@ -114,7 +116,9 @@ export const DimensionsSelect = ({ cube }) => {
     const dimensionGroupOptions = dimensionsInGroup.map(dim => {
       return {
         value: dim.name,
-        label: labelize(dim.name.split('.').slice(-1)[0]),
+        label:
+          labelize(dim.name.split('.').slice(-1)[0]) +
+          (dim.is_primary_key ? ' (PK)' : ''),
       };
     });
     //
