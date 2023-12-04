@@ -150,6 +150,11 @@ export function NamespacePage() {
                       Tag
                     </div>
                   </a>
+                  <a href={`/create/cube/${namespace}`}>
+                    <div className="node_type__cube node_type_creation_heading">
+                      Cube
+                    </div>
+                  </a>
                 </div>
               </div>
             </span>

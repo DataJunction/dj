@@ -76,7 +76,12 @@ export default function NodeInfoTab({ node }) {
         aria-label="CubeElement"
         aria-hidden="false"
       >
-        <a href={`/nodes/${cubeElem.node_name}`}>{cubeElem.display_name}</a>
+        <a href={`/nodes/${cubeElem.node_name}`}>
+          {cubeElem.type === 'dimension'
+            ? labelize(cubeElem.node_name.split('.').slice(-1)[0]) + ' → '
+            : ''}
+          {cubeElem.display_name}
+        </a>
         <span
           className={`badge node_type__${
             cubeElem.type === 'metric' ? cubeElem.type : 'dimension'
