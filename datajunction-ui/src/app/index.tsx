@@ -10,6 +10,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
+import { CubeBuilderPage } from './pages/CubeBuilderPage/Loadable';
 import { TagPage } from './pages/TagPage/Loadable';
 import { AddEditNodePage } from './pages/AddEditNodePage/Loadable';
 import { AddEditTagPage } from './pages/AddEditTagPage/Loadable';
@@ -52,6 +53,11 @@ export function App() {
                           key="edit"
                           element={<AddEditNodePage />}
                         />
+                        <Route
+                          path=":name/edit-cube"
+                          key="edit-cube"
+                          element={<CubeBuilderPage />}
+                        />
                       </Route>
 
                       <Route path="/" element={<NamespacePage />} key="index" />
@@ -72,6 +78,18 @@ export function App() {
                         key="register"
                         element={<RegisterTablePage />}
                       ></Route>
+                      <Route path="/create/cube">
+                        <Route
+                          path=":initialNamespace"
+                          key="create"
+                          element={<CubeBuilderPage />}
+                        />
+                        <Route
+                          path=""
+                          key="create"
+                          element={<CubeBuilderPage />}
+                        />
+                      </Route>
                       <Route path="create/:nodeType">
                         <Route
                           path=":initialNamespace"
