@@ -697,7 +697,6 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
   materialize: async function (nodeName, jobType, strategy, schedule, config) {
-    console.log('job', jobType, 'strat', strategy);
     const response = await fetch(
       `${DJ_URL}/nodes/${nodeName}/materialization`,
       {
