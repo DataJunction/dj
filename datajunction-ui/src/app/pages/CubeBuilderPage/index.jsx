@@ -9,6 +9,7 @@ import { displayMessageAfterSubmit } from '../../../utils/form';
 import { useParams } from 'react-router-dom';
 import { Action } from '../../components/forms/Action';
 import NodeNameField from '../../components/forms/NodeNameField';
+import NodeTagsInput from '../../components/forms/NodeTagsInput';
 import { MetricsSelect } from './MetricsSelect';
 import { DimensionsSelect } from './DimensionsSelect';
 
@@ -56,6 +57,9 @@ export function CubeBuilderPage() {
       values.filters || [],
     );
     if (status === 200 || status === 201) {
+      if (values.tags) {
+        await djClient.tagsNode(values.name, values.tags);
+      }
       setStatus({
         success: (
           <>
@@ -81,11 +85,15 @@ export function CubeBuilderPage() {
       values.dimensions,
       values.filters || [],
     );
-    if (status === 200 || status === 201) {
+    const tagsResponse = await djClient.tagsNode(
+      values.name,
+      values.tags.map(tag => tag),
+    );
+    if ((status === 200 || status === 201) && tagsResponse.status === 200) {
       setStatus({
         success: (
           <>
-            Successfully created {json.type} node{' '}
+            Successfully updated {json.type} node{' '}
             <a href={`/nodes/${json.name}`}>{json.name}</a>!
           </>
         ),
@@ -141,7 +149,9 @@ export function CubeBuilderPage() {
             useEffect(() => {
               const fetchData = async () => {
                 if (name) {
+                  const node = await djClient.node(name);
                   const cube = await djClient.cube(name);
+                  cube.tags = node.tags;
                   setNode(cube);
                   updateFieldsWithNodeData(cube, setFieldValue);
                 }
@@ -219,6 +229,7 @@ export function CubeBuilderPage() {
                         <option value="published">Published</option>
                       </Field>
                     </div>
+                    <NodeTagsInput action={action} node={node} />
                     <button
                       type="submit"
                       disabled={isSubmitting}
