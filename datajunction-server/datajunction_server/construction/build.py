@@ -17,7 +17,8 @@ from datajunction_server.models.column import Column, SemanticType
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.metric import TranslatedSQL
-from datajunction_server.models.node import BuildCriteria, Node, NodeRevision, NodeType
+from datajunction_server.models.node import BuildCriteria, Node, NodeRevision
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
@@ -583,7 +584,14 @@ def _get_node_table(
             )
         else:
             name = to_namespaced_name(node.name)
-        table = ast.Table(name, _dj_node=node)
+        table = ast.Table(
+            name,
+            _columns=[
+                ast.Column(name=ast.Name(col.name), _type=col.type)
+                for col in node.columns
+            ],
+            _dj_node=node,
+        )
     elif node.availability and node.availability.is_available(
         criteria=build_criteria,
     ):  # pragma: no cover
@@ -596,11 +604,15 @@ def _get_node_table(
                     else None
                 ),
             ),
+            _columns=[
+                ast.Column(name=ast.Name(col.name), _type=col.type)
+                for col in node.columns
+            ],
             _dj_node=node,
         )
     if table and as_select:  # pragma: no cover
         return ast.Select(
-            projection=[ast.Wildcard()],
+            projection=table.columns,  # type: ignore
             from_=ast.From(relations=[ast.Relation(table)]),
         )
     return table
@@ -736,7 +748,10 @@ def rename_columns(built_ast: ast.Query, node: NodeRevision):
             projection.append(expression)
         else:
             expression = expression.copy()
-            if isinstance(expression, ast.Aliasable) and not isinstance(
+            if isinstance(
+                expression,
+                ast.Aliasable,
+            ) and not isinstance(  # pragma: no cover
                 expression,
                 ast.Wildcard,
             ):

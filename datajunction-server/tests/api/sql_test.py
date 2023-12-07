@@ -11,7 +11,8 @@ from starlette.testclient import TestClient
 
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import Column, Database, Node, access
-from datajunction_server.models.node import NodeRevision, NodeType
+from datajunction_server.models.node import NodeRevision
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.types import StringType
 from tests.sql.utils import compare_query_strings
 

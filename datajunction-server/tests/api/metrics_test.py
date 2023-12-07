@@ -9,7 +9,8 @@ from sqlmodel import Session, select
 from datajunction_server.models import AttributeType, ColumnAttribute
 from datajunction_server.models.column import Column
 from datajunction_server.models.database import Database
-from datajunction_server.models.node import Node, NodeRevision, NodeType
+from datajunction_server.models.node import Node, NodeRevision
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.table import Table
 from datajunction_server.sql.parsing.types import FloatType, IntegerType, StringType
 

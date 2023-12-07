@@ -696,13 +696,7 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
-  materialize: async function (
-    nodeName,
-    engineName,
-    engineVersion,
-    schedule,
-    config,
-  ) {
+  materialize: async function (nodeName, jobType, strategy, schedule, config) {
     const response = await fetch(
       `${DJ_URL}/nodes/${nodeName}/materialization`,
       {
@@ -711,12 +705,10 @@ export const DataJunctionAPI = {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          engine: {
-            name: engineName,
-            version: engineVersion,
-          },
+          job: jobType,
+          strategy: strategy,
           schedule: schedule,
-          config: JSON.parse(config),
+          config: config,
         }),
         credentials: 'include',
       },
@@ -755,5 +747,12 @@ export const DataJunctionAPI = {
       credentials: 'include',
     });
     return await response.json();
+  },
+  materializationInfo: async function () {
+    return await (
+      await fetch(`${DJ_URL}/materialization/info`, {
+        credentials: 'include',
+      })
+    ).json();
   },
 };

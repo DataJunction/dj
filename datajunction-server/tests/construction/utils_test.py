@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from datajunction_server.construction.utils import get_dj_node
 from datajunction_server.errors import DJErrorException
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.node_type import NodeType
 
 
 def test_get_dj_node_raise_unknown_node_exception(session: Session):

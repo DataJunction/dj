@@ -9,8 +9,11 @@ from requests import Request
 
 from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.models import Engine
-from datajunction_server.models.materialization import GenericMaterializationInput
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.materialization import (
+    GenericMaterializationInput,
+    MaterializationStrategy,
+)
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import (
@@ -237,6 +240,8 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         query_service_client.materialize(
             GenericMaterializationInput(
                 name="default",
+                job="SparkSqlMaterializationJob",
+                strategy=MaterializationStrategy.FULL,
                 node_name="default.hard_hat",
                 node_version="v1",
                 node_type=NodeType.DIMENSION,
@@ -253,6 +258,8 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "/materialization/",
             json={
                 "name": "default",
+                "job": "SparkSqlMaterializationJob",
+                "strategy": "full",
                 "node_name": "default.hard_hat",
                 "node_version": "v1",
                 "node_type": "dimension",
@@ -353,6 +360,8 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         response = query_service_client.materialize(
             GenericMaterializationInput(
                 name="default",
+                job="SparkSqlMaterializationJob",
+                strategy=MaterializationStrategy.FULL,
                 node_name="default.hard_hat",
                 node_version="v1",
                 node_type=NodeType.DIMENSION,
@@ -368,6 +377,8 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "/materialization/",
             json={
                 "name": "default",
+                "job": "SparkSqlMaterializationJob",
+                "strategy": "full",
                 "node_name": "default.hard_hat",
                 "node_version": "v1",
                 "node_type": "dimension",

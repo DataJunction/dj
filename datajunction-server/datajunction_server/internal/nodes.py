@@ -42,7 +42,10 @@ from datajunction_server.models.history import (
     EntityType,
     status_change_history,
 )
-from datajunction_server.models.materialization import UpsertMaterialization
+from datajunction_server.models.materialization import (
+    MaterializationJobTypeEnum,
+    UpsertMaterialization,
+)
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -54,9 +57,9 @@ from datajunction_server.models.node import (
     MissingParent,
     NodeMode,
     NodeStatus,
-    NodeType,
     UpdateNode,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import Partition
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
@@ -479,7 +482,10 @@ def update_node_with_query(
                     session,
                     new_revision,
                     UpsertMaterialization(
-                        **old.dict(), **{"engine": old.engine.dict()}
+                        **old.dict(exclude={"job"}),
+                        **{
+                            "job": MaterializationJobTypeEnum.find_match(old.job),
+                        },
                     ),
                     validate_access,
                 ),
@@ -629,7 +635,10 @@ def update_cube_node(  # pylint: disable=too-many-locals
                     session,
                     new_cube_revision,
                     UpsertMaterialization(
-                        **old.dict(), **{"engine": old.engine.dict()}
+                        **old.dict(exclude={"job"}),
+                        **{
+                            "job": MaterializationJobTypeEnum.find_match(old.job),
+                        },
                     ),
                     validate_access,
                 ),
@@ -994,6 +1003,10 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             pk_attribute = session.exec(
                 select(AttributeType).where(AttributeType.name == "primary_key"),
             ).one()
+            if set(data.primary_key) - set(col.name for col in new_revision.columns):
+                raise DJException(  # pragma: no cover
+                    f"Primary key {data.primary_key} does not exist on {new_revision.name}",
+                )
             for col in new_revision.columns:
                 # Remove the primary key attribute if it's not in the updated PK
                 if col.has_primary_key_attribute() and col.name not in data.primary_key:

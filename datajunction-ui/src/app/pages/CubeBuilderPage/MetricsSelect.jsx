@@ -23,7 +23,7 @@ export const MetricsSelect = ({ cube }) => {
   // Get metrics
   useEffect(() => {
     const fetchData = async () => {
-      if (cube) {
+      if (cube && cube !== []) {
         const cubeMetrics = cube?.cube_elements
           .filter(element => element.type === 'metric')
           .map(metric => {

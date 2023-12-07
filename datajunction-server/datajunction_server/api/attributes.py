@@ -15,7 +15,7 @@ from datajunction_server.models.attribute import (
     AttributeType,
     MutableAttributeTypeFields,
 )
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)

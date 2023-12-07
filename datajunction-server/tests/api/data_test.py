@@ -129,12 +129,44 @@ class TestDataForNode:
                 {
                     "columns": [
                         {
-                            "column": None,
-                            "name": "*",
-                            "node": None,
+                            "column": "payment_id",
+                            "name": "default_DOT_revenue_DOT_payment_id",
+                            "node": "default.revenue",
+                            "semantic_entity": "default.revenue.payment_id",
                             "semantic_type": None,
-                            "semantic_entity": None,
-                            "type": "wildcard",
+                            "type": "int",
+                        },
+                        {
+                            "column": "payment_amount",
+                            "name": "default_DOT_revenue_DOT_payment_amount",
+                            "node": "default.revenue",
+                            "semantic_entity": "default.revenue.payment_amount",
+                            "semantic_type": None,
+                            "type": "float",
+                        },
+                        {
+                            "column": "payment_type",
+                            "name": "default_DOT_revenue_DOT_payment_type",
+                            "node": "default.revenue",
+                            "semantic_entity": "default.revenue.payment_type",
+                            "semantic_type": None,
+                            "type": "int",
+                        },
+                        {
+                            "column": "customer_id",
+                            "name": "default_DOT_revenue_DOT_customer_id",
+                            "node": "default.revenue",
+                            "semantic_entity": "default.revenue.customer_id",
+                            "semantic_type": None,
+                            "type": "int",
+                        },
+                        {
+                            "column": "account_type",
+                            "name": "default_DOT_revenue_DOT_account_type",
+                            "node": "default.revenue",
+                            "semantic_entity": "default.revenue.account_type",
+                            "semantic_type": None,
+                            "type": "string",
                         },
                     ],
                     "row_count": 0,
@@ -147,13 +179,24 @@ class TestDataForNode:
                         [6, 398.1300048828125, 2, 3, "ACTIVE"],
                         [7, 239.6999969482422, 2, 4, "ACTIVE"],
                     ],
-                    "sql": "SELECT  * \n FROM accounting.revenue\n",
+                    "sql": "SELECT  payment_id default_DOT_revenue_DOT_payment_id,\n"
+                    "\tpayment_amount "
+                    "default_DOT_revenue_DOT_payment_amount,\n"
+                    "\tpayment_type default_DOT_revenue_DOT_payment_type,\n"
+                    "\tcustomer_id default_DOT_revenue_DOT_customer_id,\n"
+                    "\taccount_type default_DOT_revenue_DOT_account_type \n"
+                    " FROM accounting.revenue\n",
                 },
             ],
             "scheduled": None,
             "started": None,
             "state": "FINISHED",
-            "submitted_query": "SELECT  * \n FROM accounting.revenue\n",
+            "submitted_query": "SELECT  payment_id default_DOT_revenue_DOT_payment_id,\n"
+            "\tpayment_amount default_DOT_revenue_DOT_payment_amount,\n"
+            "\tpayment_type default_DOT_revenue_DOT_payment_type,\n"
+            "\tcustomer_id default_DOT_revenue_DOT_customer_id,\n"
+            "\taccount_type default_DOT_revenue_DOT_account_type \n"
+            " FROM accounting.revenue\n",
         }
 
     def test_get_transform_data(

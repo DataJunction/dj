@@ -16,7 +16,8 @@ from datajunction_server.internal.access.authorization import (
     validate_access_requests,
 )
 from datajunction_server.models import User, access
-from datajunction_server.models.node import NodeRevisionOutput, NodeType
+from datajunction_server.models.node import NodeRevisionOutput
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
     get_nodes_with_dimension,

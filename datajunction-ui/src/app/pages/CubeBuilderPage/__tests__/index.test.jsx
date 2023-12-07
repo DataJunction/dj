@@ -10,6 +10,10 @@ const mockDjClient = {
   createCube: jest.fn(),
   namespaces: jest.fn(),
   cube: jest.fn(),
+  node: jest.fn(),
+  listTags: jest.fn(),
+  tagsNode: jest.fn(),
+  patchCube: jest.fn(),
 };
 
 const mockMetrics = [
@@ -202,14 +206,12 @@ describe('CubeBuilderPage', () => {
     mockDjClient.createCube.mockResolvedValue({ status: 201, json: {} });
     mockDjClient.namespaces.mockResolvedValue(['default']);
     mockDjClient.cube.mockResolvedValue(mockCube);
+    mockDjClient.node.mockResolvedValue(mockCube);
+    mockDjClient.listTags.mockResolvedValue([]);
+    mockDjClient.tagsNode.mockResolvedValue([]);
+    mockDjClient.patchCube.mockResolvedValue({ status: 201, json: {} });
 
     window.scrollTo = jest.fn();
-
-    render(
-      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-        <CubeBuilderPage />
-      </DJClientContext.Provider>,
-    );
   });
 
   afterEach(() => {
@@ -217,14 +219,29 @@ describe('CubeBuilderPage', () => {
   });
 
   it('renders without crashing', () => {
+    render(
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <CubeBuilderPage />
+      </DJClientContext.Provider>,
+    );
     expect(screen.getByText('Cube')).toBeInTheDocument();
   });
 
   it('renders the Metrics section', () => {
+    render(
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <CubeBuilderPage />
+      </DJClientContext.Provider>,
+    );
     expect(screen.getByText('Metrics *')).toBeInTheDocument();
   });
 
   it('renders the Dimensions section', () => {
+    render(
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <CubeBuilderPage />
+      </DJClientContext.Provider>,
+    );
     expect(screen.getByText('Dimensions *')).toBeInTheDocument();
   });
 
@@ -307,9 +324,11 @@ describe('CubeBuilderPage', () => {
 
   const renderEditNode = element => {
     return render(
-      <MemoryRouter initialEntries={['/nodes/default.repair_orders_cube/edit']}>
+      <MemoryRouter
+        initialEntries={['/nodes/default.repair_orders_cube/edit-cube']}
+      >
         <Routes>
-          <Route path="nodes/:name/edit" element={element} />
+          <Route path="nodes/:name/edit-cube" element={element} />
         </Routes>
       </MemoryRouter>,
     );
@@ -321,7 +340,10 @@ describe('CubeBuilderPage', () => {
         <CubeBuilderPage />
       </DJClientContext.Provider>,
     );
-
+    expect(screen.getAllByText('Edit')[0]).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockDjClient.cube).toHaveBeenCalled();
+    });
     await waitFor(() => {
       expect(mockDjClient.metrics).toHaveBeenCalled();
     });
@@ -329,7 +351,7 @@ describe('CubeBuilderPage', () => {
     const selectMetrics = screen.getAllByTestId('select-metrics')[0];
     expect(selectMetrics).toBeDefined();
     expect(selectMetrics).not.toBeNull();
-    expect(screen.getAllByText('3 Available Metrics')[0]).toBeInTheDocument();
+    expect(screen.getByText('default.num_repair_orders')).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByText('Dimensions *')[0]);
 
@@ -364,13 +386,18 @@ describe('CubeBuilderPage', () => {
       fireEvent.click(createCube);
     });
     await waitFor(() => {
-      expect(mockDjClient.createCube).toHaveBeenCalledWith(
-        '',
-        '',
-        '',
+      expect(mockDjClient.patchCube).toHaveBeenCalledWith(
+        'default.repair_orders_cube',
+        'Default: Repair Orders Cube',
+        'Repairs cube',
         'draft',
-        [],
-        [],
+        ['default.total_repair_cost', 'default.num_repair_orders'],
+        [
+          'default.date_dim.day',
+          'default.date_dim.month',
+          'default.date_dim.year',
+          'default.date_dim.dateint',
+        ],
         [],
       );
     });
