@@ -10,7 +10,8 @@ from sqlmodel import Session
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.materialization import MaterializationJobTypeEnum
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
@@ -125,10 +126,8 @@ def client_code_for_adding_materialization(
     "{node.name}"
 )
 materialization = MaterializationConfig(
-    engine=Engine(
-        name="{materialization.engine.name}",
-        version="{materialization.engine.version}",
-    ),
+    job="{MaterializationJobTypeEnum.find_match(materialization.job).name.lower()}",
+    strategy="{materialization.strategy}",
     schedule="{materialization.schedule}",
     config={with_b.strip()},
 )

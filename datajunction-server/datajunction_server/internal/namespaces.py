@@ -18,7 +18,8 @@ from datajunction_server.errors import (
 from datajunction_server.models import History, User
 from datajunction_server.models.cube import CubeRevisionMetadata
 from datajunction_server.models.history import ActivityType, EntityType
-from datajunction_server.models.node import Node, NodeNamespace, NodeRevision, NodeType
+from datajunction_server.models.node import Node, NodeNamespace, NodeRevision
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
 

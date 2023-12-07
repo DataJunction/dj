@@ -826,10 +826,10 @@ describe('DataJunctionAPI', () => {
     fetch.mockResponseOnce(JSON.stringify({}));
     await DataJunctionAPI.materialize(
       'default.hard_hat',
-      'spark',
-      '3.3',
+      'spark_sql',
+      'full',
       '@daily',
-      '{}',
+      {},
     );
     expect(fetch).toHaveBeenCalledWith(
       `${DJ_URL}/nodes/default.hard_hat/materialization`,
@@ -839,10 +839,8 @@ describe('DataJunctionAPI', () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          engine: {
-            name: 'spark',
-            version: '3.3',
-          },
+          job: 'spark_sql',
+          strategy: 'full',
           schedule: '@daily',
           config: {},
         }),

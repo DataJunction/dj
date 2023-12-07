@@ -74,10 +74,10 @@ from datajunction_server.models.node import (
     NodeRevisionBase,
     NodeRevisionOutput,
     NodeStatus,
-    NodeType,
     NodeValidation,
     UpdateNode,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import (
     Granularity,
     Partition,

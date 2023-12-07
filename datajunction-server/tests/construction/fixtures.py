@@ -15,7 +15,8 @@ from datajunction_server.models import (
     NodeRevision,
     Table,
 )
-from datajunction_server.models.node import Node, NodeType
+from datajunction_server.models.node import Node
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.types import (
     DateType,
     FloatType,
@@ -52,7 +53,17 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
             None: (
                 True,
                 """
-                SELECT * FROM basic.source.users
+                SELECT
+                    id,
+                    full_name,
+                    names_map,
+                    user_metadata,
+                    age,
+                    country,
+                    gender,
+                    preferred_language,
+                    secret_number
+                 FROM basic.source.users
                 """,
             ),
         },
@@ -60,7 +71,12 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
             None: (
                 True,
                 """
-                SELECT * FROM basic.source.comments
+                SELECT
+                    id,
+                    user_id,
+                    timestamp,
+                    text
+                 FROM basic.source.comments
                 """,
             ),
         },

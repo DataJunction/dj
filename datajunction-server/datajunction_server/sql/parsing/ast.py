@@ -33,8 +33,7 @@ from datajunction_server.models.column import SemanticType
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node import NodeRevision
 from datajunction_server.models.node import NodeRevision as DJNode
-from datajunction_server.models.node import NodeType
-from datajunction_server.models.node import NodeType as DJNodeType
+from datajunction_server.models.node_type import NodeType as DJNodeType
 from datajunction_server.sql.functions import function_registry, table_function_registry
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import (

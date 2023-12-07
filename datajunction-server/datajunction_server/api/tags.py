@@ -12,7 +12,8 @@ from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models import History, User
 from datajunction_server.models.history import ActivityType, EntityType
-from datajunction_server.models.node import NodeMinimumDetail, NodeType
+from datajunction_server.models.node import NodeMinimumDetail
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.tag import CreateTag, Tag, TagOutput, UpdateTag
 from datajunction_server.utils import get_current_user, get_session, get_settings
 

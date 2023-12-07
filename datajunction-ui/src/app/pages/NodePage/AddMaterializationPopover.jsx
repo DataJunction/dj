@@ -2,27 +2,24 @@ import { useContext, useEffect, useRef, useState } from 'react';
 import * as React from 'react';
 import DJClientContext from '../../providers/djclient';
 import { ErrorMessage, Field, Form, Formik } from 'formik';
-import { FormikSelect } from '../AddEditNodePage/FormikSelect';
-import EditIcon from '../../icons/EditIcon';
 import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
 
 export default function AddMaterializationPopover({ node, onSubmit }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [popoverAnchor, setPopoverAnchor] = useState(false);
-  const [engines, setEngines] = useState([]);
-  const [defaultEngine, setDefaultEngine] = useState('');
+  const [options, setOptions] = useState([]);
+  const [jobs, setJobs] = useState([]);
 
   const ref = useRef(null);
 
   useEffect(() => {
     const fetchData = async () => {
-      const engines = await djClient.engines();
-      setEngines(engines);
-      setDefaultEngine(
-        engines && engines.length > 0
-          ? engines[0].name + '__' + engines[0].version
-          : '',
+      const options = await djClient.materializationInfo();
+      setOptions(options);
+      const allowedJobs = options.job_types?.filter(job =>
+        job.allowed_node_types.includes(node.type),
       );
+      setJobs(allowedJobs);
     };
     fetchData().catch(console.error);
     const handleClickOutside = event => {
@@ -41,14 +38,15 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
     { setSubmitting, setStatus },
   ) => {
     setSubmitting(false);
-    const engineVersion = values.engine.split('__').slice(-1).join('');
-    const engineName = values.engine.split('__').slice(0, -1).join('');
+    const config = JSON.parse(values.config);
+    config.lookback_window = values.lookback_window;
+    console.log('values', values);
     const response = await djClient.materialize(
       values.node,
-      engineName,
-      engineVersion,
+      values.job_type,
+      values.strategy,
       values.schedule,
-      values.config,
+      config,
     );
     if (response.status === 200 || response.status === 201) {
       setStatus({ success: 'Saved!' });
@@ -65,7 +63,7 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
     <>
       <button
         className="edit_button"
-        aria-label="PartitionColumn"
+        aria-label="AddMaterialization"
         tabIndex="0"
         onClick={() => {
           setPopoverAnchor(!popoverAnchor);
@@ -90,9 +88,11 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
         <Formik
           initialValues={{
             node: node?.name,
-            engine: defaultEngine,
+            job_type: 'spark_sql',
+            strategy: 'full',
             config: '{"spark": {"spark.executor.memory": "6g"}}',
             schedule: '@daily',
+            lookback_window: '1 DAY',
           }}
           onSubmit={configureMaterialization}
         >
@@ -101,16 +101,15 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
               <Form>
                 <h2>Configure Materialization</h2>
                 {displayMessageAfterSubmit(status)}
-                <span data-testid="edit-partition">
-                  <label htmlFor="engine">Engine</label>
-                  <Field as="select" name="engine">
+                <span data-testid="job-type">
+                  <label htmlFor="job_type">Job Type</label>
+                  <Field as="select" name="job_type">
                     <>
-                      {engines?.map(engine => (
-                        <option value={engine.name + '__' + engine.version}>
-                          {engine.name} {engine.version}
+                      {jobs?.map(job => (
+                        <option key={job.name} value={job.name}>
+                          {job.label}
                         </option>
                       ))}
-                      <option value=""></option>
                     </>
                   </Field>
                 </span>
@@ -122,6 +121,18 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                 />
                 <br />
                 <br />
+                <span data-testid="edit-partition">
+                  <label htmlFor="strategy">Strategy</label>
+                  <Field as="select" name="strategy">
+                    <>
+                      {options.strategies?.map(strategy => (
+                        <option value={strategy.name}>{strategy.label}</option>
+                      ))}
+                    </>
+                  </Field>
+                </span>
+                <br />
+                <br />
                 <label htmlFor="schedule">Schedule</label>
                 <Field
                   type="text"
@@ -131,6 +142,18 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                   default="@daily"
                 />
                 <br />
+                <br />
+                <div className="DescriptionInput">
+                  <ErrorMessage name="description" component="span" />
+                  <label htmlFor="Config">Lookback Window</label>
+                  <Field
+                    type="text"
+                    name="lookback_window"
+                    id="lookback_window"
+                    placeholder="1 DAY"
+                    default="1 DAY"
+                  />
+                </div>
                 <br />
                 <div className="DescriptionInput">
                   <ErrorMessage name="description" component="span" />

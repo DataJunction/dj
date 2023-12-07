@@ -202,13 +202,18 @@ export function AddEditNodePage() {
       'mode',
       'tags',
     ];
+    const primaryKey = data.columns
+      .filter(
+        col =>
+          col.attributes &&
+          col.attributes.filter(
+            attr => attr.attribute_type.name === 'primary_key',
+          ).length > 0,
+      )
+      .map(col => col.name);
     fields.forEach(field => {
-      if (
-        field === 'primary_key' &&
-        data[field] !== undefined &&
-        Array.isArray(data[field])
-      ) {
-        data[field] = data[field].join(', ');
+      if (field === 'primary_key') {
+        setFieldValue(field, primaryKey.join(', '));
       } else {
         setFieldValue(field, data[field] || '', false);
       }

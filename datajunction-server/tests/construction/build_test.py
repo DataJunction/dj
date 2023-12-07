@@ -14,7 +14,8 @@ from datajunction_server.models import (
     ColumnAttribute,
     NodeRevision,
 )
-from datajunction_server.models.node import Node, NodeType
+from datajunction_server.models.node import Node
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import amenable_name
 
 from ..sql.utils import compare_query_strings

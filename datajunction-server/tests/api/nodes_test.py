@@ -20,8 +20,8 @@ from datajunction_server.models.node import (
     NodeRelationship,
     NodeRevision,
     NodeStatus,
-    NodeType,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast, types
@@ -2411,12 +2411,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = custom_client.post(
             "/nodes/basic.source.comments/materialization/",
             json={
-                "engine": {
-                    "name": "spark",
-                    "version": "2.4.4",
-                },
+                "job": "spark_sql",
                 "schedule": "0 * * * *",
                 "config": {},
+                "strategy": "full",
             },
         )
         assert response.status_code == 400
@@ -2425,21 +2423,23 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             == "Cannot set materialization config for source node `basic.source.comments`!"
         )
 
-        # Setting the materialization config for an engine that doesn't exist should fail
+        # Setting the materialization config for a materialization job type that
+        # doesn't exist should fail
         response = custom_client.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
-                "engine": {
-                    "name": "spark",
-                    "version": "2.4.4",
-                },
+                "job": "something",
+                "strategy": "full",
                 "config": {},
                 "schedule": "0 * * * *",
             },
         )
         assert response.status_code == 404
         data = response.json()
-        assert data["detail"] == "Engine not found: `spark` version `2.4.4`"
+        assert data["message"] == (
+            "Materialization job type `SOMETHING` not found. Available job "
+            "types: ['SPARK_SQL', 'DRUID_CUBE']"
+        )
 
     def test_node_with_struct(self, client_with_roads: TestClient):
         """
@@ -2552,7 +2552,148 @@ JOIN roads.contractors AS default_DOT_contractors ON default_DOT_repair_type.con
  AS default_DOT_total_amount_in_region_from_struct_transform"""
         assert compare_query_strings(response.json()["sql"], expected)
 
-    def test_node_with_incremental_materialization(
+    def test_node_with_incremental_time_materialization(
+        self,
+        client_with_query_service_example_loader,
+        query_service_client,
+    ) -> None:
+        """
+        1. Create a transform node that uses dj_logical_timestamp (i.e., it is
+           meant to be incrementally materialized).
+        2. Create a metric node that references the above transform.
+        3. When SQL for the metric is requested without the transform having been materialized,
+           the request will fail.
+        """
+        custom_client = client_with_query_service_example_loader(["ROADS"])
+        custom_client.post(
+            "/nodes/transform/",
+            json={
+                "description": "Repair orders transform (partitioned)",
+                "query": """
+                    SELECT
+                        repair_order_id,
+                        municipality_id,
+                        hard_hat_id,
+                        order_date,
+                        required_date,
+                        dispatched_date,
+                        dispatcher_id
+                    FROM default.repair_orders
+                    """,
+                "mode": "published",
+                "name": "default.repair_orders_partitioned",
+                "primary_key": ["repair_order_id"],
+            },
+        )
+        # Mark one of the columns as a time partition
+        custom_client.post(
+            "/nodes/default.repair_orders_partitioned/columns/dispatched_date/partition",
+            json={
+                "type_": "temporal",
+                "granularity": "day",
+                "format": "yyyyMMdd",
+            },
+        )
+
+        # Set an incremental time materialization config with a lookback window of 100 days
+        custom_client.post(
+            "/nodes/default.repair_orders_partitioned/materialization/",
+            json={
+                "job": "spark_sql",
+                "strategy": "incremental_time",
+                "config": {
+                    "lookback_window": "100 DAYS",
+                },
+                "schedule": "0 * * * *",
+            },
+        )
+
+        args, _ = query_service_client.materialize.call_args_list[0]  # type: ignore
+        format_regex = r"\${(?P<capture>[^}]+)}"
+        match = re.search(format_regex, args[0].query)
+        assert match and match.group("capture") == "dj_logical_timestamp"
+        query = re.sub(format_regex, "DJ_LOGICAL_TIMESTAMP()", args[0].query)
+        expected_query = """
+        SELECT
+          repair_order_id,
+          municipality_id,
+          hard_hat_id,
+          order_date,
+          required_date,
+          dispatched_date,
+          dispatcher_id
+        FROM (
+          SELECT
+            default_DOT_repair_orders.repair_order_id,
+            default_DOT_repair_orders.municipality_id,
+            default_DOT_repair_orders.hard_hat_id,
+            default_DOT_repair_orders.order_date,
+            default_DOT_repair_orders.required_date,
+            default_DOT_repair_orders.dispatched_date,
+            default_DOT_repair_orders.dispatcher_id
+          FROM roads.repair_orders AS default_DOT_repair_orders
+        ) AS default_DOT_repair_orders_partitioned
+        WHERE
+          dispatched_date BETWEEN CAST(
+              DATE_FORMAT(
+                CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP) - INTERVAL 100 DAYS, 'yyyyMMdd'
+              ) AS TIMESTAMP
+            )
+            AND CAST(
+              DATE_FORMAT(
+                CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP),
+                'yyyyMMdd'
+              ) AS TIMESTAMP
+            )
+        """
+        compare_query_strings(query, expected_query)
+
+        # Set an incremental time materialization config without a lookback window
+        # (defaults to 1 day)
+        custom_client.post(
+            "/nodes/default.repair_orders_partitioned/materialization/",
+            json={
+                "job": "spark_sql",
+                "strategy": "incremental_time",
+                "config": {},
+                "schedule": "0 * * * *",
+            },
+        )
+
+        args, _ = query_service_client.materialize.call_args_list[0]  # type: ignore
+        match = re.search(format_regex, args[0].query)
+        assert match and match.group("capture") == "dj_logical_timestamp"
+        query = re.sub(format_regex, "DJ_LOGICAL_TIMESTAMP()", args[0].query)
+        expected_query = """
+        SELECT
+          repair_order_id,
+          municipality_id,
+          hard_hat_id,
+          order_date,
+          required_date,
+          dispatched_date,
+          dispatcher_id
+        FROM (
+          SELECT
+            default_DOT_repair_orders.repair_order_id,
+            default_DOT_repair_orders.municipality_id,
+            default_DOT_repair_orders.hard_hat_id,
+            default_DOT_repair_orders.order_date,
+            default_DOT_repair_orders.required_date,
+            default_DOT_repair_orders.dispatched_date,
+            default_DOT_repair_orders.dispatcher_id
+          FROM roads.repair_orders AS default_DOT_repair_orders
+        ) AS default_DOT_repair_orders_partitioned
+        WHERE  dispatched_date = CAST(
+          DATE_FORMAT(
+            CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP),
+            'yyyyMMdd'
+          ) AS TIMESTAMP
+        )
+        """
+        compare_query_strings(query, expected_query)
+
+    def test_node_with_dj_logical_timestamp(
         self,
         client_with_query_service_example_loader,
     ) -> None:
@@ -2655,10 +2796,8 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         response = custom_client.post(
             "/nodes/default.repair_orders_partitioned/materialization/",
             json={
-                "engine": {
-                    "name": "spark",
-                    "version": "2.4.4",
-                },
+                "job": "spark_sql",
+                "strategy": "full",
                 "config": {
                     "partitions": [],
                 },
@@ -2668,7 +2807,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         data = response.json()
         assert (
             data["message"] == "Successfully updated materialization config named "
-            "`spark` for node `default.repair_orders_partitioned`"
+            "`spark_sql__full` for node `default.repair_orders_partitioned`"
         )
 
         response = custom_client.get(
@@ -2716,10 +2855,8 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         custom_client.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
-                "engine": {
-                    "name": "spark",
-                    "version": "2.4.4",
-                },
+                "job": "spark_sql",
+                "strategy": "full",
                 "config": {
                     "spark": {},
                 },
@@ -2770,6 +2907,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                             "type": "bigint",
                         },
                     ],
+                    "lookback_window": None,
                     "query": "SELECT  basic_DOT_transform_DOT_country_agg.country,\n"
                     "\tbasic_DOT_transform_DOT_country_agg.num_users,\n"
                     "\tbasic_DOT_transform_DOT_country_agg.languages \n"
@@ -2786,14 +2924,9 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "spark": {},
                     "upstream_tables": ["public.basic.dim_users"],
                 },
-                "engine": {
-                    "dialect": "spark",
-                    "name": "spark",
-                    "uri": None,
-                    "version": "2.4.4",
-                },
+                "strategy": "full",
                 "job": "SparkSqlMaterializationJob",
-                "name": "spark",
+                "name": "spark_sql__full",
                 "schedule": "0 * * * *",
             },
         ]
@@ -2834,10 +2967,8 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         response = client_with_query_service.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
-                "engine": {
-                    "name": "spark",
-                    "version": "2.4.4",
-                },
+                "job": "spark_sql",
+                "strategy": "full",
                 "config": {},
                 "schedule": "0 * * * *",
             },
@@ -2845,7 +2976,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         data = response.json()
         assert (
             data["message"] == "Successfully updated materialization config named "
-            "`spark` for node `basic.transform.country_agg`"
+            "`spark_sql__full` for node `basic.transform.country_agg`"
         )
 
         # Check history of the node with materialization
@@ -2861,10 +2992,8 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         response = client_with_query_service.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
-                "engine": {
-                    "name": "spark",
-                    "version": "2.4.4",
-                },
+                "job": "spark_sql",
+                "strategy": "full",
                 "config": {},
                 "schedule": "0 * * * *",
             },
@@ -2875,16 +3004,16 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                 "urls": ["http://fake.url/job"],
             },
             "message": "The same materialization config with name "
-            "`spark` already exists for node "
+            "`spark_sql__full` already exists for node "
             "`basic.transform.country_agg` so no update was performed.",
         }
 
         response = client_with_query_service.delete(
             "/nodes/basic.transform.country_agg/materializations/"
-            "?materialization_name=spark",
+            "?materialization_name=spark_sql__full",
         )
         assert response.json() == {
-            "message": "The materialization named `spark` on node "
+            "message": "The materialization named `spark_sql__full` on node "
             "`basic.transform.country_agg` has been successfully deactivated",
         }
 
@@ -2892,16 +3021,14 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         response = client_with_query_service.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
-                "engine": {
-                    "name": "spark",
-                    "version": "2.4.4",
-                },
+                "job": "spark_sql",
+                "strategy": "full",
                 "config": {},
                 "schedule": "0 * * * *",
             },
         )
         assert response.json()["message"] == (
-            "The same materialization config with name `spark` already "
+            "The same materialization config with name `spark_sql__full` already "
             "exists for node `basic.transform.country_agg` but was deactivated. It has "
             "now been restored."
         )
@@ -2917,19 +3044,17 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             for activity in response.json()
         ] == [
             ("create", "node", "basic.transform.country_agg"),
-            ("create", "materialization", "spark"),
-            ("delete", "materialization", "spark"),
-            ("restore", "materialization", "spark"),
+            ("create", "materialization", "spark_sql__full"),
+            ("delete", "materialization", "spark_sql__full"),
+            ("restore", "materialization", "spark_sql__full"),
         ]
 
         # Setting the materialization config without partitions should succeed
         response = client_with_query_service.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
-                "engine": {
-                    "name": "spark",
-                    "version": "2.4.4",
-                },
+                "job": "spark_sql",
+                "strategy": "full",
                 "config": {},
                 "schedule": "0 * * * *",
             },
@@ -2937,7 +3062,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         data = response.json()
         assert (
             data["message"]
-            == "The same materialization config with name `spark` already "
+            == "The same materialization config with name `spark_sql__full` already "
             "exists for node `basic.transform.country_agg` so no update was performed."
         )
 
@@ -2950,13 +3075,8 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             [
                 {
                     "backfills": [],
-                    "name": "spark",
-                    "engine": {
-                        "name": "spark",
-                        "version": "2.4.4",
-                        "uri": None,
-                        "dialect": "spark",
-                    },
+                    "name": "spark_sql__full",
+                    "strategy": "full",
                     "config": {
                         "columns": [
                             {
@@ -2985,6 +3105,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
  AS basic_DOT_transform_DOT_country_agg""",
                         "spark": {},
                         "upstream_tables": ["public.basic.dim_users"],
+                        "lookback_window": None,
                     },
                     "schedule": "0 * * * *",
                     "job": "SparkSqlMaterializationJob",
@@ -3021,12 +3142,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                         "spark": {},
                         "upstream_tables": ["public.basic.dim_users"],
                     },
-                    "engine": {
-                        "dialect": "spark",
-                        "name": "spark",
-                        "uri": None,
-                        "version": "2.4.4",
-                    },
+                    "strategy": "full",
                     "job": "SparkSqlMaterializationJob",
                     "name": "default",
                     "schedule": "0 * * * *",
@@ -3064,19 +3180,16 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         response = client_with_query_service.post(
             "/nodes/default.hard_hat/materialization/",
             json={
-                "engine": {
-                    "name": "spark",
-                    "version": "2.4.4",
-                },
+                "job": "spark_sql",
+                "strategy": "full",
                 "config": {},
                 "schedule": "0 * * * *",
             },
         )
         data = response.json()
         assert (
-            data["message"]
-            == "Successfully updated materialization config named `birth_date_spark` for node "
-            "`default.hard_hat`"
+            data["message"] == "Successfully updated materialization config named "
+            "`spark_sql__full__birth_date` for node `default.hard_hat`"
         )
         expected_query = (
             "SELECT hard_hat_id, last_name, first_name, title, birth_date, hire_date, "
@@ -3108,13 +3221,8 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             [
                 {
                     "backfills": [],
-                    "name": "birth_date_spark",
-                    "engine": {
-                        "name": "spark",
-                        "version": "2.4.4",
-                        "uri": None,
-                        "dialect": "spark",
-                    },
+                    "name": "spark_sql__full__birth_date",
+                    "strategy": "full",
                     "config": {
                         "columns": [
                             {
@@ -3251,6 +3359,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
  FROM roads.hard_hats AS default_DOT_hard_hats)
  AS default_DOT_hard_hat""",
                         "spark": {},
+                        "lookback_window": None,
                         "upstream_tables": ["default.roads.hard_hats"],
                     },
                     "schedule": "0 * * * *",
@@ -3404,16 +3513,12 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
  FROM roads.hard_hats AS default_DOT_hard_hats)
  AS default_DOT_hard_hat""",
                         "spark": {},
+                        "lookback_window": None,
                         "upstream_tables": ["default.roads.hard_hats"],
                     },
-                    "engine": {
-                        "dialect": "spark",
-                        "name": "spark",
-                        "uri": None,
-                        "version": "2.4.4",
-                    },
+                    "strategy": "full",
                     "job": "SparkSqlMaterializationJob",
-                    "name": "birth_date_spark",
+                    "name": "spark_sql__full__birth_date",
                     "output_tables": ["common.a", "common.b"],
                     "schedule": "0 * * * *",
                     "urls": ["http://fake.url/job"],
@@ -3423,7 +3528,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
 
         # Kick off backfill for this materialization
         response = client_with_query_service.post(
-            "/nodes/default.hard_hat/materializations/birth_date_spark/backfill",
+            "/nodes/default.hard_hat/materializations/spark_sql__full__birth_date/backfill",
             json={
                 "column_name": "birth_date",
                 "range": ["20230101", "20230201"],
@@ -3432,7 +3537,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         assert query_service_client.run_backfill.call_args_list == [  # type: ignore
             call(
                 "default.hard_hat",
-                "birth_date_spark",
+                "spark_sql__full__birth_date",
                 PartitionBackfill(
                     column_name="birth_date",
                     values=None,
