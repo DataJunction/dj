@@ -191,7 +191,7 @@ class ColumnAttributeInput(BaseSQLModel):
     column_name: str
 
 
-class SemanticType(str, enum.Enum):
+class SemanticType(enum.StrEnum):
     """
     Semantic type of a column
     """

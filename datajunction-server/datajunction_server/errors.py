@@ -2,13 +2,13 @@
 Errors and warnings.
 """
 
-from enum import Enum
+from enum import IntEnum
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from sqlmodel import SQLModel
 
 
-class ErrorCode(int, Enum):
+class ErrorCode(IntEnum):
     """
     Error codes.
     """

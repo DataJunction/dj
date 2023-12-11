@@ -4,7 +4,7 @@ Utility functions.
 import logging
 import os
 import re
-from enum import Enum
+from enum import Enum, StrEnum
 from functools import lru_cache
 from string import ascii_letters, digits
 
@@ -103,7 +103,7 @@ def get_issue_url(
     return baseurl % query_arguments
 
 
-class VersionUpgrade(str, Enum):
+class VersionUpgrade(StrEnum):
     """
     The version upgrade type
     """

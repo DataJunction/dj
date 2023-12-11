@@ -16,7 +16,7 @@ settings = get_settings()
 router = APIRouter(tags=["health"])
 
 
-class HealthcheckStatus(str, enum.Enum):
+class HealthcheckStatus(enum.StrEnum):
     """
     Possible health statuses.
     """

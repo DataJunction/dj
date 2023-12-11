@@ -124,7 +124,7 @@ class BoundDimensionsRelationship(BaseSQLModel, table=True):  # type: ignore
     )
 
 
-class NodeMode(str, enum.Enum):
+class NodeMode(enum.StrEnum):
     """
     Node mode.
 
@@ -138,7 +138,7 @@ class NodeMode(str, enum.Enum):
     DRAFT = "draft"
 
 
-class NodeStatus(str, enum.Enum):
+class NodeStatus(enum.StrEnum):
     """
     Node status.
 
@@ -487,7 +487,7 @@ class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
         return True
 
 
-class MetricDirection(str, enum.Enum):
+class MetricDirection(enum.StrEnum):
     """
     The direction of the metric that's considered good, i.e., higher is better
     """

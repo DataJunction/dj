@@ -48,7 +48,6 @@ dependencies = [
     "types-cachetools>=5.3.0.6",
     "strawberry-graphql>=0.204.0",
     "fastapi-cache2>=0.2.1",
-    "gunicorn>=21.2.0",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.md"

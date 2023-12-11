@@ -36,7 +36,7 @@ class MutableAttributeTypeFields(AttributeTypeIdentifier):
     allowed_node_types: List[NodeType] = Field(sa_column=SqlaColumn(JSON))
 
 
-class UniquenessScope(str, enum.Enum):
+class UniquenessScope(enum.StrEnum):
     """
     The scope at which this attribute needs to be unique.
     """

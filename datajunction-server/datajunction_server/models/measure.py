@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from datajunction_server.models import Column
 
 
-class AggregationRule(str, enum.Enum):
+class AggregationRule(enum.StrEnum):
     """
     Type of allowed aggregation for a given measure.
     """

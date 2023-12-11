@@ -11,7 +11,7 @@ from sqlmodel import Field, SQLModel
 from datajunction_server.models.base import BaseSQLModel
 
 
-class Dialect(str, enum.Enum):
+class Dialect(enum.StrEnum):
     """
     SQL dialect
     """
