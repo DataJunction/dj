@@ -79,6 +79,7 @@ app = FastAPI(
     },
     dependencies=dependencies,
 )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_whitelist,
