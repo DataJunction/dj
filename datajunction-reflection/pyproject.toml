@@ -2,6 +2,9 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["djrs"]
+
 [tool.pdm.build]
 includes = ["datajunction_reflection"]
 
