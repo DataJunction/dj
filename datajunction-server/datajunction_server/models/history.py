@@ -2,7 +2,7 @@
 Model for history.
 """
 from datetime import datetime, timezone
-from enum import Enum
+from enum import Enum, StrEnum
 from functools import partial
 from typing import Any, Dict, Optional
 
@@ -15,7 +15,7 @@ from datajunction_server.models.user import User
 from datajunction_server.typing import UTCDatetime
 
 
-class ActivityType(str, Enum):
+class ActivityType(StrEnum):
     """
     An activity type
     """
@@ -30,7 +30,7 @@ class ActivityType(str, Enum):
     STATUS_CHANGE = "status_change"
 
 
-class EntityType(str, Enum):
+class EntityType(StrEnum):
     """
     An entity type for which activity can occur
     """

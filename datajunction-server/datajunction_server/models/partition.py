@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from datajunction_server.models.materialization import Materialization
 
 
-class PartitionType(str, enum.Enum):
+class PartitionType(enum.StrEnum):
     """
     Partition type.
 
@@ -27,7 +27,7 @@ class PartitionType(str, enum.Enum):
     CATEGORICAL = "categorical"
 
 
-class Granularity(str, enum.Enum):
+class Granularity(enum.StrEnum):
     """
     Time dimension granularity.
     """

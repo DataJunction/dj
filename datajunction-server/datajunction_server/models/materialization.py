@@ -44,7 +44,7 @@ DRUID_AGG_MAPPING = {
 }
 
 
-class MaterializationStrategy(str, enum.Enum):
+class MaterializationStrategy(enum.StrEnum):
     """
     Materialization strategies
     """

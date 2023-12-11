@@ -3,7 +3,7 @@ Models for queries.
 """
 
 from datetime import datetime
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import Any, List, Optional
 
 import msgpack
@@ -135,7 +135,7 @@ class QueryWithResults(BaseSQLModel):
         return datetime.fromisoformat(value) if isinstance(value, str) else value
 
 
-class QueryExtType(int, Enum):
+class QueryExtType(IntEnum):
     """
     Custom ext type for msgpack.
     """

@@ -2,7 +2,7 @@
 import enum
 
 
-class NodeType(str, enum.Enum):
+class NodeType(enum.StrEnum):
     """
     Node type.
 

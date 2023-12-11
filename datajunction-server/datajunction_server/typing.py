@@ -7,7 +7,7 @@ Custom types for annotations.
 from __future__ import annotations
 
 import datetime
-from enum import Enum
+from enum import Enum, StrEnum
 from types import ModuleType
 from typing import Any, Iterator, List, Literal, Optional, Tuple, TypedDict, Union
 
@@ -48,7 +48,7 @@ Row = Tuple[Any, ...]
 Stream = Iterator[Row]
 
 
-class TypeEnum(str, Enum):
+class TypeEnum(StrEnum):
     """
     PEP 249 basic types.
 
@@ -64,7 +64,7 @@ class TypeEnum(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
-class QueryState(str, Enum):
+class QueryState(StrEnum):
     """
     Different states of a query.
     """
