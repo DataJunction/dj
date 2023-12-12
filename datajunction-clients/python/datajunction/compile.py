@@ -419,7 +419,14 @@ class Project(BaseModel):
     mode: NodeMode = NodeMode.PUBLISHED
 
     @classmethod
-    def load_current(cls, directory: Optional[str] = None):
+    def load_current(cls):
+        """
+        Return's the nearest project configuration
+        """
+        return cls.load()
+
+    @classmethod
+    def load(cls, directory: Optional[str] = None):
         """
         Return's the nearest project configuration
         """
