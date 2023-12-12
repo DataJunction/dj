@@ -847,7 +847,7 @@ def load_node_configs_notebook_safe(repository: Path, priority: List[str]):
 async def load_node_configs(
     repository: Path,
     priority: List[str],
-) -> List[NodeYAML]:
+) -> List[Optional[NodeConfig]]:
     """
     Load all configs from a repository.
     """

@@ -109,7 +109,10 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
             if not exc.response:
                 error_message = str(exc)
                 print(error_message)
-            if exc.response and exc.response.headers.get("Content-Type") == "application/json":
+            if (
+                exc.response
+                and exc.response.headers.get("Content-Type") == "application/json"
+            ):
                 error_message = exc.response.json().get("message")
             if not error_message:
                 error_message = (
