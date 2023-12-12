@@ -1,8 +1,8 @@
 """Node type"""
-import enum
+from datajunction_server.enum import StrEnum
 
 
-class NodeType(enum.StrEnum):
+class NodeType(StrEnum):
     """
     Node type.
 

@@ -7,12 +7,13 @@ Custom types for annotations.
 from __future__ import annotations
 
 import datetime
-from enum import Enum, StrEnum
 from types import ModuleType
 from typing import Any, Iterator, List, Literal, Optional, Tuple, TypedDict, Union
 
 from pydantic.datetime_parse import parse_datetime
 from typing_extensions import Protocol
+
+from datajunction_server.enum import StrEnum
 
 
 class SQLADialect(Protocol):  # pylint: disable=too-few-public-methods

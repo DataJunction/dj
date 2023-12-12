@@ -1,17 +1,17 @@
 """
 Models for columns.
 """
-import enum
 from typing import Optional
 
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum
 from sqlmodel import Field, SQLModel
 
+from datajunction_server.enum import StrEnum
 from datajunction_server.models.base import BaseSQLModel
 
 
-class Dialect(enum.StrEnum):
+class Dialect(StrEnum):
     """
     SQL dialect
     """

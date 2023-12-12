@@ -3,13 +3,13 @@ Models for queries.
 """
 
 from datetime import datetime
-from enum import Enum, IntEnum
 from typing import Any, List, Optional
 
 import msgpack
 from pydantic import AnyHttpUrl, validator
 from sqlmodel import Field, SQLModel
 
+from datajunction_server.enum import IntEnum
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.typing import QueryState, Row
 

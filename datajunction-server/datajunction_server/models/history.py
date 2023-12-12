@@ -2,7 +2,6 @@
 Model for history.
 """
 from datetime import datetime, timezone
-from enum import Enum, StrEnum
 from functools import partial
 from typing import Any, Dict, Optional
 
@@ -10,6 +9,7 @@ from sqlalchemy import DateTime
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import JSON, Field, SQLModel
 
+from datajunction_server.enum import StrEnum
 from datajunction_server.models.node import NodeRevision, NodeStatus
 from datajunction_server.models.user import User
 from datajunction_server.typing import UTCDatetime

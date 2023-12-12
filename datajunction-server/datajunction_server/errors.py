@@ -2,10 +2,11 @@
 Errors and warnings.
 """
 
-from enum import IntEnum
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from sqlmodel import SQLModel
+
+from datajunction_server.enum import IntEnum
 
 
 class ErrorCode(IntEnum):
