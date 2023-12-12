@@ -42,6 +42,35 @@ def test_compile_loading_a_project(change_to_project_dir: Callable):
     assert project.root_path.endswith("project1")
 
 
+def test_load_project_from_different_dir(change_to_project_dir: Callable):
+    """
+    Test loading a project
+    """
+    change_to_project_dir("./")
+    project = Project.load("./project1")
+    assert project.name == "My DJ Project 1"
+    assert project.prefix == "projects.project1"
+    assert project.tags[0].name == "deprecated"
+    assert project.build.priority == [
+        "roads.date",
+        "roads.date_dim",
+        "roads.repair_orders",
+        "roads.repair_order_transform",
+        "roads.repair_order_details",
+        "roads.contractors",
+        "roads.hard_hats",
+        "roads.hard_hat_state",
+        "roads.us_states",
+        "roads.us_region",
+        "roads.dispatchers",
+        "roads.municipality",
+        "roads.municipality_municipality_type",
+        "roads.municipality_type",
+    ]
+    assert project.mode == NodeMode.PUBLISHED
+    assert project.root_path.endswith("project1")
+
+
 def test_compile_loading_a_project_from_a_nested_dir(change_to_project_dir: Callable):
     """
     Test loading a project while in a nested directory
