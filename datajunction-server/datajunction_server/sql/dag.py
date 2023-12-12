@@ -133,8 +133,14 @@ def get_shared_dimensions(
     """
     Return a list of dimensions that are common between the nodes.
     """
-    common = group_dimensions_by_name(metric_nodes[0])
-    for node in set(metric_nodes[1:]):
+    common_parents = set()
+    for metric_node in metric_nodes:
+        immediate_parent = metric_node.current.parents[0]
+        common_parents.add(immediate_parent)
+
+    parents = list(common_parents)
+    common = group_dimensions_by_name(parents[0])
+    for node in parents[1:]:
         node_dimensions = group_dimensions_by_name(node)
 
         # Merge each set of dimensions based on the name and path
