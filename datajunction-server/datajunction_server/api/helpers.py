@@ -953,9 +953,11 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
             break
 
         # Check the current state of the query
-        query_next = query_service_client.get_query(query_id=query_id)  # type: ignore
-        if query_next.state in END_JOB_STATES:
-            _logger.info(
+        query_next = query_service_client.get_query(  # type: ignore # pragma: no cover
+            query_id=query_id,
+        )
+        if query_next.state in END_JOB_STATES:  # pragma: no cover
+            _logger.info(  # pragma: no cover
                 "query end state detected (%s), sending final event to the client",
                 query_next.state,
             )

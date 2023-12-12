@@ -4957,7 +4957,7 @@ def test_resolving_downstream_status(client_with_service_setup: TestClient) -> N
         (metric3, NodeType.METRIC),
     ]:
         response = client_with_service_setup.post(
-            f"/nodes/{node_type.value}/",
+            f"/nodes/{node_type.value}/",  # pylint: disable=no-member
             json=node,
         )
         assert response.status_code == 201

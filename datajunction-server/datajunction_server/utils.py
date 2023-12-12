@@ -4,7 +4,6 @@ Utility functions.
 import logging
 import os
 import re
-from enum import Enum
 from functools import lru_cache
 from string import ascii_letters, digits
 
@@ -19,6 +18,7 @@ from starlette.requests import Request
 from yarl import URL
 
 from datajunction_server.config import Settings
+from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJException
 from datajunction_server.models.user import User
 from datajunction_server.service_clients import QueryServiceClient
@@ -103,7 +103,7 @@ def get_issue_url(
     return baseurl % query_arguments
 
 
-class VersionUpgrade(str, Enum):
+class VersionUpgrade(StrEnum):
     """
     The version upgrade type
     """

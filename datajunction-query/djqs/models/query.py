@@ -4,7 +4,6 @@ Models for queries.
 
 import uuid
 from datetime import datetime
-from enum import Enum
 from typing import Any, List, Optional
 from uuid import UUID, uuid4
 
@@ -14,6 +13,7 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, SQLModel
 
+from djqs.enum import IntEnum
 from djqs.typing import QueryState, Row
 
 
@@ -118,7 +118,7 @@ class QueryResults(BaseQuery):
     errors: List[str]
 
 
-class QueryExtType(int, Enum):
+class QueryExtType(IntEnum):
     """
     Custom ext type for msgpack.
     """

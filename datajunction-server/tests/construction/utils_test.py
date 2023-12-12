@@ -23,17 +23,17 @@ def test_get_dj_node_raise_unknown_node_exception(session: Session):
     with pytest.raises(DJErrorException) as exc_info:
         get_dj_node(session, "foobar", kinds={NodeType.METRIC, NodeType.DIMENSION})
 
-    assert "NodeType.DIMENSION" in str(exc_info.value)
-    assert "NodeType.METRIC" in str(exc_info.value)
-    assert "NodeType.SOURCE" not in str(exc_info.value)
-    assert "NodeType.TRANSFORM" not in str(exc_info.value)
+    assert "dimension" in str(exc_info.value)
+    assert "metric" in str(exc_info.value)
+    assert "source" not in str(exc_info.value)
+    assert "transform" not in str(exc_info.value)
 
     with pytest.raises(DJErrorException) as exc_info:
         # test that the event_type raises because it's a dimension and not a transform
         get_dj_node(session, "event_type", kinds={NodeType.TRANSFORM})
 
     assert (
-        "No node `event_type` exists of kind NodeType.TRANSFORM"  # pylint: disable=C0301
+        "No node `event_type` exists of kind transform"  # pylint: disable=C0301
         in str(exc_info.value)
     )
 
@@ -41,6 +41,6 @@ def test_get_dj_node_raise_unknown_node_exception(session: Session):
     with pytest.raises(DJErrorException) as exc_info:
         get_dj_node(session, "event_type", kinds={NodeType.TRANSFORM})
 
-    assert "No node `event_type` exists of kind NodeType.TRANSFORM" in str(
+    assert "No node `event_type` exists of kind transform" in str(
         exc_info.value,
     )

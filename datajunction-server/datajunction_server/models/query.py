@@ -3,13 +3,13 @@ Models for queries.
 """
 
 from datetime import datetime
-from enum import Enum
 from typing import Any, List, Optional
 
 import msgpack
 from pydantic import AnyHttpUrl, validator
 from sqlmodel import Field, SQLModel
 
+from datajunction_server.enum import IntEnum
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.typing import QueryState, Row
 
@@ -135,7 +135,7 @@ class QueryWithResults(BaseSQLModel):
         return datetime.fromisoformat(value) if isinstance(value, str) else value
 
 
-class QueryExtType(int, Enum):
+class QueryExtType(IntEnum):
     """
     Custom ext type for msgpack.
     """

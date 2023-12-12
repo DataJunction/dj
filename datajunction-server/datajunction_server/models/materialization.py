@@ -9,6 +9,7 @@ from sqlalchemy import DateTime, String
 from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
+from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.node_type import NodeType
@@ -44,7 +45,7 @@ DRUID_AGG_MAPPING = {
 }
 
 
-class MaterializationStrategy(str, enum.Enum):
+class MaterializationStrategy(StrEnum):
     """
     Materialization strategies
     """

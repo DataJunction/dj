@@ -1,5 +1,4 @@
 """Partition-related models."""
-import enum
 from typing import TYPE_CHECKING, List, Optional
 
 from pydantic.class_validators import validator
@@ -8,6 +7,7 @@ from sqlalchemy import JSON
 from sqlalchemy import Column as SqlaColumn
 from sqlmodel import Field, Relationship, SQLModel
 
+from datajunction_server.enum import StrEnum
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.column import Column
 from datajunction_server.sql.parsing.types import TimestampType
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from datajunction_server.models.materialization import Materialization
 
 
-class PartitionType(str, enum.Enum):
+class PartitionType(StrEnum):
     """
     Partition type.
 
@@ -27,7 +27,7 @@ class PartitionType(str, enum.Enum):
     CATEGORICAL = "categorical"
 
 
-class Granularity(str, enum.Enum):
+class Granularity(StrEnum):
     """
     Time dimension granularity.
     """
