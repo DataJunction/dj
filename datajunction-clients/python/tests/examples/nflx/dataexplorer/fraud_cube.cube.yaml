@@ -1,0 +1,9 @@
+description: Fraud Cube
+metrics:
+  - ${prefix}dataexplorer.paid_members
+  - ${prefix}dataexplorer.all_members
+  - ${prefix}dataexplorer.subscriptions
+dimensions:
+  - ${prefix}dataexplorer.payment_fraud_subscriptions.snapshot_date
+  - ${prefix}dataexplorer.payment_fraud_subscriptions.acct_type
+filter: []

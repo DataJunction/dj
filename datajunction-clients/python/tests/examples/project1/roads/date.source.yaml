@@ -9,3 +9,4 @@ columns:
     type: int
   - name: day
     type: int
+display_name: default.roads.date

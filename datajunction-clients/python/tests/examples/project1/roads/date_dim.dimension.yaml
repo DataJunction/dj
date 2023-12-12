@@ -8,3 +8,4 @@ query: |
   FROM ${prefix}roads.date
 primary_key:
   - dateint
+display_name: Date

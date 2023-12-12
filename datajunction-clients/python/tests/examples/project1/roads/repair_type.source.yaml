@@ -11,3 +11,4 @@ dimension_links:
   contractor_id:
     dimension: ${prefix}roads.contractor
     column: contractor_id
+display_name: default.roads.repair_type

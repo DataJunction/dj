@@ -1,0 +1,5 @@
+name: Data Explorer
+prefix: projects.data_explorer
+mode: published
+priority:
+  - dataexplorer.fraud_cube
