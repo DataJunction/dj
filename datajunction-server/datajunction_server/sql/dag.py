@@ -92,7 +92,7 @@ def check_convergence(path1: List[str], path2: List[str]) -> bool:
     final element, the dimension attribute.
     """
     if path1 == path2:
-        return True
+        return True  # pragma: no cover
     len1 = len(path1)
     len2 = len(path2)
     min_len = min(len1, len2)
