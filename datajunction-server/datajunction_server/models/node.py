@@ -1112,16 +1112,8 @@ class DimensionAttributeOutput(SQLModel):
     node_name: Optional[str]
     node_display_name: Optional[str]
     is_primary_key: bool
-    type: ColumnType
+    type: str
     path: List[str]
-
-    @root_validator
-    def type_string(cls, values):  # pylint: disable=no-self-argument
-        """
-        Extracts the type as a string
-        """
-        values["type"] = str(values.get("type"))
-        return values
 
 
 class ColumnOutput(BaseSQLModel):

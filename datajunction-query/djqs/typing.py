@@ -6,11 +6,12 @@ Custom types for annotations.
 
 from __future__ import annotations
 
-from enum import Enum
 from types import ModuleType
 from typing import Any, Iterator, List, Literal, Optional, Tuple, TypedDict, Union
 
 from typing_extensions import Protocol
+
+from djqs.enum import StrEnum
 
 
 class SQLADialect(Protocol):  # pylint: disable=too-few-public-methods
@@ -46,7 +47,7 @@ Row = Tuple[Any, ...]
 Stream = Iterator[Row]
 
 
-class ColumnType(str, Enum):
+class ColumnType(StrEnum):
     """
     Types for columns.
 
@@ -67,7 +68,7 @@ class ColumnType(str, Enum):
     DICT = "DICT"
 
 
-class TypeEnum(str, Enum):
+class TypeEnum(StrEnum):
     """
     PEP 249 basic types.
 
@@ -83,7 +84,7 @@ class TypeEnum(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
-class QueryState(str, Enum):
+class QueryState(StrEnum):
     """
     Different states of a query.
     """
