@@ -18,3 +18,4 @@ dimension_links:
   municipality_id:
     dimension: ${prefix}roads.municipality_dim
     column: municipality_id
+display_name: Repair Order Dim

@@ -5,3 +5,4 @@ columns:
     type: string
   - name: municipality_type_desc
     type: string
+display_name: default.roads.municipality_type

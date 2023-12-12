@@ -18,6 +18,8 @@ dependencies = [
     "alive-progress>=3.1.2",
     "pydantic-yaml>=1.2.0",
     "fastapi-cache2>=0.2.1",
+    "pyyaml>=6.0.1",
+    "rich>=13.7.0",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.md"

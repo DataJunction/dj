@@ -1,2 +1,3 @@
 description: Total repair order discounts
 query: SELECT sum(price * discount) FROM ${prefix}roads.repair_order_details
+display_name: Total Repair Order Discounts

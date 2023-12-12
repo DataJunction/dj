@@ -1,4 +1,5 @@
 description: Regional-level aggregates
+display_name: Regional-level Aggs
 query: |
   SELECT
       usr.us_region_id,

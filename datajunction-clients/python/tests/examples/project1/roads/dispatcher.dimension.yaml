@@ -7,3 +7,4 @@ query: |
   FROM ${prefix}roads.dispatchers
 primary_key:
   - dispatcher_id
+display_name: Dispatcher
