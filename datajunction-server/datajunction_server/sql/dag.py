@@ -47,7 +47,9 @@ def get_dimensions(
             continue
         processed.add(current_node)
 
-        for column in current_node.current.columns:
+        current_revision = current_node.current
+        current_primary_key = current_node.current.primary_key()
+        for column in current_revision.columns:
             # Include the dimension if it's a column belonging to a dimension node
             # or if it's tagged with the dimension column attribute (but not
             # additionally linked to a dimension)
@@ -69,11 +71,11 @@ def get_dimensions(
                 dimensions.append(
                     DimensionAttributeOutput(
                         name=f"{current_node.name}.{column.name}",
-                        node_name=current_node.current.name,
-                        node_display_name=current_node.current.display_name,
+                        node_name=current_revision.name,
+                        node_display_name=current_revision.display_name,
                         is_primary_key=column.name
-                        in {pk.name for pk in current_node.current.primary_key()},
-                        type=column.type,
+                        in {pk.name for pk in current_primary_key},
+                        type=str(column.type),
                         path=join_path_str,
                     ),
                 )

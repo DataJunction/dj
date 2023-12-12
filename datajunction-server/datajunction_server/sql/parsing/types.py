@@ -13,11 +13,12 @@ field_type=IntegerType(), is_optional=True, doc='an optional field'))
 """
 
 import re
-from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, Generator, Optional, Tuple, cast
 
 from pydantic import BaseModel, Extra
 from pydantic.class_validators import AnyCallable
+
+from datajunction_server.enum import StrEnum
 
 if TYPE_CHECKING:
     from datajunction_server.sql.parsing import ast
@@ -657,7 +658,7 @@ class DateTimeBase(PrimitiveType, Singleton):
     """
 
     # pylint: disable=invalid-name
-    class Unit(str, Enum):
+    class Unit(StrEnum):
         """
         Units used for date and time functions and intervals
         """

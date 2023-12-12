@@ -1,7 +1,6 @@
 """
 Models for columns.
 """
-import enum
 from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
 
 from pydantic import root_validator
@@ -10,6 +9,7 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import String, Text
 from sqlmodel import Field, Relationship
 
+from datajunction_server.enum import StrEnum
 from datajunction_server.models.base import (
     BaseSQLModel,
     NodeColumns,
@@ -191,7 +191,7 @@ class ColumnAttributeInput(BaseSQLModel):
     column_name: str
 
 
-class SemanticType(str, enum.Enum):
+class SemanticType(StrEnum):
     """
     Semantic type of a column
     """

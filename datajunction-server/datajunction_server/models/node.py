@@ -20,6 +20,7 @@ from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship, SQLModel
 from typing_extensions import TypedDict
 
+from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJError, DJInvalidInputException
 from datajunction_server.models.base import (
     BaseSQLModel,
@@ -124,7 +125,7 @@ class BoundDimensionsRelationship(BaseSQLModel, table=True):  # type: ignore
     )
 
 
-class NodeMode(str, enum.Enum):
+class NodeMode(StrEnum):
     """
     Node mode.
 
@@ -138,7 +139,7 @@ class NodeMode(str, enum.Enum):
     DRAFT = "draft"
 
 
-class NodeStatus(str, enum.Enum):
+class NodeStatus(StrEnum):
     """
     Node status.
 
@@ -487,7 +488,7 @@ class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
         return True
 
 
-class MetricDirection(str, enum.Enum):
+class MetricDirection(StrEnum):
     """
     The direction of the metric that's considered good, i.e., higher is better
     """
@@ -1111,16 +1112,8 @@ class DimensionAttributeOutput(SQLModel):
     node_name: Optional[str]
     node_display_name: Optional[str]
     is_primary_key: bool
-    type: ColumnType
+    type: str
     path: List[str]
-
-    @root_validator
-    def type_string(cls, values):  # pylint: disable=no-self-argument
-        """
-        Extracts the type as a string
-        """
-        values["type"] = str(values.get("type"))
-        return values
 
 
 class ColumnOutput(BaseSQLModel):
