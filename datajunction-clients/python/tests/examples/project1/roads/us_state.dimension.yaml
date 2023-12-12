@@ -11,3 +11,4 @@ query: |
   ON s.state_region = r.us_region_description
 primary_key:
   - state_id
+display_name: US State

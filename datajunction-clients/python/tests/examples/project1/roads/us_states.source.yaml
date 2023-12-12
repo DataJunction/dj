@@ -9,3 +9,4 @@ columns:
     type: string
   - name: state_region
     type: int
+display_name: default.roads.us_states

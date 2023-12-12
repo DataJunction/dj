@@ -13,3 +13,4 @@ columns:
     type: string
   - name: state_id
     type: int
+display_name: default.roads.municipality

@@ -15,3 +15,4 @@ query: |
   ON mmt.municipality_type_id = mt.municipality_type_desc
 primary_key:
   - municipality_id
+display_name: Municipality
