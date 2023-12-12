@@ -207,12 +207,8 @@ def test_compile_raising_on_invalid_file_name(
     """
     change_to_project_dir("project3")
     project = Project.load_current()
-    with pytest.raises(DJClientException) as exc_info:
-        project.compile()
-    assert (
-        "Definition file stem must end with .source, .transform, "
-        ".dimension, .metric, or .cube"
-    ) in str(exc_info.value)
+    compiled_project = project.compile()
+    assert compiled_project.definitions == []
 
     change_to_project_dir("project5")
     project = Project.load_current()
