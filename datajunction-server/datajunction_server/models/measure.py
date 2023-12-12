@@ -1,7 +1,6 @@
 """
 Models for measures.
 """
-import enum
 from typing import TYPE_CHECKING, List, Optional
 
 from pydantic.class_validators import root_validator
@@ -9,13 +8,14 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum, String
 from sqlmodel import Field, Relationship
 
+from datajunction_server.enum import StrEnum
 from datajunction_server.models.base import BaseSQLModel, generate_display_name
 
 if TYPE_CHECKING:
     from datajunction_server.models import Column
 
 
-class AggregationRule(enum.StrEnum):
+class AggregationRule(StrEnum):
     """
     Type of allowed aggregation for a given measure.
     """

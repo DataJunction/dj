@@ -1,13 +1,13 @@
 """
 Models for attributes.
 """
-import enum
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import JSON, String, UniqueConstraint
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import Field, Relationship
 
+from datajunction_server.enum import StrEnum
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.node_type import NodeType
 
@@ -36,7 +36,7 @@ class MutableAttributeTypeFields(AttributeTypeIdentifier):
     allowed_node_types: List[NodeType] = Field(sa_column=SqlaColumn(JSON))
 
 
-class UniquenessScope(enum.StrEnum):
+class UniquenessScope(StrEnum):
     """
     The scope at which this attribute needs to be unique.
     """
