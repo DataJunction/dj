@@ -52,25 +52,25 @@ def str_presenter(dumper, data):
 yaml.add_representer(str, str_presenter)
 
 
-def _parent_dir(path: Path):
+def _parent_dir(path: Union[str, Path]):
     """
     Returns the parent directory
     """
     return os.path.dirname(path)
 
 
-def _conf_exists(path: Path):
+def _conf_exists(path: Union[str, Path]):
     """
     Returns True if a config exists in the Path
     """
     return os.path.isfile(os.path.join(path, CONFIG_FILENAME))
 
 
-def find_project_root(dir: Optional[str] = None):
+def find_project_root(directory: Optional[str] = None):
     """
     Returns the project root, identified by a root config file
     """
-    checked_dir = dir or os.getcwd()
+    checked_dir = directory or os.getcwd()
     while not _conf_exists(checked_dir):
         checked_dir = _parent_dir(checked_dir)
         if checked_dir == "/" and not _conf_exists(checked_dir):
@@ -419,11 +419,11 @@ class Project(BaseModel):
     mode: NodeMode = NodeMode.PUBLISHED
 
     @classmethod
-    def load_current(cls, dir: Optional[str] = None):
+    def load_current(cls, directory: Optional[str] = None):
         """
         Return's the nearest project configuration
         """
-        root = find_project_root(dir)
+        root = find_project_root(directory)
         config_file_path = os.path.join(root, CONFIG_FILENAME)
         with open(config_file_path, encoding="utf-8") as f_config:
             config = parse_yaml_raw_as(cls, f_config)
@@ -794,7 +794,7 @@ def get_name_from_path(repository: Path, path: Path) -> str:
 async def load_data(
     repository: Path,
     path: Path,
-) -> NodeConfig:
+) -> Optional[NodeConfig]:
     """
     Load data from a YAML file.
     """
@@ -819,10 +819,7 @@ async def load_data(
                 definition=definition,
                 path=str(path),
             )
-    # raise DJClientException(
-    #     "Definition file stem must end with .source, "
-    #     f".transform, .dimension, .metric, or .cube: {path}",
-    # )
+    return None
 
 
 def load_node_configs_notebook_safe(repository: Path, priority: List[str]):
