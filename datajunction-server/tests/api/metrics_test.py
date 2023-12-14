@@ -458,21 +458,15 @@ def test_raise_common_dimensions_metric_not_found(
     )
     assert response.status_code == 500
     assert response.json() == {
-        "message": "Metric node not found: default.foo\nMetric node not found: default.bar",
         "errors": [
             {
                 "code": 203,
-                "message": "Metric node not found: default.foo",
-                "debug": None,
                 "context": "",
-            },
-            {
-                "code": 203,
-                "message": "Metric node not found: default.bar",
                 "debug": None,
-                "context": "",
+                "message": "Metric nodes not found: default.foo,default.bar",
             },
         ],
+        "message": "Metric nodes not found: default.foo,default.bar",
         "warnings": [],
     }
 
