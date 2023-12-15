@@ -836,11 +836,9 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         Returns the primary key columns of this node.
         """
         primary_key_columns = []
-        print("START self.columns")
         for col in self.columns:  # pylint: disable=not-an-iterable
             if col.has_primary_key_attribute():
                 primary_key_columns.append(col)
-        print("END self.columns")
         return primary_key_columns
 
     @staticmethod
