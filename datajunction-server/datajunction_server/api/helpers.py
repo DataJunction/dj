@@ -14,6 +14,7 @@ from datetime import datetime
 from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Tuple, Union
 
+from datajunction_server.models.base import NodeColumns
 from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -722,6 +723,7 @@ def validate_cube(  # pylint: disable=too-many-locals
         )
 
     validate_shared_dimensions(
+        session,
         metric_nodes,
         [dim.full_name() for dim in dimensions],
         [],

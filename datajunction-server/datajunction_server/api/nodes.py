@@ -1005,7 +1005,7 @@ def list_node_dag(
     downstreams, and linked dimension nodes.
     """
     node = get_node_by_name(session, name)
-    dimension_nodes = get_dimensions(node, attributes=False)
+    dimension_nodes = get_dimensions(session, node, attributes=False)
     downstreams = get_downstream_nodes(session, name)
     upstreams = get_upstream_nodes(session, name)
     return list(set(cast(List[Node], dimension_nodes) + downstreams + upstreams))  # type: ignore
@@ -1023,7 +1023,7 @@ def list_all_dimension_attributes(
     List all available dimension attributes for the given node.
     """
     node = get_node_by_name(session, name)
-    return get_dimensions(node, attributes=True)
+    return get_dimensions(session, node, attributes=True)
 
 
 @router.get(

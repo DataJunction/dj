@@ -52,12 +52,13 @@ def get_settings() -> Settings:
     return Settings()
 
 
+@lru_cache(maxsize=None)
 def get_engine() -> Engine:
     """
     Create the metadata engine.
     """
     settings = get_settings()
-    engine = create_engine(settings.index)
+    engine = create_engine(settings.index, echo=True)
 
     return engine
 
