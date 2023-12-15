@@ -14,7 +14,6 @@ from datetime import datetime
 from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from datajunction_server.models.base import NodeColumns
 from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -44,6 +43,7 @@ from datajunction_server.models import (
     access,
 )
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
+from datajunction_server.models.base import NodeColumns
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.history import (
     ActivityType,

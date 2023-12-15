@@ -24,7 +24,7 @@ from datajunction_server.models.node import (
     Node,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.sql.dag import get_shared_dimensions, get_dimensions
+from datajunction_server.sql.dag import get_dimensions, get_shared_dimensions
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
 settings = get_settings()

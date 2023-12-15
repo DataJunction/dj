@@ -4,16 +4,20 @@ DAG related functions.
 import itertools
 from typing import Dict, List, Optional, Set, Union
 
-from sqlmodel import Session, select
+from sqlalchemy import and_, or_, select
+from sqlalchemy.orm import aliased
+from sqlmodel import Session, join, select
 
-from datajunction_server.models import Column
+from datajunction_server.models import AttributeType, Column, ColumnAttribute
 from datajunction_server.models.base import NodeColumns
-from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeRevision, NodeRelationship
+from datajunction_server.models.node import (
+    DimensionAttributeOutput,
+    Node,
+    NodeRelationship,
+    NodeRevision,
+)
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR, get_settings
-from sqlmodel import join
-from sqlalchemy import or_, select, and_
-from sqlalchemy.orm import aliased
 
 settings = get_settings()
 
@@ -44,13 +48,13 @@ def get_dimensions_dag(
                 initial_node.id.label("path_start"),
                 c.name.label("col_name"),
                 dimension_node.id.label("path_end"),
-                (initial_node.name + '.' + c.name + ',' + dimension_node.name).label(
-                    "join_path"
+                (initial_node.name + "." + c.name + "," + dimension_node.name).label(
+                    "join_path",
                 ),
                 dimension_node.name.label("node_name"),
                 dimension_rev.id.label("node_revision_id"),
                 dimension_rev.display_name.label("node_display_name"),
-            ]
+            ],
         )
         .select_from(initial_node)
         .join(NodeColumns, initial_node.id == NodeColumns.node_id)
@@ -73,17 +77,15 @@ def get_dimensions_dag(
                 ng.c.path_start,
                 c.name.label("col_name"),
                 next_node.id.label("path_end"),
-                (ng.c.join_path + '.' + c.name + ',' + next_node.name).label(
-                    "join_path"
+                (ng.c.join_path + "." + c.name + "," + next_node.name).label(
+                    "join_path",
                 ),
                 next_node.name.label("node_name"),
                 next_rev.id.label("node_revision_id"),
                 next_rev.display_name.label("node_display_name"),
-            ]
-        )
-        .select_from(
-            ng
-            .join(current_node, ng.c.path_end == current_node.id)
+            ],
+        ).select_from(
+            ng.join(current_node, ng.c.path_end == current_node.id)
             .join(
                 current_rev,
                 and_(
@@ -100,8 +102,8 @@ def get_dimensions_dag(
                     next_rev.version == next_node.current_version,
                     next_rev.node_id == next_node.id,
                 ),
-            )
-        )
+            ),
+        ),
     )
 
     # Final SELECT statement
@@ -112,12 +114,16 @@ def get_dimensions_dag(
                 paths.c.node_revision_id,
                 paths.c.node_display_name,
                 c.name,
+                c.type,
+                AttributeType.name.label("column_attribute_type_name"),
                 paths.c.join_path,
-            ]
+            ],
         )
         .select_from(paths)
         .join(NodeColumns, NodeColumns.node_id == paths.c.node_revision_id)
         .join(c, NodeColumns.column_id == c.id)
+        .join(ColumnAttribute, c.id == ColumnAttribute.column_id)
+        .join(AttributeType, ColumnAttribute.attribute_type_id == AttributeType.id)
     )
 
     # Execute the query
@@ -139,16 +145,20 @@ def get_dimensions(
     processed: Set[Node] = set()
 
     if attributes:
-        return sorted([
-            DimensionAttributeOutput(
-                name=f"{dim[0]}.{dim[3]}",
-                node_name=dim[0],
-                node_display_name=dim[2],
-                is_primary_key=False,
-                type="",
-                path=dim[4].split(","),
-            ) for dim in dimensions
-        ], key=lambda x: x.name)
+        return sorted(
+            [
+                DimensionAttributeOutput(
+                    name=f"{dim[0]}.{dim[3]}",
+                    node_name=dim[0],
+                    node_display_name=dim[2],
+                    is_primary_key=dim[5] == "primary_key",
+                    type=str(dim[4]),
+                    path=dim[-1].split(","),
+                )
+                for dim in dimensions
+            ],
+            key=lambda x: x.name,
+        )
     return sorted(list(processed), key=lambda x: x.name)
 
 
@@ -180,7 +190,9 @@ def check_convergence(path1: List[str], path2: List[str]) -> bool:
     return False  # pragma: no cover
 
 
-def group_dimensions_by_name(session: Session, node: Node) -> Dict[str, List[DimensionAttributeOutput]]:
+def group_dimensions_by_name(
+    session: Session, node: Node,
+) -> Dict[str, List[DimensionAttributeOutput]]:
     """
     Group the dimensions for the node by the dimension attribute name
     """

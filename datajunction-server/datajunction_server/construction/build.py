@@ -793,6 +793,7 @@ def group_metrics_by_parent(
 
 
 def validate_shared_dimensions(
+    session: Session,
     metric_nodes: List[Node],
     dimensions: List[str],
     filters: List[str],
@@ -800,7 +801,9 @@ def validate_shared_dimensions(
     """
     Determine if dimensions are shared.
     """
-    shared_dimensions = [dim.name for dim in get_shared_dimensions(metric_nodes)]
+    shared_dimensions = [
+        dim.name for dim in get_shared_dimensions(session, metric_nodes)
+    ]
     for dimension_attribute in dimensions:
         if dimension_attribute not in shared_dimensions:
             raise DJInvalidInputException(
@@ -854,7 +857,7 @@ def build_metric_nodes(
             "of them aren't metric nodes.",
         )
 
-    validate_shared_dimensions(metric_nodes, dimensions, filters)
+    validate_shared_dimensions(session, metric_nodes, dimensions, filters)
 
     combined_ast: ast.Query = ast.Query(
         select=ast.Select(from_=ast.From(relations=[])),
