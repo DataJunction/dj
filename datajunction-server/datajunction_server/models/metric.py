@@ -39,7 +39,7 @@ class Metric(SQLModel):
     metric_metadata: Optional[MetricMetadataOutput] = None
 
     @classmethod
-    def parse_node(cls, node: Node) -> "Metric":
+    def parse_node(cls, node: Node, dims: List[DimensionAttributeOutput]) -> "Metric":
         """
         Parses a node into a metric.
         """
@@ -49,7 +49,7 @@ class Metric(SQLModel):
             description=node.current.description,
             updated_at=node.current.updated_at,
             query=node.current.query,
-            dimensions=get_dimensions(node),
+            dimensions=dims,
             metric_metadata=node.current.metric_metadata,
         )
 

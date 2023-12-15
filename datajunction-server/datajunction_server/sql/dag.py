@@ -1,22 +1,132 @@
 """
 DAG related functions.
 """
-import collections
 import itertools
-from typing import Deque, Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Set, Union
 
 from sqlmodel import Session, select
 
 from datajunction_server.models import Column
 from datajunction_server.models.base import NodeColumns
-from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeRevision
+from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeRevision, NodeRelationship
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR, get_settings
+from sqlmodel import join
+from sqlalchemy import or_, select, and_
+from sqlalchemy.orm import aliased
 
 settings = get_settings()
 
 
+def get_dimensions_dag(
+    session: Session,
+    node_revision: NodeRevision,
+    attributes: bool = True,
+) -> List[Node]:
+    """
+    Gets the dimensions graph of the given node revision.
+    Uses a recursive CTE query to build out all available dimensions.
+    """
+
+    initial_node = aliased(NodeRevision, name="initial_node")
+    dimension_node = aliased(Node, name="dimension_node")
+    dimension_rev = aliased(NodeRevision, name="dimension_rev")
+    current_node = aliased(Node, name="current_node")
+    current_rev = aliased(NodeRevision, name="current_rev")
+    next_node = aliased(Node, name="next_node")
+    next_rev = aliased(NodeRevision, name="next_rev")
+    c = aliased(Column, name="c")
+
+    # Recursive CTE
+    dimensions_graph = (
+        select(
+            [
+                initial_node.id.label("path_start"),
+                c.name.label("col_name"),
+                dimension_node.id.label("path_end"),
+                (initial_node.name + '.' + c.name + ',' + dimension_node.name).label(
+                    "join_path"
+                ),
+                dimension_node.name.label("node_name"),
+                dimension_rev.id.label("node_revision_id"),
+                dimension_rev.display_name.label("node_display_name"),
+            ]
+        )
+        .select_from(initial_node)
+        .join(NodeColumns, initial_node.id == NodeColumns.node_id)
+        .join(c, NodeColumns.column_id == c.id)
+        .join(dimension_node, c.dimension_id == dimension_node.id)
+        .join(
+            dimension_rev,
+            and_(
+                dimension_rev.version == dimension_node.current_version,
+                dimension_rev.node_id == dimension_node.id,
+            ),
+        )
+        .where(initial_node.id == node_revision.id)
+    ).cte("dimensions_graph", recursive=True)
+
+    ng = dimensions_graph.alias("ng")
+    paths = dimensions_graph.union_all(
+        select(
+            [
+                ng.c.path_start,
+                c.name.label("col_name"),
+                next_node.id.label("path_end"),
+                (ng.c.join_path + '.' + c.name + ',' + next_node.name).label(
+                    "join_path"
+                ),
+                next_node.name.label("node_name"),
+                next_rev.id.label("node_revision_id"),
+                next_rev.display_name.label("node_display_name"),
+            ]
+        )
+        .select_from(
+            ng
+            .join(current_node, ng.c.path_end == current_node.id)
+            .join(
+                current_rev,
+                and_(
+                    current_rev.version == current_node.current_version,
+                    current_rev.node_id == current_node.id,
+                ),
+            )
+            .join(NodeColumns, current_rev.id == NodeColumns.node_id)
+            .join(c, NodeColumns.column_id == c.id)
+            .join(next_node, c.dimension_id == next_node.id)
+            .join(
+                next_rev,
+                and_(
+                    next_rev.version == next_node.current_version,
+                    next_rev.node_id == next_node.id,
+                ),
+            )
+        )
+    )
+
+    # Final SELECT statement
+    final_query = (
+        select(
+            [
+                paths.c.node_name,
+                paths.c.node_revision_id,
+                paths.c.node_display_name,
+                c.name,
+                paths.c.join_path,
+            ]
+        )
+        .select_from(paths)
+        .join(NodeColumns, NodeColumns.node_id == paths.c.node_revision_id)
+        .join(c, NodeColumns.column_id == c.id)
+    )
+
+    # Execute the query
+    result = session.exec(final_query).all()
+    return result
+
+
 def get_dimensions(
+    session: Session,
     node: Node,
     attributes: bool = True,
 ) -> List[Union[DimensionAttributeOutput, Node]]:
@@ -25,64 +135,20 @@ def get_dimensions(
     * Setting `attributes` to True will return a list of dimension attributes,
     * Setting `attributes` to False will return a list of dimension nodes
     """
-    dimensions = []
-
-    # Start with the node itself or the node's immediate parent if it's a metric node
-    StateTrackingType = Tuple[Node, List[Column]]
-    node_starting_state: StateTrackingType = (node, [])
-    immediate_parent_starting_state: List[StateTrackingType] = [
-        (parent, [])
-        for parent in (node.current.parents if node.type == NodeType.METRIC else [])
-    ]
-    to_process: Deque[StateTrackingType] = collections.deque(
-        [node_starting_state, *immediate_parent_starting_state],
-    )
+    dimensions = get_dimensions_dag(session, node.current, attributes)
     processed: Set[Node] = set()
 
-    while to_process:
-        current_node, join_path = to_process.popleft()
-
-        # Don't include attributes from deactivated dimensions
-        if current_node.deactivated_at:
-            continue
-        processed.add(current_node)
-
-        current_revision = current_node.current
-        current_primary_key = current_node.current.primary_key()
-        for column in current_revision.columns:
-            # Include the dimension if it's a column belonging to a dimension node
-            # or if it's tagged with the dimension column attribute (but not
-            # additionally linked to a dimension)
-            if current_node.type == NodeType.DIMENSION or (
-                column.is_dimensional() and not column.dimension_id
-            ):
-                join_path_str = [
-                    (
-                        (
-                            link_column.node_revisions[0].name + "."
-                            if link_column.node_revisions
-                            else ""
-                        )
-                        + link_column.name
-                    )
-                    for link_column in join_path
-                    if link_column is not None and link_column.dimension
-                ]
-                dimensions.append(
-                    DimensionAttributeOutput(
-                        name=f"{current_node.name}.{column.name}",
-                        node_name=current_revision.name,
-                        node_display_name=current_revision.display_name,
-                        is_primary_key=column.name
-                        in {pk.name for pk in current_primary_key},
-                        type=str(column.type),
-                        path=join_path_str,
-                    ),
-                )
-            if column.dimension and column.dimension not in processed:
-                to_process.append((column.dimension, join_path + [column]))
     if attributes:
-        return sorted(dimensions, key=lambda x: x.name)
+        return sorted([
+            DimensionAttributeOutput(
+                name=f"{dim[0]}.{dim[3]}",
+                node_name=dim[0],
+                node_display_name=dim[2],
+                is_primary_key=False,
+                type="",
+                path=dim[4].split(","),
+            ) for dim in dimensions
+        ], key=lambda x: x.name)
     return sorted(list(processed), key=lambda x: x.name)
 
 
@@ -114,34 +180,53 @@ def check_convergence(path1: List[str], path2: List[str]) -> bool:
     return False  # pragma: no cover
 
 
-def group_dimensions_by_name(node: Node) -> Dict[str, List[DimensionAttributeOutput]]:
+def group_dimensions_by_name(session: Session, node: Node) -> Dict[str, List[DimensionAttributeOutput]]:
     """
     Group the dimensions for the node by the dimension attribute name
     """
     return {
         k: list(v)
         for k, v in itertools.groupby(
-            get_dimensions(node),
+            get_dimensions(session, node),
             key=lambda dim: dim.name,
         )
     }
 
 
 def get_shared_dimensions(
+    session: Session,
     metric_nodes: List[Node],
 ) -> List[DimensionAttributeOutput]:
     """
     Return a list of dimensions that are common between the nodes.
     """
-    common_parents = set()
-    for metric_node in metric_nodes:
-        immediate_parent = metric_node.current.parents[0]
-        common_parents.add(immediate_parent)
+    find_latest_node_revisions = [
+        and_(
+            NodeRevision.name == metric_node.name,
+            NodeRevision.version == metric_node.current_version,
+        )
+        for metric_node in metric_nodes
+    ]
+    statement = (
+        select(Node)
+        .where(or_(*find_latest_node_revisions))
+        .select_from(
+            join(
+                join(
+                    NodeRevision,
+                    NodeRelationship,
+                ),
+                Node,
+                NodeRelationship.parent_id == Node.id,
+            ),
+        )
+    )
+    common_parents = set(session.exec(statement).all())
 
     parents = list(common_parents)
-    common = group_dimensions_by_name(parents[0])
+    common = group_dimensions_by_name(session, parents[0][0])
     for node in parents[1:]:
-        node_dimensions = group_dimensions_by_name(node)
+        node_dimensions = group_dimensions_by_name(session, node[0])
 
         # Merge each set of dimensions based on the name and path
         to_delete = set(common.keys() - node_dimensions.keys())
