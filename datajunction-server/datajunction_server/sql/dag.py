@@ -78,7 +78,6 @@ def get_dimensions_dag(
         .where(initial_node.id == node_revision.id)
     ).cte("dimensions_graph", recursive=True)
 
-    # dag = dimensions_graph.alias("dag")
     paths = dimensions_graph.union_all(
         select(
             [
@@ -127,9 +126,10 @@ def get_dimensions_dag(
         ),
     )
 
-    # Final SELECT statement
+    # Final SELECT statements
+    # ----
+    # If attributes was set to False, we only need to return the dimension nodes
     if not attributes:
-        # Only the dimension nodes are needed here
         return (
             session.exec(
                 select(Node)
@@ -141,7 +141,9 @@ def get_dimensions_dag(
             .all()
         )
 
-    # Otherwise return the dimension attributes
+    # Otherwise return the dimension attributes, which include both the dimension
+    # attributes on the dimension nodes in the DAG as well as the local dimension
+    # attributes on the initial node
     final_query = (
         select(
             paths.c.node_name,
