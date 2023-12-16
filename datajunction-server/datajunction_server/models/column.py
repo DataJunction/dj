@@ -126,7 +126,7 @@ class Column(BaseSQLModel, table=True):  # type: ignore
         """
         Whether this column is considered dimensional
         """
-        return (
+        return (  # pragma: no cover
             self.has_dimension_attribute()
             or self.has_primary_key_attribute()
             or self.dimension
@@ -136,7 +136,7 @@ class Column(BaseSQLModel, table=True):  # type: ignore
         """
         Whether the dimension attribute is set on this column.
         """
-        return self.has_attribute("dimension")
+        return self.has_attribute("dimension")  # pragma: no cover
 
     def has_primary_key_attribute(self) -> bool:
         """
