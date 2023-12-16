@@ -144,13 +144,18 @@ def get_dimensions_dag(
     # Otherwise return the dimension attributes, which include both the dimension
     # attributes on the dimension nodes in the DAG as well as the local dimension
     # attributes on the initial node
+    group_concat = (
+        func.group_concat
+        if session.bind.dialect.name in ("sqlite",)
+        else func.string_agg
+    )
     final_query = (
         select(
             paths.c.node_name,
             paths.c.node_display_name,
             column.name,
             column.type,
-            func.group_concat(AttributeType.name).label(
+            group_concat(AttributeType.name, ",").label(
                 "column_attribute_type_name",
             ),
             paths.c.join_path,
@@ -177,7 +182,7 @@ def get_dimensions_dag(
                 NodeRevision.display_name,
                 Column.name,
                 Column.type,
-                func.group_concat(AttributeType.name).label(
+                group_concat(AttributeType.name, ",").label(
                     "column_attribute_type_name",
                 ),
                 literal("").label("join_path"),
