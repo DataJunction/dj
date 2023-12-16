@@ -13,7 +13,6 @@ from datajunction_server.models.node import (
     Node,
 )
 from datajunction_server.models.query import ColumnMetadata
-from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.transpilation import get_transpilation_plugin
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import get_settings

@@ -4,8 +4,9 @@ DAG related functions.
 import itertools
 from typing import Dict, List, Optional, Set, Union
 
-from sqlalchemy import and_, or_, select
-from sqlalchemy.orm import aliased
+from sqlalchemy import and_, func, literal, or_
+from sqlalchemy.orm import aliased, joinedload
+from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, join, select
 
 from datajunction_server.models import AttributeType, Column, ColumnAttribute
@@ -26,10 +27,11 @@ def get_dimensions_dag(
     session: Session,
     node_revision: NodeRevision,
     attributes: bool = True,
-) -> List[Node]:
+) -> List[Union[DimensionAttributeOutput, Node]]:
     """
-    Gets the dimensions graph of the given node revision.
-    Uses a recursive CTE query to build out all available dimensions.
+    Gets the dimensions graph of the given node revision with a single
+    recursive CTE query. This graph is split out into attributes or nodes
+    depending on the `attributes` flag.
     """
 
     initial_node = aliased(NodeRevision, name="initial_node")
@@ -39,16 +41,18 @@ def get_dimensions_dag(
     current_rev = aliased(NodeRevision, name="current_rev")
     next_node = aliased(Node, name="next_node")
     next_rev = aliased(NodeRevision, name="next_rev")
-    c = aliased(Column, name="c")
+    column = aliased(Column, name="c")
 
     # Recursive CTE
     dimensions_graph = (
         select(
             [
                 initial_node.id.label("path_start"),
-                c.name.label("col_name"),
+                column.name.label("col_name"),
                 dimension_node.id.label("path_end"),
-                (initial_node.name + "." + c.name + "," + dimension_node.name).label(
+                (
+                    initial_node.name + "." + column.name + "," + dimension_node.name
+                ).label(
                     "join_path",
                 ),
                 dimension_node.name.label("node_name"),
@@ -58,8 +62,12 @@ def get_dimensions_dag(
         )
         .select_from(initial_node)
         .join(NodeColumns, initial_node.id == NodeColumns.node_id)
-        .join(c, NodeColumns.column_id == c.id)
-        .join(dimension_node, c.dimension_id == dimension_node.id)
+        .join(column, NodeColumns.column_id == column.id)
+        .join(
+            dimension_node,
+            (column.dimension_id == dimension_node.id)
+            & (is_(dimension_node.deactivated_at, None)),
+        )
         .join(
             dimension_rev,
             and_(
@@ -70,14 +78,20 @@ def get_dimensions_dag(
         .where(initial_node.id == node_revision.id)
     ).cte("dimensions_graph", recursive=True)
 
-    ng = dimensions_graph.alias("ng")
+    # dag = dimensions_graph.alias("dag")
     paths = dimensions_graph.union_all(
         select(
             [
-                ng.c.path_start,
-                c.name.label("col_name"),
+                dimensions_graph.c.path_start,
+                column.name.label("col_name"),
                 next_node.id.label("path_end"),
-                (ng.c.join_path + "." + c.name + "," + next_node.name).label(
+                (
+                    dimensions_graph.c.join_path
+                    + "."
+                    + column.name
+                    + ","
+                    + next_node.name
+                ).label(
                     "join_path",
                 ),
                 next_node.name.label("node_name"),
@@ -85,7 +99,10 @@ def get_dimensions_dag(
                 next_rev.display_name.label("node_display_name"),
             ],
         ).select_from(
-            ng.join(current_node, ng.c.path_end == current_node.id)
+            dimensions_graph.join(
+                current_node,
+                dimensions_graph.c.path_end == current_node.id,
+            )
             .join(
                 current_rev,
                 and_(
@@ -94,8 +111,12 @@ def get_dimensions_dag(
                 ),
             )
             .join(NodeColumns, current_rev.id == NodeColumns.node_id)
-            .join(c, NodeColumns.column_id == c.id)
-            .join(next_node, c.dimension_id == next_node.id)
+            .join(column, NodeColumns.column_id == column.id)
+            .join(
+                next_node,
+                (column.dimension_id == next_node.id)
+                & (is_(next_node.deactivated_at, None)),
+            )
             .join(
                 next_rev,
                 and_(
@@ -107,28 +128,106 @@ def get_dimensions_dag(
     )
 
     # Final SELECT statement
+    if not attributes:
+        # Only the dimension nodes are needed here
+        return (
+            session.exec(
+                select(Node)
+                .options(joinedload(Node.current))
+                .select_from(paths)
+                .join(Node, paths.c.node_name == Node.name),
+            )
+            .unique()
+            .all()
+        )
+
+    # Otherwise return the dimension attributes
     final_query = (
         select(
-            [
-                paths.c.node_name,
-                paths.c.node_revision_id,
-                paths.c.node_display_name,
-                c.name,
-                c.type,
-                AttributeType.name.label("column_attribute_type_name"),
-                paths.c.join_path,
-            ],
+            paths.c.node_name,
+            paths.c.node_display_name,
+            column.name,
+            column.type,
+            func.group_concat(AttributeType.name).label(
+                "column_attribute_type_name",
+            ),
+            paths.c.join_path,
         )
         .select_from(paths)
         .join(NodeColumns, NodeColumns.node_id == paths.c.node_revision_id)
-        .join(c, NodeColumns.column_id == c.id)
-        .join(ColumnAttribute, c.id == ColumnAttribute.column_id)
-        .join(AttributeType, ColumnAttribute.attribute_type_id == AttributeType.id)
+        .join(column, NodeColumns.column_id == column.id)
+        .join(ColumnAttribute, column.id == ColumnAttribute.column_id, isouter=True)
+        .join(
+            AttributeType,
+            ColumnAttribute.attribute_type_id == AttributeType.id,
+            isouter=True,
+        )
+        .group_by(
+            paths.c.node_name,
+            paths.c.node_display_name,
+            column.name,
+            column.type,
+            paths.c.join_path,
+        )
+        .union_all(
+            select(
+                NodeRevision.name,
+                NodeRevision.display_name,
+                Column.name,
+                Column.type,
+                func.group_concat(AttributeType.name).label(
+                    "column_attribute_type_name",
+                ),
+                literal("").label("join_path"),
+            )
+            .select_from(NodeRevision)
+            .join(NodeColumns, NodeColumns.node_id == NodeRevision.id)
+            .join(Column, NodeColumns.column_id == Column.id)
+            .join(
+                ColumnAttribute,
+                Column.id == ColumnAttribute.column_id,
+                isouter=True,
+            )
+            .join(
+                AttributeType,
+                ColumnAttribute.attribute_type_id == AttributeType.id,
+                isouter=True,
+            )
+            .group_by(
+                NodeRevision.name,
+                NodeRevision.display_name,
+                Column.name,
+                Column.type,
+                "join_path",
+            )
+            .where(NodeRevision.id == node_revision.id),
+        )
     )
 
-    # Execute the query
-    result = session.exec(final_query).all()
-    return result
+    return sorted(
+        [
+            DimensionAttributeOutput(
+                name=f"{row[0]}.{row[2]}",
+                node_name=row[0],
+                node_display_name=row[1],
+                is_primary_key=row[4] == "primary_key",
+                type=str(row[3]),
+                path=row[5].split(",")[:-1] if row[5] else [],
+            )
+            for row in session.exec(final_query).all()
+            if row[5] != ""
+            or (
+                row[5] == ""
+                and row[4] is not None
+                and ("dimension" in row[4] or "primary_key" in row[4])
+            )
+            or (
+                row[0] == node_revision.name
+                and node_revision.type == NodeType.DIMENSION
+            )
+        ],
+        key=lambda x: x.name,
+    )
 
 
 def get_dimensions(
@@ -141,25 +240,9 @@ def get_dimensions(
     * Setting `attributes` to True will return a list of dimension attributes,
     * Setting `attributes` to False will return a list of dimension nodes
     """
-    dimensions = get_dimensions_dag(session, node.current, attributes)
-    processed: Set[Node] = set()
-
-    if attributes:
-        return sorted(
-            [
-                DimensionAttributeOutput(
-                    name=f"{dim[0]}.{dim[3]}",
-                    node_name=dim[0],
-                    node_display_name=dim[2],
-                    is_primary_key=dim[5] == "primary_key",
-                    type=str(dim[4]),
-                    path=dim[-1].split(","),
-                )
-                for dim in dimensions
-            ],
-            key=lambda x: x.name,
-        )
-    return sorted(list(processed), key=lambda x: x.name)
+    if node.type == NodeType.METRIC:
+        return get_dimensions_dag(session, node.current.parents[0].current, attributes)
+    return get_dimensions_dag(session, node.current, attributes)
 
 
 def check_convergence(path1: List[str], path2: List[str]) -> bool:
@@ -191,7 +274,8 @@ def check_convergence(path1: List[str], path2: List[str]) -> bool:
 
 
 def group_dimensions_by_name(
-    session: Session, node: Node,
+    session: Session,
+    node: Node,
 ) -> Dict[str, List[DimensionAttributeOutput]]:
     """
     Group the dimensions for the node by the dimension attribute name
@@ -233,12 +317,10 @@ def get_shared_dimensions(
             ),
         )
     )
-    common_parents = set(session.exec(statement).all())
-
-    parents = list(common_parents)
-    common = group_dimensions_by_name(session, parents[0][0])
+    parents = list(set(session.exec(statement).all()))
+    common = group_dimensions_by_name(session, parents[0])
     for node in parents[1:]:
-        node_dimensions = group_dimensions_by_name(session, node[0])
+        node_dimensions = group_dimensions_by_name(session, node)
 
         # Merge each set of dimensions based on the name and path
         to_delete = set(common.keys() - node_dimensions.keys())

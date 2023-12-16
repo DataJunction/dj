@@ -1005,7 +1005,13 @@ def list_node_dag(
     downstreams, and linked dimension nodes.
     """
     node = get_node_by_name(session, name)
-    dimension_nodes = get_dimensions(session, node, attributes=False)
+    dimension_nodes = (
+        get_dimensions(session, node.current.parents[0], attributes=False)
+        + node.current.parents
+        if node.type == NodeType.METRIC
+        else get_dimensions(session, node, attributes=False)
+    )
+    dimension_nodes += [node]
     downstreams = get_downstream_nodes(session, name)
     upstreams = get_upstream_nodes(session, name)
     return list(set(cast(List[Node], dimension_nodes) + downstreams + upstreams))  # type: ignore

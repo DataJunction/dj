@@ -43,7 +43,6 @@ from datajunction_server.models import (
     access,
 )
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
-from datajunction_server.models.base import NodeColumns
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.history import (
     ActivityType,
