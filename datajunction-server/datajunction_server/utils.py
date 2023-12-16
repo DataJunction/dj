@@ -58,7 +58,7 @@ def get_engine() -> Engine:
     Create the metadata engine.
     """
     settings = get_settings()
-    engine = create_engine(settings.index, echo=True)
+    engine = create_engine(settings.index)
 
     return engine
 

@@ -84,7 +84,7 @@ def get_a_metric(name: str, *, session: Session = Depends(get_session)) -> Metri
     Return a metric by name.
     """
     node = get_metric(session, name)
-    dims = get_shared_dimensions(session, [node])
+    dims = get_dimensions(session, node.current.parents[0])
     metric = Metric.parse_node(node, dims)
     return metric
 
