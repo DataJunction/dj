@@ -11,6 +11,7 @@ from datajunction_server.api.helpers import get_catalog_by_name, get_node_by_nam
 from datajunction_server.construction.dimensions import build_dimensions_from_cube_query
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
+from datajunction_server.internal.nodes import get_cube_revision_metadata
 from datajunction_server.models import access
 from datajunction_server.models.cube import (
     CubeRevisionMetadata,
@@ -33,15 +34,14 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["cubes"])
 
 
-@router.get("/cubes/{name}/", response_model=CubeRevisionMetadata, name="Get a Cube")
+@router.get("/cubes/{name}/", name="Get a Cube")
 def get_cube(
     name: str, *, session: Session = Depends(get_session)
 ) -> CubeRevisionMetadata:
     """
     Get information on a cube
     """
-    node = get_node_by_name(session=session, name=name, node_type=NodeType.CUBE)
-    return node.current
+    return get_cube_revision_metadata(session, name)
 
 
 @router.get("/cubes/{name}/dimensions/sql", name="Dimensions SQL for Cube")

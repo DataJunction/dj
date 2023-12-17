@@ -58,7 +58,10 @@ def get_engine() -> Engine:
     Create the metadata engine.
     """
     settings = get_settings()
-    engine = create_engine(settings.index)
+    engine = create_engine(
+        settings.index,
+        pool_pre_ping=True,
+    )
 
     return engine
 

@@ -6,6 +6,7 @@ from http import HTTPStatus
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import BackgroundTasks, Depends
+from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import (
@@ -37,12 +38,14 @@ from datajunction_server.models.attribute import (
     UniquenessScope,
 )
 from datajunction_server.models.base import labelize
+from datajunction_server.models.cube import CubeColumnOutput, CubeRevisionMetadata
 from datajunction_server.models.history import (
     ActivityType,
     EntityType,
     status_change_history,
 )
 from datajunction_server.models.materialization import (
+    Materialization,
     MaterializationJobTypeEnum,
     UpsertMaterialization,
 )
@@ -315,12 +318,6 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
                 for attr in col.attributes
             ],
         )
-        # node_column.attributes = [
-        #     ColumnAttribute(
-        #         attribute_type_id=attr.attribute_type_id, column=node_column,
-        #     )
-        #     for attr in col.attributes
-        # ]
         node_columns.append(node_column)
 
     node_revision = NodeRevision(
@@ -1164,3 +1161,52 @@ def column_lineage(
                 processed.append(col_dep)
         seen.update({current})
     return lineage_column
+
+
+def get_cube_revision_metadata(session: Session, name: str):
+    """
+    Returns cube revision metadata for cube named `name`.
+    """
+    statement = (
+        select(NodeRevision)
+        .select_from(Node)
+        .join(
+            NodeRevision,
+            (NodeRevision.name == Node.name)
+            & (NodeRevision.version == Node.current_version),
+        )
+        .where(Node.name == name)
+        .options(
+            joinedload(NodeRevision.availability),
+            joinedload(NodeRevision.materializations).joinedload(
+                Materialization.backfills,
+            ),
+            joinedload(NodeRevision.cube_elements).joinedload(Column.node_revisions),
+        )
+    )
+    cube = session.execute(statement).unique().first()[0]
+    return CubeRevisionMetadata(
+        id=cube.id,
+        node_id=cube.node_id,
+        type=cube.type,
+        name=cube.name,
+        display_name=cube.display_name,
+        version=cube.version,
+        description=cube.description,
+        availability=cube.availability,
+        cube_elements=cube.cube_elements,
+        query=cube.query,
+        columns=[
+            CubeColumnOutput(
+                name=col.name,
+                display_name=col.display_name,
+                type=str(col.type),
+                attributes=col.attributes,
+                dimension=col.dimension,
+                partition=col.partition,
+            )
+            for col in cube.columns
+        ],
+        updated_at=cube.updated_at,
+        materializations=cube.materializations,
+    )
