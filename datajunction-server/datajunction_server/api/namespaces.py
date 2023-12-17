@@ -318,6 +318,7 @@ def export_a_namespace(
     as well as a project definition file.
     """
     return get_project_config(
+        session=session,
         nodes=get_nodes_in_namespace_detailed(session, namespace),
         namespace_requested=namespace,
     )
