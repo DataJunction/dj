@@ -18,7 +18,11 @@ from datajunction_server.api.helpers import (
     validate_cube,
     validate_node_data,
 )
-from datajunction_server.errors import DJDoesNotExistException, DJException
+from datajunction_server.errors import (
+    DJDoesNotExistException,
+    DJException,
+    DJNodeNotFound,
+)
 from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
@@ -1184,7 +1188,13 @@ def get_cube_revision_metadata(session: Session, name: str):
             joinedload(NodeRevision.cube_elements).joinedload(Column.node_revisions),
         )
     )
-    cube = session.execute(statement).unique().first()[0]
+    result = session.execute(statement).unique().first()
+    if not result:
+        raise DJNodeNotFound(  # pragma: no cover
+            message=f"A cube node with name `{name}` does not exist.",
+            http_status_code=404,
+        )
+    cube = result[0]
     return CubeRevisionMetadata(
         id=cube.id,
         node_id=cube.node_id,
