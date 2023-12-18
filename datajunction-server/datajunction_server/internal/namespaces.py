@@ -286,6 +286,7 @@ def _source_project_config(node: Node, namespace_requested: str) -> Dict:
     return {
         "filename": filename,
         "directory": directory,
+        "display_name": node.current.display_name,
         "description": node.current.description,
         "table": f"{node.current.catalog}.{node.current.schema_}.{node.current.table}",
         "columns": [
@@ -312,6 +313,7 @@ def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
     return {
         "filename": filename,
         "directory": directory,
+        "display_name": node.current.display_name,
         "description": node.current.description,
         "query": node.current.query,
         "dimension_links": {
@@ -334,6 +336,7 @@ def _dimension_project_config(node: Node, namespace_requested: str) -> Dict:
     return {
         "filename": filename,
         "directory": directory,
+        "display_name": node.current.display_name,
         "description": node.current.description,
         "query": node.current.query,
         "primary_key": [pk.name for pk in node.current.primary_key()],
@@ -357,6 +360,7 @@ def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
     return {
         "filename": filename,
         "directory": directory,
+        "display_name": node.current.display_name,
         "description": node.current.description,
         "query": node.current.query,
     }
@@ -382,6 +386,7 @@ def _cube_project_config(node: Node, namespace_requested: str) -> Dict:
     return {
         "filename": filename,
         "directory": directory,
+        "display_name": cube_revision.display_name,
         "description": cube_revision.description,
         "metrics": metrics,
         "dimensions": dimensions,

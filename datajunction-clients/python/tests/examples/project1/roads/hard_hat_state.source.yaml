@@ -5,3 +5,4 @@ columns:
     type: int
   - name: state_id
     type: string
+display_name: default.roads.hard_hat_state

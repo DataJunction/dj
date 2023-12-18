@@ -5,3 +5,4 @@ columns:
     type: int
   - name: us_region_description
     type: string
+display_name: default.roads.us_region

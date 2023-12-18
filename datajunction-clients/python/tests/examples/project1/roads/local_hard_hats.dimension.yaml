@@ -25,3 +25,4 @@ dimension_links:
   state_id:
     dimension: ${prefix}roads.us_state
     column: state_abbr
+display_name: Local Hard Hats

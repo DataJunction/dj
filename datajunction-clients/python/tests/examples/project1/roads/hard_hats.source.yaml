@@ -27,3 +27,4 @@ columns:
     type: int
   - name: contractor_id
     type: int
+display_name: default.roads.hard_hats

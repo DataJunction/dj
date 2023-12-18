@@ -1,2 +1,3 @@
 description: Average time to dispatch a repair order
 query: SELECT avg(dispatched_date - order_date) FROM ${prefix}roads.repair_orders
+display_name: Avg Time to Dispatch Repair Order

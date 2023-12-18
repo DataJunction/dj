@@ -27,3 +27,4 @@ dimension_links:
   hire_date:
     dimension: ${prefix}roads.date_dim
     column: dateint
+display_name: Hard Hat
