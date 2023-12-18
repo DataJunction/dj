@@ -3,7 +3,6 @@
 Helpers for API endpoints
 """
 import asyncio
-import collections
 import http.client
 import json
 import logging
@@ -291,21 +290,55 @@ def get_upstream_nodes(
     node_type: NodeType = None,
 ) -> List[Node]:
     """
-    Gets all upstream parents of the given node, filterable by node type.
+    Gets all upstreams of the given node, filterable by node type.
+    Uses a recursive CTE query to build out all parents of the node.
     """
-    node = get_node_by_name(session=session, name=node_name)
-    queue = collections.deque([node])
-    all_parents = set()
-    while queue:
-        node = queue.pop()
-        for parent in node.current.parents:
-            all_parents.add(parent)
-        for parent in node.current.parents:
-            queue.append(parent)
+    node = get_node_by_name(
+        session=session,
+        name=node_name,
+        include_inactive=False,
+        with_current=True,
+    )
+
+    dag = (
+        select(
+            NodeRelationship.child_id,
+            NodeRevision.id,
+        )
+        .where(NodeRelationship.child_id == node.current.id)
+        .join(Node, NodeRelationship.parent_id == Node.id)
+        .join(
+            NodeRevision,
+            (Node.id == NodeRevision.node_id)
+            & (Node.current_version == NodeRevision.version),
+        )
+    ).cte("dag", recursive=True)
+
+    paths = dag.union_all(
+        select(
+            dag.c.child_id,
+            NodeRevision.id,
+        )
+        .join(NodeRelationship, dag.c.id == NodeRelationship.child_id)
+        .join(Node, NodeRelationship.parent_id == Node.id)
+        .join(
+            NodeRevision,
+            (Node.id == NodeRevision.node_id)
+            & (Node.current_version == NodeRevision.version),
+        ),
+    )
+
+    statement = (
+        select(NodeRevision)
+        .join(paths, paths.c.id == NodeRevision.id)
+        .options(joinedload(NodeRevision.node).joinedload(Node.current))
+    )
+
+    results = session.exec(statement).unique().all()
 
     return [
-        upstream
-        for upstream in all_parents
+        upstream.node
+        for upstream in results
         if upstream.type == node_type or node_type is None
     ]
 
