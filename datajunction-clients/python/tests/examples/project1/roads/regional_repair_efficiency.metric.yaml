@@ -14,3 +14,4 @@ query: |
   ${prefix}roads.regional_level_agg rm
   CROSS JOIN
   ${prefix}roads.national_level_agg na
+display_name: Regional Repair Efficiency

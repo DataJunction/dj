@@ -607,6 +607,7 @@ def test_export_namespaces(client_with_examples: TestClient):
         "/nodes/cube/",
         json={
             "name": "default.example_cube",
+            "display_name": "Example Cube",
             "description": "An example cube so that the export path is tested",
             "metrics": ["default.num_repair_orders"],
             "dimensions": ["default.hard_hat.city"],
@@ -618,7 +619,16 @@ def test_export_namespaces(client_with_examples: TestClient):
         "/namespaces/default/export/",
     )
     project_definition = response.json()
-    assert {d["filename"] for d in project_definition} == {
+    node_defs = {d["filename"]: d for d in project_definition}
+    assert node_defs["example_cube.cube.yaml"] == {
+        "description": "An example cube so that the export path is tested",
+        "dimensions": ["default.hard_hat.city"],
+        "directory": "",
+        "display_name": "Example Cube",
+        "filename": "example_cube.cube.yaml",
+        "metrics": ["default.num_repair_orders"],
+    }
+    assert set(node_defs.keys()) == {
         "repair_orders.source.yaml",
         "repair_order_details.source.yaml",
         "repair_type.source.yaml",

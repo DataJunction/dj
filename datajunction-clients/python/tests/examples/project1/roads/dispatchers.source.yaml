@@ -7,3 +7,4 @@ columns:
     type: string
   - name: phone
     type: string
+display_name: default.roads.dispatchers

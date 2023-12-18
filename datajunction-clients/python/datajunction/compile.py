@@ -52,25 +52,25 @@ def str_presenter(dumper, data):
 yaml.add_representer(str, str_presenter)
 
 
-def _parent_dir(path: Path):
+def _parent_dir(path: Union[str, Path]):
     """
     Returns the parent directory
     """
     return os.path.dirname(path)
 
 
-def _conf_exists(path: Path):
+def _conf_exists(path: Union[str, Path]):
     """
     Returns True if a config exists in the Path
     """
     return os.path.isfile(os.path.join(path, CONFIG_FILENAME))
 
 
-def find_project_root():
+def find_project_root(directory: Optional[str] = None):
     """
     Returns the project root, identified by a root config file
     """
-    checked_dir = os.getcwd()
+    checked_dir = directory or os.getcwd()
     while not _conf_exists(checked_dir):
         checked_dir = _parent_dir(checked_dir)
         if checked_dir == "/" and not _conf_exists(checked_dir):
@@ -107,6 +107,7 @@ class SourceYAML(NodeYAML):
     """
 
     node_type: Literal[NodeType.SOURCE] = NodeType.SOURCE
+    display_name: Optional[str]
     table: str
     columns: List[Column]
     description: Optional[str] = None
@@ -138,6 +139,7 @@ class SourceYAML(NodeYAML):
         """
         catalog, schema, table = self.table.split(".")
         node = Source(
+            display_name=self.display_name,
             name=f"{prefix}.{name}",
             catalog=catalog,
             schema_=schema,
@@ -192,6 +194,7 @@ class TransformYAML(NodeYAML):
 
     node_type: Literal[NodeType.TRANSFORM] = NodeType.TRANSFORM
     query: str
+    display_name: Optional[str]
     description: Optional[str] = None
     primary_key: Optional[List[str]] = None
     tags: Optional[List[Tag]] = None
@@ -205,6 +208,7 @@ class TransformYAML(NodeYAML):
         """
         node = Transform(
             name=f"{prefix}.{name}",
+            display_name=self.display_name,
             query=self.query,
             description=self.description,
             primary_key=self.primary_key,
@@ -256,6 +260,7 @@ class DimensionYAML(NodeYAML):
 
     node_type: Literal[NodeType.DIMENSION] = NodeType.DIMENSION
     query: str
+    display_name: Optional[str]
     description: Optional[str]
     primary_key: Optional[List[str]]
     tags: Optional[List[Tag]]
@@ -269,6 +274,7 @@ class DimensionYAML(NodeYAML):
         """
         node = Dimension(
             name=f"{prefix}.{name}",
+            display_name=self.display_name,
             query=self.query,
             description=self.description,
             primary_key=self.primary_key,
@@ -320,6 +326,7 @@ class MetricYAML(NodeYAML):
 
     node_type: Literal[NodeType.METRIC] = NodeType.METRIC
     query: str
+    display_name: Optional[str]
     description: Optional[str]
     tags: Optional[List[Tag]]
     mode: NodeMode = NodeMode.PUBLISHED
@@ -331,6 +338,7 @@ class MetricYAML(NodeYAML):
         """
         node = Metric(
             name=f"{prefix}.{name}",
+            display_name=self.display_name,
             query=self.query,
             description=self.description,
             tags=self.tags,
@@ -347,6 +355,7 @@ class CubeYAML(NodeYAML):
     """
 
     node_type: Literal[NodeType.CUBE] = NodeType.CUBE
+    display_name: Optional[str]
     metrics: List[str]
     dimensions: List[str]
     filters: Optional[List[str]] = None
@@ -367,6 +376,7 @@ class CubeYAML(NodeYAML):
         ]
         node = Cube(
             name=f"{prefix}.{name}",
+            display_name=self.display_name,
             metrics=prefixed_metrics,
             dimensions=prefixed_dimensions,
             filters=self.filters,
@@ -413,7 +423,14 @@ class Project(BaseModel):
         """
         Return's the nearest project configuration
         """
-        root = find_project_root()
+        return cls.load()
+
+    @classmethod
+    def load(cls, directory: Optional[str] = None):
+        """
+        Return's the nearest project configuration
+        """
+        root = find_project_root(directory)
         config_file_path = os.path.join(root, CONFIG_FILENAME)
         with open(config_file_path, encoding="utf-8") as f_config:
             config = parse_yaml_raw_as(cls, f_config)
@@ -784,7 +801,7 @@ def get_name_from_path(repository: Path, path: Path) -> str:
 async def load_data(
     repository: Path,
     path: Path,
-) -> NodeConfig:
+) -> Optional[NodeConfig]:
     """
     Load data from a YAML file.
     """
@@ -809,10 +826,7 @@ async def load_data(
                 definition=definition,
                 path=str(path),
             )
-    raise DJClientException(
-        "Definition file stem must end with .source, "
-        f".transform, .dimension, .metric, or .cube: {path}",
-    )
+    return None
 
 
 def load_node_configs_notebook_safe(repository: Path, priority: List[str]):
@@ -840,7 +854,7 @@ def load_node_configs_notebook_safe(repository: Path, priority: List[str]):
 async def load_node_configs(
     repository: Path,
     priority: List[str],
-) -> List[NodeYAML]:
+) -> List[Optional[NodeConfig]]:
     """
     Load all configs from a repository.
     """
@@ -867,7 +881,7 @@ async def load_node_configs(
             ) from exc
 
     tasks = [load_data(repository=repository, path=path) for _, path in paths.items()]
-    non_prioritized_nodes = await asyncio.gather(*tasks)
+    non_prioritized_nodes = [node for node in await asyncio.gather(*tasks) if node]
     non_prioritized_nodes.sort(key=lambda config: config.definition.deploy_order)
     node_configs.extend(non_prioritized_nodes)
     return node_configs

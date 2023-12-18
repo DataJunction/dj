@@ -13,3 +13,4 @@ query: |
   FROM ${prefix}roads.contractors
 primary_key:
   - contractor_id
+display_name: Contractor
