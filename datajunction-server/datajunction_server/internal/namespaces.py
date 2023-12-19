@@ -15,8 +15,8 @@ from datajunction_server.errors import (
     DJException,
     DJInvalidInputException,
 )
+from datajunction_server.internal.nodes import get_cube_revision_metadata
 from datajunction_server.models import History, User
-from datajunction_server.models.cube import CubeRevisionMetadata
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import Node, NodeNamespace, NodeRevision
 from datajunction_server.models.node_type import NodeType
@@ -366,7 +366,11 @@ def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
     }
 
 
-def _cube_project_config(node: Node, namespace_requested: str) -> Dict:
+def _cube_project_config(
+    session: Session,
+    node: Node,
+    namespace_requested: str,
+) -> Dict:
     """
     Returns a project config definition for a cube node
     """
@@ -375,7 +379,7 @@ def _cube_project_config(node: Node, namespace_requested: str) -> Dict:
         node_type=NodeType.CUBE,
         namespace_requested=namespace_requested,
     )
-    cube_revision = CubeRevisionMetadata.from_orm(node.current)
+    cube_revision = get_cube_revision_metadata(session, node.name)
     metrics = []
     dimensions = []
     for element in cube_revision.cube_elements:
@@ -393,7 +397,11 @@ def _cube_project_config(node: Node, namespace_requested: str) -> Dict:
     }
 
 
-def get_project_config(nodes: List[Node], namespace_requested: str) -> List[Dict]:
+def get_project_config(
+    session: Session,
+    nodes: List[Node],
+    namespace_requested: str,
+) -> List[Dict]:
     """
     Returns a project config definition
     """
@@ -430,6 +438,7 @@ def get_project_config(nodes: List[Node], namespace_requested: str) -> List[Dict
         else:
             project_components.append(
                 _cube_project_config(
+                    session=session,
                     node=node,
                     namespace_requested=namespace_requested,
                 ),

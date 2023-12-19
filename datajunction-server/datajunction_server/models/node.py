@@ -1123,7 +1123,7 @@ class ColumnOutput(BaseSQLModel):
 
     name: str
     display_name: Optional[str]
-    type: ColumnType
+    type: str
     attributes: Optional[List[AttributeOutput]]
     dimension: Optional[NodeNameOutput]
     partition: Optional[PartitionOutput]
@@ -1135,13 +1135,9 @@ class ColumnOutput(BaseSQLModel):
 
         validate_assignment = True
 
-    @root_validator
-    def type_string(cls, values):  # pylint: disable=no-self-argument
-        """
-        Extracts the type as a string
-        """
-        values["type"] = str(values.get("type"))
-        return values
+    _extract_type = validator("type", pre=True, allow_reuse=True)(
+        lambda raw: str(raw),  # pylint: disable=unnecessary-lambda
+    )
 
 
 class SourceColumnOutput(SQLModel):
@@ -1334,6 +1330,43 @@ class NodeOutput(OutputModel):
 
     namespace: str
     current: NodeRevisionOutput = PydanticField(flatten=True)
+    created_at: UTCDatetime
+    tags: List["Tag"] = []
+    current_version: str
+
+
+class DAGNodeRevisionOutput(SQLModel):
+    """
+    Output for a node revision with information about columns and if it is a metric.
+    """
+
+    id: int = Field(alias="node_revision_id")
+    node_id: int
+    type: NodeType
+    name: str
+    display_name: str
+    version: str
+    status: NodeStatus
+    mode: NodeMode
+    catalog: Optional[Catalog]
+    schema_: Optional[str]
+    table: Optional[str]
+    description: str = ""
+    columns: List[ColumnOutput]
+    updated_at: UTCDatetime
+    parents: List[NodeNameOutput]
+
+    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+        allow_population_by_field_name = True
+
+
+class DAGNodeOutput(OutputModel):
+    """
+    Output for a node in another node's DAG
+    """
+
+    namespace: str
+    current: DAGNodeRevisionOutput = PydanticField(flatten=True)
     created_at: UTCDatetime
     tags: List["Tag"] = []
     current_version: str

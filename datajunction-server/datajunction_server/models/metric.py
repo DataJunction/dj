@@ -13,7 +13,6 @@ from datajunction_server.models.node import (
     Node,
 )
 from datajunction_server.models.query import ColumnMetadata
-from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.transpilation import get_transpilation_plugin
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import get_settings
@@ -39,7 +38,7 @@ class Metric(SQLModel):
     metric_metadata: Optional[MetricMetadataOutput] = None
 
     @classmethod
-    def parse_node(cls, node: Node) -> "Metric":
+    def parse_node(cls, node: Node, dims: List[DimensionAttributeOutput]) -> "Metric":
         """
         Parses a node into a metric.
         """
@@ -49,7 +48,7 @@ class Metric(SQLModel):
             description=node.current.description,
             updated_at=node.current.updated_at,
             query=node.current.query,
-            dimensions=get_dimensions(node),
+            dimensions=dims,
             metric_metadata=node.current.metric_metadata,
         )
 
