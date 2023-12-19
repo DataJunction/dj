@@ -3,7 +3,6 @@
 Helpers for API endpoints
 """
 import asyncio
-import collections
 import http.client
 import json
 import logging
@@ -57,7 +56,6 @@ from datajunction_server.models.node import (
     Node,
     NodeMissingParents,
     NodeNamespace,
-    NodeRelationship,
     NodeRevision,
     NodeRevisionBase,
     NodeStatus,
@@ -65,7 +63,7 @@ from datajunction_server.models.node import (
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import ColumnMetadata, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.sql.dag import get_nodes_with_dimension
+from datajunction_server.sql.dag import get_downstream_nodes, get_nodes_with_dimension
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
@@ -233,81 +231,6 @@ def get_query(  # pylint: disable=too-many-arguments
     )
     query_ast = rename_columns(query_ast, node.current)
     return query_ast
-
-
-def get_downstream_nodes(
-    session: Session,
-    node_name: str,
-    node_type: NodeType = None,
-) -> List[Node]:
-    """
-    Gets all downstream children of the given node, filterable by node type.
-    Uses a recursive CTE query to build out all descendants from the node.
-    """
-    node = get_node_by_name(session=session, name=node_name, include_inactive=True)
-
-    dag = (
-        select(
-            NodeRelationship.parent_id,
-            NodeRevision.node_id,
-        )
-        .where(NodeRelationship.parent_id == node.id)
-        .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
-        .join(
-            Node,
-            (Node.id == NodeRevision.node_id)
-            & (Node.current_version == NodeRevision.version),
-        )
-    ).cte("dag", recursive=True)
-
-    paths = dag.union_all(
-        select(
-            dag.c.parent_id,
-            NodeRevision.node_id,
-        )
-        .join(NodeRelationship, dag.c.node_id == NodeRelationship.parent_id)
-        .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
-        .join(Node, Node.id == NodeRevision.node_id),
-    )
-
-    statement = (
-        select(Node)
-        .join(paths, paths.c.node_id == Node.id)
-        .options(joinedload(Node.current))
-    )
-
-    results = session.exec(statement).unique().all()
-
-    return [
-        downstream
-        for downstream in results
-        if downstream.type == node_type or node_type is None
-    ]
-
-
-def get_upstream_nodes(
-    session: Session,
-    node_name: str,
-    node_type: NodeType = None,
-) -> List[Node]:
-    """
-    Gets all upstream parents of the given node, filterable by node type.
-    """
-    node = get_node_by_name(session=session, name=node_name)
-    queue = collections.deque([node])
-    all_parents = set()
-    while queue:
-        node = queue.pop()
-        for parent in node.current.parents:
-            all_parents.add(parent)
-        for parent in node.current.parents:
-            queue.append(parent)
-
-    return [
-        upstream
-        for upstream in all_parents
-        if upstream.type == node_type or node_type is None
-    ]
 
 
 def find_bound_dimensions(
@@ -722,6 +645,7 @@ def validate_cube(  # pylint: disable=too-many-locals
         )
 
     validate_shared_dimensions(
+        session,
         metric_nodes,
         [dim.full_name() for dim in dimensions],
         [],

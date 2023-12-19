@@ -120,7 +120,7 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
                 ),
                 ctes=query_ast.ctes,
             )
-        print("QUERY!!!", str(final_query))
+
         result = query_service_client.materialize(
             GenericMaterializationInput(
                 name=materialization.name,  # type: ignore

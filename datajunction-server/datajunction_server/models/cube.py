@@ -5,11 +5,16 @@ Models for cubes.
 from typing import List, Optional
 
 from pydantic import Field, root_validator
+from pydantic.main import BaseModel
 from sqlmodel import SQLModel
 
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.materialization import MaterializationConfigOutput
-from datajunction_server.models.node import AvailabilityState, ColumnOutput
+from datajunction_server.models.node import (
+    AttributeOutput,
+    AvailabilityState,
+    NodeNameOutput,
+)
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionOutput
 from datajunction_server.typing import UTCDatetime
@@ -41,7 +46,20 @@ class CubeElementMetadata(SQLModel):
         return values
 
 
-class CubeRevisionMetadata(SQLModel):
+class CubeColumnOutput(BaseModel):
+    """
+    A simplified column schema, without ID or dimensions.
+    """
+
+    name: str
+    display_name: Optional[str]
+    type: str
+    attributes: Optional[List[AttributeOutput]]
+    dimension: Optional[NodeNameOutput]
+    partition: Optional[PartitionOutput]
+
+
+class CubeRevisionMetadata(BaseSQLModel):
     """
     Metadata for a cube node
     """
@@ -55,8 +73,8 @@ class CubeRevisionMetadata(SQLModel):
     description: str = ""
     availability: Optional[AvailabilityState] = None
     cube_elements: List[CubeElementMetadata]
-    query: str
-    columns: List[ColumnOutput]
+    query: Optional[str]
+    columns: List[CubeColumnOutput]
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]
 

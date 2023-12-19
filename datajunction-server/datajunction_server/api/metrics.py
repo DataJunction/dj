@@ -24,7 +24,7 @@ from datajunction_server.models.node import (
     Node,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.sql.dag import get_shared_dimensions
+from datajunction_server.sql.dag import get_dimensions, get_shared_dimensions
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
 settings = get_settings()
@@ -84,7 +84,8 @@ def get_a_metric(name: str, *, session: Session = Depends(get_session)) -> Metri
     Return a metric by name.
     """
     node = get_metric(session, name)
-    metric = Metric.parse_node(node)
+    dims = get_dimensions(session, node.current.parents[0])
+    metric = Metric.parse_node(node, dims)
     return metric
 
 
@@ -127,4 +128,4 @@ async def get_common_dimensions(
 
     if errors:
         raise DJException(errors=errors)
-    return get_shared_dimensions(metric_nodes)
+    return get_shared_dimensions(session, metric_nodes)
