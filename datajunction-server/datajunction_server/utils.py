@@ -61,7 +61,6 @@ def get_engine() -> Engine:
     engine = create_engine(
         settings.index,
         pool_pre_ping=True,
-        echo=True,
     )
 
     return engine
