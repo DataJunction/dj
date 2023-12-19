@@ -5,7 +5,7 @@ Node related APIs.
 import logging
 import os
 from http import HTTPStatus
-from typing import List, Optional, Union, cast
+from typing import List, Optional, Union
 
 from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
@@ -20,10 +20,8 @@ from datajunction_server.api.helpers import (
     deactivate_node,
     get_catalog_by_name,
     get_column,
-    get_downstream_nodes,
     get_node_by_name,
     get_node_namespace,
-    get_upstream_nodes,
     hard_delete_node,
     raise_if_node_exists,
     revalidate_node,
@@ -64,6 +62,7 @@ from datajunction_server.models.node import (
     CreateCubeNode,
     CreateNode,
     CreateSourceNode,
+    DAGNodeOutput,
     DimensionAttributeOutput,
     LineageColumn,
     Node,
@@ -86,7 +85,12 @@ from datajunction_server.models.partition import (
 )
 from datajunction_server.models.user import User
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.sql.dag import get_dimensions, get_nodes_with_dimension
+from datajunction_server.sql.dag import (
+    get_dimensions,
+    get_downstream_nodes,
+    get_nodes_with_dimension,
+    get_upstream_nodes,
+)
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import (
     Version,
@@ -966,12 +970,12 @@ def calculate_node_similarity(
 
 @router.get(
     "/nodes/{name}/downstream/",
-    response_model=List[NodeOutput],
+    response_model=List[DAGNodeOutput],
     name="List Downstream Nodes For A Node",
 )
 def list_downstream_nodes(
     name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
-) -> List[NodeOutput]:
+) -> List[DAGNodeOutput]:
     """
     List all nodes that are downstream from the given node, filterable by type.
     """
@@ -980,41 +984,46 @@ def list_downstream_nodes(
 
 @router.get(
     "/nodes/{name}/upstream/",
-    response_model=List[NodeOutput],
+    response_model=List[DAGNodeOutput],
     name="List Upstream Nodes For A Node",
 )
 def list_upstream_nodes(
     name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
-) -> List[NodeOutput]:
+) -> List[DAGNodeOutput]:
     """
     List all nodes that are upstream from the given node, filterable by type.
     """
-    return get_upstream_nodes(session, name, node_type)  # type: ignore
+    return get_upstream_nodes(session, name, node_type)
 
 
 @router.get(
     "/nodes/{name}/dag/",
-    response_model=List[NodeOutput],
+    response_model=List[DAGNodeOutput],
     name="List All Connected Nodes (Upstreams + Downstreams)",
 )
 def list_node_dag(
     name: str, *, session: Session = Depends(get_session)
-) -> List[NodeOutput]:
+) -> List[DAGNodeOutput]:
     """
     List all nodes that are part of the DAG of the given node. This means getting all upstreams,
     downstreams, and linked dimension nodes.
     """
-    node = get_node_by_name(session, name)
+    node = get_node_by_name(session, name, with_current=True)
     dimension_nodes = (
-        get_dimensions(session, node.current.parents[0], attributes=False)
+        get_dimensions(session, node.current.parents[0], with_attributes=False)
         + node.current.parents
         if node.type == NodeType.METRIC
-        else get_dimensions(session, node, attributes=False)
+        else get_dimensions(session, node, with_attributes=False)
     )
     dimension_nodes += [node]
-    downstreams = get_downstream_nodes(session, name)
-    upstreams = get_upstream_nodes(session, name)
-    return list(set(cast(List[Node], dimension_nodes) + downstreams + upstreams))  # type: ignore
+    downstreams = get_downstream_nodes(
+        session,
+        name,
+        include_deactivated=False,
+        include_cubes=False,
+    )
+    upstreams = get_upstream_nodes(session, name, include_deactivated=False)
+    return list(set(dimension_nodes + downstreams + upstreams))  # type: ignore
 
 
 @router.get(
@@ -1029,7 +1038,7 @@ def list_all_dimension_attributes(
     List all available dimension attributes for the given node.
     """
     node = get_node_by_name(session, name)
-    return get_dimensions(session, node, attributes=True)
+    return get_dimensions(session, node, with_attributes=True)
 
 
 @router.get(

@@ -11,7 +11,6 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from datajunction_server.api.helpers import get_upstream_nodes
 from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models import Database, Table
 from datajunction_server.models.column import Column
@@ -24,6 +23,7 @@ from datajunction_server.models.node import (
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.sql.dag import get_upstream_nodes
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 from tests.sql.utils import compare_query_strings
