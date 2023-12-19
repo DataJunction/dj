@@ -23,15 +23,165 @@ from datajunction_server.utils import SEPARATOR, get_settings
 settings = get_settings()
 
 
+def _node_output_options():
+    """
+    Statement options to retrieve all NodeOutput objects in one query
+    """
+    return [
+        joinedload(Node.current).options(
+            joinedload(NodeRevision.columns).options(
+                joinedload(Column.attributes).joinedload(
+                    ColumnAttribute.attribute_type,
+                ),
+                joinedload(Column.dimension),
+                joinedload(Column.partition),
+            ),
+            joinedload(NodeRevision.catalog),
+            joinedload(NodeRevision.parents),
+        ),
+        joinedload(Node.tags),
+    ]
+
+
+def get_downstream_nodes(
+    session: Session,
+    node_name: str,
+    node_type: NodeType = None,
+    include_deactivated: bool = True,
+    include_cubes: bool = True,
+) -> List[Node]:
+    """
+    Gets all downstream children of the given node, filterable by node type.
+    Uses a recursive CTE query to build out all descendants from the node.
+    """
+    node = session.exec(select(Node).where(Node.name == node_name)).one()
+
+    initial_dag = (
+        select(
+            NodeRelationship.parent_id,
+            NodeRevision.node_id,
+        )
+        .where(NodeRelationship.parent_id == node.id)
+        .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
+        .join(
+            Node,
+            (Node.id == NodeRevision.node_id)
+            & (Node.current_version == NodeRevision.version),
+        )
+    )
+    if not include_cubes:
+        initial_dag = initial_dag.where((NodeRevision.type != NodeType.CUBE))
+    dag = initial_dag.cte("downstreams", recursive=True)
+
+    next_layer = (
+        select(
+            dag.c.parent_id,
+            NodeRevision.node_id,
+        )
+        .join(NodeRelationship, dag.c.node_id == NodeRelationship.parent_id)
+        .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
+        .join(Node, Node.id == NodeRevision.node_id)
+    )
+    if not include_cubes:
+        next_layer = next_layer.where(NodeRevision.type != NodeType.CUBE)
+
+    paths = dag.union_all(next_layer)
+
+    final_select = select(Node)
+    if not include_deactivated:
+        final_select = final_select.where(is_(Node.deactivated_at, None))
+    statement = final_select.join(paths, paths.c.node_id == Node.id).options(
+        *_node_output_options()
+    )
+    results = session.exec(statement).unique().all()
+
+    return [
+        downstream
+        for downstream in results
+        if downstream.type == node_type or node_type is None
+    ]
+
+
+def get_upstream_nodes(
+    session: Session,
+    node_name: str,
+    node_type: NodeType = None,
+    include_deactivated: bool = True,
+) -> List[Node]:
+    """
+    Gets all upstreams of the given node, filterable by node type.
+    Uses a recursive CTE query to build out all parents of the node.
+    """
+    node = (
+        session.exec(
+            select(Node).where(
+                (Node.name == node_name) & (is_(Node.deactivated_at, None)),
+            ),
+        )
+        .unique()
+        .one()
+    )
+
+    dag = (
+        select(
+            NodeRelationship.child_id,
+            NodeRevision.id,
+            NodeRevision.node_id,
+        )
+        .where(NodeRelationship.child_id == node.current.id)
+        .join(Node, NodeRelationship.parent_id == Node.id)
+        .join(
+            NodeRevision,
+            (Node.id == NodeRevision.node_id)
+            & (Node.current_version == NodeRevision.version),
+        )
+    ).cte("upstreams", recursive=True)
+
+    paths = dag.union_all(
+        select(
+            dag.c.child_id,
+            NodeRevision.id,
+            NodeRevision.node_id,
+        )
+        .join(NodeRelationship, dag.c.id == NodeRelationship.child_id)
+        .join(Node, NodeRelationship.parent_id == Node.id)
+        .join(
+            NodeRevision,
+            (Node.id == NodeRevision.node_id)
+            & (Node.current_version == NodeRevision.version),
+        ),
+    )
+
+    node_selector = select(Node)
+    if not include_deactivated:
+        node_selector = node_selector.where(is_(Node.deactivated_at, None))
+    statement = (
+        node_selector.join(paths, paths.c.node_id == Node.id)
+        .join(
+            NodeRevision,
+            (Node.current_version == NodeRevision.version)
+            & (Node.id == NodeRevision.node_id),
+        )
+        .options(*_node_output_options())
+    )
+
+    results = session.exec(statement).unique().all()
+    return [
+        upstream
+        for upstream in results
+        if upstream.type == node_type or node_type is None
+    ]
+
+
 def get_dimensions_dag(
     session: Session,
     node_revision: NodeRevision,
-    attributes: bool = True,
+    with_attributes: bool = True,
 ) -> List[Union[DimensionAttributeOutput, Node]]:
     """
-    Gets the dimensions graph of the given node revision with a single
-    recursive CTE query. This graph is split out into attributes or nodes
-    depending on the `attributes` flag.
+    Gets the dimensions graph of the given node revision with a single recursive CTE query.
+    This graph is split out into dimension attributes or dimension nodes depending on the
+    `with_attributes` flag.
     """
 
     initial_node = aliased(NodeRevision, name="initial_node")
@@ -129,13 +279,13 @@ def get_dimensions_dag(
     # Final SELECT statements
     # ----
     # If attributes was set to False, we only need to return the dimension nodes
-    if not attributes:
+    if not with_attributes:
         return (
             session.exec(
                 select(Node)
-                .options(joinedload(Node.current))
                 .select_from(paths)
-                .join(Node, paths.c.node_name == Node.name),
+                .join(Node, paths.c.node_name == Node.name)
+                .options(*_node_output_options()),
             )
             .unique()
             .all()
@@ -211,26 +361,41 @@ def get_dimensions_dag(
         )
     )
 
+    # Only include a given column it's an attribute on a dimension node or
+    # if the column is tagged with the attribute type 'dimension'
     return sorted(
         [
             DimensionAttributeOutput(
-                name=f"{row[0]}.{row[2]}",
-                node_name=row[0],
-                node_display_name=row[1],
-                is_primary_key=row[4] == "primary_key",
-                type=str(row[3]),
-                path=row[5].split(",")[:-1] if row[5] else [],
+                name=f"{node_name}.{column_name}",
+                node_name=node_name,
+                node_display_name=node_display_name,
+                is_primary_key=(
+                    attribute_types is not None and "primary_key" in attribute_types
+                ),
+                type=str(column_type),
+                path=join_path.split(",")[:-1] if join_path else [],
             )
-            for row in session.exec(final_query).all()
-            if row[5] != ""
-            or (
-                row[5] == ""
-                and row[4] is not None
-                and ("dimension" in row[4] or "primary_key" in row[4])
+            for (
+                node_name,
+                node_display_name,
+                column_name,
+                column_type,
+                attribute_types,
+                join_path,
+            ) in session.exec(
+                final_query,
+            ).all()
+            if (  # column has dimension attribute
+                join_path == ""
+                and attribute_types is not None
+                and ("dimension" in attribute_types or "primary_key" in attribute_types)
             )
-            or (
-                row[0] == node_revision.name
-                and node_revision.type == NodeType.DIMENSION
+            or (  # column is on dimension node
+                join_path != ""
+                or (
+                    node_name == node_revision.name
+                    and node_revision.type == NodeType.DIMENSION
+                )
             )
         ],
         key=lambda x: x.name,
@@ -240,7 +405,7 @@ def get_dimensions_dag(
 def get_dimensions(
     session: Session,
     node: Node,
-    attributes: bool = True,
+    with_attributes: bool = True,
 ) -> List[Union[DimensionAttributeOutput, Node]]:
     """
     Return all available dimensions for a given node.
@@ -248,8 +413,12 @@ def get_dimensions(
     * Setting `attributes` to False will return a list of dimension nodes
     """
     if node.type == NodeType.METRIC:
-        return get_dimensions_dag(session, node.current.parents[0].current, attributes)
-    return get_dimensions_dag(session, node.current, attributes)
+        return get_dimensions_dag(
+            session,
+            node.current.parents[0].current,
+            with_attributes,
+        )
+    return get_dimensions_dag(session, node.current, with_attributes)
 
 
 def check_convergence(path1: List[str], path2: List[str]) -> bool:
