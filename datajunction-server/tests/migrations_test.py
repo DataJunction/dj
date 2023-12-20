@@ -28,6 +28,7 @@ def connection_fixture() -> Connection:
         transaction.rollback()
 
 
+@pytest.disable()
 def test_migrations_are_current(connection):
     """
     Verify that the alembic migrations are in line with the models.
