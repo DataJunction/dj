@@ -9,6 +9,7 @@ anyio==3.7.1
 asciidag==0.2.0
 asgiref==3.7.2
 async-timeout==4.0.3
+asyncpg==0.29.0
 bcrypt==4.0.1
 billiard==4.1.0
 cachelib==0.10.2
@@ -56,6 +57,7 @@ opentelemetry-util-http==0.38b0
 passlib==1.7.4
 prompt-toolkit==3.0.39
 protobuf==4.24.3
+psycopg2==2.9.9
 pyasn1==0.5.0
 pyasn1-modules==0.3.0
 pycparser==2.21

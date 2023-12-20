@@ -30,8 +30,30 @@ services:
       - "8000:8000"
     depends_on:
       - db_migration
+      - postgres_metadata
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  postgres_metadata:
+    container_name: postgres_metadata
+    image: postgres:latest
+    networks:
+      - core
+    hostname: postgres_metadata
+    volumes:
+      - ./postgres_metadata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=dj
+      - POSTGRES_USER=dj
+      - POSTGRES_DB=dj
+      - PGUSER=dj
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: [ "CMD", "pg_isready" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   db_migration:
     container_name: db_migration
@@ -41,8 +63,13 @@ services:
       context: ./datajunction-server
     volumes:
       - ./datajunction-server:/code
-    command: /bin/bash -c "cp -n /code/dj.demo.db /code/dj.db | true && sleep 2 && alembic upgrade head"
+    command: /bin/bash -c "alembic upgrade head"
     restart: on-failure
+    depends_on:
+      postgres_metadata:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   djui:
     container_name: djui
