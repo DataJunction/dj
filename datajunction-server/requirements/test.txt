@@ -10,6 +10,7 @@ asciidag==0.2.0
 asgiref==3.7.2
 astroid==2.15.6
 async-timeout==4.0.3
+asyncpg==0.29.0
 bcrypt==4.0.1
 billiard==4.1.0
 cachelib==0.10.2
@@ -74,6 +75,7 @@ pluggy==1.2.0
 pre-commit==3.3.3
 prompt-toolkit==3.0.39
 protobuf==4.24.3
+psycopg2==2.9.9
 pyasn1==0.5.0
 pyasn1-modules==0.3.0
 pycparser==2.21
