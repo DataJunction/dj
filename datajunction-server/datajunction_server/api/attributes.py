@@ -60,7 +60,7 @@ def add_attribute_type(
     return attribute_type
 
 
-def default_attribute_types(session: Session = Depends(get_session)):
+async def default_attribute_types(session: Session = Depends(get_session)):
     """
     Loads all the column attribute types that are supported by the system
     by default into the database.
@@ -121,7 +121,7 @@ def default_attribute_types(session: Session = Depends(get_session)):
             set(default_attribute_type_names.keys()),
         ),
     )
-    attribute_types = session.exec(statement).all()
+    attribute_types = (await session.exec(statement)).all()
     for type_ in attribute_types:
         updated_type = default_attribute_type_names[type_.name].dict(
             exclude_unset=True,

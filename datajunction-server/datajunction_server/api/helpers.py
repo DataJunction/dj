@@ -69,20 +69,24 @@ from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, pars
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import END_JOB_STATES, UTCDatetime
 from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR
+import sqlalchemy as sa
+from sqlalchemy.orm import Session as SaSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 _logger = logging.getLogger(__name__)
 
 
-def get_node_namespace(  # pylint: disable=too-many-arguments
-    session: Session,
+async def get_node_namespace(  # pylint: disable=too-many-arguments
+    session: AsyncSession,
     namespace: str,
     raise_if_not_exists: bool = True,
 ) -> NodeNamespace:
     """
     Get a node namespace
     """
-    statement = select(NodeNamespace).where(NodeNamespace.namespace == namespace)
-    node_namespace = session.exec(statement).one_or_none()
+    statement = sa.select(NodeNamespace).where(NodeNamespace.namespace == namespace)
+    result = await session.execute(statement)
+    node_namespace = result.scalars().one_or_none()
     if raise_if_not_exists:  # pragma: no cover
         if not node_namespace:
             raise DJException(
@@ -93,7 +97,7 @@ def get_node_namespace(  # pylint: disable=too-many-arguments
 
 
 def get_node_by_name(  # pylint: disable=too-many-arguments
-    session: Session,
+    session: SaSession,
     name: Optional[str],
     node_type: Optional[NodeType] = None,
     with_current: bool = False,
@@ -963,7 +967,7 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
 
 
 def deactivate_node(
-    session: Session,
+    session: SaSession,
     name: str,
     message: str = None,
     current_user: Optional[User] = None,

@@ -67,7 +67,7 @@ export function DJNodeDimensions(data) {
     });
   return (
     <>
-      {dimensions.length <= 0
+      {!dimensions || dimensions.length <= 0
         ? ''
         : dimensionsRenderer(groupedDimensions(dimensionsToObject(dimensions)))}
     </>

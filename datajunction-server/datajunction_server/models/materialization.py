@@ -404,7 +404,7 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
     )
 
     deactivated_at: UTCDatetime = Field(
-        nullable=True,
+        # nullable=True,
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default=None,
     )

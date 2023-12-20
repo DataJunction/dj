@@ -15,6 +15,7 @@ from datajunction_server.api.helpers import (
     deactivate_node,
     get_node_namespace,
 )
+from datajunction_server.database.connection import get_direct_session, get_async_session
 from datajunction_server.errors import DJAlreadyExistsException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -40,6 +41,8 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import get_current_user, get_session, get_settings
+from sqlalchemy.orm import Session as SaSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -90,8 +93,8 @@ def create_node_namespace(
     response_model=List[NamespaceOutput],
     status_code=200,
 )
-def list_namespaces(
-    session: Session = Depends(get_session),
+async def list_namespaces(
+    session: AsyncSession = Depends(get_async_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -100,14 +103,15 @@ def list_namespaces(
     """
     List namespaces with the number of nodes contained in them
     """
-    results = session.exec(
+    result = await session.execute(
         select(NodeNamespace.namespace, func.count(Node.id).label("num_nodes"))
         .join(Node, onclause=NodeNamespace.namespace == Node.namespace, isouter=True)
         .where(
             is_(NodeNamespace.deactivated_at, None),
         )
         .group_by(NodeNamespace.namespace),
-    ).all()
+    )
+    results = result.all()
     resource_requests = [
         access.ResourceRequest(
             verb=access.ResourceRequestVerb.BROWSE,
@@ -131,18 +135,20 @@ def list_namespaces(
     response_model=List[NodeMinimumDetail],
     status_code=HTTPStatus.OK,
 )
-def list_nodes_in_namespace(
+async def list_nodes_in_namespace(
     namespace: str,
     type_: Optional[NodeType] = Query(
         default=None,
         description="Filter the list of nodes to this type",
     ),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> List[NodeMinimumDetail]:
     """
     List node names in namespace, filterable to a given type if desired.
     """
-    return get_nodes_in_namespace(session, namespace, type_)  # type: ignore
+    nodes = await get_nodes_in_namespace(session, namespace, type_)  # type: ignore
+    print("nodes", nodes)
+    return nodes
 
 
 @router.delete("/namespaces/{namespace}/", status_code=HTTPStatus.OK)
@@ -152,7 +158,7 @@ def deactivate_a_namespace(
         default=False,
         description="Cascade the deletion down to the nodes in the namespace",
     ),
-    session: Session = Depends(get_session),
+    session: SaSession = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """

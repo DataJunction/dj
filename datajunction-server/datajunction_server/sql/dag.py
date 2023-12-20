@@ -3,7 +3,7 @@ DAG related functions.
 """
 import itertools
 from typing import Dict, List, Optional, Set, Union
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, func, literal, or_
 from sqlalchemy.orm import aliased, joinedload
 from sqlalchemy.sql.operators import is_
@@ -42,9 +42,24 @@ def _node_output_options():
         joinedload(Node.tags),
     ]
 
+def profile(func):
+    from functools import wraps
 
-def get_downstream_nodes(
-    session: Session,
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        from line_profiler import LineProfiler
+        prof = LineProfiler()
+        try:
+            return prof(func)(*args, **kwargs)
+        finally:
+            prof.print_stats()
+
+    return wrapper
+
+
+@profile
+async def get_downstream_nodes(
+    session: AsyncSession,
     node_name: str,
     node_type: NodeType = None,
     include_deactivated: bool = True,
@@ -54,7 +69,8 @@ def get_downstream_nodes(
     Gets all downstream children of the given node, filterable by node type.
     Uses a recursive CTE query to build out all descendants from the node.
     """
-    node = session.exec(select(Node).where(Node.name == node_name)).one()
+    result = await session.execute(select(Node).where(Node.name == node_name))
+    node = result.one()
 
     initial_dag = (
         select(
@@ -93,8 +109,9 @@ def get_downstream_nodes(
     statement = final_select.join(paths, paths.c.node_id == Node.id).options(
         *_node_output_options()
     )
-    results = session.exec(statement).unique().all()
-
+    result = await session.execute(statement)
+    results = result.unique().all()
+    print("results", results)
     return [
         downstream
         for downstream in results
@@ -102,6 +119,7 @@ def get_downstream_nodes(
     ]
 
 
+@profile
 def get_upstream_nodes(
     session: Session,
     node_name: str,
@@ -165,7 +183,12 @@ def get_upstream_nodes(
         .options(*_node_output_options())
     )
 
-    results = session.exec(statement).unique().all()
+    results = (
+        session
+        .exec(statement)
+        .unique()
+        .all()
+    )
     return [
         upstream
         for upstream in results
@@ -173,6 +196,7 @@ def get_upstream_nodes(
     ]
 
 
+@profile
 def get_dimensions_dag(
     session: Session,
     node_revision: NodeRevision,

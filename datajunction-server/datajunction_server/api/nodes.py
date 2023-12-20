@@ -30,6 +30,7 @@ from datajunction_server.api.helpers import (
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.constants import NODE_LIST_MAX
+from datajunction_server.database.connection import get_async_session
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -100,6 +101,7 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -973,13 +975,14 @@ def calculate_node_similarity(
     response_model=List[DAGNodeOutput],
     name="List Downstream Nodes For A Node",
 )
-def list_downstream_nodes(
-    name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
+async def list_downstream_nodes(
+    name: str, *, node_type: NodeType = None, session: AsyncSession = Depends(get_async_session)
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are downstream from the given node, filterable by type.
     """
-    return get_downstream_nodes(session, name, node_type)  # type: ignore
+    downstreams = await get_downstream_nodes(session, name, node_type)
+    return downstreams  # type: ignore
 
 
 @router.get(
@@ -1023,6 +1026,7 @@ def list_node_dag(
         include_cubes=False,
     )
     upstreams = get_upstream_nodes(session, name, include_deactivated=False)
+    print("upstreams", [n.name for n in upstreams])
     return list(set(dimension_nodes + downstreams + upstreams))  # type: ignore
 
 

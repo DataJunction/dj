@@ -22,10 +22,13 @@ from datajunction_server.models.node import Node, NodeNamespace, NodeRevision
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
+import sqlalchemy as sa
+from sqlalchemy.orm import Session as SaSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
-def get_nodes_in_namespace(
-    session: Session,
+async def get_nodes_in_namespace(
+    session: AsyncSession,
     namespace: str,
     node_type: NodeType = None,
     include_deactivated: bool = False,
@@ -33,17 +36,18 @@ def get_nodes_in_namespace(
     """
     Gets a list of node names in the namespace
     """
-    get_node_namespace(session, namespace)
-    list_nodes_query = select(
+    result = await get_node_namespace(session, namespace)
+    print("node_n", result)
+    list_nodes_query = sa.select(
         Node.name,
         NodeRevision.display_name,
         NodeRevision.description,
-        Node.type,
+        # Node.type,
         Node.current_version.label(  # type: ignore # pylint: disable=no-member
             "version",
         ),
-        NodeRevision.status,
-        NodeRevision.mode,
+        # NodeRevision.status,
+        # NodeRevision.mode,
         NodeRevision.updated_at,
     ).where(
         or_(
@@ -56,7 +60,8 @@ def get_nodes_in_namespace(
     )
     if include_deactivated is False:
         list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))
-    return session.exec(list_nodes_query).all()
+    result = await session.execute(list_nodes_query)
+    return result.all()
 
 
 def get_nodes_in_namespace_detailed(
@@ -95,7 +100,7 @@ def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
             NodeNamespace.namespace == namespace,
         ),
     )
-    namespaces = session.exec(statement).all()
+    namespaces = session.execute(statement).all()
     if len(namespaces) == 0:
         raise DJException(
             message=(f"Namespace `{namespace}` does not exist."),
@@ -105,7 +110,7 @@ def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
 
 
 def mark_namespace_deactivated(
-    session: Session,
+    session: SaSession,
     namespace: NodeNamespace,
     message: str = None,
     current_user: Optional[User] = None,

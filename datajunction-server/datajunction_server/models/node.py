@@ -17,9 +17,12 @@ from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.sql.schema import UniqueConstraint
 from sqlalchemy.types import Enum
+import sqlalchemy as sa
+
 from sqlmodel import Field, Relationship, SQLModel
 from typing_extensions import TypedDict
 
+from datajunction_server.database.connection import Base
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJError, DJInvalidInputException
 from datajunction_server.models.base import (
@@ -189,7 +192,7 @@ class NodeRevisionBase(BaseSQLModel):
 
     name: str = Field(
         sa_column=SqlaColumn("name", String, unique=False),
-        foreign_key="node.name",
+        # foreign_key="node.name",
     )
     display_name: Optional[str] = Field(
         sa_column=SqlaColumn(
@@ -642,15 +645,17 @@ class NodeAvailabilityState(BaseSQLModel, table=True):  # type: ignore
     )
 
 
-class NodeNamespace(SQLModel, table=True):  # type: ignore
+class NodeNamespace(Base):
     """
     A node namespace
     """
 
-    namespace: str = Field(nullable=False, unique=True, primary_key=True)
-    deactivated_at: UTCDatetime = Field(
+    __tablename__ = "nodenamespace"
+
+    namespace: str = sa.Column(sa.String, primary_key=True, nullable=False)
+    deactivated_at: UTCDatetime = sa.Column(
+        sa.TIMESTAMP(timezone=True),
         nullable=True,
-        sa_column=SqlaColumn(DateTime(timezone=True)),
         default=None,
     )
 
@@ -672,7 +677,7 @@ class Node(NodeBase, table=True):  # type: ignore
         default_factory=partial(datetime.now, timezone.utc),
     )
     deactivated_at: UTCDatetime = Field(
-        nullable=True,
+        # nullable=True,
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default=None,
     )
