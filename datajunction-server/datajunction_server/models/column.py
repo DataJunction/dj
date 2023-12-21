@@ -71,7 +71,7 @@ class Column(BaseSQLModel, table=True):  # type: ignore
             default=generate_display_name("name"),
         ),
     )
-    type: ColumnType = Field(sa_column=SqlaColumn(ColumnTypeDecorator, nullable=False))
+    type: ColumnType = Field(sa_column=SqlaColumn(ColumnTypeDecorator, nullable=True))
 
     dimension_id: Optional[int] = Field(default=None, foreign_key="node.id")
     dimension: "Node" = Relationship(
