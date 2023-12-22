@@ -5,7 +5,8 @@ import logging
 from http import HTTPStatus
 
 from passlib.context import CryptContext
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.models.user import User
@@ -32,7 +33,11 @@ def get_user(username: str, session: Session) -> User:
     """
     Get a DJ user
     """
-    user = session.exec(select(User).where(User.username == username)).one_or_none()
+    user = (
+        session.execute(select(User).where(User.username == username))
+        .scalars()
+        .one_or_none()
+    )
     if not user:
         raise DJException(
             http_status_code=HTTPStatus.UNAUTHORIZED,

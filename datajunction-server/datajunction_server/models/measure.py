@@ -4,12 +4,14 @@ Models for measures.
 from typing import TYPE_CHECKING, List, Optional
 
 from pydantic.class_validators import root_validator
-from sqlalchemy.sql.schema import Column as SqlaColumn
+from pydantic.main import BaseModel
+from sqlalchemy import BigInteger, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Enum, String
-from sqlmodel import Field, Relationship
 
+from datajunction_server.database.connection import Base
 from datajunction_server.enum import StrEnum
-from datajunction_server.models.base import BaseSQLModel, generate_display_name
+from datajunction_server.models.base import labelize
 
 if TYPE_CHECKING:
     from datajunction_server.models import Column
@@ -25,7 +27,7 @@ class AggregationRule(StrEnum):
     SEMI_ADDITIVE = "semi-additive"
 
 
-class NodeColumn(BaseSQLModel):
+class NodeColumn(BaseModel):
     """
     Defines a column on a node
     """
@@ -34,7 +36,7 @@ class NodeColumn(BaseSQLModel):
     column: str
 
 
-class CreateMeasure(BaseSQLModel):
+class CreateMeasure(BaseModel):
     """
     Input for creating a measure
     """
@@ -46,7 +48,7 @@ class CreateMeasure(BaseSQLModel):
     additive: AggregationRule = AggregationRule.NON_ADDITIVE
 
 
-class EditMeasure(BaseSQLModel):
+class EditMeasure(BaseModel):
     """
     Editable fields on a measure
     """
@@ -57,7 +59,7 @@ class EditMeasure(BaseSQLModel):
     additive: Optional[AggregationRule]
 
 
-class Measure(BaseSQLModel, table=True):  # type: ignore
+class Measure(Base):  # type: ignore  # pylint: disable=too-few-public-methods
     """
     Measure class.
 
@@ -70,29 +72,27 @@ class Measure(BaseSQLModel, table=True):  # type: ignore
 
     __tablename__ = "measures"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(unique=True)
-    display_name: Optional[str] = Field(
-        sa_column=SqlaColumn(
-            "display_name",
-            String,
-            default=generate_display_name("name"),
-        ),
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
     )
-    description: Optional[str]
-    columns: List["Column"] = Relationship(
+    name: Mapped[str] = mapped_column(unique=True)
+    display_name: Mapped[str] = mapped_column(
+        String,
+        insert_default=lambda context: labelize(context.current_parameters.get("name")),
+    )
+    description: Mapped[Optional[str]]
+    columns: Mapped[List["Column"]] = relationship(
         back_populates="measure",
-        sa_relationship_kwargs={
-            "lazy": "joined",
-        },
+        lazy="joined",
     )
-    additive: AggregationRule = Field(
+    additive: Mapped[AggregationRule] = mapped_column(
+        Enum(AggregationRule),
         default=AggregationRule.NON_ADDITIVE,
-        sa_column=SqlaColumn(Enum(AggregationRule)),
     )
 
 
-class ColumnOutput(BaseSQLModel):
+class ColumnOutput(BaseModel):
     """
     A simplified column schema, without ID or dimensions.
     """
@@ -112,8 +112,11 @@ class ColumnOutput(BaseSQLModel):
             "node": values.get("node_revisions")[0].name,
         }
 
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
-class MeasureOutput(BaseSQLModel):
+
+class MeasureOutput(BaseModel):
     """
     Output model for measures
     """
@@ -123,3 +126,6 @@ class MeasureOutput(BaseSQLModel):
     description: Optional[str]
     columns: List[ColumnOutput]
     additive: AggregationRule
+
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True

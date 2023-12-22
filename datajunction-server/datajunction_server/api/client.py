@@ -6,13 +6,14 @@ import json
 import logging
 
 from fastapi import Depends
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.materialization import MaterializationJobTypeEnum
+from datajunction_server.models.node import NodeOutput
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_direct_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -21,7 +22,7 @@ router = SecureAPIRouter(tags=["client"])
 
 @router.get("/datajunction-clients/python/new_node/{node_name}", response_model=str)
 def client_code_for_creating_node(
-    node_name: str, *, session: Session = Depends(get_session)
+    node_name: str, *, session: Session = Depends(get_direct_session)
 ) -> str:
     """
     Generate the Python client code used for creating this node
@@ -30,7 +31,7 @@ def client_code_for_creating_node(
     node = get_node_by_name(session, node_name)
 
     # Generic user-configurable node creation params
-    params = node.current.dict(
+    params = NodeOutput.from_orm(node).current.dict(
         exclude={
             "id",
             "version",
@@ -42,6 +43,11 @@ def client_code_for_creating_node(
             "mode",
             "node_id",
             "updated_at",
+            "materializations",
+            "columns",
+            "catalog",
+            "parents",
+            "metric_metadata",
             "query" if node.type == NodeType.CUBE else "",
         },
         exclude_none=True,
@@ -97,7 +103,7 @@ def client_code_for_adding_materialization(
     node_name: str,
     materialization_name: str,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
 ) -> str:
     """
     Generate the Python client code used for adding this materialization
@@ -146,7 +152,7 @@ def client_code_for_linking_dimension_to_node(
     column: str,
     dimension: str,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
 ) -> str:
     """
     Generate the Python client code used for linking this node's column to a dimension

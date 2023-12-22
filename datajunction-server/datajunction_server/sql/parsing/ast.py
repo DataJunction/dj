@@ -25,7 +25,7 @@ from typing import (
     cast,
 )
 
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.construction.utils import get_dj_node, to_namespaced_name
 from datajunction_server.errors import DJError, DJErrorException, DJException, ErrorCode

@@ -1,10 +1,12 @@
 """
 A base SQLModel class with a default naming convention.
 """
-from typing import Optional
-
+import sqlalchemy as sa
 from sqlalchemy.engine.default import DefaultExecutionContext
-from sqlmodel import Field, SQLModel
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.schema import ForeignKey
+
+from datajunction_server.database.connection import Base
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -15,24 +17,21 @@ NAMING_CONVENTION = {
 }
 
 
-class BaseSQLModel(SQLModel):
+def sqlalchemy_enum_with_name(enum_type):
     """
-    Base model object with naming convention for constraints. This forces alembic's
-    autogenerate functionality to generate constraints with explicit names.
+    SQLAlchemy-compatible enum type using the enum's names as values
     """
+    return sa.Enum(enum_type, values_callable=lambda obj: [e.name for e in obj])
 
-    metadata = SQLModel.metadata
-    metadata.naming_convention = NAMING_CONVENTION
 
-    def update(self, data: dict) -> "BaseSQLModel":
-        """
-        Helper method that updates the current model with new data and validates.
-        """
-        update = self.dict()
-        update.update(data)
-        for key, value in self.validate(update).dict(exclude_defaults=True).items():
-            setattr(self, key, value)
-        return self
+def sqlalchemy_enum_with_value(enum_type):
+    """
+    SQLAlchemy-compatible enum type using the enum's values as values
+    """
+    return sa.Enum(
+        enum_type,
+        values_callable=lambda obj: [e.value for e in obj],
+    )
 
 
 def labelize(value: str) -> str:
@@ -55,18 +54,18 @@ def generate_display_name(column_name: str):
     return default_function
 
 
-class NodeColumns(BaseSQLModel, table=True):  # type: ignore
+class NodeColumns(Base):  # pylint: disable=too-few-public-methods
     """
     Join table for node columns.
     """
 
-    node_id: Optional[int] = Field(
-        default=None,
-        foreign_key="noderevision.id",
+    __tablename__ = "nodecolumns"
+
+    node_id: Mapped[int] = mapped_column(
+        ForeignKey("noderevision.id"),
         primary_key=True,
     )
-    column_id: Optional[int] = Field(
-        default=None,
-        foreign_key="column.id",
+    column_id: Mapped[int] = mapped_column(
+        ForeignKey("column.id"),
         primary_key=True,
     )

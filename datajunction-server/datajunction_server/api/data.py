@@ -2,11 +2,11 @@
 Data related APIs.
 """
 from http import HTTPStatus
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import Depends, Query, Request
 from fastapi.responses import JSONResponse
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import (
@@ -37,8 +37,8 @@ from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     get_current_user,
+    get_direct_session,
     get_query_service_client,
-    get_session,
     get_settings,
 )
 
@@ -51,7 +51,7 @@ def add_availability_state(
     node_name: str,
     data: AvailabilityStateBase,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -108,7 +108,21 @@ def add_availability_state(
         data.merge(node_revision.availability)
 
     # Update the node with the new availability state
-    node_revision.availability = AvailabilityState.from_orm(data)
+    node_revision.availability = AvailabilityState(
+        catalog=data.catalog,
+        schema_=data.schema_,
+        table=data.table,
+        valid_through_ts=data.valid_through_ts,
+        url=data.url,
+        min_temporal_partition=data.min_temporal_partition,
+        max_temporal_partition=data.max_temporal_partition,
+        partitions=[
+            partition.dict() if not isinstance(partition, Dict) else partition
+            for partition in data.partitions  # type: ignore
+        ],
+        categorical_partitions=data.categorical_partitions,
+        temporal_partitions=data.temporal_partitions,
+    )
     if node_revision.availability and not node_revision.availability.partitions:
         node_revision.availability.partitions = []
     session.add(node_revision)
@@ -117,10 +131,10 @@ def add_availability_state(
             entity_type=EntityType.AVAILABILITY,
             node=node.name,
             activity_type=ActivityType.CREATE,
-            pre=AvailabilityStateBase.parse_obj(old_availability).dict()
+            pre=AvailabilityStateBase.from_orm(old_availability).dict()
             if old_availability
             else {},
-            post=AvailabilityStateBase.parse_obj(node_revision.availability).dict(),
+            post=AvailabilityStateBase.from_orm(node_revision.availability).dict(),
             user=current_user.username if current_user else None,
         ),
     )
@@ -146,7 +160,7 @@ def get_data(  # pylint: disable=too-many-locals
         default=False,
         description="Whether to run the query async or wait for results from the query engine",
     ),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -246,7 +260,7 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
     limit: Optional[int] = None,
     async_: bool = False,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -299,7 +313,7 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,

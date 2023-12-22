@@ -4,10 +4,9 @@ DAG related functions.
 import itertools
 from typing import Dict, List, Optional, Set, Union
 
-from sqlalchemy import and_, func, literal, or_
-from sqlalchemy.orm import aliased, joinedload
+from sqlalchemy import and_, func, join, literal, or_, select
+from sqlalchemy.orm import Session, aliased, joinedload
 from sqlalchemy.sql.operators import is_
-from sqlmodel import Session, join, select
 
 from datajunction_server.models import AttributeType, Column, ColumnAttribute
 from datajunction_server.models.base import NodeColumns
@@ -54,7 +53,7 @@ def get_downstream_nodes(
     Gets all downstream children of the given node, filterable by node type.
     Uses a recursive CTE query to build out all descendants from the node.
     """
-    node = session.exec(select(Node).where(Node.name == node_name)).one()
+    node = session.execute(select(Node).where(Node.name == node_name)).scalar()
 
     initial_dag = (
         select(
@@ -93,7 +92,7 @@ def get_downstream_nodes(
     statement = final_select.join(paths, paths.c.node_id == Node.id).options(
         *_node_output_options()
     )
-    results = session.exec(statement).unique().all()
+    results = session.execute(statement).unique().scalars().all()
 
     return [
         downstream
@@ -113,13 +112,13 @@ def get_upstream_nodes(
     Uses a recursive CTE query to build out all parents of the node.
     """
     node = (
-        session.exec(
+        session.execute(
             select(Node).where(
                 (Node.name == node_name) & (is_(Node.deactivated_at, None)),
             ),
         )
         .unique()
-        .one()
+        .scalar()
     )
 
     dag = (
@@ -165,7 +164,7 @@ def get_upstream_nodes(
         .options(*_node_output_options())
     )
 
-    results = session.exec(statement).unique().all()
+    results = session.execute(statement).unique().scalars().all()
     return [
         upstream
         for upstream in results
@@ -196,19 +195,15 @@ def get_dimensions_dag(
     # Recursive CTE
     dimensions_graph = (
         select(
-            [
-                initial_node.id.label("path_start"),
-                column.name.label("col_name"),
-                dimension_node.id.label("path_end"),
-                (
-                    initial_node.name + "." + column.name + "," + dimension_node.name
-                ).label(
-                    "join_path",
-                ),
-                dimension_node.name.label("node_name"),
-                dimension_rev.id.label("node_revision_id"),
-                dimension_rev.display_name.label("node_display_name"),
-            ],
+            initial_node.id.label("path_start"),
+            column.name.label("col_name"),
+            dimension_node.id.label("path_end"),
+            (initial_node.name + "." + column.name + "," + dimension_node.name).label(
+                "join_path",
+            ),
+            dimension_node.name.label("node_name"),
+            dimension_rev.id.label("node_revision_id"),
+            dimension_rev.display_name.label("node_display_name"),
         )
         .select_from(initial_node)
         .join(NodeColumns, initial_node.id == NodeColumns.node_id)
@@ -230,23 +225,17 @@ def get_dimensions_dag(
 
     paths = dimensions_graph.union_all(
         select(
-            [
-                dimensions_graph.c.path_start,
-                column.name.label("col_name"),
-                next_node.id.label("path_end"),
-                (
-                    dimensions_graph.c.join_path
-                    + "."
-                    + column.name
-                    + ","
-                    + next_node.name
-                ).label(
-                    "join_path",
-                ),
-                next_node.name.label("node_name"),
-                next_rev.id.label("node_revision_id"),
-                next_rev.display_name.label("node_display_name"),
-            ],
+            dimensions_graph.c.path_start,
+            column.name.label("col_name"),
+            next_node.id.label("path_end"),
+            (
+                dimensions_graph.c.join_path + "." + column.name + "," + next_node.name
+            ).label(
+                "join_path",
+            ),
+            next_node.name.label("node_name"),
+            next_rev.id.label("node_revision_id"),
+            next_rev.display_name.label("node_display_name"),
         ).select_from(
             dimensions_graph.join(
                 current_node,
@@ -281,13 +270,14 @@ def get_dimensions_dag(
     # If attributes was set to False, we only need to return the dimension nodes
     if not with_attributes:
         return (
-            session.exec(
+            session.execute(
                 select(Node)
                 .select_from(paths)
                 .join(Node, paths.c.node_name == Node.name)
                 .options(*_node_output_options()),
             )
             .unique()
+            .scalars()
             .all()
         )
 
@@ -382,7 +372,7 @@ def get_dimensions_dag(
                 column_type,
                 attribute_types,
                 join_path,
-            ) in session.exec(
+            ) in session.execute(
                 final_query,
             ).all()
             if (  # column has dimension attribute
@@ -493,7 +483,7 @@ def get_shared_dimensions(
             ),
         )
     )
-    parents = list(set(session.exec(statement).all()))
+    parents = list(set(session.execute(statement).scalars().all()))
     common = group_dimensions_by_name(session, parents[0])
     for node in parents[1:]:
         node_dimensions = group_dimensions_by_name(session, node)
@@ -564,7 +554,7 @@ def get_nodes_with_dimension(
                     ),
                 )
             )
-            node_revisions = session.exec(statement).unique().all()
+            node_revisions = session.execute(statement).unique().scalars().all()
             for node_rev in node_revisions:
                 to_process.append(node_rev.node)
         else:

@@ -6,7 +6,8 @@ import logging
 from typing import List, Optional
 
 from fastapi import Depends
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
@@ -19,7 +20,7 @@ from datajunction_server.models.measure import (
     MeasureOutput,
     NodeColumn,
 )
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_direct_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -33,8 +34,9 @@ def get_measure_by_name(
 ) -> Measure:
     """Retrieve a measure by name"""
     measure = (
-        session.exec(select(Measure).where(Measure.name == measure_name))
+        session.execute(select(Measure).where(Measure.name == measure_name))
         .unique()
+        .scalars()
         .one_or_none()
     )
     if raise_if_not_exists and not measure:
@@ -66,7 +68,7 @@ def get_node_columns(session: Session, node_columns: List[NodeColumn]) -> List[C
 @router.get("/measures/", response_model=List[str])
 def list_measures(
     prefix: Optional[str] = None,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
 ) -> List[str]:
     """
     List all measures.
@@ -76,12 +78,12 @@ def list_measures(
         statement = statement.where(
             Measure.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
         )
-    return session.exec(statement).all()
+    return session.execute(statement).scalars().all()
 
 
 @router.get("/measures/{measure_name}", response_model=MeasureOutput)
 def get_measure(
-    measure_name: str, *, session: Session = Depends(get_session)
+    measure_name: str, *, session: Session = Depends(get_direct_session)
 ) -> MeasureOutput:
     """
     Get info on a measure.
@@ -97,7 +99,7 @@ def get_measure(
     name="Add a Measure",
 )
 def add_measure(
-    data: CreateMeasure, *, session: Session = Depends(get_session)
+    data: CreateMeasure, *, session: Session = Depends(get_direct_session)
 ) -> MeasureOutput:
     """
     Add a measure
@@ -126,7 +128,10 @@ def add_measure(
     name="Edit a Measure",
 )
 def edit_measure(
-    measure_name: str, data: EditMeasure, *, session: Session = Depends(get_session)
+    measure_name: str,
+    data: EditMeasure,
+    *,
+    session: Session = Depends(get_direct_session),
 ) -> MeasureOutput:
     """
     Edit a measure

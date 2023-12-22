@@ -6,61 +6,67 @@ from functools import partial
 from typing import TYPE_CHECKING, Dict, List, Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime
-from sqlalchemy.sql.schema import Column as SqlaColumn
+from pydantic.main import BaseModel
+from sqlalchemy import JSON, BigInteger, DateTime, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql.schema import ForeignKey
 from sqlalchemy_utils import UUIDType
-from sqlmodel import JSON, Field, Relationship, SQLModel
 
-from datajunction_server.models.base import BaseSQLModel
+from datajunction_server.database.connection import Base
 from datajunction_server.models.engine import Engine, EngineInfo
 from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
-    from datajunction_server.models import NodeRevision, Table
+    from datajunction_server.models import NodeRevision
 
 
-class CatalogEngines(BaseSQLModel, table=True):  # type: ignore
+class CatalogEngines(Base):  # type: ignore  # pylint: disable=too-few-public-methods
     """
     Join table for catalogs and engines.
     """
 
-    catalog_id: Optional[int] = Field(
-        default=None,
-        foreign_key="catalog.id",
+    __tablename__ = "catalogengines"
+
+    catalog_id: Mapped[int] = mapped_column(
+        ForeignKey("catalog.id"),
         primary_key=True,
     )
-    engine_id: Optional[int] = Field(
-        default=None,
-        foreign_key="engine.id",
+    engine_id: Mapped[int] = mapped_column(
+        ForeignKey("engine.id"),
         primary_key=True,
     )
 
 
-class Catalog(BaseSQLModel, table=True):  # type: ignore
+class Catalog(Base):  # type: ignore
     """
     A catalog.
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    uuid: UUID = Field(default_factory=uuid4, sa_column=SqlaColumn(UUIDType()))
-    name: str
-    engines: List[Engine] = Relationship(
-        link_model=CatalogEngines,
-        sa_relationship_kwargs={
-            "primaryjoin": "Catalog.id==CatalogEngines.catalog_id",
-            "secondaryjoin": "Engine.id==CatalogEngines.engine_id",
-        },
+    __tablename__ = "catalog"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
     )
-    node_revisions: List["NodeRevision"] = Relationship(back_populates="catalog")
-    created_at: UTCDatetime = Field(
-        sa_column=SqlaColumn(DateTime(timezone=True)),
-        default_factory=partial(datetime.now, timezone.utc),
+    uuid: Mapped[UUID] = mapped_column(UUIDType(), default=uuid4)
+    name: Mapped[str]
+    engines: Mapped[List[Engine]] = relationship(
+        secondary="catalogengines",
+        primaryjoin="Catalog.id==CatalogEngines.catalog_id",
+        secondaryjoin="Engine.id==CatalogEngines.engine_id",
     )
-    updated_at: UTCDatetime = Field(
-        sa_column=SqlaColumn(DateTime(timezone=True)),
-        default_factory=partial(datetime.now, timezone.utc),
+    node_revisions: Mapped[List["NodeRevision"]] = relationship(
+        back_populates="catalog",
     )
-    extra_params: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
+    created_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        insert_default=partial(datetime.now, timezone.utc),
+    )
+    updated_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        insert_default=partial(datetime.now, timezone.utc),
+    )
+    extra_params: Mapped[Dict] = mapped_column(JSON, default={})
 
     def __str__(self) -> str:
         return self.name
@@ -69,10 +75,13 @@ class Catalog(BaseSQLModel, table=True):  # type: ignore
         return hash(self.id)
 
 
-class CatalogInfo(SQLModel):
+class CatalogInfo(BaseModel):
     """
     Class for catalog creation
     """
 
     name: str
-    engines: List[EngineInfo] = []
+    engines: Optional[List[EngineInfo]] = []
+
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True

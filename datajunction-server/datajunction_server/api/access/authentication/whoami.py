@@ -21,7 +21,7 @@ async def get_user(current_user: User = Depends(get_current_user)) -> UserOutput
     """
     Returns the current authenticated user
     """
-    return UserOutput.parse_obj(current_user)
+    return UserOutput.from_orm(current_user)
 
 
 @router.get("/token/")

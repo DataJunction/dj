@@ -6,21 +6,15 @@ from typing import List, Optional
 
 from pydantic import Field, root_validator
 from pydantic.main import BaseModel
-from sqlmodel import SQLModel
 
-from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.materialization import MaterializationConfigOutput
-from datajunction_server.models.node import (
-    AttributeOutput,
-    AvailabilityState,
-    NodeNameOutput,
-)
+from datajunction_server.models.node import AvailabilityStateBase, ColumnOutput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionOutput
 from datajunction_server.typing import UTCDatetime
 
 
-class CubeElementMetadata(SQLModel):
+class CubeElementMetadata(BaseModel):
     """
     Metadata for an element in a cube
     """
@@ -45,21 +39,11 @@ class CubeElementMetadata(SQLModel):
         )
         return values
 
-
-class CubeColumnOutput(BaseModel):
-    """
-    A simplified column schema, without ID or dimensions.
-    """
-
-    name: str
-    display_name: Optional[str]
-    type: str
-    attributes: Optional[List[AttributeOutput]]
-    dimension: Optional[NodeNameOutput]
-    partition: Optional[PartitionOutput]
+    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+        orm_mode = True
 
 
-class CubeRevisionMetadata(BaseSQLModel):
+class CubeRevisionMetadata(BaseModel):
     """
     Metadata for a cube node
     """
@@ -71,18 +55,19 @@ class CubeRevisionMetadata(BaseSQLModel):
     display_name: str
     version: str
     description: str = ""
-    availability: Optional[AvailabilityState] = None
+    availability: Optional[AvailabilityStateBase] = None
     cube_elements: List[CubeElementMetadata]
     query: Optional[str]
-    columns: List[CubeColumnOutput]
+    columns: List[ColumnOutput]
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True
+        orm_mode = True
 
 
-class DimensionValue(BaseSQLModel):
+class DimensionValue(BaseModel):
     """
     Dimension value and count
     """
@@ -91,7 +76,7 @@ class DimensionValue(BaseSQLModel):
     count: Optional[int]
 
 
-class DimensionValues(BaseSQLModel):
+class DimensionValues(BaseModel):
     """
     Dimension values
     """

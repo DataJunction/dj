@@ -5,11 +5,13 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import Any, Dict, Optional
 
-from sqlalchemy import DateTime
-from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlmodel import JSON, Field, SQLModel
+from pydantic.main import BaseModel
+from sqlalchemy import JSON, BigInteger, DateTime, Integer, String
+from sqlalchemy.orm import Mapped, mapped_column
 
+from datajunction_server.database.connection import Base
 from datajunction_server.enum import StrEnum
+from datajunction_server.models.base import sqlalchemy_enum_with_value
 from datajunction_server.models.node import NodeRevision, NodeStatus
 from datajunction_server.models.user import User
 from datajunction_server.typing import UTCDatetime
@@ -51,23 +53,54 @@ class EntityType(StrEnum):
     TAG = "tag"
 
 
-class History(SQLModel, table=True):  # type: ignore
+class HistoryOutput(BaseModel):
+    """
+    Output history event
+    """
+
+    id: int
+    entity_type: Optional[EntityType]
+    entity_name: Optional[str]
+    node: Optional[str]
+    activity_type: Optional[ActivityType]
+    user: Optional[str]
+    pre: Dict[str, Any]
+    post: Dict[str, Any]
+    details: Dict[str, Any]
+    created_at: UTCDatetime
+
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
+
+
+class History(Base):  # pylint: disable=too-few-public-methods
     """
     An event to store as part of the server's activity history
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    entity_type: Optional[EntityType] = Field(default=None)
-    entity_name: Optional[str] = Field(default=None)
-    node: Optional[str] = Field(default=None)
-    activity_type: Optional[ActivityType] = Field(default=None)
-    user: Optional[str] = Field(default=None)
-    pre: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))
-    post: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))
-    details: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))
-    created_at: UTCDatetime = Field(
-        sa_column=SqlaColumn(DateTime(timezone=True)),
-        default_factory=partial(datetime.now, timezone.utc),
+    __tablename__ = "history"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+    )
+    entity_type: Mapped[Optional[EntityType]] = mapped_column(
+        sqlalchemy_enum_with_value(EntityType),
+        default=None,
+    )
+    entity_name: Mapped[Optional[str]] = mapped_column(String, default=None)
+    node: Mapped[Optional[str]] = mapped_column(String, default=None)
+    activity_type: Mapped[Optional[ActivityType]] = mapped_column(
+        sqlalchemy_enum_with_value(ActivityType),
+        default=None,
+    )
+    user: Mapped[Optional[str]] = mapped_column(String, default=None)
+    pre: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    post: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    details: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        insert_default=partial(datetime.now, timezone.utc),
     )
 
     def __hash__(self) -> int:

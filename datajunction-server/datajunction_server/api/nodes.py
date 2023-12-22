@@ -10,8 +10,9 @@ from typing import List, Optional, Union
 from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
 from fastapi_cache.decorator import cache
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 from sqlalchemy.sql.operators import is_
-from sqlmodel import Session, select
 from starlette.requests import Request
 
 from datajunction_server.api.catalogs import UNKNOWN_CATALOG_ID
@@ -49,7 +50,6 @@ from datajunction_server.internal.nodes import (
 )
 from datajunction_server.models import access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
-from datajunction_server.models.base import generate_display_name
 from datajunction_server.models.column import Column
 from datajunction_server.models.history import (
     ActivityType,
@@ -95,9 +95,9 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import (
     Version,
     get_current_user,
+    get_direct_session,
     get_namespace_from_name,
     get_query_service_client,
-    get_session,
     get_settings,
 )
 
@@ -108,9 +108,9 @@ router = SecureAPIRouter(tags=["nodes"])
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
 def validate_node(
-    data: Union[NodeRevisionBase, NodeRevision],
+    data: Union[NodeRevisionBase],
     response: Response,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
 ) -> NodeValidation:
     """
     Determines whether the provided node is valid and returns metadata from node validation.
@@ -138,7 +138,7 @@ def validate_node(
 @router.post("/nodes/{name}/validate/", response_model=NodeValidation)
 def revalidate(
     name: str,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeValidation:
     """
@@ -164,7 +164,7 @@ def set_column_attributes(
     column_name: str,
     attributes: List[AttributeTypeIdentifier],
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> List[ColumnOutput]:
     """
@@ -186,7 +186,7 @@ def list_nodes(
     node_type: Optional[NodeType] = None,
     prefix: Optional[str] = None,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -202,7 +202,7 @@ def list_nodes(
         )
     if node_type:
         statement = statement.where(Node.type == node_type)
-    nodes = session.exec(statement).unique().all()
+    nodes = session.execute(statement).unique().scalars().all()
     return [
         approval.access_object.name
         for approval in validate_access_requests(
@@ -224,7 +224,7 @@ def list_nodes(
 def list_all_nodes_with_details(
     node_type: Optional[NodeType] = None,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -250,7 +250,7 @@ def list_all_nodes_with_details(
     )  # Very high limit as a safeguard
     results = [
         NodeIndexItem(name=row[0], display_name=row[1], description=row[2], type=row[3])
-        for row in session.exec(nodes_query).all()
+        for row in session.execute(nodes_query).all()
     ]
     if len(results) == NODE_LIST_MAX:  # pragma: no cover
         _logger.warning(
@@ -278,20 +278,22 @@ def list_all_nodes_with_details(
     return [row for row in results if row.name in approvals]
 
 
-@router.get("/nodes/{name}/", response_model=NodeOutput)
-def get_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutput:
+@router.get("/nodes/{name}/")
+def get_node(
+    name: str, *, session: Session = Depends(get_direct_session)
+) -> NodeOutput:
     """
     Show the active version of the specified node.
     """
     node = get_node_by_name(session, name, with_current=True)
-    return node  # type: ignore
+    return NodeOutput.from_orm(node)
 
 
 @router.delete("/nodes/{name}/")
 def delete_node(
     name: str,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ):
     """
@@ -307,7 +309,7 @@ def delete_node(
 @router.delete("/nodes/{name}/hard/", name="Hard Delete a DJ Node")
 def hard_delete(
     name: str,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -328,7 +330,7 @@ def hard_delete(
 def restore_node(
     name: str,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ):
     """
@@ -343,7 +345,7 @@ def restore_node(
 
 @router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionOutput])
 def list_node_revisions(
-    name: str, *, session: Session = Depends(get_session)
+    name: str, *, session: Session = Depends(get_direct_session)
 ) -> List[NodeRevisionOutput]:
     """
     List all revisions for the node.
@@ -355,7 +357,7 @@ def list_node_revisions(
 @router.post("/nodes/source/", response_model=NodeOutput, name="Create A Source Node")
 def create_source(
     data: CreateSourceNode,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
@@ -389,6 +391,7 @@ def create_source(
     node = Node(
         name=data.name,
         namespace=data.namespace,
+        display_name=data.display_name or f"{data.catalog}.{data.schema_}.{data.table}",
         type=NodeType.SOURCE,
         current_version=0,
     )
@@ -412,10 +415,7 @@ def create_source(
 
     node_revision = NodeRevision(
         name=data.name,
-        namespace=data.namespace,
-        display_name=data.display_name
-        if data.display_name
-        else generate_display_name(data.name),
+        display_name=data.display_name or f"{catalog.name}.{data.schema_}.{data.table}",
         description=data.description,
         type=NodeType.SOURCE,
         status=NodeStatus.VALID,
@@ -425,11 +425,11 @@ def create_source(
         columns=columns,
         parents=[],
     )
+    node.display_name = node_revision.display_name
 
     # Point the node to the new node revision.
     save_node(session, node_revision, node, data.mode, current_user=current_user)
-
-    return node  # type: ignore
+    return node
 
 
 @router.post(
@@ -454,7 +454,7 @@ def create_node(
     data: CreateNode,
     request: Request,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
@@ -527,7 +527,7 @@ def create_node(
                 )
     session.refresh(node)
     session.refresh(node.current)
-    return node  # type: ignore
+    return node
 
 
 @router.post(
@@ -539,7 +539,7 @@ def create_node(
 def create_cube(
     data: CreateCubeNode,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
     background_tasks: BackgroundTasks,
@@ -579,7 +579,7 @@ def create_cube(
     )
     node_revision = create_cube_node_revision(session=session, data=data)
     save_node(session, node_revision, node, data.mode, current_user=current_user)
-    return node  # type: ignore
+    return node
 
 
 @router.post(
@@ -591,7 +591,7 @@ def register_table(  # pylint: disable=too-many-arguments
     catalog: str,
     schema_: str,
     table: str,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeOutput:
@@ -631,7 +631,7 @@ def register_table(  # pylint: disable=too-many-arguments
             table=table,
             name=name,
             display_name=name,
-            columns=columns,
+            columns=[ColumnOutput.from_orm(col) for col in columns],
             description="This source node was automatically created as a registered table.",
             mode=NodeMode.PUBLISHED,
         ),
@@ -646,7 +646,7 @@ def link_dimension(  # pylint: disable=too-many-arguments
     column: str,
     dimension: str,
     dimension_column: Optional[str] = None,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -722,7 +722,7 @@ def delete_dimension_link(  # pylint: disable=too-many-arguments
     column: str,
     dimension: str,
     dimension_column: Optional[str] = None,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -807,7 +807,7 @@ def tags_node(
     name: str,
     tag_names: Optional[List[str]] = Query(default=None),
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -856,7 +856,7 @@ def tags_node(
 def refresh_source_node(
     name: str,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeOutput:
@@ -885,7 +885,17 @@ def refresh_source_node(
 
     # Create a new node revision with the updated columns and bump the version
     old_version = Version.parse(source_node.current_version)
-    new_revision = NodeRevision.parse_obj(current_revision.dict(exclude={"id"}))
+    new_revision = NodeRevision(
+        name=current_revision.name,
+        type=current_revision.type,
+        node_id=current_revision.node_id,
+        display_name=current_revision.display_name,
+        description=current_revision.description,
+        mode=current_revision.mode,
+        catalog_id=current_revision.catalog_id,
+        schema_=current_revision.schema_,
+        table=current_revision.table,
+    )
     new_revision.version = str(old_version.next_major_version())
     new_revision.columns = [
         Column(name=column.name, type=column.type, node_revisions=[new_revision])
@@ -925,7 +935,7 @@ def update_node(
     name: str,
     data: UpdateNode,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
     background_tasks: BackgroundTasks,
@@ -950,7 +960,7 @@ def update_node(
 
 @router.get("/nodes/similarity/{node1_name}/{node2_name}")
 def calculate_node_similarity(
-    node1_name: str, node2_name: str, *, session: Session = Depends(get_session)
+    node1_name: str, node2_name: str, *, session: Session = Depends(get_direct_session)
 ) -> JSONResponse:
     """
     Compare two nodes by how similar their queries are
@@ -974,7 +984,10 @@ def calculate_node_similarity(
     name="List Downstream Nodes For A Node",
 )
 def list_downstream_nodes(
-    name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
+    name: str,
+    *,
+    node_type: NodeType = None,
+    session: Session = Depends(get_direct_session),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are downstream from the given node, filterable by type.
@@ -988,7 +1001,10 @@ def list_downstream_nodes(
     name="List Upstream Nodes For A Node",
 )
 def list_upstream_nodes(
-    name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
+    name: str,
+    *,
+    node_type: NodeType = None,
+    session: Session = Depends(get_direct_session),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are upstream from the given node, filterable by type.
@@ -998,11 +1014,10 @@ def list_upstream_nodes(
 
 @router.get(
     "/nodes/{name}/dag/",
-    response_model=List[DAGNodeOutput],
     name="List All Connected Nodes (Upstreams + Downstreams)",
 )
 def list_node_dag(
-    name: str, *, session: Session = Depends(get_session)
+    name: str, *, session: Session = Depends(get_direct_session)
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are part of the DAG of the given node. This means getting all upstreams,
@@ -1023,7 +1038,8 @@ def list_node_dag(
         include_cubes=False,
     )
     upstreams = get_upstream_nodes(session, name, include_deactivated=False)
-    return list(set(dimension_nodes + downstreams + upstreams))  # type: ignore
+    dag_nodes = set(dimension_nodes + downstreams + upstreams)
+    return [DAGNodeOutput.from_orm(node) for node in dag_nodes]
 
 
 @router.get(
@@ -1032,7 +1048,7 @@ def list_node_dag(
     name="List All Dimension Attributes",
 )
 def list_all_dimension_attributes(
-    name: str, *, session: Session = Depends(get_session)
+    name: str, *, session: Session = Depends(get_direct_session)
 ) -> List[DimensionAttributeOutput]:
     """
     List all available dimension attributes for the given node.
@@ -1047,7 +1063,7 @@ def list_all_dimension_attributes(
     name="List column level lineage of node",
 )
 def column_lineage(
-    name: str, *, session: Session = Depends(get_session)
+    name: str, *, session: Session = Depends(get_direct_session)
 ) -> List[LineageColumn]:
     """
     List column-level lineage of a node in a graph
@@ -1069,7 +1085,7 @@ def set_column_display_name(
     display_name: str,
     current_user: Optional[User] = Depends(get_current_user),
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
 ) -> ColumnOutput:
     """
     Set column name for the node
@@ -1108,7 +1124,7 @@ def set_column_partition(  # pylint: disable=too-many-locals
     column_name: str,
     input_partition: PartitionInput,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> ColumnOutput:
     """

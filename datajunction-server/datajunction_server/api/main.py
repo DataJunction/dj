@@ -19,7 +19,7 @@ from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from jose import JWTError
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from sqlmodel import select
+from sqlalchemy import select
 from starlette.middleware.cors import CORSMiddleware
 
 from datajunction_server import __version__

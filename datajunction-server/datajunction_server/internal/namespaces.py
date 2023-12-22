@@ -5,9 +5,9 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import or_
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
 from sqlalchemy.sql.operators import is_
-from sqlmodel import Session, col, select
 
 from datajunction_server.api.helpers import get_node_namespace, hard_delete_node
 from datajunction_server.errors import (
@@ -18,7 +18,12 @@ from datajunction_server.errors import (
 from datajunction_server.internal.nodes import get_cube_revision_metadata
 from datajunction_server.models import History, User
 from datajunction_server.models.history import ActivityType, EntityType
-from datajunction_server.models.node import Node, NodeNamespace, NodeRevision
+from datajunction_server.models.node import (
+    Node,
+    NodeMinimumDetail,
+    NodeNamespace,
+    NodeRevision,
+)
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
@@ -29,7 +34,7 @@ def get_nodes_in_namespace(
     namespace: str,
     node_type: NodeType = None,
     include_deactivated: bool = False,
-) -> List[Dict]:
+) -> List[NodeMinimumDetail]:
     """
     Gets a list of node names in the namespace
     """
@@ -47,7 +52,7 @@ def get_nodes_in_namespace(
         NodeRevision.updated_at,
     ).where(
         or_(
-            col(Node.namespace).like(f"{namespace}.%"),  # pylint: disable=no-member
+            Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
             Node.namespace == namespace,
         ),
         Node.current_version == NodeRevision.version,
@@ -56,7 +61,19 @@ def get_nodes_in_namespace(
     )
     if include_deactivated is False:
         list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))
-    return session.exec(list_nodes_query).all()
+    return [
+        NodeMinimumDetail(
+            name=row.name,
+            display_name=row.display_name,
+            description=row.description,
+            version=row.version,
+            type=row.type,
+            status=row.status,
+            mode=row.mode,
+            updated_at=row.updated_at,
+        )
+        for row in session.execute(list_nodes_query).all()
+    ]
 
 
 def get_nodes_in_namespace_detailed(
@@ -70,14 +87,14 @@ def get_nodes_in_namespace_detailed(
     get_node_namespace(session, namespace)
     list_nodes_query = select(Node).where(
         or_(
-            col(Node.namespace).like(f"{namespace}.%"),  # pylint: disable=no-member
+            Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
             Node.namespace == namespace,
         ),
         Node.current_version == NodeRevision.version,
         Node.name == NodeRevision.name,
         Node.type == node_type if node_type else True,
     )
-    return session.exec(list_nodes_query).all()
+    return session.execute(list_nodes_query).scalars().all()
 
 
 def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
@@ -89,13 +106,13 @@ def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
     """
     statement = select(NodeNamespace).where(
         or_(
-            col(NodeNamespace.namespace).like(  # pylint: disable=no-member
+            NodeNamespace.namespace.like(  # pylint: disable=no-member
                 f"{namespace}.%",
             ),
             NodeNamespace.namespace == namespace,
         ),
     )
-    namespaces = session.exec(statement).all()
+    namespaces = session.execute(statement).scalars().all()
     if len(namespaces) == 0:
         raise DJException(
             message=(f"Namespace `{namespace}` does not exist."),
@@ -223,14 +240,18 @@ def hard_delete_namespace(
     """
     Hard delete a node namespace.
     """
-    node_names = session.exec(
-        select(Node.name).where(
-            or_(
-                col(Node.namespace).like(f"{namespace}.%"),  # pylint: disable=no-member
-                Node.namespace == namespace,
+    node_names = (
+        session.execute(
+            select(Node.name).where(
+                or_(
+                    Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
+                    Node.namespace == namespace,
+                ),
             ),
-        ),
-    ).all()
+        )
+        .scalars()
+        .all()
+    )
 
     if not cascade and node_names:
         raise DJActionNotAllowedException(

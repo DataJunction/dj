@@ -4,8 +4,9 @@ Utilities used around construction
 
 from typing import TYPE_CHECKING, Optional, Set, Union
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import NoResultFound
-from sqlmodel import Session, select
 
 from datajunction_server.errors import DJError, DJErrorException, ErrorCode
 from datajunction_server.models.node import Node, NodeRevision
@@ -27,7 +28,7 @@ def get_dj_node(
         query = query.filter(Node.type.in_(kinds))  # type: ignore  # pylint: disable=no-member
     match = None
     try:
-        match = session.exec(query).one()
+        match = session.execute(query).scalar_one()
     except NoResultFound as no_result_exc:
         kind_msg = " or ".join(str(k) for k in kinds) if kinds else ""
         raise DJErrorException(

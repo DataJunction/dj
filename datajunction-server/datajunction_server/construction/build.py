@@ -7,7 +7,7 @@ import time
 # pylint: disable=too-many-lines
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.errors import DJException, DJInvalidInputException

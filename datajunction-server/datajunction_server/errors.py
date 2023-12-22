@@ -4,7 +4,7 @@ Errors and warnings.
 
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
-from sqlmodel import SQLModel
+from pydantic.main import BaseModel
 
 from datajunction_server.enum import IntEnum
 
@@ -74,7 +74,7 @@ class DJErrorType(TypedDict):
     debug: Optional[DebugType]
 
 
-class DJError(SQLModel):
+class DJError(BaseModel):
     """
     An error.
     """
@@ -111,7 +111,7 @@ class DJWarningType(TypedDict):
     debug: Optional[DebugType]
 
 
-class DJWarning(SQLModel):
+class DJWarning(BaseModel):
     """
     A warning.
     """

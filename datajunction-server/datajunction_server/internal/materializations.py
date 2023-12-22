@@ -3,7 +3,7 @@ import zlib
 from typing import Dict, List, Tuple, Union
 
 from pydantic import ValidationError
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.construction.build import build_node, get_measures_query
 from datajunction_server.errors import DJException, DJInvalidInputException
@@ -209,7 +209,7 @@ def create_new_materialization(
     return Materialization(
         name=materialization_name,
         node_revision=current_revision,
-        config=generic_config,
+        config=generic_config.dict(),  # type: ignore
         schedule=upsert.schedule or "@daily",
         strategy=upsert.strategy,
         job=upsert.job.value.job_class,  # type: ignore
