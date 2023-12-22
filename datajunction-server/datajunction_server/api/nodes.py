@@ -95,9 +95,9 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import (
     Version,
     get_current_user,
-    get_direct_session,
     get_namespace_from_name,
     get_query_service_client,
+    get_session,
     get_settings,
 )
 
@@ -110,7 +110,7 @@ router = SecureAPIRouter(tags=["nodes"])
 def validate_node(
     data: Union[NodeRevisionBase],
     response: Response,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> NodeValidation:
     """
     Determines whether the provided node is valid and returns metadata from node validation.
@@ -138,7 +138,7 @@ def validate_node(
 @router.post("/nodes/{name}/validate/", response_model=NodeValidation)
 def revalidate(
     name: str,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeValidation:
     """
@@ -164,7 +164,7 @@ def set_column_attributes(
     column_name: str,
     attributes: List[AttributeTypeIdentifier],
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> List[ColumnOutput]:
     """
@@ -186,7 +186,7 @@ def list_nodes(
     node_type: Optional[NodeType] = None,
     prefix: Optional[str] = None,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -224,7 +224,7 @@ def list_nodes(
 def list_all_nodes_with_details(
     node_type: Optional[NodeType] = None,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -279,9 +279,7 @@ def list_all_nodes_with_details(
 
 
 @router.get("/nodes/{name}/")
-def get_node(
-    name: str, *, session: Session = Depends(get_direct_session)
-) -> NodeOutput:
+def get_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutput:
     """
     Show the active version of the specified node.
     """
@@ -293,7 +291,7 @@ def get_node(
 def delete_node(
     name: str,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ):
     """
@@ -309,7 +307,7 @@ def delete_node(
 @router.delete("/nodes/{name}/hard/", name="Hard Delete a DJ Node")
 def hard_delete(
     name: str,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -330,7 +328,7 @@ def hard_delete(
 def restore_node(
     name: str,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ):
     """
@@ -345,7 +343,7 @@ def restore_node(
 
 @router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionOutput])
 def list_node_revisions(
-    name: str, *, session: Session = Depends(get_direct_session)
+    name: str, *, session: Session = Depends(get_session)
 ) -> List[NodeRevisionOutput]:
     """
     List all revisions for the node.
@@ -357,7 +355,7 @@ def list_node_revisions(
 @router.post("/nodes/source/", response_model=NodeOutput, name="Create A Source Node")
 def create_source(
     data: CreateSourceNode,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
@@ -454,7 +452,7 @@ def create_node(
     data: CreateNode,
     request: Request,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
@@ -539,7 +537,7 @@ def create_node(
 def create_cube(
     data: CreateCubeNode,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
     background_tasks: BackgroundTasks,
@@ -591,7 +589,7 @@ def register_table(  # pylint: disable=too-many-arguments
     catalog: str,
     schema_: str,
     table: str,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeOutput:
@@ -646,7 +644,7 @@ def link_dimension(  # pylint: disable=too-many-arguments
     column: str,
     dimension: str,
     dimension_column: Optional[str] = None,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -722,7 +720,7 @@ def delete_dimension_link(  # pylint: disable=too-many-arguments
     column: str,
     dimension: str,
     dimension_column: Optional[str] = None,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -807,7 +805,7 @@ def tags_node(
     name: str,
     tag_names: Optional[List[str]] = Query(default=None),
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -856,7 +854,7 @@ def tags_node(
 def refresh_source_node(
     name: str,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeOutput:
@@ -935,7 +933,7 @@ def update_node(
     name: str,
     data: UpdateNode,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
     background_tasks: BackgroundTasks,
@@ -960,7 +958,7 @@ def update_node(
 
 @router.get("/nodes/similarity/{node1_name}/{node2_name}")
 def calculate_node_similarity(
-    node1_name: str, node2_name: str, *, session: Session = Depends(get_direct_session)
+    node1_name: str, node2_name: str, *, session: Session = Depends(get_session)
 ) -> JSONResponse:
     """
     Compare two nodes by how similar their queries are
@@ -987,7 +985,7 @@ def list_downstream_nodes(
     name: str,
     *,
     node_type: NodeType = None,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are downstream from the given node, filterable by type.
@@ -1004,7 +1002,7 @@ def list_upstream_nodes(
     name: str,
     *,
     node_type: NodeType = None,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are upstream from the given node, filterable by type.
@@ -1017,7 +1015,7 @@ def list_upstream_nodes(
     name="List All Connected Nodes (Upstreams + Downstreams)",
 )
 def list_node_dag(
-    name: str, *, session: Session = Depends(get_direct_session)
+    name: str, *, session: Session = Depends(get_session)
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are part of the DAG of the given node. This means getting all upstreams,
@@ -1048,7 +1046,7 @@ def list_node_dag(
     name="List All Dimension Attributes",
 )
 def list_all_dimension_attributes(
-    name: str, *, session: Session = Depends(get_direct_session)
+    name: str, *, session: Session = Depends(get_session)
 ) -> List[DimensionAttributeOutput]:
     """
     List all available dimension attributes for the given node.
@@ -1063,7 +1061,7 @@ def list_all_dimension_attributes(
     name="List column level lineage of node",
 )
 def column_lineage(
-    name: str, *, session: Session = Depends(get_direct_session)
+    name: str, *, session: Session = Depends(get_session)
 ) -> List[LineageColumn]:
     """
     List column-level lineage of a node in a graph
@@ -1085,7 +1083,7 @@ def set_column_display_name(
     display_name: str,
     current_user: Optional[User] = Depends(get_current_user),
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> ColumnOutput:
     """
     Set column name for the node
@@ -1124,7 +1122,7 @@ def set_column_partition(  # pylint: disable=too-many-locals
     column_name: str,
     input_partition: PartitionInput,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> ColumnOutput:
     """

@@ -17,7 +17,7 @@ from datajunction_server.internal.access.authentication.http import SecureAPIRou
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import Engine
 from datajunction_server.models.catalog import Catalog, CatalogInfo
-from datajunction_server.utils import get_direct_session, get_settings
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -27,9 +27,7 @@ UNKNOWN_CATALOG_ID = 0
 
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])
-def list_catalogs(
-    *, session: Session = Depends(get_direct_session)
-) -> List[CatalogInfo]:
+def list_catalogs(*, session: Session = Depends(get_session)) -> List[CatalogInfo]:
     """
     List all available catalogs
     """
@@ -40,9 +38,7 @@ def list_catalogs(
 
 
 @router.get("/catalogs/{name}/", response_model=CatalogInfo, name="Get a Catalog")
-def get_catalog(
-    name: str, *, session: Session = Depends(get_direct_session)
-) -> CatalogInfo:
+def get_catalog(name: str, *, session: Session = Depends(get_session)) -> CatalogInfo:
     """
     Return a catalog by name
     """
@@ -58,7 +54,7 @@ def get_catalog(
 def add_catalog(
     data: CatalogInfo,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> CatalogInfo:
     """
     Add a Catalog
@@ -109,7 +105,7 @@ def add_engines_to_catalog(
     name: str,
     data: List[EngineInfo],
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> CatalogInfo:
     """
     Attach one or more engines to a catalog
@@ -144,7 +140,7 @@ def list_new_engines(
     return new_engines
 
 
-def default_catalog(session: Session = Depends(get_direct_session)):
+def default_catalog(session: Session = Depends(get_session)):
     """
     Loads a default catalog for nodes that are pure SQL and don't belong in any
     particular catalog. This typically applies to on-the-fly user-defined dimensions.

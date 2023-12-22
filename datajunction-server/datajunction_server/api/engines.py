@@ -12,14 +12,14 @@ from sqlalchemy.orm import Session
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models.engine import Engine, EngineInfo
-from datajunction_server.utils import get_direct_session, get_settings
+from datajunction_server.utils import get_session, get_settings
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["engines"])
 
 
 @router.get("/engines/", response_model=List[EngineInfo])
-def list_engines(*, session: Session = Depends(get_direct_session)) -> List[EngineInfo]:
+def list_engines(*, session: Session = Depends(get_session)) -> List[EngineInfo]:
     """
     List all available engines
     """
@@ -31,7 +31,7 @@ def list_engines(*, session: Session = Depends(get_direct_session)) -> List[Engi
 
 @router.get("/engines/{name}/{version}/", response_model=EngineInfo)
 def get_an_engine(
-    name: str, version: str, *, session: Session = Depends(get_direct_session)
+    name: str, version: str, *, session: Session = Depends(get_session)
 ) -> EngineInfo:
     """
     Return an engine by name and version
@@ -48,7 +48,7 @@ def get_an_engine(
 def add_engine(
     data: EngineInfo,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> EngineInfo:
     """
     Add a new engine

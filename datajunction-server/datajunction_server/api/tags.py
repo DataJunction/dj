@@ -15,7 +15,7 @@ from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.tag import CreateTag, Tag, TagOutput, UpdateTag
-from datajunction_server.utils import get_current_user, get_direct_session, get_settings
+from datajunction_server.utils import get_current_user, get_session, get_settings
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["tags"])
@@ -63,7 +63,7 @@ def get_tag_by_name(
 
 @router.get("/tags/", response_model=List[TagOutput])
 def list_tags(
-    tag_type: Optional[str] = None, *, session: Session = Depends(get_direct_session)
+    tag_type: Optional[str] = None, *, session: Session = Depends(get_session)
 ) -> List[TagOutput]:
     """
     List all available tags.
@@ -75,9 +75,7 @@ def list_tags(
 
 
 @router.get("/tags/{name}/", response_model=TagOutput)
-def get_a_tag(
-    name: str, *, session: Session = Depends(get_direct_session)
-) -> TagOutput:
+def get_a_tag(name: str, *, session: Session = Depends(get_session)) -> TagOutput:
     """
     Return a tag by name.
     """
@@ -88,7 +86,7 @@ def get_a_tag(
 @router.post("/tags/", response_model=TagOutput, status_code=201)
 def create_a_tag(
     data: CreateTag,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> TagOutput:
     """
@@ -125,7 +123,7 @@ def create_a_tag(
 def update_a_tag(
     name: str,
     data: UpdateTag,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> TagOutput:
     """
@@ -159,7 +157,7 @@ def list_nodes_for_a_tag(
     name: str,
     node_type: Optional[NodeType] = None,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> List[NodeMinimumDetail]:
     """
     Find nodes tagged with the tag, filterable by node type.

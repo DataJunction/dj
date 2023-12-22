@@ -16,7 +16,7 @@ from datajunction_server.constants import AUTH_COOKIE
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.access.authentication.basic import get_user
 from datajunction_server.internal.access.authentication.tokens import decode_token
-from datajunction_server.utils import get_direct_session, get_settings
+from datajunction_server.utils import get_session, get_settings
 
 
 class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
@@ -27,7 +27,7 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
     async def __call__(
         self,
         request: Request,
-        session: Session = Depends(get_direct_session),
+        session: Session = Depends(get_session),
     ) -> None:
         # First check for a JWT sent in a cookie
         jwt = request.cookies.get(AUTH_COOKIE)

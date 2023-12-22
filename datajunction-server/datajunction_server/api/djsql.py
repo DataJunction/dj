@@ -16,8 +16,8 @@ from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     get_current_user,
-    get_direct_session,
     get_query_service_client,
+    get_session,
     get_settings,
 )
 
@@ -30,7 +30,7 @@ def get_data_for_djsql(  # pylint: disable=R0914, R0913
     query: str,
     async_: bool = False,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -76,7 +76,7 @@ def get_data_for_djsql(  # pylint: disable=R0914, R0913
 async def get_data_stream_for_djsql(  # pragma: no cover
     query: str,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,

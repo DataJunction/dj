@@ -66,7 +66,7 @@ def get_engine() -> Engine:
     return engine
 
 
-def get_direct_session() -> Iterator[Session]:
+def get_session() -> Iterator[Session]:
     """
     Direct SQLAlchemy session.
     """

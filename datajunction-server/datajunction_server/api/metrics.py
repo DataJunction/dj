@@ -26,7 +26,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import get_dimensions, get_shared_dimensions
-from datajunction_server.utils import get_current_user, get_direct_session, get_settings
+from datajunction_server.utils import get_current_user, get_session, get_settings
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["metrics"])
@@ -49,7 +49,7 @@ def get_metric(session: Session, name: str) -> Node:
 def list_metrics(
     prefix: Optional[str] = None,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -80,9 +80,7 @@ def list_metric_metadata() -> MetricMetadataOptions:
 
 
 @router.get("/metrics/{name}/", response_model=Metric)
-def get_a_metric(
-    name: str, *, session: Session = Depends(get_direct_session)
-) -> Metric:
+def get_a_metric(name: str, *, session: Session = Depends(get_session)) -> Metric:
     """
     Return a metric by name.
     """
@@ -101,7 +99,7 @@ async def get_common_dimensions(
         title="List of metrics to find common dimensions for",
         default=[],
     ),
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> List[DimensionAttributeOutput]:
     """
     Return common dimensions for a set of metrics.

@@ -788,7 +788,7 @@ class NodeRevision(Base):  # pylint: disable=too-few-public-methods
     query: Mapped[Optional[str]] = mapped_column(String)
     mode: Mapped[NodeMode] = mapped_column(
         sqlalchemy_enum_with_value(NodeMode),
-        default=NodeMode.PUBLISHED.value,
+        default=NodeMode.PUBLISHED.value,  # pylint: disable=no-member
     )
 
     version: Mapped[Optional[str]] = mapped_column(

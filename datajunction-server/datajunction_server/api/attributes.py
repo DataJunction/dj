@@ -18,7 +18,7 @@ from datajunction_server.models.attribute import (
     MutableAttributeTypeFields,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import get_direct_session, get_settings
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -27,7 +27,7 @@ router = SecureAPIRouter(tags=["attributes"])
 
 @router.get("/attributes/", response_model=List[AttributeTypeBase])
 def list_attributes(
-    *, session: Session = Depends(get_direct_session)
+    *, session: Session = Depends(get_session)
 ) -> List[AttributeTypeBase]:
     """
     List all available attribute types.
@@ -43,7 +43,7 @@ def list_attributes(
     name="Add an Attribute Type",
 )
 def add_attribute_type(
-    data: MutableAttributeTypeFields, *, session: Session = Depends(get_direct_session)
+    data: MutableAttributeTypeFields, *, session: Session = Depends(get_session)
 ) -> AttributeTypeBase:
     """
     Add a new attribute type
@@ -71,7 +71,7 @@ def add_attribute_type(
     return attribute_type
 
 
-def default_attribute_types(session: Session = Depends(get_direct_session)):
+def default_attribute_types(session: Session = Depends(get_session)):
     """
     Loads all the column attribute types that are supported by the system
     by default into the database.
