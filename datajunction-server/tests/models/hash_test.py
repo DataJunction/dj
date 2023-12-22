@@ -18,5 +18,5 @@ def test_hash() -> None:
     table = Table(id=1, database=database, table="table")
     assert table in {table}
 
-    column = Column(id=1, name="test", type=ct.IntegerType(), table=table)
+    column = Column(id=1, name="test", type=ct.IntegerType())
     assert column in {column}

@@ -4,7 +4,7 @@ from typing import Dict, Optional, Tuple
 
 import pytest
 from sqlalchemy import select
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 import datajunction_server.sql.parsing.types as ct
 from datajunction_server.construction.build import build_node
@@ -35,7 +35,7 @@ async def test_build_node(node_name: str, db_id: int, request):
     ] = request.getfixturevalue("build_expectation")
     succeeds, expected = build_expectation[node_name][db_id]
     node = next(
-        construction_session.exec(
+        construction_session.execute(
             select(Node).filter(Node.name == node_name),
         ),
     )[0]
@@ -62,7 +62,7 @@ async def test_build_metric_with_dimensions_aggs(request):
     """
     construction_session: Session = request.getfixturevalue("construction_session")
     num_comments_mtc: Node = next(
-        construction_session.exec(
+        construction_session.execute(
             select(Node).filter(Node.name == "basic.num_comments"),
         ),
     )[0]
@@ -96,7 +96,7 @@ def test_build_metric_with_required_dimensions(request):
     """
     construction_session: Session = request.getfixturevalue("construction_session")
     num_comments_mtc: Node = next(
-        construction_session.exec(
+        construction_session.execute(
             select(Node).filter(Node.name == "basic.num_comments_bnd"),
         ),
     )[0]
@@ -133,7 +133,7 @@ async def test_raise_on_build_without_required_dimension_column(request):
     """
     construction_session: Session = request.getfixturevalue("construction_session")
     primary_key: AttributeType = next(
-        construction_session.exec(
+        construction_session.execute(
             select(AttributeType).filter(AttributeType.name == "primary_key"),
         ),
     )[0]
@@ -216,7 +216,7 @@ async def test_build_metric_with_dimensions_filters(request):
     """
     construction_session: Session = request.getfixturevalue("construction_session")
     num_comments_mtc: Node = next(
-        construction_session.exec(
+        construction_session.execute(
             select(Node).filter(Node.name == "basic.num_comments"),
         ),
     )[0]

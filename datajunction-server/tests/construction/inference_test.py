@@ -2,7 +2,7 @@
 
 # pylint: disable=W0621,C0325
 import pytest
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.errors import DJException
 from datajunction_server.sql.parsing import ast

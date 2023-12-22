@@ -4,7 +4,7 @@ Tests for ``datajunction_server.sql.functions``.
 """
 
 import pytest
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 import datajunction_server.sql.functions as F
 import datajunction_server.sql.parsing.types as ct

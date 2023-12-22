@@ -6,7 +6,7 @@ from typing import Callable, List, Optional
 # pylint: disable=C0302
 import duckdb
 import pytest
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from datajunction_server.internal.access.authorization import validate_access

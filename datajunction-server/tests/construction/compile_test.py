@@ -4,7 +4,7 @@ Tests for compiling nodes
 
 # pylint: disable=too-many-lines
 import pytest
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.errors import DJException
 from datajunction_server.models import NodeRevision
