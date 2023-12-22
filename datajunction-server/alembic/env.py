@@ -5,9 +5,10 @@ Environment for Alembic migrations.
 
 from logging.config import fileConfig
 
-from sqlmodel import SQLModel, create_engine
+from sqlmodel import create_engine
 
 from alembic import context
+from datajunction_server.database.connection import Base
 from datajunction_server.models import (
     Catalog,
     Column,
@@ -35,7 +36,7 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-target_metadata = SQLModel.metadata
+target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
