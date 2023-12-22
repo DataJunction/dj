@@ -3,9 +3,8 @@ Tests for ``datajunction_server.models.database``.
 """
 
 import datajunction_server.sql.parsing.types as ct
-from datajunction_server.models.column import Column
-from datajunction_server.models.database import Database
-from datajunction_server.models.table import Table
+from datajunction_server.database.column import Column
+from datajunction_server.database.database import Database, Table
 
 
 def test_hash() -> None:

@@ -8,17 +8,23 @@ from logging.config import fileConfig
 from sqlmodel import create_engine
 
 from alembic import context
-from datajunction_server.database.connection import Base
-from datajunction_server.models import (
+from datajunction_server.database import (
+    AttributeType,
     Catalog,
     Column,
+    ColumnAttribute,
     Database,
     Engine,
     History,
+    Measure,
+    Node,
     NodeRevision,
+    Partition,
     Table,
+    Tag,
     User,
 )
+from datajunction_server.database.connection import Base
 from datajunction_server.utils import get_settings
 
 settings = get_settings()

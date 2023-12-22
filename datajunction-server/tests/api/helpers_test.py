@@ -6,8 +6,8 @@ import pytest
 from sqlalchemy.orm import Session
 
 from datajunction_server.api import helpers
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.errors import DJException
-from datajunction_server.models import NodeRevision
 from datajunction_server.models.node import NodeStatus
 
 

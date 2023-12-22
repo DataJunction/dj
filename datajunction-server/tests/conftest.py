@@ -18,12 +18,14 @@ from sqlalchemy.pool import StaticPool
 
 from datajunction_server.api.main import app
 from datajunction_server.config import Settings
+from datajunction_server.database.column import Column
 from datajunction_server.database.connection import Base
+from datajunction_server.database.engine import Engine
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJQueryServiceClientException
-from datajunction_server.models import Column, Engine
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate, QueryWithResults
-from datajunction_server.models.user import OAuthProvider, User
+from datajunction_server.models.user import OAuthProvider
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (

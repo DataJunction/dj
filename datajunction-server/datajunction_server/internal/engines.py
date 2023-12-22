@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
-from datajunction_server.models import Engine
+from datajunction_server.database.engine import Engine
 
 
 def get_engine(session: Session, name: str, version: str) -> Engine:

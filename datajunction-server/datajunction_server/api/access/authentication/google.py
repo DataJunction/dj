@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from starlette.responses import RedirectResponse
 
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.basic import get_password_hash
 from datajunction_server.internal.access.authentication.google import (
@@ -25,7 +26,7 @@ from datajunction_server.internal.access.authentication.google import (
     get_authorize_url,
 )
 from datajunction_server.internal.access.authentication.tokens import create_token
-from datajunction_server.models.user import OAuthProvider, User
+from datajunction_server.models.user import OAuthProvider
 from datajunction_server.utils import Settings, get_session, get_settings
 
 _logger = logging.getLogger(__name__)

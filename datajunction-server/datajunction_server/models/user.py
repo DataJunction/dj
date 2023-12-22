@@ -1,41 +1,11 @@
 """
 Models for users and auth
 """
-from enum import Enum
 from typing import Optional
 
-import sqlalchemy as sa
 from pydantic import BaseModel
-from sqlalchemy.orm import Mapped, mapped_column
 
-from datajunction_server.database.connection import Base
-
-
-class OAuthProvider(Enum):
-    """
-    Support oauth providers
-    """
-
-    BASIC = "basic"
-    GITHUB = "github"
-    GOOGLE = "google"
-
-
-class User(Base):  # pylint: disable=too-few-public-methods
-    """Class for a user."""
-
-    __tablename__ = "users"
-
-    id: Mapped[int] = mapped_column(
-        sa.BigInteger().with_variant(sa.Integer, "sqlite"),
-        primary_key=True,
-    )
-    username: Mapped[str]
-    password: Mapped[Optional[str]]
-    email: Mapped[Optional[str]]
-    name: Mapped[Optional[str]]
-    oauth_provider: Mapped[OAuthProvider] = mapped_column(sa.Enum(OAuthProvider))
-    is_admin: Mapped[bool] = mapped_column(default=False)
+from datajunction_server.database.user import OAuthProvider
 
 
 class UserOutput(BaseModel):

@@ -6,11 +6,11 @@ from typing import List, Optional
 from pydantic.class_validators import root_validator
 from pydantic.main import BaseModel
 
+from datajunction_server.database.node import Node
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
     MetricMetadataOutput,
-    Node,
 )
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.transpilation import get_transpilation_plugin

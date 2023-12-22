@@ -4,14 +4,10 @@ Tests for ``datajunction_server.sql.dag``.
 
 from sqlalchemy.orm import Session
 
-from datajunction_server.models.column import Column
-from datajunction_server.models.database import Database
-from datajunction_server.models.node import (
-    DimensionAttributeOutput,
-    Node,
-    NodeRevision,
-    NodeType,
-)
+from datajunction_server.database.column import Column
+from datajunction_server.database.database import Database
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.models.node import DimensionAttributeOutput, NodeType
 from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.parsing.types import IntegerType, StringType
 

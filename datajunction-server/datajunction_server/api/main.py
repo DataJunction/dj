@@ -47,13 +47,13 @@ from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.api.catalogs import default_catalog
 from datajunction_server.api.graphql.main import graphql_app
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.column import Column
+from datajunction_server.database.database import Table
+from datajunction_server.database.engine import Engine
+from datajunction_server.database.node import NodeRevision
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
-from datajunction_server.models.catalog import Catalog
-from datajunction_server.models.column import Column
-from datajunction_server.models.engine import Engine
-from datajunction_server.models.node import NodeRevision
-from datajunction_server.models.table import Table
-from datajunction_server.models.user import User
 from datajunction_server.utils import get_settings
 
 if TYPE_CHECKING:  # pragma: no cover

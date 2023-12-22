@@ -10,8 +10,9 @@ import requests
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
+from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.basic import get_password_hash
-from datajunction_server.models.user import OAuthProvider, User
+from datajunction_server.models.user import OAuthProvider
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)

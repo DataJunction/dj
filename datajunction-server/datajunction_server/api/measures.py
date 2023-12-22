@@ -10,13 +10,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from datajunction_server.api.helpers import get_node_by_name
+from datajunction_server.database.column import Column
+from datajunction_server.database.measure import Measure
 from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.models import Column
 from datajunction_server.models.measure import (
     CreateMeasure,
     EditMeasure,
-    Measure,
     MeasureOutput,
     NodeColumn,
 )

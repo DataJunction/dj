@@ -8,9 +8,9 @@ import strawberry
 from sqlalchemy import select
 from strawberry.types import Info
 
-from datajunction_server.models.catalog import Catalog
 from datajunction_server.models.catalog import CatalogInfo as _CatalogInfo
 
+from ...database.catalog import Catalog
 from .engines import EngineInfo  # pylint: disable=W0611
 
 

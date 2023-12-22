@@ -16,6 +16,9 @@ from datajunction_server.api.helpers import (
     deactivate_node,
     get_node_namespace,
 )
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -32,13 +35,8 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_restored,
     validate_namespace,
 )
-from datajunction_server.models import User, access
-from datajunction_server.models.node import (
-    NamespaceOutput,
-    Node,
-    NodeMinimumDetail,
-    NodeNamespace,
-)
+from datajunction_server.models import access
+from datajunction_server.models.node import NamespaceOutput, NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import get_current_user, get_session, get_settings
 

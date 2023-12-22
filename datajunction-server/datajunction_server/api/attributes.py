@@ -9,11 +9,11 @@ from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.errors import DJAlreadyExistsException, DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.attribute import (
     RESERVED_ATTRIBUTE_NAMESPACE,
-    AttributeType,
     AttributeTypeBase,
     MutableAttributeTypeFields,
 )

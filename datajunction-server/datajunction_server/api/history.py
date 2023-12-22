@@ -10,8 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from datajunction_server.api.helpers import get_history
+from datajunction_server.database.history import EntityType, History
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.models.history import EntityType, History, HistoryOutput
+from datajunction_server.models.history import HistoryOutput
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)

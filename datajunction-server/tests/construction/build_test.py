@@ -8,13 +8,9 @@ from sqlalchemy.orm import Session
 
 import datajunction_server.sql.parsing.types as ct
 from datajunction_server.construction.build import build_node
-from datajunction_server.models import (
-    AttributeType,
-    Column,
-    ColumnAttribute,
-    NodeRevision,
-)
-from datajunction_server.models.node import Node
+from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
+from datajunction_server.database.column import Column
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import amenable_name
 

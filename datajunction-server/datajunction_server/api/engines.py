@@ -9,9 +9,10 @@ from fastapi import Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from datajunction_server.database.engine import Engine
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.engines import get_engine
-from datajunction_server.models.engine import Engine, EngineInfo
+from datajunction_server.models.engine import EngineInfo
 from datajunction_server.utils import get_session, get_settings
 
 settings = get_settings()

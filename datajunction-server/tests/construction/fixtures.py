@@ -7,14 +7,10 @@ from typing import Dict, List, Optional, Tuple
 import pytest
 from sqlalchemy.orm import Session
 
-from datajunction_server.models import (
-    AttributeType,
-    Column,
-    ColumnAttribute,
-    Database,
-    NodeRevision,
-)
-from datajunction_server.models.node import Node
+from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
+from datajunction_server.database.column import Column
+from datajunction_server.database.database import Database
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.types import (
     DateType,

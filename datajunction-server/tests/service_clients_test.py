@@ -7,8 +7,8 @@ import pytest
 from pytest_mock import MockerFixture
 from requests import Request
 
+from datajunction_server.database.engine import Engine
 from datajunction_server.errors import DJQueryServiceClientException
-from datajunction_server.models import Engine
 from datajunction_server.models.materialization import (
     GenericMaterializationInput,
     MaterializationStrategy,

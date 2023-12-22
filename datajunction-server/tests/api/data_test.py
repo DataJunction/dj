@@ -11,9 +11,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from datajunction_server.database.node import Node
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
-from datajunction_server.models.node import AvailabilityStateBase, Node
+from datajunction_server.models.node import AvailabilityStateBase
 
 
 class TestDataForNode:

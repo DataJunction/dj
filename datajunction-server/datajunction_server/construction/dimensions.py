@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.build import get_measures_query
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.models import NodeRevision, access
+from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
