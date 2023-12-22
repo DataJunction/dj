@@ -508,3 +508,20 @@ class NodeRevision(Base):  # pylint: disable=too-few-public-methods
         not actually copy anything
         """
         return None
+
+
+class NodeColumns(Base):  # pylint: disable=too-few-public-methods
+    """
+    Join table for node columns.
+    """
+
+    __tablename__ = "nodecolumns"
+
+    node_id: Mapped[int] = mapped_column(
+        ForeignKey("noderevision.id"),
+        primary_key=True,
+    )
+    column_id: Mapped[int] = mapped_column(
+        ForeignKey("column.id"),
+        primary_key=True,
+    )

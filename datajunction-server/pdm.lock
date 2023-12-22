@@ -3,10 +3,9 @@
 
 [metadata]
 groups = ["default", "test", "uvicorn", "transpilation"]
-cross_platform = true
-static_urls = false
-lock_version = "4.3"
-content_hash = "sha256:43de50c76c02a27bfa1c7dbf14b6c9346fd828fb6535711fd7aea0bfbe681e66"
+strategy = ["cross_platform"]
+lock_version = "4.4.1"
+content_hash = "sha256:d320c788046fc0e247c8829176e00976a1767c0fed6eaf75097c9dd51c203c9a"
 
 [[package]]
 name = "accept-types"
@@ -2196,7 +2195,7 @@ version = "2.0.23"
 requires_python = ">=3.7"
 summary = "Database Abstraction Library"
 dependencies = [
-    "greenlet!=0.4.17; platform_machine == \"aarch64\" or (platform_machine == \"ppc64le\" or (platform_machine == \"x86_64\" or (platform_machine == \"amd64\" or (platform_machine == \"AMD64\" or (platform_machine == \"win32\" or platform_machine == \"WIN32\")))))",
+    "greenlet!=0.4.17; platform_machine == \"win32\" or platform_machine == \"WIN32\" or platform_machine == \"AMD64\" or platform_machine == \"amd64\" or platform_machine == \"x86_64\" or platform_machine == \"ppc64le\" or platform_machine == \"aarch64\"",
     "typing-extensions>=4.2.0",
 ]
 files = [
@@ -2264,20 +2263,6 @@ summary = "An easily customizable SQL parser and transpiler"
 files = [
     {file = "sqlglot-18.0.1-py3-none-any.whl", hash = "sha256:18c85a87e10c1ba23e574350ad51cc4c557564edcf72d3d3194e2e72acc814db"},
     {file = "sqlglot-18.0.1.tar.gz", hash = "sha256:c4fd00c1026ddceb0f699271f68c6f792fbd36be6dd6101b2b8868838abfaa65"},
-]
-
-[[package]]
-name = "sqlmodel"
-version = "0.0.14"
-requires_python = ">=3.7,<4.0"
-summary = "SQLModel, SQL databases in Python, designed for simplicity, compatibility, and robustness."
-dependencies = [
-    "SQLAlchemy<2.1.0,>=2.0.0",
-    "pydantic<3.0.0,>=1.10.13",
-]
-files = [
-    {file = "sqlmodel-0.0.14-py3-none-any.whl", hash = "sha256:accea3ff5d878e41ac439b11e78613ed61ce300cfcb860e87a2d73d4884cbee4"},
-    {file = "sqlmodel-0.0.14.tar.gz", hash = "sha256:0bff8fc94af86b44925aa813f56cf6aabdd7f156b73259f2f60692c6a64ac90e"},
 ]
 
 [[package]]
@@ -2429,7 +2414,7 @@ dependencies = [
     "python-dotenv>=0.13",
     "pyyaml>=5.1",
     "uvicorn==0.23.2",
-    "uvloop!=0.15.0,!=0.15.1,>=0.14.0; sys_platform != \"win32\" and (sys_platform != \"cygwin\" and platform_python_implementation != \"PyPy\")",
+    "uvloop!=0.15.0,!=0.15.1,>=0.14.0; (sys_platform != \"cygwin\" and sys_platform != \"win32\") and platform_python_implementation != \"PyPy\"",
     "watchfiles>=0.13",
     "websockets>=10.4",
 ]

@@ -888,6 +888,7 @@ def refresh_source_node(
         catalog_id=current_revision.catalog_id,
         schema_=current_revision.schema_,
         table=current_revision.table,
+        status=current_revision.status,
     )
     new_revision.version = str(old_version.next_major_version())
     new_revision.columns = [

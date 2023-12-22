@@ -3,8 +3,8 @@ Roads database examples loaded into DJ test session
 """
 from typing import Dict, Union
 
+from datajunction_server.database.column import Column
 from datajunction_server.errors import DJException, DJQueryServiceClientException
-from datajunction_server.models import Column
 from datajunction_server.models.query import QueryWithResults
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 from datajunction_server.typing import QueryState

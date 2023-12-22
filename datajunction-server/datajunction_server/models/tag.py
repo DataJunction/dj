@@ -5,10 +5,6 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from pydantic import Extra
 from pydantic.main import BaseModel
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql.schema import ForeignKey
-
-from datajunction_server.database.connection import Base
 
 if TYPE_CHECKING:
     pass
@@ -21,7 +17,7 @@ class MutableTagFields(BaseModel):
 
     description: str
     display_name: Optional[str]
-    tag_metadata: Dict[str, Any]
+    tag_metadata: Optional[Dict[str, Any]] = {}
 
     class Config:  # pylint: disable=too-few-public-methods
         """
@@ -38,23 +34,6 @@ class ImmutableTagFields(BaseModel):
 
     name: str
     tag_type: str
-
-
-class TagNodeRelationship(Base):  # pylint: disable=too-few-public-methods
-    """
-    Join table between tags and nodes
-    """
-
-    __tablename__ = "tagnoderelationship"
-
-    tag_id: Mapped[int] = mapped_column(
-        ForeignKey("tag.id"),
-        primary_key=True,
-    )
-    node_id: Mapped[int] = mapped_column(
-        ForeignKey("node.id"),
-        primary_key=True,
-    )
 
 
 class CreateTag(ImmutableTagFields, MutableTagFields):
