@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import sqlalchemy as sa
-from sqlalchemy import JSON, String
+from sqlalchemy import JSON, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.connection import Base
@@ -26,7 +26,7 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
     name: Mapped[str] = mapped_column(String, unique=True)
     tag_type: Mapped[str]
     description: Mapped[Optional[str]]
-    display_name: Mapped[str] = mapped_column(
+    display_name: Mapped[str] = mapped_column(  # pragma: no cover
         String,
         insert_default=lambda context: labelize(context.current_parameters.get("name")),
     )
@@ -37,4 +37,21 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
         secondary="tagnoderelationship",
         primaryjoin="TagNodeRelationship.tag_id==Tag.id",
         secondaryjoin="TagNodeRelationship.node_id==Node.id",
+    )
+
+
+class TagNodeRelationship(Base):  # pylint: disable=too-few-public-methods
+    """
+    Join table between tags and nodes
+    """
+
+    __tablename__ = "tagnoderelationship"
+
+    tag_id: Mapped[int] = mapped_column(
+        ForeignKey("tag.id"),
+        primary_key=True,
+    )
+    node_id: Mapped[int] = mapped_column(
+        ForeignKey("node.id"),
+        primary_key=True,
     )

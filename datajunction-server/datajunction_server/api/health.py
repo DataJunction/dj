@@ -45,8 +45,8 @@ async def database_health(session: Session) -> HealthcheckStatus:
             HealthcheckStatus.OK if result == (1,) else HealthcheckStatus.FAILED
         )
         return health_status
-    except Exception:  # pylint: disable=broad-except
-        return HealthcheckStatus.FAILED
+    except Exception:  # pylint: disable=broad-except  # pragma: no cover
+        return HealthcheckStatus.FAILED  # pragma: no cover
 
 
 @router.get("/health/", response_model=List[HealthCheck])

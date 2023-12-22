@@ -10,8 +10,12 @@ from sqlalchemy.sql.operators import is_
 
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
-from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
-from datajunction_server.models.base import NodeColumns
+from datajunction_server.database.node import (
+    Node,
+    NodeColumns,
+    NodeRelationship,
+    NodeRevision,
+)
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR, get_settings

@@ -34,7 +34,6 @@ dependencies = [
     "requests<=2.29.0,>=2.28.2",
     "rich<14.0.0,>=13.3.3",
     "sqlalchemy>=2",
-    "sqlmodel<1.0.0,>=0.0.8",
     "sqlparse<1.0.0,>=0.4.3",
     "sse-starlette>=1.6.0",
     "yarl<2.0.0,>=1.8.2",

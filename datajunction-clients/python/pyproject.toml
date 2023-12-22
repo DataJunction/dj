@@ -2,6 +2,7 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.pdm]
 [tool.pdm.build]
 includes = ["datajunction"]
 
@@ -20,6 +21,7 @@ dependencies = [
     "fastapi-cache2>=0.2.1",
     "pyyaml>=6.0.1",
     "rich>=13.7.0",
+    "pytest-xdist>=3.5.0",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.md"

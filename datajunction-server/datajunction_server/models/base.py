@@ -2,11 +2,6 @@
 A base SQLModel class with a default naming convention.
 """
 import sqlalchemy as sa
-from sqlalchemy.engine.default import DefaultExecutionContext
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql.schema import ForeignKey
-
-from datajunction_server.database.connection import Base
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -40,32 +35,3 @@ def labelize(value: str) -> str:
     """
 
     return value.replace(".", ": ").replace("_", " ").title()
-
-
-def generate_display_name(column_name: str):
-    """
-    SQLAlchemy helper to generate a human-readable version of the given system name.
-    """
-
-    def default_function(context: DefaultExecutionContext) -> str:
-        column_value = context.current_parameters.get(column_name)
-        return labelize(column_value)
-
-    return default_function
-
-
-class NodeColumns(Base):  # pylint: disable=too-few-public-methods
-    """
-    Join table for node columns.
-    """
-
-    __tablename__ = "nodecolumns"
-
-    node_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
-        primary_key=True,
-    )
-    column_id: Mapped[int] = mapped_column(
-        ForeignKey("column.id"),
-        primary_key=True,
-    )
