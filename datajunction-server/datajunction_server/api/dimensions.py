@@ -5,7 +5,7 @@ import logging
 from typing import List, Optional, Union
 
 from fastapi import Depends, Query
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from typing_extensions import Annotated
 
 from datajunction_server.api.helpers import get_node_by_name
@@ -22,7 +22,7 @@ from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
     get_nodes_with_dimension,
 )
-from datajunction_server.utils import get_current_user, get_session, get_settings
+from datajunction_server.utils import get_current_user, get_direct_session, get_settings
 
 settings = get_settings()
 _logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ router = SecureAPIRouter(tags=["dimensions"])
 def list_dimensions(
     prefix: Optional[str] = None,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -56,7 +56,7 @@ def find_nodes_with_dimension(
     name: str,
     *,
     node_type: Annotated[Union[List[NodeType], None], Query()] = Query(None),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -89,7 +89,7 @@ def find_nodes_with_common_dimensions(
     dimension: Annotated[Union[List[str], None], Query()] = Query(None),
     node_type: Annotated[Union[List[NodeType], None], Query()] = Query(None),
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,

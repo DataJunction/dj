@@ -3,7 +3,7 @@ Dimensions-related query building
 """
 from typing import List, Optional
 
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.build import get_measures_query

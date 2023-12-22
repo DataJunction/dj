@@ -4,15 +4,17 @@ Models for tables.
 
 from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
 
-from sqlmodel import Field, Relationship
+from pydantic import Field
+from pydantic.main import BaseModel
+from sqlalchemy import BigInteger, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql.schema import ForeignKey
 
-from datajunction_server.models.base import BaseSQLModel
+from datajunction_server.database.connection import Base
 
 if TYPE_CHECKING:
-    from datajunction_server.models.catalog import Catalog
     from datajunction_server.models.column import Column
     from datajunction_server.models.database import Database
-    from datajunction_server.models.node import NodeRevision
 
 
 class TableYAML(TypedDict, total=False):
@@ -26,24 +28,24 @@ class TableYAML(TypedDict, total=False):
     cost: float
 
 
-class TableColumns(BaseSQLModel, table=True):  # type: ignore
+class TableColumns(Base):  # type: ignore  # pylint: disable=too-few-public-methods
     """
     Join table for table columns.
     """
 
-    table_id: Optional[int] = Field(
-        default=None,
-        foreign_key="table.id",
+    __tablename__ = "tablecolumns"
+
+    table_id: Mapped[int] = mapped_column(
+        ForeignKey("table.id"),
         primary_key=True,
     )
-    column_id: Optional[int] = Field(
-        default=None,
-        foreign_key="column.id",
+    column_id: Mapped[int] = mapped_column(
+        ForeignKey("column.id"),
         primary_key=True,
     )
 
 
-class TableBase(BaseSQLModel):
+class TableBase(BaseModel):  # pylint: disable=too-few-public-methods
     """
     A base table.
     """
@@ -53,25 +55,32 @@ class TableBase(BaseSQLModel):
     cost: float = 1.0
 
 
-class Table(TableBase, table=True):  # type: ignore
+class Table(Base):  # type: ignore
     """
     A table with data.
 
     Nodes can have data in multiple tables, in different databases.
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    __tablename__ = "table"
 
-    database_id: int = Field(foreign_key="database.id")
-    database: "Database" = Relationship(back_populates="tables")
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+    )
 
-    columns: List["Column"] = Relationship(
-        link_model=TableColumns,
-        sa_relationship_kwargs={
-            "primaryjoin": "Table.id==TableColumns.table_id",
-            "secondaryjoin": "Column.id==TableColumns.column_id",
-            "cascade": "all, delete",
-        },
+    schema_: Mapped[Optional[str]] = mapped_column(default=None, name="schema")
+    table: Mapped[str]
+    cost: Mapped[float] = mapped_column(default=1.0)
+
+    database_id: Mapped[int] = mapped_column(ForeignKey("database.id"))
+    database: Mapped["Database"] = relationship("Database", back_populates="tables")
+
+    columns: Mapped[List["Column"]] = relationship(
+        secondary="tablecolumns",
+        primaryjoin="Table.id==TableColumns.table_id",
+        secondaryjoin="Column.id==TableColumns.column_id",
+        cascade="all, delete",
     )
 
     def identifier(
@@ -91,7 +100,7 @@ class Table(TableBase, table=True):  # type: ignore
         return hash(self.id)
 
 
-class CreateColumn(BaseSQLModel):
+class CreateColumn(BaseModel):
     """
     A column creation request
     """

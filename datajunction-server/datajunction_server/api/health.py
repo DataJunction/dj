@@ -5,11 +5,12 @@ Application healthchecks.
 from typing import List
 
 from fastapi import APIRouter, Depends
+from pydantic.main import BaseModel
 from sqlalchemy import select
-from sqlmodel import Session, SQLModel
+from sqlalchemy.orm import Session
 
 from datajunction_server.enum import StrEnum
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_direct_session, get_settings
 
 settings = get_settings()
 
@@ -25,7 +26,7 @@ class HealthcheckStatus(StrEnum):
     FAILED = "failed"
 
 
-class HealthCheck(SQLModel):
+class HealthCheck(BaseModel):
     """
     A healthcheck response.
     """
@@ -49,7 +50,9 @@ async def database_health(session: Session) -> HealthcheckStatus:
 
 
 @router.get("/health/", response_model=List[HealthCheck])
-async def health_check(session: Session = Depends(get_session)) -> List[HealthCheck]:
+async def health_check(
+    session: Session = Depends(get_direct_session),
+) -> List[HealthCheck]:
     """
     Healthcheck for services.
     """

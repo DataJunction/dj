@@ -4,19 +4,18 @@ Models for databases.
 
 from datetime import datetime, timezone
 from functools import partial
-from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict
+from typing import TYPE_CHECKING, Dict, List, TypedDict
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, String
-from sqlalchemy.sql.schema import Column as SqlaColumn
+from pydantic.main import BaseModel
+from sqlalchemy import JSON, BigInteger, DateTime, Integer, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy_utils import UUIDType
-from sqlmodel import JSON, Field, Relationship
 
-from datajunction_server.models.base import BaseSQLModel
+from datajunction_server.database.connection import Base
 from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
-    from datajunction_server.models.catalog import Catalog
     from datajunction_server.models.table import Table
 
 
@@ -28,7 +27,20 @@ DatabaseYAML = TypedDict(
 )
 
 
-class Database(BaseSQLModel, table=True):  # type: ignore
+class DatabaseOutput(BaseModel):
+    """
+    Output for database information.
+    """
+
+    uuid: UUID
+    name: str
+    description: str
+    URI: str
+    async_: bool
+    cost: float
+
+
+class Database(Base):  # pylint: disable=too-few-public-methods
     """
     A database.
 
@@ -43,29 +55,34 @@ class Database(BaseSQLModel, table=True):  # type: ignore
 
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    uuid: UUID = Field(default_factory=uuid4, sa_column=SqlaColumn(UUIDType()))
+    __tablename__ = "database"
 
-    name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
-    description: str = ""
-    URI: str
-    extra_params: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
-    read_only: bool = True
-    async_: bool = Field(default=False, sa_column_kwargs={"name": "async"})
-    cost: float = 1.0
-
-    created_at: UTCDatetime = Field(
-        sa_column=SqlaColumn(DateTime(timezone=True)),
-        default_factory=partial(datetime.now, timezone.utc),
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
     )
-    updated_at: UTCDatetime = Field(
-        sa_column=SqlaColumn(DateTime(timezone=True)),
-        default_factory=partial(datetime.now, timezone.utc),
+    uuid: Mapped[UUID] = mapped_column(UUIDType(), default=uuid4)
+
+    name: Mapped[str] = mapped_column(String, unique=True)
+    description: Mapped[str] = mapped_column(String, default="")
+    URI: Mapped[str]
+    extra_params: Mapped[Dict] = mapped_column(JSON, default={})
+    read_only: Mapped[bool] = mapped_column(default=True)
+    async_: Mapped[bool] = mapped_column(default=False, name="async")
+    cost: Mapped[float] = mapped_column(default=1.0)
+
+    created_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        default=partial(datetime.now, timezone.utc),
+    )
+    updated_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        default=partial(datetime.now, timezone.utc),
     )
 
-    tables: List["Table"] = Relationship(
+    tables: Mapped[List["Table"]] = relationship(
         back_populates="database",
-        sa_relationship_kwargs={"cascade": "all, delete"},
+        cascade="all, delete",
     )
 
     def __hash__(self) -> int:

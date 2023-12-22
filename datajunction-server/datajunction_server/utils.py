@@ -12,8 +12,8 @@ from typing import Iterator, List, Optional
 
 from dotenv import load_dotenv
 from rich.logging import RichHandler
-from sqlalchemy.engine import Engine
-from sqlmodel import Session, create_engine
+from sqlalchemy.engine import Engine, create_engine
+from sqlalchemy.orm import Session, sessionmaker
 from starlette.requests import Request
 from yarl import URL
 
@@ -66,14 +66,17 @@ def get_engine() -> Engine:
     return engine
 
 
-def get_session() -> Iterator[Session]:
+def get_direct_session() -> Iterator[Session]:
     """
-    Per-request session.
+    Direct SQLAlchemy session.
     """
     engine = get_engine()
-
-    with Session(engine, autoflush=False) as session:  # pragma: no cover
+    session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = session_local()
+    try:
         yield session
+    finally:
+        session.close()
 
 
 def get_query_service_client() -> Optional[QueryServiceClient]:

@@ -5,8 +5,8 @@ Tag related APIs.
 from typing import List, Optional
 
 from fastapi import Depends
-from sqlalchemy.orm import joinedload
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 
 from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
@@ -15,7 +15,7 @@ from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.tag import CreateTag, Tag, TagOutput, UpdateTag
-from datajunction_server.utils import get_current_user, get_session, get_settings
+from datajunction_server.utils import get_current_user, get_direct_session, get_settings
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["tags"])
@@ -29,7 +29,7 @@ def get_tags_by_name(
     Retrieves a list of tags by name
     """
     statement = select(Tag).where(Tag.name.in_(names))  # type: ignore  # pylint: disable=no-member
-    tags = session.exec(statement).all()
+    tags = session.execute(statement).scalars().all()
     difference = set(names) - {tag.name for tag in tags}
     if difference:
         raise DJDoesNotExistException(
@@ -52,7 +52,7 @@ def get_tag_by_name(
         statement = statement.with_for_update().execution_options(
             populate_existing=True,
         )
-    tag = session.exec(statement).one_or_none()
+    tag = session.execute(statement).scalars().one_or_none()
     if not tag and raise_if_not_exists:
         raise DJException(  # pragma: no cover
             message=(f"A tag with name `{name}` does not exist."),
@@ -63,7 +63,7 @@ def get_tag_by_name(
 
 @router.get("/tags/", response_model=List[TagOutput])
 def list_tags(
-    tag_type: Optional[str] = None, *, session: Session = Depends(get_session)
+    tag_type: Optional[str] = None, *, session: Session = Depends(get_direct_session)
 ) -> List[TagOutput]:
     """
     List all available tags.
@@ -71,11 +71,13 @@ def list_tags(
     statement = select(Tag)
     if tag_type:
         statement = statement.where(Tag.tag_type == tag_type)
-    return session.exec(statement).all()
+    return session.execute(statement).scalars().all()
 
 
-@router.get("/tags/{name}/", response_model=Tag)
-def get_a_tag(name: str, *, session: Session = Depends(get_session)) -> Tag:
+@router.get("/tags/{name}/", response_model=TagOutput)
+def get_a_tag(
+    name: str, *, session: Session = Depends(get_direct_session)
+) -> TagOutput:
     """
     Return a tag by name.
     """
@@ -83,12 +85,12 @@ def get_a_tag(name: str, *, session: Session = Depends(get_session)) -> Tag:
     return tag
 
 
-@router.post("/tags/", response_model=Tag, status_code=201)
+@router.post("/tags/", response_model=TagOutput, status_code=201)
 def create_a_tag(
     data: CreateTag,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
-) -> Tag:
+) -> TagOutput:
     """
     Create a tag.
     """
@@ -98,7 +100,13 @@ def create_a_tag(
             message=f"A tag with name `{data.name}` already exists!",
             http_status_code=500,
         )
-    tag = Tag.from_orm(data)
+    tag = Tag(
+        name=data.name,
+        tag_type=data.tag_type,
+        description=data.description,
+        display_name=data.display_name,
+        tag_metadata=data.tag_metadata,
+    )
     session.add(tag)
     session.add(
         History(
@@ -113,13 +121,13 @@ def create_a_tag(
     return tag
 
 
-@router.patch("/tags/{name}/", response_model=Tag)
+@router.patch("/tags/{name}/", response_model=TagOutput)
 def update_a_tag(
     name: str,
     data: UpdateTag,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
-) -> Tag:
+) -> TagOutput:
     """
     Update a tag.
     """
@@ -137,7 +145,7 @@ def update_a_tag(
             entity_type=EntityType.TAG,
             entity_name=tag.name,
             activity_type=ActivityType.UPDATE,
-            details=data,
+            details=data.dict(),
             user=current_user.username if current_user else None,
         ),
     )
@@ -151,13 +159,13 @@ def list_nodes_for_a_tag(
     name: str,
     node_type: Optional[NodeType] = None,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
 ) -> List[NodeMinimumDetail]:
     """
     Find nodes tagged with the tag, filterable by node type.
     """
     statement = select(Tag).where(Tag.name == name).options(joinedload(Tag.nodes))
-    tag = session.exec(statement).unique().one_or_none()
+    tag = session.execute(statement).unique().scalars().one_or_none()
     if not tag:
         raise DJException(
             message=f"A tag with name `{name}` does not exist.",

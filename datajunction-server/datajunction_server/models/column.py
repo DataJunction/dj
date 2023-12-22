@@ -3,26 +3,22 @@ Models for columns.
 """
 from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
 
-from pydantic import root_validator
-from sqlalchemy import TypeDecorator
-from sqlalchemy.sql.schema import Column as SqlaColumn
+from pydantic.main import BaseModel
+from sqlalchemy import BigInteger, Integer, TypeDecorator
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql.schema import ForeignKey
 from sqlalchemy.types import String, Text
-from sqlmodel import Field, Relationship
 
+from datajunction_server.database.connection import Base
 from datajunction_server.enum import StrEnum
-from datajunction_server.models.base import (
-    BaseSQLModel,
-    NodeColumns,
-    generate_display_name,
-    labelize,
-)
+from datajunction_server.models.base import labelize
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
     from datajunction_server.models.attribute import ColumnAttribute
     from datajunction_server.models.measure import Measure
     from datajunction_server.models.node import Node, NodeRevision
-    from datajunction_server.models.partition import Partition, PartitionType
+    from datajunction_server.models.partition import Partition
 
 
 class ColumnYAML(TypedDict, total=False):
@@ -54,7 +50,7 @@ class ColumnTypeDecorator(TypeDecorator):  # pylint: disable=abstract-method
         return parse_rule(value, "dataType")
 
 
-class Column(BaseSQLModel, table=True):  # type: ignore
+class Column(Base):  # type: ignore
     """
     A column.
 
@@ -62,59 +58,45 @@ class Column(BaseSQLModel, table=True):  # type: ignore
     with ``Node`` objects).
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str
-    display_name: Optional[str] = Field(
-        sa_column=SqlaColumn(
-            "display_name",
-            String,
-            default=generate_display_name("name"),
-        ),
-    )
-    type: ColumnType = Field(sa_column=SqlaColumn(ColumnTypeDecorator, nullable=True))
+    __tablename__ = "column"
 
-    dimension_id: Optional[int] = Field(default=None, foreign_key="node.id")
-    dimension: "Node" = Relationship(
-        sa_relationship_kwargs={
-            "lazy": "joined",
-        },
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
     )
-    dimension_column: Optional[str] = None
-    node_revisions: List["NodeRevision"] = Relationship(
+    name: Mapped[str] = mapped_column()
+    display_name: Mapped[str] = mapped_column(
+        String,
+        insert_default=lambda context: labelize(context.current_parameters.get("name")),
+    )
+    type: Mapped[ColumnType] = mapped_column(ColumnTypeDecorator, nullable=True)
+
+    dimension_id: Mapped[Optional[int]] = mapped_column(ForeignKey("node.id"))
+    dimension: Mapped[Optional["Node"]] = relationship(
+        "Node",
+        lazy="joined",
+    )
+    dimension_column: Mapped[Optional[str]] = mapped_column()
+    node_revisions: Mapped[List["NodeRevision"]] = relationship(
         back_populates="columns",
-        link_model=NodeColumns,
-        sa_relationship_kwargs={
-            "lazy": "select",
-        },
+        secondary="nodecolumns",
+        lazy="select",
     )
-    attributes: List["ColumnAttribute"] = Relationship(
+    attributes: Mapped[List["ColumnAttribute"]] = relationship(
         back_populates="column",
-        sa_relationship_kwargs={
-            "lazy": "joined",
-        },
+        lazy="joined",
+        cascade="all,delete",
     )
-    measure_id: Optional[int] = Field(default=None, foreign_key="measures.id")
-    measure: "Measure" = Relationship(back_populates="columns")
+    measure_id: Mapped[Optional[int]] = mapped_column(ForeignKey("measures.id"))
+    measure: Mapped["Measure"] = relationship(back_populates="columns")
 
-    partition_id: Optional[int] = Field(default=None, foreign_key="partition.id")
-    partition: "Partition" = Relationship(
-        sa_relationship_kwargs={
-            "lazy": "joined",
-            "primaryjoin": "Column.id==Partition.column_id",
-            "uselist": False,
-            "cascade": "all,delete",
-        },
+    partition_id: Mapped[Optional[int]] = mapped_column(ForeignKey("partition.id"))
+    partition: Mapped["Partition"] = relationship(
+        lazy="joined",
+        primaryjoin="Column.id==Partition.column_id",
+        uselist=False,
+        cascade="all,delete",
     )
-
-    @root_validator(pre=True)
-    def default_display_name(cls, values):  # pylint: disable=no-self-argument
-        """
-        Populate unset display name based on the column's name
-        """
-        values = dict(values)
-        if "display_name" not in values or not values["display_name"]:
-            values["display_name"] = labelize(values["name"])
-        return values
 
     def identifier(self) -> Tuple[str, ColumnType]:
         """
@@ -156,17 +138,6 @@ class Column(BaseSQLModel, table=True):  # type: ignore
     def __hash__(self) -> int:
         return hash(self.id)
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
-        arbitrary_types_allowed = True
-
-    @root_validator
-    def type_string(cls, values):  # pylint: disable=no-self-argument
-        """
-        Processes the column type
-        """
-        values["type"] = str(values.get("type"))
-        return values
-
     def node_revision(self) -> Optional["NodeRevision"]:
         """
         Returns the most recent node revision associated with this column
@@ -181,7 +152,7 @@ class Column(BaseSQLModel, table=True):  # type: ignore
         return f"{self.node_revision().name}.{self.name}"  # type: ignore
 
 
-class ColumnAttributeInput(BaseSQLModel):
+class ColumnAttributeInput(BaseModel):
     """
     A column attribute input
     """

@@ -10,27 +10,29 @@ from functools import partial
 from http import HTTPStatus
 from typing import Any, Dict, List, Optional, Tuple
 
+import sqlalchemy as sa
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
 from pydantic import root_validator, validator
-from sqlalchemy import JSON, DateTime, String
+from pydantic.fields import Field
+from sqlalchemy import JSON, DateTime, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlalchemy.sql.schema import UniqueConstraint
+from sqlalchemy.sql.schema import ForeignKey
 from sqlalchemy.types import Enum
-from sqlmodel import Field, Relationship, SQLModel
 from typing_extensions import TypedDict
 
+from datajunction_server.database.connection import Base
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJError, DJInvalidInputException
 from datajunction_server.models.base import (
-    BaseSQLModel,
-    NodeColumns,
-    generate_display_name,
     labelize,
+    sqlalchemy_enum_with_name,
+    sqlalchemy_enum_with_value,
 )
-from datajunction_server.models.catalog import Catalog
+from datajunction_server.models.catalog import Catalog, CatalogInfo
 from datajunction_server.models.column import Column, ColumnYAML
-from datajunction_server.models.database import Database
+from datajunction_server.models.database import DatabaseOutput
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
     Materialization,
@@ -38,7 +40,7 @@ from datajunction_server.models.materialization import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionOutput, PartitionType
-from datajunction_server.models.tag import Tag, TagNodeRelationship
+from datajunction_server.models.tag import Tag, TagOutput
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR, Version, amenable_name
@@ -60,51 +62,47 @@ class BuildCriteria:
     for_materialization: bool = False
 
 
-class NodeRelationship(BaseSQLModel, table=True):  # type: ignore
+class NodeRelationship(Base):  # pylint: disable=too-few-public-methods
     """
     Join table for self-referential many-to-many relationships between nodes.
     """
 
-    parent_id: Optional[int] = Field(
-        default=None,
-        foreign_key="node.id",
+    __tablename__ = "noderelationship"
+
+    parent_id: Mapped[int] = mapped_column(
+        ForeignKey("node.id"),
         primary_key=True,
     )
 
     # This will default to `latest`, which points to the current version of the node,
     # or it can be a specific version.
-    parent_version: Optional[str] = Field(
-        default="latest",
-    )
+    parent_version: Mapped[Optional[str]] = mapped_column(default="latest")
 
-    child_id: Optional[int] = Field(
-        default=None,
-        foreign_key="noderevision.id",
+    child_id: Mapped[int] = mapped_column(
+        ForeignKey("noderevision.id"),
         primary_key=True,
     )
 
 
-class CubeRelationship(BaseSQLModel, table=True):  # type: ignore
+class CubeRelationship(Base):  # pylint: disable=too-few-public-methods
     """
     Join table for many-to-many relationships between cube nodes and metric/dimension nodes.
     """
 
     __tablename__ = "cube"
 
-    cube_id: Optional[int] = Field(
-        default=None,
-        foreign_key="noderevision.id",
+    cube_id: Mapped[int] = mapped_column(
+        ForeignKey("noderevision.id"),
         primary_key=True,
     )
 
-    cube_element_id: Optional[int] = Field(
-        default=None,
-        foreign_key="column.id",
+    cube_element_id: Mapped[int] = mapped_column(
+        ForeignKey("column.id"),
         primary_key=True,
     )
 
 
-class BoundDimensionsRelationship(BaseSQLModel, table=True):  # type: ignore
+class BoundDimensionsRelationship(Base):  # pylint: disable=too-few-public-methods
     """
     Join table for many-to-many relationships between metric nodes
     and parent nodes for dimensions that are required.
@@ -112,15 +110,13 @@ class BoundDimensionsRelationship(BaseSQLModel, table=True):  # type: ignore
 
     __tablename__ = "metric_required_dimensions"
 
-    metric_id: Optional[int] = Field(
-        default=None,
-        foreign_key="noderevision.id",
+    metric_id: Mapped[int] = mapped_column(
+        ForeignKey("noderevision.id"),
         primary_key=True,
     )
 
-    bound_dimension_id: Optional[int] = Field(
-        default=None,
-        foreign_key="column.id",
+    bound_dimension_id: Mapped[int] = mapped_column(
+        ForeignKey("column.id"),
         primary_key=True,
     )
 
@@ -165,76 +161,65 @@ class NodeYAML(TypedDict, total=False):
     columns: Dict[str, ColumnYAML]
 
 
-class NodeBase(BaseSQLModel):
+class NodeBase(BaseModel):
     """
     A base node.
     """
 
-    name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
-    type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
-    display_name: Optional[str] = Field(
-        sa_column=SqlaColumn(
-            "display_name",
-            String,
-            default=generate_display_name("name"),
-        ),
-        max_length=100,
-    )
+    name: str
+    type: NodeType
+    display_name: Optional[str] = Field(max_length=100)
 
 
-class NodeRevisionBase(BaseSQLModel):
+class NodeRevisionBase(BaseModel):
     """
     A base node revision.
     """
 
-    name: str = Field(
-        sa_column=SqlaColumn("name", String, unique=False),
-        foreign_key="node.name",
-    )
-    display_name: Optional[str] = Field(
-        sa_column=SqlaColumn(
-            "display_name",
-            String,
-            default=generate_display_name("name"),
-        ),
-    )
-    type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
+    name: str
+    display_name: Optional[str]
+    type: NodeType
     description: str = ""
     query: Optional[str] = None
     mode: NodeMode = NodeMode.PUBLISHED
 
 
-class MissingParent(BaseSQLModel, table=True):  # type: ignore
+class MissingParent(Base):  # pylint: disable=too-few-public-methods
     """
     A missing parent node
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(sa_column=SqlaColumn("name", String))
-    created_at: UTCDatetime = Field(
-        sa_column=SqlaColumn(DateTime(timezone=True)),
-        default_factory=partial(datetime.now, timezone.utc),
+    __tablename__ = "missingparent"
+
+    id: Mapped[int] = mapped_column(
+        sa.BigInteger().with_variant(sa.Integer, "sqlite"),
+        primary_key=True,
+    )
+    name: Mapped[str] = mapped_column(String)
+    created_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        default=partial(datetime.now, timezone.utc),
     )
 
 
-class NodeMissingParents(BaseSQLModel, table=True):  # type: ignore
+class NodeMissingParents(Base):  # pylint: disable=too-few-public-methods
     """
     Join table for missing parents
     """
 
-    missing_parent_id: Optional[int] = Field(
-        default=None,
-        foreign_key="missingparent.id",
+    __tablename__ = "nodemissingparents"
+
+    missing_parent_id: Mapped[int] = mapped_column(
+        ForeignKey("missingparent.id"),
         primary_key=True,
     )
-    referencing_node_id: Optional[int] = Field(
-        default=None,
-        foreign_key="noderevision.id",
+    referencing_node_id: Mapped[int] = mapped_column(
+        ForeignKey("noderevision.id"),
         primary_key=True,
     )
 
 
-class TemporalPartitionRange(BaseSQLModel):
+class TemporalPartitionRange(BaseModel):
     """
     Any temporal partition range with a min and max partition.
     """
@@ -372,32 +357,20 @@ class AvailabilityStateBase(TemporalPartitionRange):
 
     # An ordered list of categorical partitions like ["country", "group_id"]
     # or ["region_id", "age_group"]
-    categorical_partitions: Optional[List[str]] = Field(
-        sa_column=SqlaColumn("categorical_partitions", JSON),
-        default=[],
-    )
+    categorical_partitions: Optional[List[str]] = Field(default=[])
 
     # An ordered list of temporal partitions like ["date", "hour"] or ["date"]
-    temporal_partitions: Optional[List[str]] = Field(
-        sa_column=SqlaColumn("temporal_partitions", JSON),
-        default=[],
-    )
+    temporal_partitions: Optional[List[str]] = Field(default=[])
 
     # Node-level temporal ranges
-    min_temporal_partition: Optional[List[str]] = Field(
-        sa_column=SqlaColumn(JSON),
-        default=[],
-    )
-    max_temporal_partition: Optional[List[str]] = Field(
-        sa_column=SqlaColumn(JSON),
-        default=[],
-    )
+    min_temporal_partition: Optional[List[str]] = Field(default=[])
+    max_temporal_partition: Optional[List[str]] = Field(default=[])
 
     # Partition-level availabilities
-    partitions: Optional[List[PartitionAvailability]] = Field(
-        sa_column=SqlaColumn("partitions", JSON),
-        default=[],
-    )
+    partitions: Optional[List[PartitionAvailability]] = Field(default=[])
+
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
     @validator("partitions")
     def validate_partitions(cls, partitions):  # pylint: disable=no-self-argument
@@ -466,15 +439,55 @@ class AvailabilityStateBase(TemporalPartitionRange):
         return self
 
 
-class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
+class AvailabilityState(Base):  # pylint: disable=too-few-public-methods
     """
     The availability of materialized data for a node
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    updated_at: UTCDatetime = Field(
-        sa_column=SqlaColumn(DateTime(timezone=True)),
-        default_factory=partial(datetime.now, timezone.utc),
+    __tablename__ = "availabilitystate"
+
+    id: Mapped[int] = mapped_column(
+        sa.BigInteger().with_variant(sa.Integer, "sqlite"),
+        primary_key=True,
+    )
+
+    catalog: Mapped[str]
+    schema_: Mapped[Optional[str]] = mapped_column(nullable=True)
+    table: Mapped[str]
+    valid_through_ts: Mapped[int]
+    url: Mapped[Optional[str]]
+
+    # An ordered list of categorical partitions like ["country", "group_id"]
+    # or ["region_id", "age_group"]
+    categorical_partitions: Mapped[Optional[List[str]]] = mapped_column(
+        JSON,
+        default=[],
+    )
+
+    # An ordered list of temporal partitions like ["date", "hour"] or ["date"]
+    temporal_partitions: Mapped[Optional[List[str]]] = mapped_column(
+        JSON,
+        default=[],
+    )
+
+    # Node-level temporal ranges
+    min_temporal_partition: Mapped[Optional[List[str]]] = mapped_column(
+        JSON,
+        default=[],
+    )
+    max_temporal_partition: Mapped[Optional[List[str]]] = mapped_column(
+        JSON,
+        default=[],
+    )
+
+    # Partition-level availabilities
+    partitions: Mapped[Optional[List[PartitionAvailability]]] = mapped_column(
+        JSON,
+        default=[],
+    )
+    updated_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        default=partial(datetime.now, timezone.utc),
     )
 
     def is_available(
@@ -498,7 +511,7 @@ class MetricDirection(StrEnum):
     NEUTRAL = "neutral"
 
 
-class Unit(BaseSQLModel):
+class Unit(BaseModel):
     """
     Metric unit
     """
@@ -525,6 +538,9 @@ class Unit(BaseSQLModel):
         if not label and values:
             return labelize(values["name"])
         return label
+
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
 
 class MetricUnit(enum.Enum):
@@ -565,7 +581,7 @@ class MetricUnit(enum.Enum):
     YEAR = Unit(name="year", category="time", abbreviation="y")
 
 
-class MetricMetadataOptions(BaseSQLModel):
+class MetricMetadataOptions(BaseModel):
     """
     Metric metadata options list
     """
@@ -574,7 +590,7 @@ class MetricMetadataOptions(BaseSQLModel):
     units: List[Unit]
 
 
-class MetricMetadataBase(BaseSQLModel):  # type: ignore
+class MetricMetadataBase(BaseModel):  # type: ignore
     """
     Base class for additional metric metadata
     """
@@ -589,12 +605,28 @@ class MetricMetadataBase(BaseSQLModel):  # type: ignore
     )
 
 
-class MetricMetadata(MetricMetadataBase, table=True):  # type: ignore
+class MetricMetadata(Base):  # pylint: disable=too-few-public-methods
     """
     Additional metric metadata
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    __tablename__ = "metricmetadata"
+
+    id: Mapped[int] = mapped_column(
+        sa.BigInteger().with_variant(sa.Integer, "sqlite"),
+        primary_key=True,
+    )
+
+    direction: Mapped[Optional[MetricDirection]] = mapped_column(
+        Enum(MetricDirection),
+        default=MetricDirection.NEUTRAL,
+        nullable=True,
+    )
+    unit: Mapped[Optional[MetricUnit]] = mapped_column(
+        Enum(MetricUnit),
+        default=MetricUnit.UNKNOWN,
+        nullable=True,
+    )
 
     @classmethod
     def from_input(cls, input_data: "MetricMetadataInput") -> "MetricMetadata":
@@ -607,7 +639,7 @@ class MetricMetadata(MetricMetadataBase, table=True):  # type: ignore
         )
 
 
-class MetricMetadataOutput(BaseSQLModel):
+class MetricMetadataOutput(BaseModel):
     """
     Metric metadata output
     """
@@ -615,8 +647,11 @@ class MetricMetadataOutput(BaseSQLModel):
     direction: Optional[MetricDirection]
     unit: Optional[Unit]
 
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
-class MetricMetadataInput(BaseSQLModel):
+
+class MetricMetadataInput(BaseModel):
     """
     Metric metadata output
     """
@@ -625,207 +660,237 @@ class MetricMetadataInput(BaseSQLModel):
     unit: Optional[str]
 
 
-class NodeAvailabilityState(BaseSQLModel, table=True):  # type: ignore
+class NodeAvailabilityState(Base):  # pylint: disable=too-few-public-methods
     """
     Join table for availability state
     """
 
-    availability_id: Optional[int] = Field(
-        default=None,
-        foreign_key="availabilitystate.id",
+    __tablename__ = "nodeavailabilitystate"
+
+    availability_id: Mapped[int] = mapped_column(
+        ForeignKey("availabilitystate.id"),
         primary_key=True,
     )
-    node_id: Optional[int] = Field(
-        default=None,
-        foreign_key="noderevision.id",
+    node_id: Mapped[int] = mapped_column(
+        ForeignKey("noderevision.id"),
         primary_key=True,
     )
 
 
-class NodeNamespace(SQLModel, table=True):  # type: ignore
+class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
     """
     A node namespace
     """
 
-    namespace: str = Field(nullable=False, unique=True, primary_key=True)
-    deactivated_at: UTCDatetime = Field(
+    __tablename__ = "nodenamespace"
+
+    namespace: Mapped[str] = mapped_column(
+        nullable=False,
+        unique=True,
+        primary_key=True,
+    )
+    deactivated_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
-        sa_column=SqlaColumn(DateTime(timezone=True)),
         default=None,
     )
 
 
-class Node(NodeBase, table=True):  # type: ignore
+class Node(Base):  # pylint: disable=too-few-public-methods
     """
     Node that acts as an umbrella for all node revisions
     """
 
+    __tablename__ = "node"
     __table_args__ = (
         UniqueConstraint("name", "namespace", name="unique_node_namespace_name"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    namespace: Optional[str] = "default"
-    current_version: str = Field(default=str(DEFAULT_DRAFT_VERSION))
-    created_at: UTCDatetime = Field(
-        sa_column=SqlaColumn(DateTime(timezone=True)),
-        default_factory=partial(datetime.now, timezone.utc),
+    id: Mapped[int] = mapped_column(
+        sa.BigInteger().with_variant(sa.Integer, "sqlite"),
+        primary_key=True,
     )
-    deactivated_at: UTCDatetime = Field(
+    name: Mapped[str] = mapped_column(String, unique=True)
+    type: Mapped[NodeType] = mapped_column(sqlalchemy_enum_with_name(NodeType))
+    display_name: Mapped[Optional[str]]
+    namespace: Mapped[str] = mapped_column(String, default="default")
+    current_version: Mapped[str] = mapped_column(
+        String,
+        default=str(DEFAULT_DRAFT_VERSION),
+    )
+    created_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        insert_default=partial(datetime.now, timezone.utc),
+    )
+    deactivated_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
-        sa_column=SqlaColumn(DateTime(timezone=True)),
         default=None,
     )
 
-    revisions: List["NodeRevision"] = Relationship(back_populates="node")
-    current: "NodeRevision" = Relationship(
-        sa_relationship_kwargs={
-            "primaryjoin": "and_(Node.id==NodeRevision.node_id, "
-            "Node.current_version == NodeRevision.version)",
-            "viewonly": True,
-            "uselist": False,
-        },
+    revisions: Mapped[List["NodeRevision"]] = relationship(
+        "NodeRevision",
+        back_populates="node",
+        primaryjoin="Node.id==NodeRevision.node_id",
+    )
+    current: Mapped["NodeRevision"] = relationship(
+        "NodeRevision",
+        primaryjoin=(
+            "and_(Node.id==NodeRevision.node_id, "
+            "Node.current_version == NodeRevision.version)"
+        ),
+        viewonly=True,
+        uselist=False,
     )
 
-    children: List["NodeRevision"] = Relationship(
+    children: Mapped[List["NodeRevision"]] = relationship(
         back_populates="parents",
-        link_model=NodeRelationship,
-        sa_relationship_kwargs={
-            "primaryjoin": "Node.id==NodeRelationship.parent_id",
-            "secondaryjoin": "NodeRevision.id==NodeRelationship.child_id",
-        },
+        secondary="noderelationship",
+        primaryjoin="Node.id==NodeRelationship.parent_id",
+        secondaryjoin="NodeRevision.id==NodeRelationship.child_id",
     )
 
-    tags: List["Tag"] = Relationship(
+    tags: Mapped[List["Tag"]] = relationship(
         back_populates="nodes",
-        link_model=TagNodeRelationship,
-        sa_relationship_kwargs={
-            "primaryjoin": "TagNodeRelationship.node_id==Node.id",
-            "secondaryjoin": "TagNodeRelationship.tag_id==Tag.id",
-        },
+        secondary="tagnoderelationship",
+        primaryjoin="TagNodeRelationship.node_id==Node.id",
+        secondaryjoin="TagNodeRelationship.tag_id==Tag.id",
     )
 
     def __hash__(self) -> int:
         return hash(self.id)
 
 
-class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
+class NodeRevision(Base):  # pylint: disable=too-few-public-methods
     """
     A node revision.
     """
 
+    __tablename__ = "noderevision"
     __table_args__ = (UniqueConstraint("version", "node_id"),)
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    version: Optional[str] = Field(default=str(DEFAULT_DRAFT_VERSION))
-    node_id: Optional[int] = Field(foreign_key="node.id")
-    node: Node = Relationship(back_populates="revisions")
-    catalog_id: int = Field(default=None, foreign_key="catalog.id")
-    catalog: Catalog = Relationship(
-        back_populates="node_revisions",
-        sa_relationship_kwargs={
-            "lazy": "joined",
-        },
+    id: Mapped[int] = mapped_column(
+        sa.BigInteger().with_variant(sa.Integer, "sqlite"),
+        primary_key=True,
     )
-    schema_: Optional[str] = None
-    table: Optional[str] = None
+
+    name: Mapped[str] = mapped_column(
+        ForeignKey("node.name"),
+        unique=False,
+    )
+
+    display_name: Mapped[str] = mapped_column(
+        String,
+        insert_default=lambda context: labelize(context.current_parameters.get("name")),
+    )
+    type: Mapped[NodeType] = mapped_column(sqlalchemy_enum_with_name(NodeType))
+    description: Mapped[str] = mapped_column(String, default="")
+    query: Mapped[Optional[str]] = mapped_column(String)
+    mode: Mapped[NodeMode] = mapped_column(
+        sqlalchemy_enum_with_value(NodeMode),
+        default=NodeMode.PUBLISHED.value,
+    )
+
+    version: Mapped[Optional[str]] = mapped_column(
+        String,
+        default=str(DEFAULT_DRAFT_VERSION),
+    )
+    node_id: Mapped[int] = mapped_column(ForeignKey("node.id"))
+    node: Mapped[Node] = relationship(
+        "Node",
+        back_populates="revisions",
+        foreign_keys=[node_id],
+    )
+    catalog_id: Mapped[Optional[int]] = mapped_column(ForeignKey("catalog.id"))
+    catalog: Mapped[Optional[Catalog]] = relationship(
+        "Catalog",
+        back_populates="node_revisions",
+        lazy="joined",
+    )
+    schema_: Mapped[Optional[str]] = mapped_column(String, default=None)
+    table: Mapped[Optional[str]] = mapped_column(String, default=None)
 
     # A list of columns from the metric's parent that
     # are required for grouping when using the metric
-    required_dimensions: List["Column"] = Relationship(
-        link_model=BoundDimensionsRelationship,
-        sa_relationship_kwargs={
-            "primaryjoin": "NodeRevision.id==BoundDimensionsRelationship.metric_id",
-            "secondaryjoin": "Column.id==BoundDimensionsRelationship.bound_dimension_id",
-        },
+    required_dimensions: Mapped[List["Column"]] = relationship(
+        secondary="metric_required_dimensions",
+        primaryjoin="NodeRevision.id==BoundDimensionsRelationship.metric_id",
+        secondaryjoin="Column.id==BoundDimensionsRelationship.bound_dimension_id",
     )
 
-    metric_metadata_id: Optional[int] = Field(
-        default=None,
-        foreign_key="metricmetadata.id",
+    metric_metadata_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("metricmetadata.id"),
     )
-    metric_metadata: Optional[MetricMetadata] = Relationship(
-        sa_relationship_kwargs={
-            "primaryjoin": "NodeRevision.metric_metadata_id==MetricMetadata.id",
-            "cascade": "all, delete",
-            "uselist": False,
-        },
+    metric_metadata: Mapped[Optional[MetricMetadata]] = relationship(
+        primaryjoin="NodeRevision.metric_metadata_id==MetricMetadata.id",
+        cascade="all, delete",
+        uselist=False,
     )
 
     # A list of metric columns and dimension columns, only used by cube nodes
-    cube_elements: List["Column"] = Relationship(
-        link_model=CubeRelationship,
-        sa_relationship_kwargs={
-            "primaryjoin": "NodeRevision.id==CubeRelationship.cube_id",
-            "secondaryjoin": "Column.id==CubeRelationship.cube_element_id",
-            "lazy": "joined",
-        },
-    )
-    status: NodeStatus = NodeStatus.INVALID
-    updated_at: UTCDatetime = Field(
-        sa_column=SqlaColumn(DateTime(timezone=True)),
-        default_factory=partial(datetime.now, timezone.utc),
+    cube_elements: Mapped[List["Column"]] = relationship(
+        secondary="cube",
+        primaryjoin="NodeRevision.id==CubeRelationship.cube_id",
+        secondaryjoin="Column.id==CubeRelationship.cube_element_id",
+        lazy="joined",
     )
 
-    parents: List["Node"] = Relationship(
+    status: Mapped[NodeStatus] = mapped_column(
+        sqlalchemy_enum_with_value(NodeStatus),
+        default=NodeStatus.INVALID,
+    )
+    updated_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        insert_default=partial(datetime.now, timezone.utc),
+    )
+
+    parents: Mapped[List["Node"]] = relationship(
         back_populates="children",
-        link_model=NodeRelationship,
-        sa_relationship_kwargs={
-            "primaryjoin": "NodeRevision.id==NodeRelationship.child_id",
-            "secondaryjoin": "Node.id==NodeRelationship.parent_id",
-        },
+        secondary="noderelationship",
+        primaryjoin="NodeRevision.id==NodeRelationship.child_id",
+        secondaryjoin="Node.id==NodeRelationship.parent_id",
     )
 
-    parent_links: List[NodeRelationship] = Relationship(
-        sa_relationship_kwargs={
-            "primaryjoin": "NodeRevision.id==NodeRelationship.child_id",
-            "cascade": "all, delete",
-        },
+    parent_links: Mapped[List[NodeRelationship]] = relationship(
+        primaryjoin="NodeRevision.id==NodeRelationship.child_id",
+        cascade="all, delete",
     )
 
-    missing_parents: List[MissingParent] = Relationship(
-        link_model=NodeMissingParents,
-        sa_relationship_kwargs={
-            "primaryjoin": "NodeRevision.id==NodeMissingParents.referencing_node_id",
-            "secondaryjoin": "MissingParent.id==NodeMissingParents.missing_parent_id",
-            "cascade": "all, delete",
-        },
+    missing_parents: Mapped[List[MissingParent]] = relationship(
+        secondary="nodemissingparents",
+        primaryjoin="NodeRevision.id==NodeMissingParents.referencing_node_id",
+        secondaryjoin="MissingParent.id==NodeMissingParents.missing_parent_id",
+        cascade="all, delete",
     )
 
-    columns: List["Column"] = Relationship(
-        link_model=NodeColumns,
-        sa_relationship_kwargs={
-            "primaryjoin": "NodeRevision.id==NodeColumns.node_id",
-            "secondaryjoin": "Column.id==NodeColumns.column_id",
-            "cascade": "all, delete",
-        },
+    columns: Mapped[List["Column"]] = relationship(
+        secondary="nodecolumns",
+        primaryjoin="NodeRevision.id==NodeColumns.node_id",
+        secondaryjoin="Column.id==NodeColumns.column_id",
+        cascade="all, delete",
     )
 
     # The availability of materialized data needs to be stored on the NodeRevision
     # level in order to support pinned versions, where a node owner wants to pin
     # to a particular upstream node version.
-    availability: Optional[AvailabilityState] = Relationship(
-        link_model=NodeAvailabilityState,
-        sa_relationship_kwargs={
-            "primaryjoin": "NodeRevision.id==NodeAvailabilityState.node_id",
-            "secondaryjoin": "AvailabilityState.id==NodeAvailabilityState.availability_id",
-            "cascade": "all, delete",
-            "uselist": False,
-        },
+    availability: Mapped[Optional[AvailabilityState]] = relationship(
+        secondary="nodeavailabilitystate",
+        primaryjoin="NodeRevision.id==NodeAvailabilityState.node_id",
+        secondaryjoin="AvailabilityState.id==NodeAvailabilityState.availability_id",
+        cascade="all, delete",
+        uselist=False,
     )
 
     # Nodes of type SOURCE will not have this property as their materialization
     # is not managed as a part of this service
-    materializations: List["Materialization"] = Relationship(
+    materializations: Mapped[List["Materialization"]] = relationship(
         back_populates="node_revision",
-        sa_relationship_kwargs={
-            "cascade": "all, delete-orphan",
-        },
+        cascade="all, delete-orphan",
     )
 
-    lineage: List[Dict] = Field(
+    lineage: Mapped[List[Dict]] = mapped_column(
+        JSON,
         default=[],
-        sa_column=SqlaColumn(JSON),
     )
 
     def __hash__(self) -> int:
@@ -1016,7 +1081,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         return None
 
 
-class ImmutableNodeFields(BaseSQLModel):
+class ImmutableNodeFields(BaseModel):
     """
     Node fields that cannot be changed
     """
@@ -1025,7 +1090,7 @@ class ImmutableNodeFields(BaseSQLModel):
     namespace: str = "default"
 
 
-class MutableNodeFields(BaseSQLModel):
+class MutableNodeFields(BaseModel):
     """
     Node fields that can be changed.
     """
@@ -1036,7 +1101,7 @@ class MutableNodeFields(BaseSQLModel):
     primary_key: Optional[List[str]]
 
 
-class MutableNodeQueryField(BaseSQLModel):
+class MutableNodeQueryField(BaseModel):
     """
     Query field for node.
     """
@@ -1044,15 +1109,18 @@ class MutableNodeQueryField(BaseSQLModel):
     query: str
 
 
-class NodeNameOutput(SQLModel):
+class NodeNameOutput(BaseModel):
     """
     Node name only
     """
 
     name: str
 
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
-class NodeNameList(SQLModel):
+
+class NodeNameList(BaseModel):
     """
     List of node names
     """
@@ -1060,7 +1128,7 @@ class NodeNameList(SQLModel):
     __root__: List[str]
 
 
-class NodeIndexItem(SQLModel):
+class NodeIndexItem(BaseModel):
     """
     Node details used for indexing purposes
     """
@@ -1071,7 +1139,7 @@ class NodeIndexItem(SQLModel):
     type: NodeType
 
 
-class NodeMinimumDetail(SQLModel):
+class NodeMinimumDetail(BaseModel):
     """
     List of high level node details
     """
@@ -1085,8 +1153,11 @@ class NodeMinimumDetail(SQLModel):
     mode: NodeMode
     updated_at: UTCDatetime
 
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
-class AttributeTypeName(BaseSQLModel):
+
+class AttributeTypeName(BaseModel):
     """
     Attribute type name.
     """
@@ -1094,16 +1165,22 @@ class AttributeTypeName(BaseSQLModel):
     namespace: str
     name: str
 
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
-class AttributeOutput(BaseSQLModel):
+
+class AttributeOutput(BaseModel):
     """
     Column attribute output.
     """
 
     attribute_type: AttributeTypeName
 
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
-class DimensionAttributeOutput(SQLModel):
+
+class DimensionAttributeOutput(BaseModel):
     """
     Dimension attribute output should include the name and type
     """
@@ -1116,7 +1193,7 @@ class DimensionAttributeOutput(SQLModel):
     path: List[str]
 
 
-class ColumnOutput(BaseSQLModel):
+class ColumnOutput(BaseModel):
     """
     A simplified column schema, without ID or dimensions.
     """
@@ -1128,11 +1205,12 @@ class ColumnOutput(BaseSQLModel):
     dimension: Optional[NodeNameOutput]
     partition: Optional[PartitionOutput]
 
-    class Config:  # pylint: disable=too-few-public-methods
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
         """
         Should perform validation on assignment
         """
 
+        orm_mode = True
         validate_assignment = True
 
     _extract_type = validator("type", pre=True, allow_reuse=True)(
@@ -1140,7 +1218,7 @@ class ColumnOutput(BaseSQLModel):
     )
 
 
-class SourceColumnOutput(SQLModel):
+class SourceColumnOutput(BaseModel):
     """
     A column used in creation of a source node
     """
@@ -1150,7 +1228,7 @@ class SourceColumnOutput(SQLModel):
     attributes: Optional[List[AttributeOutput]]
     dimension: Optional[str]
 
-    class Config:  # pylint: disable=too-few-public-methods
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
         """
         Should perform validation on assignment
         """
@@ -1166,7 +1244,7 @@ class SourceColumnOutput(SQLModel):
         return values
 
 
-class SourceNodeFields(BaseSQLModel):
+class SourceNodeFields(BaseModel):
     """
     Source node fields that can be changed.
     """
@@ -1177,7 +1255,7 @@ class SourceNodeFields(BaseSQLModel):
     columns: List["SourceColumnOutput"]
 
 
-class CubeNodeFields(BaseSQLModel):
+class CubeNodeFields(BaseModel):
     """
     Cube-specific fields that can be changed
     """
@@ -1191,7 +1269,7 @@ class CubeNodeFields(BaseSQLModel):
     mode: NodeMode
 
 
-class MetricNodeFields(BaseSQLModel):
+class MetricNodeFields(BaseModel):
     """
     Metric node fields that can be changed
     """
@@ -1249,7 +1327,7 @@ class UpdateNode(
         }.items()
     }
 
-    class Config:  # pylint: disable=too-few-public-methods
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
         """
         Do not allow fields other than the ones defined here.
         """
@@ -1282,19 +1360,19 @@ class OutputModel(BaseModel):
                 yield dict_key, value
 
 
-class TableOutput(SQLModel):
+class TableOutput(BaseModel):
     """
     Output for table information.
     """
 
     id: Optional[int]
-    catalog: Optional[Catalog]
+    catalog: Optional[CatalogInfo]
     schema_: Optional[str]
     table: Optional[str]
-    database: Optional[Database]
+    database: Optional[DatabaseOutput]
 
 
-class NodeRevisionOutput(SQLModel):
+class NodeRevisionOutput(BaseModel):
     """
     Output for a node revision with information about columns and if it is a metric.
     """
@@ -1307,12 +1385,12 @@ class NodeRevisionOutput(SQLModel):
     version: str
     status: NodeStatus
     mode: NodeMode
-    catalog: Optional[Catalog]
+    catalog: Optional[CatalogInfo]
     schema_: Optional[str]
     table: Optional[str]
     description: str = ""
     query: Optional[str] = None
-    availability: Optional[AvailabilityState] = None
+    availability: Optional[AvailabilityStateBase] = None
     columns: List[ColumnOutput]
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]
@@ -1321,6 +1399,7 @@ class NodeRevisionOutput(SQLModel):
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True
+        orm_mode = True
 
 
 class NodeOutput(OutputModel):
@@ -1331,11 +1410,14 @@ class NodeOutput(OutputModel):
     namespace: str
     current: NodeRevisionOutput = PydanticField(flatten=True)
     created_at: UTCDatetime
-    tags: List["Tag"] = []
+    tags: List[TagOutput] = []
     current_version: str
 
+    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+        orm_mode = True
 
-class DAGNodeRevisionOutput(SQLModel):
+
+class DAGNodeRevisionOutput(BaseModel):
     """
     Output for a node revision with information about columns and if it is a metric.
     """
@@ -1348,7 +1430,7 @@ class DAGNodeRevisionOutput(SQLModel):
     version: str
     status: NodeStatus
     mode: NodeMode
-    catalog: Optional[Catalog]
+    catalog: Optional[CatalogInfo]
     schema_: Optional[str]
     table: Optional[str]
     description: str = ""
@@ -1358,6 +1440,7 @@ class DAGNodeRevisionOutput(SQLModel):
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True
+        orm_mode = True
 
 
 class DAGNodeOutput(OutputModel):
@@ -1368,11 +1451,14 @@ class DAGNodeOutput(OutputModel):
     namespace: str
     current: DAGNodeRevisionOutput = PydanticField(flatten=True)
     created_at: UTCDatetime
-    tags: List["Tag"] = []
+    tags: List[TagOutput] = []
     current_version: str
 
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
-class NodeValidation(SQLModel):
+
+class NodeValidation(BaseModel):
     """
     A validation of a provided node definition
     """
@@ -1380,7 +1466,7 @@ class NodeValidation(SQLModel):
     message: str
     status: NodeStatus
     dependencies: List[NodeRevisionOutput]
-    columns: List[Column]
+    columns: List[ColumnOutput]
     errors: List[DJError]
     missing_parents: List[str]
 

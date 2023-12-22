@@ -10,12 +10,12 @@ from urllib.parse import urljoin
 import google_auth_oauthlib.flow
 import requests
 from google.auth.external_account_authorized_user import Credentials
-from sqlmodel import select
+from sqlalchemy import select
 
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.basic import get_password_hash
 from datajunction_server.models.user import OAuthProvider, User
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_direct_session, get_settings
 
 _logger = logging.getLogger(__name__)
 
@@ -81,10 +81,10 @@ def get_google_user(token: str) -> User:
             http_status_code=HTTPStatus.FORBIDDEN,
             message=f"Error retrieving Google user: {response.text}",
         )
-    session = next(get_session())
-    existing_user = session.exec(
+    session = next(get_direct_session())
+    existing_user = session.execute(
         select(User).where(User.email == user_data["login"]),
-    ).one_or_none()
+    ).scalar()
     if existing_user:
         _logger.info("OAuth user found")
         user = existing_user

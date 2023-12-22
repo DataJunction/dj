@@ -7,8 +7,9 @@ from typing import Dict, List, Optional
 
 from fastapi import Depends, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 from sqlalchemy.sql.operators import is_
-from sqlmodel import Session, func, select
 
 from datajunction_server.api.helpers import (
     activate_node,
@@ -39,7 +40,7 @@ from datajunction_server.models.node import (
     NodeNamespace,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import get_current_user, get_session, get_settings
+from datajunction_server.utils import get_current_user, get_direct_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -50,7 +51,7 @@ router = SecureAPIRouter(tags=["namespaces"])
 def create_node_namespace(
     namespace: str,
     include_parents: Optional[bool] = False,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -91,7 +92,7 @@ def create_node_namespace(
     status_code=200,
 )
 def list_namespaces(
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -100,8 +101,11 @@ def list_namespaces(
     """
     List namespaces with the number of nodes contained in them
     """
-    results = session.exec(
-        select(NodeNamespace.namespace, func.count(Node.id).label("num_nodes"))
+    results = session.execute(
+        select(
+            NodeNamespace.namespace,
+            func.count(Node.id).label("num_nodes"),  # pylint: disable=not-callable
+        )
         .join(Node, onclause=NodeNamespace.namespace == Node.namespace, isouter=True)
         .where(
             is_(NodeNamespace.deactivated_at, None),
@@ -123,7 +127,11 @@ def list_namespaces(
     approved_namespaces: List[str] = [
         request.access_object.name for request in approvals
     ]
-    return [record for record in results if record.namespace in approved_namespaces]
+    return [
+        NamespaceOutput(namespace=record.namespace, num_nodes=record.num_nodes)
+        for record in results
+        if record.namespace in approved_namespaces
+    ]
 
 
 @router.get(
@@ -137,7 +145,7 @@ def list_nodes_in_namespace(
         default=None,
         description="Filter the list of nodes to this type",
     ),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
 ) -> List[NodeMinimumDetail]:
     """
     List node names in namespace, filterable to a given type if desired.
@@ -152,7 +160,7 @@ def deactivate_a_namespace(
         default=False,
         description="Cascade the deletion down to the nodes in the namespace",
     ),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -171,7 +179,7 @@ def deactivate_a_namespace(
 
     # If there are no active nodes in the namespace, we can safely deactivate this namespace
     node_list = get_nodes_in_namespace(session, namespace)
-    node_names = [n["name"] for n in node_list]
+    node_names = [node.name for node in node_list]
     if len(node_names) == 0:
         message = f"Namespace `{namespace}` has been deactivated."
         mark_namespace_deactivated(session, node_namespace, message)
@@ -224,7 +232,7 @@ def restore_a_namespace(
         default=False,
         description="Cascade the restore down to the nodes in the namespace",
     ),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -241,7 +249,7 @@ def restore_a_namespace(
         )
 
     node_list = get_nodes_in_namespace(session, namespace, include_deactivated=True)
-    node_names = [n["name"] for n in node_list]
+    node_names = [node.name for node in node_list]
     # If cascade=true is set, we'll restore all nodes in this namespace and then
     # subsequently restore this namespace
     if cascade:
@@ -280,7 +288,7 @@ def hard_delete_node_namespace(
     namespace: str,
     *,
     cascade: bool = False,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -311,7 +319,7 @@ def hard_delete_node_namespace(
 def export_a_namespace(
     namespace: str,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
 ) -> List[Dict]:
     """
     Generates a zip of YAML files for the contents of the given namespace

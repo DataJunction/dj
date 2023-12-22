@@ -1,14 +1,13 @@
 """Partition-related models."""
 from typing import TYPE_CHECKING, List, Optional
 
-from pydantic.class_validators import validator
 from pydantic.main import BaseModel
-from sqlalchemy import JSON
-from sqlalchemy import Column as SqlaColumn
-from sqlmodel import Field, Relationship, SQLModel
+from sqlalchemy import JSON, BigInteger, Enum, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql.schema import ForeignKey
 
+from datajunction_server.database.connection import Base
 from datajunction_server.enum import StrEnum
-from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.column import Column
 from datajunction_server.sql.parsing.types import TimestampType
 
@@ -42,7 +41,7 @@ class Granularity(StrEnum):
     YEAR = "year"
 
 
-class PartitionInput(BaseSQLModel):
+class PartitionInput(BaseModel):
     """
     Expected settings for specifying a partition column
     """
@@ -58,7 +57,7 @@ class PartitionInput(BaseSQLModel):
     format: Optional[str]
 
 
-class Partition(PartitionInput, table=True):  # type: ignore
+class Partition(Base):  # type: ignore  # pylint: disable=too-few-public-methods
     """
     A partition specification consists of a reference to a partition column and a partition type
     (either temporal or categorical). Both partition types indicate how to partition the
@@ -72,15 +71,28 @@ class Partition(PartitionInput, table=True):  # type: ignore
     would yield a date integer from the current processing partition.
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    __tablename__ = "partition"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+    )
+
+    type_: Mapped[PartitionType] = mapped_column(Enum(PartitionType))
+
+    #
+    # Temporal partitions will additionally have the following properties:
+    #
+    # Timestamp granularity
+    granularity: Mapped[Optional[Granularity]] = mapped_column(Enum(Granularity))
+    # Timestamp format
+    format: Mapped[Optional[str]]
 
     # The column reference that this partition is defined on
-    column_id: int = Field(foreign_key="column.id")
-    column: Column = Relationship(
+    column_id: Mapped[int] = mapped_column(ForeignKey("column.id"))
+    column: Mapped[Column] = relationship(
         back_populates="partition",
-        sa_relationship_kwargs={
-            "primaryjoin": "Column.id==Partition.column_id",
-        },
+        primaryjoin="Column.id==Partition.column_id",
     )
 
     def temporal_expression(self, interval: Optional[str] = None):
@@ -139,8 +151,11 @@ class PartitionBackfill(BaseModel):
     values: Optional[List]
     range: Optional[List]
 
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
-class PartitionOutput(SQLModel):
+
+class PartitionOutput(BaseModel):
     """
     Output for partition
     """
@@ -150,8 +165,11 @@ class PartitionOutput(SQLModel):
     granularity: Optional[str]
     expression: Optional[str]
 
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
-class PartitionColumnOutput(SQLModel):
+
+class PartitionColumnOutput(BaseModel):
     """
     Output for partition columns
     """
@@ -162,40 +180,43 @@ class PartitionColumnOutput(SQLModel):
     expression: Optional[str]
 
 
-class Backfill(BaseSQLModel, table=True):  # type: ignore
+class Backfill(Base):  # type: ignore  # pylint: disable=too-few-public-methods
     """
     A backfill run is linked to a materialization config, where users provide the range
     (of a temporal partition) to backfill for the node.
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    __tablename__ = "backfill"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+    )
 
     # The column reference that this partition is defined on
-    materialization_id: int = Field(foreign_key="materialization.id")
-    materialization: "Materialization" = Relationship(
+    materialization_id: Mapped[int] = mapped_column(ForeignKey("materialization.id"))
+    materialization: Mapped["Materialization"] = relationship(
         back_populates="backfills",
-        sa_relationship_kwargs={
-            "primaryjoin": "Materialization.id==Backfill.materialization_id",
-        },
+        primaryjoin="Materialization.id==Backfill.materialization_id",
     )
 
     # Backfilled values and range
-    spec: Optional[PartitionBackfill] = Field(
+    spec: Mapped[Optional[PartitionBackfill]] = mapped_column(
+        JSON,
         default={},
-        sa_column=SqlaColumn(JSON),
     )
 
-    urls: Optional[List[str]] = Field(
+    urls: Mapped[Optional[List[str]]] = mapped_column(
+        JSON,
         default=[],
-        sa_column=SqlaColumn(JSON),
     )
-
-    @validator("spec")
-    def val_spec(
-        cls,
-        val,
-    ):  # pylint: disable=missing-function-docstring,no-self-argument
-        return val.dict()
+    #
+    # @validator("spec")
+    # def val_spec(
+    #     cls,
+    #     val,
+    # ):  # pylint: disable=missing-function-docstring,no-self-argument
+    #     return val.dict()
 
 
 class BackfillOutput(BaseModel):

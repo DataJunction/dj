@@ -3,12 +3,13 @@ Models for columns.
 """
 from typing import Optional
 
-from sqlalchemy.sql.schema import Column as SqlaColumn
+import sqlalchemy as sa
+from pydantic.main import BaseModel
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum
-from sqlmodel import Field, SQLModel
 
+from datajunction_server.database.connection import Base
 from datajunction_server.enum import StrEnum
-from datajunction_server.models.base import BaseSQLModel
 
 
 class Dialect(StrEnum):
@@ -21,19 +22,24 @@ class Dialect(StrEnum):
     DRUID = "druid"
 
 
-class Engine(BaseSQLModel, table=True):  # type: ignore
+class Engine(Base):  # pylint: disable=too-few-public-methods
     """
     A query engine.
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str
-    version: str
-    uri: Optional[str]
-    dialect: Optional[Dialect] = Field(sa_column=SqlaColumn(Enum(Dialect)))
+    __tablename__ = "engine"
+
+    id: Mapped[int] = mapped_column(
+        sa.BigInteger().with_variant(sa.Integer, "sqlite"),
+        primary_key=True,
+    )
+    name: Mapped[str]
+    version: Mapped[str]
+    uri: Mapped[Optional[str]]
+    dialect: Mapped[Optional[Dialect]] = mapped_column(Enum(Dialect))
 
 
-class EngineInfo(SQLModel):
+class EngineInfo(BaseModel):
     """
     Class for engine creation
     """
@@ -43,8 +49,11 @@ class EngineInfo(SQLModel):
     uri: Optional[str]
     dialect: Optional[Dialect]
 
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
-class EngineRef(SQLModel):
+
+class EngineRef(BaseModel):
     """
     Basic reference to an engine
     """

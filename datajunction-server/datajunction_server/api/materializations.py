@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.errors import DJDoesNotExistException, DJException
@@ -25,6 +25,7 @@ from datajunction_server.models.base import labelize
 from datajunction_server.models.history import ActivityType, EntityType, History
 from datajunction_server.models.materialization import (
     MaterializationConfigInfoUnified,
+    MaterializationConfigOutput,
     MaterializationInfo,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
@@ -37,8 +38,8 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
     get_current_user,
+    get_direct_session,
     get_query_service_client,
-    get_session,
     get_settings,
 )
 
@@ -77,7 +78,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     node_name: str,
     data: UpsertMaterialization,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
@@ -220,7 +221,7 @@ def list_node_materializations(
     node_name: str,
     show_deleted: bool = False,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> List[MaterializationConfigInfoUnified]:
     """
@@ -238,10 +239,12 @@ def list_node_materializations(
             )
             if materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME:
                 info.urls = [info.urls[0]]
+            materialization_config_output = MaterializationConfigOutput.from_orm(
+                materialization,
+            )
             materialization = MaterializationConfigInfoUnified(
-                **materialization.dict(),
+                **materialization_config_output.dict(),
                 **info.dict(),
-                backfills=materialization.backfills,
             )
             materializations.append(materialization)
     return materializations
@@ -256,7 +259,7 @@ def deactivate_node_materializations(
     node_name: str,
     materialization_name: str,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> List[MaterializationConfigInfoUnified]:
@@ -313,7 +316,7 @@ def run_materialization_backfill(  # pylint: disable=too-many-locals
     materialization_name: str,
     backfill_spec: PartitionBackfill,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> MaterializationInfo:
@@ -357,7 +360,7 @@ def run_materialization_backfill(  # pylint: disable=too-many-locals
     )
     backfill = Backfill(
         materialization=materialization,
-        spec=backfill_spec,
+        spec=backfill_spec.dict(),
         urls=materialization_output.urls,
     )
     materialization.backfills.append(backfill)

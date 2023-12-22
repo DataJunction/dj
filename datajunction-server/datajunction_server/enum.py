@@ -14,6 +14,9 @@ else:
     class StrEnum(str, enum.Enum):  # pragma: no cover
         """Backwards compatible StrEnum for Python < 3.11"""  # pragma: no cover
 
+        def __repr__(self):
+            return str(self.value)
+
         def __str__(self):
             return str(self.value)
 

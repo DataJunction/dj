@@ -6,33 +6,37 @@ from http import HTTPStatus
 from typing import List
 
 from fastapi import Depends, HTTPException
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models.engine import Engine, EngineInfo
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_direct_session, get_settings
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["engines"])
 
 
 @router.get("/engines/", response_model=List[EngineInfo])
-def list_engines(*, session: Session = Depends(get_session)) -> List[EngineInfo]:
+def list_engines(*, session: Session = Depends(get_direct_session)) -> List[EngineInfo]:
     """
     List all available engines
     """
-    return list(session.exec(select(Engine)))
+    return [
+        EngineInfo.from_orm(engine)
+        for engine in session.execute(select(Engine)).scalars()
+    ]
 
 
 @router.get("/engines/{name}/{version}/", response_model=EngineInfo)
 def get_an_engine(
-    name: str, version: str, *, session: Session = Depends(get_session)
+    name: str, version: str, *, session: Session = Depends(get_direct_session)
 ) -> EngineInfo:
     """
     Return an engine by name and version
     """
-    return get_engine(session, name, version)
+    return EngineInfo.from_orm(get_engine(session, name, version))
 
 
 @router.post(
@@ -44,7 +48,7 @@ def get_an_engine(
 def add_engine(
     data: EngineInfo,
     *,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_direct_session),
 ) -> EngineInfo:
     """
     Add a new engine
@@ -59,9 +63,14 @@ def add_engine(
             detail=f"Engine already exists: `{data.name}` version `{data.version}`",
         )
 
-    engine = Engine.from_orm(data)
+    engine = Engine(
+        name=data.name,
+        version=data.version,
+        uri=data.uri,
+        dialect=data.dialect,
+    )
     session.add(engine)
     session.commit()
     session.refresh(engine)
 
-    return engine
+    return EngineInfo.from_orm(engine)

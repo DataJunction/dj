@@ -7,14 +7,14 @@ from typing import Any, List, Optional
 
 import msgpack
 from pydantic import AnyHttpUrl, validator
-from sqlmodel import Field, SQLModel
+from pydantic.fields import Field
+from pydantic.main import BaseModel
 
 from datajunction_server.enum import IntEnum
-from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.typing import QueryState, Row
 
 
-class BaseQuery(SQLModel):
+class BaseQuery(BaseModel):
     """
     Base class for query models.
     """
@@ -39,7 +39,7 @@ class QueryCreate(BaseQuery):
     async_: bool = False
 
 
-class ColumnMetadata(BaseSQLModel):
+class ColumnMetadata(BaseModel):
     """
     A simple model for column metadata.
     """
@@ -55,7 +55,7 @@ class ColumnMetadata(BaseSQLModel):
         return hash((self.name, self.type))  # pragma: no cover
 
 
-class StatementResults(BaseSQLModel):
+class StatementResults(BaseModel):
     """
     Results for a given statement.
 
@@ -70,7 +70,7 @@ class StatementResults(BaseSQLModel):
     row_count: int = 0
 
 
-class QueryResults(BaseSQLModel):
+class QueryResults(BaseModel):
     """
     Results for a given query.
     """
@@ -78,7 +78,7 @@ class QueryResults(BaseSQLModel):
     __root__: List[StatementResults]
 
 
-class TableRef(BaseSQLModel):
+class TableRef(BaseModel):
     """
     Table reference
     """
@@ -88,7 +88,7 @@ class TableRef(BaseSQLModel):
     table: str
 
 
-class QueryWithResults(BaseSQLModel):
+class QueryWithResults(BaseModel):
     """
     Model for query with results.
     """
