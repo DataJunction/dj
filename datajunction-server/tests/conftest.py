@@ -12,11 +12,13 @@ import pytest
 from cachelib.simple import SimpleCache
 from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
-from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from datajunction_server.api.main import app
 from datajunction_server.config import Settings
+from datajunction_server.database.connection import Base
 from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.models import Column, Engine
 from datajunction_server.models.materialization import MaterializationInfo
@@ -25,8 +27,8 @@ from datajunction_server.models.user import OAuthProvider, User
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
+    get_direct_session,
     get_query_service_client,
-    get_session,
     get_settings,
 )
 
@@ -96,7 +98,7 @@ def session() -> Iterator[Session]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    SQLModel.metadata.create_all(engine)
+    Base.metadata.create_all(engine)
     with Session(engine, autoflush=False) as session:
         yield session
 
@@ -230,7 +232,7 @@ def client(  # pylint: disable=too-many-statements
     def get_settings_override() -> Settings:
         return settings
 
-    app.dependency_overrides[get_session] = get_session_override
+    app.dependency_overrides[get_direct_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
 
     with TestClient(app) as client:
@@ -443,7 +445,7 @@ def client_with_query_service_example_loader(  # pylint: disable=too-many-statem
     def get_settings_override() -> Settings:
         return settings
 
-    app.dependency_overrides[get_session] = get_session_override
+    app.dependency_overrides[get_direct_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
     app.dependency_overrides[
         get_query_service_client
@@ -508,6 +510,11 @@ def mock_user_dj() -> Iterator[None]:
     """
     with patch(
         "datajunction_server.internal.access.authentication.http.get_user",
-        return_value=User(id=1, username="dj", oauth_provider=OAuthProvider.BASIC),
+        return_value=User(
+            id=1,
+            username="dj",
+            oauth_provider=OAuthProvider.BASIC,
+            is_admin=False,
+        ),
     ):
         yield

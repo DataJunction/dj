@@ -8,7 +8,7 @@ import pytest
 
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import DJHTTPBearer
-from datajunction_server.models.user import OAuthProvider, User
+from datajunction_server.models.user import OAuthProvider, UserOutput
 
 EXAMPLE_TOKEN = (
     "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..pMoQFVS0VMSAFsG5X0itfw.Lc"
@@ -79,15 +79,14 @@ def test_dj_http_bearer_w_cookie():
     request = MagicMock()
     request.cookies.get.return_value = EXAMPLE_TOKEN
     asyncio.run(bearer(request))
-    assert request.state.user == User(
-        id=1,
-        username="dj",
-        password=None,
-        email=None,
-        name=None,
-        oauth_provider=OAuthProvider.BASIC,
-        is_admin=False,
-    )
+    assert UserOutput.from_orm(request.state.user).dict() == {
+        "id": 1,
+        "username": "dj",
+        "email": None,
+        "name": None,
+        "oauth_provider": OAuthProvider.BASIC,
+        "is_admin": False,
+    }
 
 
 def test_dj_http_bearer_w_auth_headers():
@@ -99,15 +98,14 @@ def test_dj_http_bearer_w_auth_headers():
     request.cookies.get.return_value = None
     request.headers.get.return_value = f"Bearer {EXAMPLE_TOKEN}"
     asyncio.run(bearer(request))
-    assert request.state.user == User(
-        id=1,
-        username="dj",
-        password=None,
-        email=None,
-        name=None,
-        oauth_provider=OAuthProvider.BASIC,
-        is_admin=False,
-    )
+    assert UserOutput.from_orm(request.state.user).dict() == {
+        "id": 1,
+        "username": "dj",
+        "email": None,
+        "name": None,
+        "oauth_provider": OAuthProvider.BASIC,
+        "is_admin": False,
+    }
 
 
 def test_raise_on_non_jwt_cookie():

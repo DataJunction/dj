@@ -2,7 +2,7 @@
 Tests for ``datajunction_server.sql.dag``.
 """
 
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.models.column import Column
 from datajunction_server.models.database import Database
@@ -12,7 +12,6 @@ from datajunction_server.models.node import (
     NodeRevision,
     NodeType,
 )
-from datajunction_server.models.table import Table
 from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.parsing.types import IntegerType, StringType
 
@@ -27,18 +26,10 @@ def test_get_dimensions(session: Session) -> None:
     dimension_ref = Node(name="B", type=NodeType.DIMENSION, current_version="1")
     dimension = NodeRevision(
         node=dimension_ref,
+        name=dimension_ref.name,
+        type=dimension_ref.type,
         display_name="B",
         version="1",
-        tables=[
-            Table(
-                database=database,
-                table="B",
-                columns=[
-                    Column(name="id", type=IntegerType()),
-                    Column(name="attribute", type=StringType()),
-                ],
-            ),
-        ],
         columns=[
             Column(name="id", type=IntegerType()),
             Column(name="attribute", type=StringType()),
@@ -48,21 +39,13 @@ def test_get_dimensions(session: Session) -> None:
     session.add(dimension)
     session.add(dimension_ref)
 
-    parent_ref = Node(name="A", current_version="1")
+    parent_ref = Node(name="A", current_version="1", type=NodeType.SOURCE)
     parent = NodeRevision(
         node=parent_ref,
+        name=parent_ref.name,
+        type=parent_ref.type,
         display_name="A",
         version="1",
-        tables=[
-            Table(
-                database=database,
-                table="A",
-                columns=[
-                    Column(name="ds", type=StringType()),
-                    Column(name="b_id", type=IntegerType(), dimension=dimension_ref),
-                ],
-            ),
-        ],
         columns=[
             Column(name="ds", type=StringType()),
             Column(name="b_id", type=IntegerType(), dimension=dimension_ref),
@@ -75,6 +58,7 @@ def test_get_dimensions(session: Session) -> None:
     child_ref = Node(name="C", current_version="1", type=NodeType.METRIC)
     child = NodeRevision(
         node=child_ref,
+        name=child_ref.name,
         display_name="C",
         version="1",
         query="SELECT COUNT(*) FROM A",
@@ -93,7 +77,7 @@ def test_get_dimensions(session: Session) -> None:
             node_display_name="B",
             is_primary_key=False,
             type="string",
-            path=[],
+            path=["A.b_id"],
         ),
         DimensionAttributeOutput(
             name="B.id",
@@ -101,6 +85,6 @@ def test_get_dimensions(session: Session) -> None:
             node_display_name="B",
             is_primary_key=False,
             type="int",
-            path=[],
+            path=["A.b_id"],
         ),
     ]

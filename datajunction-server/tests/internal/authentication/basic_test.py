@@ -3,7 +3,7 @@ Tests for basic auth helper functions
 """
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.constants import AUTH_COOKIE
 from datajunction_server.errors import DJException

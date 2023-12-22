@@ -4,14 +4,14 @@ Tests for the metrics API.
 """
 
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session
 
 from datajunction_server.models import AttributeType, ColumnAttribute
 from datajunction_server.models.column import Column
 from datajunction_server.models.database import Database
 from datajunction_server.models.node import Node, NodeRevision
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.table import Table
 from datajunction_server.sql.parsing.types import FloatType, IntegerType, StringType
 
 
@@ -44,23 +44,13 @@ def test_read_metric(session: Session, client: TestClient) -> None:
     Test ``GET /metric/{node_id}/``.
     """
     client.get("/attributes/")
-    dimension_attribute = session.exec(
+    dimension_attribute = session.execute(
         select(AttributeType).where(AttributeType.name == "dimension"),
-    ).one()
+    ).scalar_one()
     parent_rev = NodeRevision(
         name="parent",
+        type=NodeType.SOURCE,
         version="1",
-        tables=[
-            Table(
-                database=Database(name="test", URI="sqlite://"),
-                table="A",
-                columns=[
-                    Column(name="ds", type=StringType()),
-                    Column(name="user_id", type=IntegerType()),
-                    Column(name="foo", type=FloatType()),
-                ],
-            ),
-        ],
         columns=[
             Column(
                 name="ds",
@@ -96,6 +86,7 @@ def test_read_metric(session: Session, client: TestClient) -> None:
     child_rev = NodeRevision(
         name=child_node.name,
         node=child_node,
+        type=child_node.type,
         version="1",
         query="SELECT COUNT(*) FROM parent",
         parents=[parent_node],
@@ -151,13 +142,14 @@ def test_read_metrics_errors(session: Session, client: TestClient) -> None:
     )
     node_revision = NodeRevision(
         name=node.name,
+        type=node.type,
         node=node,
         version="1",
         query="SELECT 1 AS col",
     )
     session.add(database)
     session.add(node_revision)
-    session.execute("CREATE TABLE my_table (one TEXT)")
+    session.execute(text("CREATE TABLE my_table (one TEXT)"))
     session.commit()
 
     response = client.get("/metrics/foo")

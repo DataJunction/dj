@@ -3,13 +3,13 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.engine.base import Connection
 from sqlalchemy.pool import StaticPool
-from sqlmodel import SQLModel
 
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.runtime.environment import EnvironmentContext
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from datajunction_server.database.connection import Base
 
 
 @pytest.fixture(scope="function", name="connection")
@@ -32,7 +32,7 @@ def test_migrations_are_current(connection):
     """
     Verify that the alembic migrations are in line with the models.
     """
-    target_metadata = SQLModel.metadata
+    target_metadata = Base.metadata
 
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")

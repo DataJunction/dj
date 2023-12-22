@@ -51,7 +51,6 @@ class TestTags:
         expected_tag_output = {
             "tag_metadata": {},
             "display_name": "Sales Report",
-            "id": 1,
             "description": "All metrics for sales",
             "name": "sales_report",
             "tag_type": "group",
@@ -108,7 +107,6 @@ class TestTags:
         assert response_data == {
             "tag_metadata": {"order": 1},
             "display_name": "Sales Metrics",
-            "id": 1,
             "description": "Helpful sales metrics",
             "name": "sales_report",
             "tag_type": "group",
@@ -122,7 +120,6 @@ class TestTags:
         assert response.json() == {
             "tag_metadata": {"order": 1},
             "display_name": "Sales Metrics",
-            "id": 1,
             "description": "Helpful sales metrics",
             "name": "sales_report",
             "tag_type": "group",
