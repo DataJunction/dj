@@ -10,8 +10,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from datajunction_server.construction.utils import try_get_dj_node
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJError, DJException, ErrorCode
-from datajunction_server.models.node import Node, NodeRevision
 from datajunction_server.models.user import UserOutput
 
 if TYPE_CHECKING:

@@ -10,20 +10,17 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.operators import is_
 
 from datajunction_server.api.helpers import get_node_namespace, hard_delete_node
+from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJActionNotAllowedException,
     DJException,
     DJInvalidInputException,
 )
 from datajunction_server.internal.nodes import get_cube_revision_metadata
-from datajunction_server.models import History, User
-from datajunction_server.models.history import ActivityType, EntityType
-from datajunction_server.models.node import (
-    Node,
-    NodeMinimumDetail,
-    NodeNamespace,
-    NodeRevision,
-)
+from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR

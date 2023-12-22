@@ -5,16 +5,11 @@ from typing import TYPE_CHECKING, List, Optional
 
 from pydantic.class_validators import root_validator
 from pydantic.main import BaseModel
-from sqlalchemy import BigInteger, Integer
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.types import Enum, String
 
-from datajunction_server.database.connection import Base
 from datajunction_server.enum import StrEnum
-from datajunction_server.models.base import labelize
 
 if TYPE_CHECKING:
-    from datajunction_server.models import Column
+    pass
 
 
 class AggregationRule(StrEnum):
@@ -57,39 +52,6 @@ class EditMeasure(BaseModel):
     description: Optional[str]
     columns: Optional[List[NodeColumn]]
     additive: Optional[AggregationRule]
-
-
-class Measure(Base):  # type: ignore  # pylint: disable=too-few-public-methods
-    """
-    Measure class.
-
-    Measure is a basic data modelling concept that helps with making Metric nodes portable,
-    that is, so they can be computed on various DJ nodes using the same Metric definitions.
-
-    By default, if a node column is not a Dimension or Dimension attribute then it should
-    be a Measure.
-    """
-
-    __tablename__ = "measures"
-
-    id: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"),
-        primary_key=True,
-    )
-    name: Mapped[str] = mapped_column(unique=True)
-    display_name: Mapped[str] = mapped_column(
-        String,
-        insert_default=lambda context: labelize(context.current_parameters.get("name")),
-    )
-    description: Mapped[Optional[str]]
-    columns: Mapped[List["Column"]] = relationship(
-        back_populates="measure",
-        lazy="joined",
-    )
-    additive: Mapped[AggregationRule] = mapped_column(
-        Enum(AggregationRule),
-        default=AggregationRule.NON_ADDITIVE,
-    )
 
 
 class ColumnOutput(BaseModel):

@@ -12,11 +12,12 @@ from sqlalchemy.orm import Session
 
 from datajunction_server.api.engines import EngineInfo
 from datajunction_server.api.helpers import get_catalog_by_name
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.engine import Engine
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.engines import get_engine
-from datajunction_server.models import Engine
-from datajunction_server.models.catalog import Catalog, CatalogInfo
+from datajunction_server.models.catalog import CatalogInfo
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)

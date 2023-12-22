@@ -5,7 +5,7 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
-from datajunction_server.models.history import ActivityType, EntityType, History
+from datajunction_server.database.history import ActivityType, EntityType, History
 
 
 def test_history_hash():

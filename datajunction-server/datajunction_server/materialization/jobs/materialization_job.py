@@ -4,11 +4,11 @@ Available materialization jobs.
 import abc
 from typing import Optional
 
+from datajunction_server.database.materialization import Materialization
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
     GenericMaterializationConfig,
     GenericMaterializationInput,
-    Materialization,
     MaterializationInfo,
 )
 from datajunction_server.models.partition import PartitionBackfill

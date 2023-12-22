@@ -11,13 +11,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
+from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.access.authentication.basic import (
     get_password_hash,
     validate_user_password,
 )
 from datajunction_server.internal.access.authentication.tokens import create_token
-from datajunction_server.models.user import OAuthProvider, User
 from datajunction_server.utils import get_session
 
 router = APIRouter(tags=["Basic OAuth2"])

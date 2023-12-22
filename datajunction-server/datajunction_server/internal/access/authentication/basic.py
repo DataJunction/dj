@@ -8,8 +8,8 @@ from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJError, DJException, ErrorCode
-from datajunction_server.models.user import User
 
 _logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

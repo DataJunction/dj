@@ -6,14 +6,15 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from datajunction_server.construction.build import build_node, get_measures_query
+from datajunction_server.database.materialization import Materialization
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.materialization.jobs import MaterializationJob
-from datajunction_server.models import NodeRevision, access
+from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.materialization import (
     DruidCubeConfig,
     GenericMaterializationConfig,
-    Materialization,
     MaterializationInfo,
     Measure,
     MetricMeasures,

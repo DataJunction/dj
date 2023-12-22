@@ -8,7 +8,7 @@ from functools import lru_cache
 from string import ascii_letters, digits
 
 # pylint: disable=line-too-long
-from typing import Iterator, List, Optional
+from typing import TYPE_CHECKING, Iterator, List, Optional
 
 from dotenv import load_dotenv
 from rich.logging import RichHandler
@@ -20,8 +20,10 @@ from yarl import URL
 from datajunction_server.config import Settings
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJException
-from datajunction_server.models.user import User
 from datajunction_server.service_clients import QueryServiceClient
+
+if TYPE_CHECKING:
+    from datajunction_server.database.user import User
 
 
 def setup_logging(loglevel: str) -> None:
@@ -222,7 +224,7 @@ def from_amenable_name(name: str) -> str:
     return name.replace(to_replace, SEPARATOR)
 
 
-async def get_current_user(request: Request) -> Optional[User]:
+async def get_current_user(request: Request) -> Optional["User"]:
     """
     Returns the current authenticated user
     """

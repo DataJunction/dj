@@ -7,8 +7,8 @@ import strawberry
 from sqlalchemy import select
 from strawberry.types import Info
 
+from datajunction_server.database.engine import Engine
 from datajunction_server.models.engine import Dialect as _Dialect
-from datajunction_server.models.engine import Engine
 from datajunction_server.models.engine import EngineInfo as _EngineInfo
 
 Dialect = strawberry.enum(_Dialect)

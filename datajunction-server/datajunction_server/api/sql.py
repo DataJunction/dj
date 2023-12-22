@@ -14,10 +14,11 @@ from datajunction_server.api.helpers import (
     validate_orderby,
 )
 from datajunction_server.construction.build import get_measures_query
+from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.internal.engines import get_engine
-from datajunction_server.models import User, access
+from datajunction_server.models import access
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.user import UserOutput
 from datajunction_server.utils import get_current_user, get_session, get_settings

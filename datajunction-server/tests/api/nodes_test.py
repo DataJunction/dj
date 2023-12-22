@@ -12,15 +12,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from datajunction_server.database.column import Column
+from datajunction_server.database.database import Database
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.internal.materializations import decompose_expression
-from datajunction_server.models import Database
-from datajunction_server.models.column import Column
-from datajunction_server.models.node import (
-    Node,
-    NodeRelationship,
-    NodeRevision,
-    NodeStatus,
-)
+from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.service_clients import QueryServiceClient

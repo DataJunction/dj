@@ -8,13 +8,9 @@ Tests for ``datajunction_server.models.node``.
 import pytest
 from sqlalchemy.orm import Session
 
-from datajunction_server.models.node import (
-    AvailabilityState,
-    AvailabilityStateBase,
-    Node,
-    NodeRevision,
-    PartitionAvailability,
-)
+from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.models.node import AvailabilityStateBase, PartitionAvailability
 from datajunction_server.models.node_type import NodeType
 
 

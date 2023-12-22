@@ -12,17 +12,18 @@ from sqlalchemy.sql.operators import is_
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
+from datajunction_server.database.node import Node
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
-from datajunction_server.models import User, access
+from datajunction_server.models import access
 from datajunction_server.models.metric import Metric
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
     MetricDirection,
     MetricMetadataOptions,
     MetricUnit,
-    Node,
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import get_dimensions, get_shared_dimensions

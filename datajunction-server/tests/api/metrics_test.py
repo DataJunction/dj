@@ -7,10 +7,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from datajunction_server.models import AttributeType, ColumnAttribute
-from datajunction_server.models.column import Column
-from datajunction_server.models.database import Database
-from datajunction_server.models.node import Node, NodeRevision
+from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
+from datajunction_server.database.column import Column
+from datajunction_server.database.database import Database
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.types import FloatType, IntegerType, StringType
 
