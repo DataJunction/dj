@@ -1204,27 +1204,3 @@ def get_cube_revision_metadata(session: Session, name: str):
         )
     cube = result[0]
     return CubeRevisionMetadata.from_orm(cube)
-    #     id=cube.id,
-    #     node_id=cube.node_id,
-    #     type=cube.type,
-    #     name=cube.name,
-    #     display_name=cube.display_name,
-    #     version=cube.version,
-    #     description=cube.description,
-    #     availability=cube.availability,
-    #     cube_elements=cube.cube_elements,
-    #     query=cube.query,
-    #     columns=[
-    #         CubeColumnOutput(
-    #             name=col.name,
-    #             display_name=col.display_name,
-    #             type=str(col.type),
-    #             attributes=col.attributes,
-    #             dimension=col.dimension,
-    #             partition=col.partition,
-    #         )
-    #         for col in cube.columns
-    #     ],
-    #     updated_at=cube.updated_at,
-    #     materializations=cube.materializations,
-    # )
