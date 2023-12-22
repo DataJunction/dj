@@ -37,8 +37,8 @@ from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     get_current_user,
-    get_direct_session,
     get_query_service_client,
+    get_session,
     get_settings,
 )
 
@@ -51,7 +51,7 @@ def add_availability_state(
     node_name: str,
     data: AvailabilityStateBase,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -160,7 +160,7 @@ def get_data(  # pylint: disable=too-many-locals
         default=False,
         description="Whether to run the query async or wait for results from the query engine",
     ),
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -260,7 +260,7 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
     limit: Optional[int] = None,
     async_: bool = False,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -313,7 +313,7 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,

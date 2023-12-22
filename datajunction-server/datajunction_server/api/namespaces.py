@@ -40,7 +40,7 @@ from datajunction_server.models.node import (
     NodeNamespace,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import get_current_user, get_direct_session, get_settings
+from datajunction_server.utils import get_current_user, get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -51,7 +51,7 @@ router = SecureAPIRouter(tags=["namespaces"])
 def create_node_namespace(
     namespace: str,
     include_parents: Optional[bool] = False,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -92,7 +92,7 @@ def create_node_namespace(
     status_code=200,
 )
 def list_namespaces(
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -145,7 +145,7 @@ def list_nodes_in_namespace(
         default=None,
         description="Filter the list of nodes to this type",
     ),
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> List[NodeMinimumDetail]:
     """
     List node names in namespace, filterable to a given type if desired.
@@ -160,7 +160,7 @@ def deactivate_a_namespace(
         default=False,
         description="Cascade the deletion down to the nodes in the namespace",
     ),
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -232,7 +232,7 @@ def restore_a_namespace(
         default=False,
         description="Cascade the restore down to the nodes in the namespace",
     ),
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -288,7 +288,7 @@ def hard_delete_node_namespace(
     namespace: str,
     *,
     cascade: bool = False,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -319,7 +319,7 @@ def hard_delete_node_namespace(
 def export_a_namespace(
     namespace: str,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> List[Dict]:
     """
     Generates a zip of YAML files for the contents of the given namespace

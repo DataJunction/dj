@@ -20,7 +20,7 @@ from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import User, access
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.user import UserOutput
-from datajunction_server.utils import get_current_user, get_direct_session, get_settings
+from datajunction_server.utils import get_current_user, get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -33,7 +33,7 @@ def get_measures_sql_for_cube(
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
@@ -70,7 +70,7 @@ def get_sql(
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
@@ -122,7 +122,7 @@ def get_sql_for_metrics(
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),

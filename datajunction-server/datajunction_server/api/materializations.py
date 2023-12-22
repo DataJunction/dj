@@ -38,8 +38,8 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
     get_current_user,
-    get_direct_session,
     get_query_service_client,
+    get_session,
     get_settings,
 )
 
@@ -78,7 +78,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     node_name: str,
     data: UpsertMaterialization,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
@@ -221,7 +221,7 @@ def list_node_materializations(
     node_name: str,
     show_deleted: bool = False,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> List[MaterializationConfigInfoUnified]:
     """
@@ -259,7 +259,7 @@ def deactivate_node_materializations(
     node_name: str,
     materialization_name: str,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> List[MaterializationConfigInfoUnified]:
@@ -316,7 +316,7 @@ def run_materialization_backfill(  # pylint: disable=too-many-locals
     materialization_name: str,
     backfill_spec: PartitionBackfill,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> MaterializationInfo:

@@ -13,7 +13,7 @@ from datajunction_server.internal.access.authentication.http import SecureAPIRou
 from datajunction_server.models.materialization import MaterializationJobTypeEnum
 from datajunction_server.models.node import NodeOutput
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import get_direct_session, get_settings
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -22,7 +22,7 @@ router = SecureAPIRouter(tags=["client"])
 
 @router.get("/datajunction-clients/python/new_node/{node_name}", response_model=str)
 def client_code_for_creating_node(
-    node_name: str, *, session: Session = Depends(get_direct_session)
+    node_name: str, *, session: Session = Depends(get_session)
 ) -> str:
     """
     Generate the Python client code used for creating this node
@@ -103,7 +103,7 @@ def client_code_for_adding_materialization(
     node_name: str,
     materialization_name: str,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> str:
     """
     Generate the Python client code used for adding this materialization
@@ -152,7 +152,7 @@ def client_code_for_linking_dimension_to_node(
     column: str,
     dimension: str,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> str:
     """
     Generate the Python client code used for linking this node's column to a dimension

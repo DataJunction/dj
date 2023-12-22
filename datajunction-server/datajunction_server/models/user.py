@@ -21,7 +21,7 @@ class OAuthProvider(Enum):
     GOOGLE = "google"
 
 
-class User(Base):  # type: ignore
+class User(Base):  # pylint: disable=too-few-public-methods
     """Class for a user."""
 
     __tablename__ = "users"

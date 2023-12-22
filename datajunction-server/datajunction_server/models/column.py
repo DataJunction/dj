@@ -30,7 +30,9 @@ class ColumnYAML(TypedDict, total=False):
     dimension: str
 
 
-class ColumnTypeDecorator(TypeDecorator):  # pylint: disable=abstract-method
+class ColumnTypeDecorator(
+    TypeDecorator,
+):  # pylint: disable=abstract-method, too-many-ancestors
     """
     Converts a column type from the database to a `ColumnType` class
     """

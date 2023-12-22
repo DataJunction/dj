@@ -26,7 +26,7 @@ from datajunction_server.internal.access.authentication.google import (
 )
 from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.models.user import OAuthProvider, User
-from datajunction_server.utils import Settings, get_direct_session, get_settings
+from datajunction_server.utils import Settings, get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Google OAuth"])
@@ -49,7 +49,7 @@ async def get_access_token(
     request: Request,
     state: Optional[str] = None,
     error: Optional[str] = None,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     setting: Settings = Depends(get_settings),
 ):
     """

@@ -27,8 +27,8 @@ from datajunction_server.models.user import OAuthProvider, User
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
-    get_direct_session,
     get_query_service_client,
+    get_session,
     get_settings,
 )
 
@@ -232,7 +232,7 @@ def client(  # pylint: disable=too-many-statements
     def get_settings_override() -> Settings:
         return settings
 
-    app.dependency_overrides[get_direct_session] = get_session_override
+    app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
 
     with TestClient(app) as client:
@@ -445,7 +445,7 @@ def client_with_query_service_example_loader(  # pylint: disable=too-many-statem
     def get_settings_override() -> Settings:
         return settings
 
-    app.dependency_overrides[get_direct_session] = get_session_override
+    app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
     app.dependency_overrides[
         get_query_service_client

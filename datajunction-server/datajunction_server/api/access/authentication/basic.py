@@ -18,7 +18,7 @@ from datajunction_server.internal.access.authentication.basic import (
 )
 from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.models.user import OAuthProvider, User
-from datajunction_server.utils import get_direct_session
+from datajunction_server.utils import get_session
 
 router = APIRouter(tags=["Basic OAuth2"])
 
@@ -28,7 +28,7 @@ async def create_a_user(
     email: str = Form(),
     username: str = Form(),
     password: str = Form(),
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> JSONResponse:
     """
     Create a new user
@@ -65,7 +65,7 @@ async def create_a_user(
 @router.post("/basic/login/")
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ):
     """
     Get a JWT token and set it as an HTTP only cookie

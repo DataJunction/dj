@@ -24,8 +24,8 @@ from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     from_amenable_name,
-    get_direct_session,
     get_query_service_client,
+    get_session,
     get_settings,
 )
 
@@ -36,7 +36,7 @@ router = SecureAPIRouter(tags=["cubes"])
 
 @router.get("/cubes/{name}/", name="Get a Cube")
 def get_cube(
-    name: str, *, session: Session = Depends(get_direct_session)
+    name: str, *, session: Session = Depends(get_session)
 ) -> CubeRevisionMetadata:
     """
     Get information on a cube
@@ -58,7 +58,7 @@ def get_cube_dimension_sql(
         description="Number of rows to limit the data retrieved to",
     ),
     include_counts: bool = False,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=redefined-outer-name
         validate_access,
     ),
@@ -97,7 +97,7 @@ def get_cube_dimension_values(  # pylint: disable=too-many-locals
     ),
     include_counts: bool = False,
     async_: bool = False,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=redefined-outer-name
         validate_access,

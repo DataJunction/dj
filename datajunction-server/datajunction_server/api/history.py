@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from datajunction_server.api.helpers import get_history
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.history import EntityType, History, HistoryOutput
-from datajunction_server.utils import get_direct_session, get_settings
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -26,7 +26,7 @@ def list_history(
     offset: int = 0,
     limit: int = Query(default=100, lte=100),
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> List[HistoryOutput]:
     """
     List history for an entity type (i.e. Node) and entity name
@@ -47,7 +47,7 @@ def list_history_by_node_context(
     offset: int = 0,
     limit: int = Query(default=100, lte=100),
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> List[HistoryOutput]:
     """
     List all activity history for a node context

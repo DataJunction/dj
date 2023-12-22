@@ -13,10 +13,10 @@ from datajunction_server.config import Settings
 from datajunction_server.errors import DJException
 from datajunction_server.utils import (
     Version,
-    get_direct_session,
     get_engine,
     get_issue_url,
     get_query_service_client,
+    get_session,
     get_settings,
     setup_logging,
 )
@@ -43,7 +43,7 @@ def test_get_session(mocker: MockerFixture) -> None:
         "datajunction_server.utils.sessionmaker",
     )
 
-    session = next(get_direct_session())
+    session = next(get_session())
     assert (
         session
         == sessionmaker(autocommit=False, autoflush=False, bind=engine).return_value

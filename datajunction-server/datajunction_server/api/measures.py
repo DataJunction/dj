@@ -20,7 +20,7 @@ from datajunction_server.models.measure import (
     MeasureOutput,
     NodeColumn,
 )
-from datajunction_server.utils import get_direct_session, get_settings
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -68,7 +68,7 @@ def get_node_columns(session: Session, node_columns: List[NodeColumn]) -> List[C
 @router.get("/measures/", response_model=List[str])
 def list_measures(
     prefix: Optional[str] = None,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> List[str]:
     """
     List all measures.
@@ -83,7 +83,7 @@ def list_measures(
 
 @router.get("/measures/{measure_name}", response_model=MeasureOutput)
 def get_measure(
-    measure_name: str, *, session: Session = Depends(get_direct_session)
+    measure_name: str, *, session: Session = Depends(get_session)
 ) -> MeasureOutput:
     """
     Get info on a measure.
@@ -99,7 +99,7 @@ def get_measure(
     name="Add a Measure",
 )
 def add_measure(
-    data: CreateMeasure, *, session: Session = Depends(get_direct_session)
+    data: CreateMeasure, *, session: Session = Depends(get_session)
 ) -> MeasureOutput:
     """
     Add a measure
@@ -131,7 +131,7 @@ def edit_measure(
     measure_name: str,
     data: EditMeasure,
     *,
-    session: Session = Depends(get_direct_session),
+    session: Session = Depends(get_session),
 ) -> MeasureOutput:
     """
     Edit a measure
