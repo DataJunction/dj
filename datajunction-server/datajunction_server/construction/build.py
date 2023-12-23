@@ -7,7 +7,8 @@ import time
 # pylint: disable=too-many-lines
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session, joinedload
 
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database.column import Column
@@ -105,8 +106,8 @@ def _join_path(
     return min(possible_join_paths, key=len)  # type: ignore
 
 
-def _get_or_build_join_table(
-    session: Session,
+async def _get_or_build_join_table(
+    session: AsyncSession,
     table_node: NodeRevision,
     build_criteria: Optional[BuildCriteria],
 ):
@@ -121,7 +122,7 @@ def _get_or_build_join_table(
     )
     if not join_table:  # pragma: no cover
         join_query = parse(cast(str, table_node.query))
-        join_table = build_ast(session, join_query)  # type: ignore
+        join_table = await build_ast(session, join_query)  # type: ignore
         join_table.parenthesized = True  # type: ignore
 
     for col in join_table.columns:
@@ -138,8 +139,8 @@ def _get_or_build_join_table(
     return join_right
 
 
-def _build_joins_for_dimension(
-    session: Session,
+async def _build_joins_for_dimension(
+    session: AsyncSession,
     dim_node: NodeRevision,
     initial_nodes: Set[NodeRevision],
     tables: DefaultDict[NodeRevision, List[ast.Table]],
@@ -167,7 +168,7 @@ def _build_joins_for_dimension(
         }
 
         # Assemble table on right of join
-        join_right = _get_or_build_join_table(
+        join_right = await _get_or_build_join_table(
             session,
             table_node,
             build_criteria,
@@ -207,7 +208,7 @@ def _build_joins_for_dimension(
                 join_col.dimension_column in join_right_columns
                 or join_table_pk[0].name in join_right_columns
             ):
-                left_table.add_ref_column(
+                await left_table.add_ref_column(
                     cast(ast.Column, join_left_columns[join_col.name]),
                 )
                 join_on.append(
@@ -225,7 +226,7 @@ def _build_joins_for_dimension(
                     f"does not exist on {table_node.name}",
                 )
             for dim_col in required_dimension_columns:
-                join_right.child.add_ref_column(dim_col)
+                await join_right.child.add_ref_column(dim_col)
 
         if join_on:  # pragma: no cover
             asts.append(
@@ -240,8 +241,8 @@ def _build_joins_for_dimension(
     return asts
 
 
-def join_tables_for_dimensions(
-    session: Session,
+async def join_tables_for_dimensions(
+    session: AsyncSession,
     dimension_nodes_to_columns: Dict[NodeRevision, List[ast.Column]],
     tables: DefaultDict[NodeRevision, List[ast.Table]],
     build_criteria: Optional[BuildCriteria] = None,
@@ -270,7 +271,7 @@ def join_tables_for_dimensions(
         # onto each select clause
         for select in selects_map:
             if dim_node not in initial_nodes:  # need to join dimension
-                join_asts = _build_joins_for_dimension(
+                join_asts = await _build_joins_for_dimension(
                     session,
                     dim_node,
                     initial_nodes,
@@ -284,8 +285,8 @@ def join_tables_for_dimensions(
                     )
 
 
-def _build_tables_on_select(
-    session: Session,
+async def _build_tables_on_select(
+    session: AsyncSession,
     select: ast.SelectExpression,
     tables: Dict[NodeRevision, List[ast.Table]],
     memoized_queries: Dict[int, ast.Query],
@@ -302,13 +303,13 @@ def _build_tables_on_select(
             Optional[ast.Table],
             _get_node_table(node, build_criteria),
         )  # got a materialization
-        fk_column_mapping = {
-            ",".join(
-                sorted([pk.name for pk in col.dimension.current.primary_key()]),
-            ): col
-            for col in node.columns
-            if col.dimension
-        }
+        fk_column_mapping = {}
+        for col in node.columns:
+            if col.dimension_id:
+                col_dimension = await Node.get_by_id(session, col.dimension_id, joinedload(Node.current).options(*NodeRevision.default_load_options()))
+                fk_column_mapping[",".join(
+                    sorted([pk.name for pk in col_dimension.current.primary_key()]),
+                )] = col
 
         if node_table is None:  # no materialization - recurse to node first
             node_query = parse(cast(str, node.query))
@@ -339,7 +340,7 @@ def _build_tables_on_select(
                     if filter_asts:
                         node_query.select.where = ast.BinaryOp.And(*filter_asts)
 
-                query_ast = build_ast(  # type: ignore
+                query_ast = await build_ast(  # type: ignore
                     session,
                     node_query,
                     memoized_queries,
@@ -363,7 +364,7 @@ def _build_tables_on_select(
                     for col in node_ast.child.projection
                     if col in set(tbl.child.select.projection)
                 ]
-            node_ast.compile(context)
+            await node_ast.compile(context)
             select.replace(
                 tbl,
                 node_ast,
@@ -392,8 +393,8 @@ def dimension_columns_mapping(
 
 
 # flake8: noqa: C901
-def _build_select_ast(
-    session: Session,
+async def _build_select_ast(
+    session: AsyncSession,
     select: ast.SelectExpression,
     memoized_queries: Dict[int, ast.Query],
     build_criteria: Optional[BuildCriteria] = None,
@@ -409,8 +410,8 @@ def _build_select_ast(
     """
     tables = _get_tables_from_select(select)
     dimension_columns = dimension_columns_mapping(select)
-    join_tables_for_dimensions(session, dimension_columns, tables, build_criteria)
-    _build_tables_on_select(
+    await join_tables_for_dimensions(session, dimension_columns, tables, build_criteria)
+    await _build_tables_on_select(
         session,
         select,
         tables,
@@ -458,8 +459,8 @@ def rename_dimension_primary_keys_to_foreign_keys(
 
 
 # pylint: disable=R0915
-def add_filters_dimensions_orderby_limit_to_query_ast(
-    session: Session,
+async def add_filters_dimensions_orderby_limit_to_query_ast(
+    session: AsyncSession,
     node: NodeRevision,
     query: ast.Query,
     dialect: Optional[str] = None,  # pylint: disable=unused-argument
@@ -486,11 +487,12 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 projection_addition[col.identifier(False)] = col
 
                 if access_control:
-                    dj_node = access_control.add_request_by_node_name(
+                    dj_node = await access_control.add_request_by_node_name(
                         session,
                         col,
                     )
                     if dj_node:
+                        await session.refresh(node, ["columns"])
                         rename_dimension_primary_keys_to_foreign_keys(
                             dj_node,
                             node,
@@ -512,11 +514,12 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 if not dimensions:
                     projection_addition[col.identifier(False)] = col
                 if access_control:
-                    dj_node = access_control.add_request_by_node_name(
+                    dj_node = await access_control.add_request_by_node_name(
                         session,
                         col,
                     )
                     if dj_node:  # pragma: no cover
+                        await session.refresh(node, ["columns"])
                         rename_dimension_primary_keys_to_foreign_keys(
                             dj_node,
                             node,
@@ -538,7 +541,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             )
             for col in temp_query.find_all(ast.Column):
                 if access_control:  # pragma: no cover
-                    access_control.add_request_by_node_name(
+                    await access_control.add_request_by_node_name(
                         session,
                         col,
                     )
@@ -621,8 +624,8 @@ def _get_node_table(
     return table
 
 
-def build_node(  # pylint: disable=too-many-arguments
-    session: Session,
+async def build_node(  # pylint: disable=too-many-arguments
+    session: AsyncSession,
     node: NodeRevision,
     filters: Optional[List[str]] = None,
     dimensions: Optional[List[str]] = None,
@@ -656,6 +659,7 @@ def build_node(  # pylint: disable=too-many-arguments
     # get dimension columns which are required
     # in the stated bound dimensions on the metric node
     dimensions = dimensions or []
+    await session.refresh(node, ["required_dimensions"])
     dimensions = [
         col.name for col in node.required_dimensions if col.name not in dimensions
     ] + dimensions
@@ -684,7 +688,7 @@ def build_node(  # pylint: disable=too-many-arguments
     else:
         query = build_source_node_query(node)
 
-    add_filters_dimensions_orderby_limit_to_query_ast(
+    await add_filters_dimensions_orderby_limit_to_query_ast(
         session,
         node,
         query,
@@ -703,7 +707,7 @@ def build_node(  # pylint: disable=too-many-arguments
 
     memoized_queries: Dict[int, ast.Query] = {}
     _logger.info("Calling build_ast on %s", node.name)
-    built_ast = build_ast(
+    built_ast = await build_ast(
         session,
         query,
         memoized_queries,
@@ -795,8 +799,8 @@ def group_metrics_by_parent(
     return common_parents
 
 
-def validate_shared_dimensions(
-    session: Session,
+async def validate_shared_dimensions(
+    session: AsyncSession,
     metric_nodes: List[Node],
     dimensions: List[str],
     filters: List[str],
@@ -805,7 +809,7 @@ def validate_shared_dimensions(
     Determine if dimensions are shared.
     """
     shared_dimensions = [
-        dim.name for dim in get_shared_dimensions(session, metric_nodes)
+        dim.name for dim in await get_shared_dimensions(session, metric_nodes)
     ]
     for dimension_attribute in dimensions:
         if dimension_attribute not in shared_dimensions:
@@ -832,8 +836,8 @@ def validate_shared_dimensions(
                 )
 
 
-def build_metric_nodes(
-    session: Session,
+async def build_metric_nodes(
+    session: AsyncSession,
     metric_nodes: List[Node],
     filters: List[str],
     dimensions: List[str],
@@ -860,7 +864,7 @@ def build_metric_nodes(
             "of them aren't metric nodes.",
         )
 
-    validate_shared_dimensions(session, metric_nodes, dimensions, filters)
+    await validate_shared_dimensions(session, metric_nodes, dimensions, filters)
 
     combined_ast: ast.Query = ast.Query(
         select=ast.Select(from_=ast.From(relations=[])),
@@ -885,7 +889,7 @@ def build_metric_nodes(
     common_parents = group_metrics_by_parent(metric_nodes)
 
     for parent_node, metrics in common_parents.items():
-        parent_ast = build_node(
+        parent_ast = await build_node(
             session=session,
             node=parent_node.current,
             dimensions=dimensions,
@@ -923,7 +927,7 @@ def build_metric_nodes(
             expr.set_alias(
                 ast.Name(amenable_name(expr.alias_or_name.identifier(False))),  # type: ignore
             )
-        parent_ast.compile(context)
+        await parent_ast.compile(context)
 
         # Add the metric expression into the parent node query
         for metric_node in metrics:
@@ -933,8 +937,8 @@ def build_metric_nodes(
                     metric_node.name,
                 ),
             )
-            metric_query.compile(context)
-            metric_query.build(session, {})
+            await metric_query.compile(context)
+            await metric_query.build(session, {})
             parent_ast.select.projection.extend(metric_query.select.projection)
 
         # Add the WITH statements to the combined query
@@ -1184,8 +1188,8 @@ def build_source_node_query(node: NodeRevision):
     return ast.Query(select=select)
 
 
-def build_ast(  # pylint: disable=too-many-arguments
-    session: Session,
+async def build_ast(  # pylint: disable=too-many-arguments
+    session: AsyncSession,
     query: ast.Query,
     memoized_queries: Dict[int, ast.Query] = None,
     build_criteria: Optional[BuildCriteria] = None,
@@ -1203,13 +1207,13 @@ def build_ast(  # pylint: disable=too-many-arguments
     if hash(query) in memoized_queries:
         query = memoized_queries[hash(query)]  # pragma: no cover
     else:
-        query.compile(context)
+        await query.compile(context)
         memoized_queries[hash(query)] = query
     end = time.time()
     _logger.info("Finished compiling query %s in %s", str(query)[-100:], end - start)
 
     start = time.time()
-    query.build(
+    await query.build(
         session,
         memoized_queries,
         build_criteria,
@@ -1222,8 +1226,8 @@ def build_ast(  # pylint: disable=too-many-arguments
     return query
 
 
-def metrics_to_measures(
-    session: Session,
+async def metrics_to_measures(
+    session: AsyncSession,
     metric_nodes: List[Node],
 ) -> Tuple[DefaultDict[str, Set[str]], DefaultDict[str, Set[str]]]:
     """
@@ -1240,9 +1244,10 @@ def metrics_to_measures(
     parents_to_measures = collections.defaultdict(set)
     for metric_node in metric_nodes:
         metric_ast = parse(metric_node.current.query)
-        metric_ast.compile(ctx)
+        await metric_ast.compile(ctx)
         for col in metric_ast.find_all(ast.Column):
             if col.table:  # pragma: no cover
+                print("COL TALBE", col.table.dj_node.name)
                 parents_to_measures[col.table.dj_node.name].add(  # type: ignore
                     col.alias_or_name.name,
                 )
@@ -1252,8 +1257,8 @@ def metrics_to_measures(
     return parents_to_measures, metric_to_measures
 
 
-def get_measures_query(
-    session: Session,
+async def get_measures_query(
+    session: AsyncSession,
     metrics: List[str],
     dimensions: List[str],
     filters: List[str],
@@ -1273,7 +1278,7 @@ def get_measures_query(
     )
 
     engine = (
-        get_engine(session, engine_name, engine_version)
+        await get_engine(session, engine_name, engine_version)
         if engine_name and engine_version
         else None
     )
@@ -1296,23 +1301,24 @@ def get_measures_query(
     if not filters:
         filters = []
 
-    (_, metric_nodes, _, _, _) = validate_cube(
+    (_, metric_nodes, _, _, _) = await validate_cube(
         session,
         metrics,
         dimensions,
     )
     context = CompileContext(session=session, exception=DJException())
     common_parents = group_metrics_by_parent(metric_nodes)
+    print("common_parents", common_parents)
 
     # Mapping between each metric node and its measures
-    parents_to_measures, _ = metrics_to_measures(
+    parents_to_measures, _ = await metrics_to_measures(
         session,
         metric_nodes,
     )
 
     for parent_node, _ in common_parents.items():  # type: ignore
         measure_columns, dimensional_columns = [], []
-        parent_ast = build_node(
+        parent_ast = await build_node(
             session=session,
             node=parent_node.current,
             dimensions=dimensions,
@@ -1321,6 +1327,7 @@ def get_measures_query(
             include_dimensions_in_groupby=False,
             access_control=access_control,
         )
+        print("parent_ast", parent_ast)
 
         # Select only columns that were one of the necessary measures
         parent_ast.select.projection = [
@@ -1335,6 +1342,7 @@ def get_measures_query(
             or from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
             in dimensions
         ]
+        await session.refresh(parent_node.current, ["columns"])
         parent_ast = rename_columns(parent_ast, parent_node.current)
 
         # Sort the selected columns into dimension vs measure columns and
@@ -1347,7 +1355,7 @@ def get_measures_query(
             else:
                 measure_columns.append(expr)
                 expr.set_semantic_type(SemanticType.MEASURE)  # type: ignore
-        parent_ast.compile(context)
+        await parent_ast.compile(context)
 
         # Add the WITH statements to the combined query
         parent_ast_alias = ast.Name(amenable_name(parent_node.name))
@@ -1440,7 +1448,7 @@ def get_measures_query(
             cast(ast.Column, col),
         )
         columns_metadata.append(metadata)
-    dependencies, _ = combined_ast.extract_dependencies(
+    dependencies, _ = await combined_ast.extract_dependencies(
         CompileContext(session, DJException()),
     )
     return TranslatedSQL(

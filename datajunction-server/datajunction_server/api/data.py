@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 
 from fastapi import Depends, Query, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
@@ -254,7 +255,7 @@ def get_data_for_query(
 
 
 @router.get("/data/", response_model=QueryWithResults, name="Get Data For Metrics")
-def get_data_for_metrics(  # pylint: disable=R0914, R0913
+async def get_data_for_metrics(  # pylint: disable=R0914, R0913
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
@@ -262,7 +263,7 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
     limit: Optional[int] = None,
     async_: bool = False,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -280,7 +281,7 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
         base_verb=access.ResourceRequestVerb.READ,
     )
 
-    translated_sql, engine, catalog = build_sql_for_multiple_metrics(
+    translated_sql, engine, catalog = await build_sql_for_multiple_metrics(
         session,
         metrics,
         dimensions,
@@ -315,7 +316,7 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
@@ -324,7 +325,7 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
     """
     Return data for a set of metrics with dimensions and filters using server side events
     """
-    translated_sql, engine, catalog = build_sql_for_multiple_metrics(
+    translated_sql, engine, catalog = await build_sql_for_multiple_metrics(
         session,
         metrics,
         dimensions,

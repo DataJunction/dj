@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from fastapi import BackgroundTasks
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, joinedload
 
 from datajunction_server.api.helpers import (
@@ -61,6 +62,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.sql.dag import get_downstream_nodes
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -82,8 +84,8 @@ def get_node_column(node: Node, column_name: str) -> Column:
     return column
 
 
-def validate_and_build_attribute(
-    session: Session,
+async def validate_and_build_attribute(
+    session: AsyncSession,
     column: Column,
     attribute: AttributeTypeIdentifier,
     node: Node,
@@ -92,7 +94,7 @@ def validate_and_build_attribute(
     Run some validation and build column attribute.
     """
     # Verify attribute type exists
-    attribute_type = get_attribute_type(
+    attribute_type = await get_attribute_type(
         session,
         attribute.name,
         attribute.namespace,
@@ -117,8 +119,8 @@ def validate_and_build_attribute(
     )
 
 
-def set_node_column_attributes(
-    session: Session,
+async def set_node_column_attributes(
+    session: AsyncSession,
     node: Node,
     column_name: str,
     attributes: List[AttributeTypeIdentifier],
@@ -127,9 +129,12 @@ def set_node_column_attributes(
     """
     Sets the column attributes on the node if allowed.
     """
+    await session.refresh(node, ["current"])
+    await session.refresh(node.current, ["columns"])
     column = get_node_column(node, column_name)
     all_columns_map = {column.name: column for column in node.current.columns}
 
+    await session.refresh(column, ["attributes"])
     existing_attributes = column.attributes
     existing_attributes_map = {
         attr.attribute_type.name: attr for attr in existing_attributes
@@ -140,7 +145,7 @@ def set_node_column_attributes(
             column.attributes.append(existing_attributes_map[attribute.name])
         else:
             column.attributes.append(
-                validate_and_build_attribute(session, column, attribute, node),
+                await validate_and_build_attribute(session, column, attribute, node),
             )
 
     # Validate column attributes by building mapping between
@@ -187,18 +192,18 @@ def set_node_column_attributes(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
-    session.refresh(column)
+    await session.commit()
+    await session.refresh(column)
 
-    session.refresh(node)
-    session.refresh(node.current)
+    # await session.refresh(node)
+    # await session.refresh(node.current)
     return [column]
 
 
-def create_node_revision(
+async def create_node_revision(
     data: CreateNode,
     node_type: NodeType,
-    session: Session,
+    session: AsyncSession,
 ) -> NodeRevision:
     """
     Create a non-source node revision.
@@ -213,7 +218,7 @@ def create_node_revision(
         mode=data.mode,
         required_dimensions=data.required_dimensions or [],
     )
-    node_validator = validate_node_data(node_revision, session)
+    node_validator = await validate_node_data(node_revision, session)
     if node_validator.status == NodeStatus.INVALID:
         if node_revision.mode == NodeMode.DRAFT:
             node_revision.status = NodeStatus.INVALID
@@ -244,14 +249,14 @@ def create_node_revision(
         )
     catalog_id = next(iter(catalog_ids), 0)
     parent_refs = (
-        session.execute(
+        (await session.execute(
             select(Node).where(
                 # pylint: disable=no-member
                 Node.name.in_(  # type: ignore
                     new_parents,
                 ),
             ),
-        )
+        ))
         .scalars()
         .all()
     )
@@ -271,8 +276,8 @@ def create_node_revision(
     return node_revision
 
 
-def create_cube_node_revision(  # pylint: disable=too-many-locals
-    session: Session,
+async def create_cube_node_revision(  # pylint: disable=too-many-locals
+    session: AsyncSession,
     data: CreateCubeNode,
 ) -> NodeRevision:
     """
@@ -284,7 +289,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         dimension_nodes,
         dimension_columns,
         catalog,
-    ) = validate_cube(
+    ) = await validate_cube(
         session,
         data.metrics,
         data.dimensions,
@@ -334,8 +339,8 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     return node_revision
 
 
-def save_node(
-    session: Session,
+async def save_node(
+    session: AsyncSession,
     node_revision: NodeRevision,
     node: Node,
     node_mode: NodeMode,
@@ -364,19 +369,20 @@ def save_node(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
+    await session.commit()
+    await session.refresh(node, ["current"])
 
-    newly_valid_nodes = resolve_downstream_references(
+    newly_valid_nodes = await resolve_downstream_references(
         session=session,
         node_revision=node_revision,
     )
-    propagate_valid_status(
+    await propagate_valid_status(
         session=session,
         valid_nodes=newly_valid_nodes,
         catalog_id=node.current.catalog_id,  # pylint: disable=no-member
         current_user=current_user,
     )
-    session.refresh(node.current)
+    await session.refresh(node.current)
 
 
 def update_any_node(  # pylint: disable=too-many-arguments
@@ -414,10 +420,10 @@ def update_any_node(  # pylint: disable=too-many-arguments
     )
 
 
-def update_node_with_query(
+async def update_node_with_query(
     name: str,
     data: UpdateNode,
-    session: Session,
+    session: AsyncSession,
     *,
     query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
@@ -431,9 +437,15 @@ def update_node_with_query(
     Note: this function works for both source nodes and nodes with query (transforms,
     dimensions, metrics). We should update it to separate out the logic for source nodes
     """
-    node = get_node_by_name(session, name, for_update=True, include_inactive=True)
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[joinedload(Node.current).options(*NodeRevision.default_load_options())],
+        for_update=True,
+        include_inactive=True,
+    )
     old_revision = node.current
-    new_revision = create_new_revision_from_existing(
+    new_revision = await create_new_revision_from_existing(
         session,
         old_revision,
         node,
@@ -460,10 +472,10 @@ def update_node_with_query(
                 current_user=current_user,
             ),
         )
-    session.commit()
+    await session.commit()
 
-    session.refresh(new_revision)
-    session.refresh(node)
+    await session.refresh(new_revision)
+    await session.refresh(node)
 
     # Handle materializations: Note that this must be done after we commit the new revision,
     # as otherwise the SQL build won't know about the new revision's query
@@ -473,7 +485,7 @@ def update_node_with_query(
     if active_materializations and new_revision.query != old_revision.query:
         for old in active_materializations:
             new_revision.materializations.append(  # pylint: disable=no-member
-                create_new_materialization(
+                await create_new_materialization(
                     session,
                     new_revision,
                     UpsertMaterialization(
@@ -492,7 +504,7 @@ def update_node_with_query(
             query_service_client=query_service_client,
         )
         session.add(new_revision)
-        session.commit()
+        await session.commit()
 
     if background_tasks:
         background_tasks.add_task(
@@ -513,7 +525,7 @@ def update_node_with_query(
             if col.name not in old_columns_map or old_columns_map[col.name] != col.type
         ],
     }
-    propagate_update_downstream(
+    await propagate_update_downstream(
         session,
         node,
         history_events,
@@ -523,7 +535,7 @@ def update_node_with_query(
         validate_access=validate_access,
     )
 
-    session.refresh(node.current)
+    await session.refresh(node.current)
     return node
 
 
@@ -561,8 +573,8 @@ def node_update_history_event(new_revision: NodeRevision, current_user: Optional
     )
 
 
-def update_cube_node(  # pylint: disable=too-many-locals
-    session: Session,
+async def update_cube_node(  # pylint: disable=too-many-locals
+    session: AsyncSession,
     node_revision: NodeRevision,
     data: UpdateNode,
     *,
@@ -594,7 +606,7 @@ def update_cube_node(  # pylint: disable=too-many-locals
     if not major_changes and not minor_changes:
         return None
 
-    new_cube_revision = create_cube_node_revision(session, create_cube)
+    new_cube_revision = await create_cube_node_revision(session, create_cube)
 
     old_version = Version.parse(node_revision.version)
     if major_changes:
@@ -627,7 +639,7 @@ def update_cube_node(  # pylint: disable=too-many-locals
     if major_changes and active_materializations:
         for old in active_materializations:
             new_cube_revision.materializations.append(  # pylint: disable=no-member
-                create_new_materialization(
+                await create_new_materialization(
                     session,
                     new_cube_revision,
                     UpsertMaterialization(
@@ -656,16 +668,16 @@ def update_cube_node(  # pylint: disable=too-many-locals
         )
     session.add(new_cube_revision)
     session.add(new_cube_revision.node)
-    session.commit()
+    await session.commit()
 
-    session.refresh(new_cube_revision)
-    session.refresh(new_cube_revision.node)
-    session.refresh(new_cube_revision.node.current)
+    await session.refresh(new_cube_revision)
+    await session.refresh(new_cube_revision.node)
+    await session.refresh(new_cube_revision.node.current)
     return new_cube_revision
 
 
-def propagate_update_downstream(  # pylint: disable=too-many-locals
-    session: Session,
+async def propagate_update_downstream(  # pylint: disable=too-many-locals
+    session: AsyncSession,
     node: Node,
     history_events: Dict[str, Any],
     *,
@@ -685,7 +697,13 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
 
     # Each entry being processed is a list that represents the changelog of affected nodes
     # The last entry in the list is the current node that's being processed
-    to_process = deque([[node.current, child.node.current] for child in node.children])
+    # downstreams = get_downstream_nodes(session, node.name, include_cubes=True)
+    await session.refresh(node, ["current", "children"])
+    # for child in node.children:
+    #     await session.refresh(child, ["node"])
+    #     await session.refresh(child.node, ["current"])
+
+    to_process = deque([[node.current, child] for child in node.children])
 
     while to_process:
         changelog = to_process.popleft()
@@ -696,7 +714,7 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
             processed.add(child.name)
 
             if child.type == NodeType.CUBE:
-                update_cube_node(
+                await update_cube_node(
                     session,
                     child,
                     UpdateNode(
@@ -709,7 +727,7 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
                 )
                 continue
 
-            node_validator = validate_node_data(
+            node_validator = await validate_node_data(
                 data=child,
                 session=session,
             )
@@ -724,7 +742,7 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
                 new_revision.status = node_validator.status
                 new_revision.lineage = [
                     lineage.dict()
-                    for lineage in get_column_level_lineage(session, new_revision)
+                    for lineage in await get_column_level_lineage(session, new_revision)
                 ]
 
                 # Save which columns were modified and update the columns with the changes
@@ -768,9 +786,9 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
                     user=current_user.username if current_user else None,
                 )
                 session.add(event)
-                session.commit()
-                session.refresh(new_revision)
-                session.refresh(new_revision.node)
+                await session.commit()
+                await session.refresh(new_revision)
+                await session.refresh(new_revision.node)
 
 
 def copy_existing_node_revision(old_revision: NodeRevision):
@@ -795,10 +813,10 @@ def copy_existing_node_revision(old_revision: NodeRevision):
     )
 
 
-def _create_node_from_inactive(  # pylint: disable=too-many-arguments
+async def _create_node_from_inactive(  # pylint: disable=too-many-arguments
     new_node_type: NodeType,
     data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
-    session: Session,
+    session: AsyncSession,
     *,
     current_user: Optional[User] = None,
     query_service_client: QueryServiceClient,
@@ -809,9 +827,10 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
     If the node existed and is inactive the re-creation takes different steps than
     creating it from scratch.
     """
-    previous_inactive_node = get_node_by_name(
+    previous_inactive_node = await Node.get_by_name(
         session,
-        name=data.name,
+        data.name,
+        options=[joinedload(Node.current).options(*NodeRevision.default_load_options())],
         raise_if_not_exists=False,
         include_inactive=True,
     )
@@ -840,7 +859,7 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
             if isinstance(data, CreateNode):
                 update_node.query = data.query
 
-            update_node_with_query(
+            await update_node_with_query(
                 name=data.name,
                 data=update_node,
                 session=session,
@@ -850,7 +869,7 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 validate_access=validate_access,  # type: ignore
             )
         else:
-            update_cube_node(
+            await update_cube_node(
                 session,
                 previous_inactive_node.current,
                 data,
@@ -859,8 +878,8 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 validate_access=validate_access,  # type: ignore
             )
         try:
-            activate_node(name=data.name, session=session, current_user=current_user)
-            return get_node_by_name(session, data.name, with_current=True)
+            await activate_node(name=data.name, session=session, current_user=current_user)
+            return await get_node_by_name(session, data.name, with_current=True)
         except Exception as exc:  # pragma: no cover
             raise DJException(
                 f"Restoring node `{data.name}` failed: {exc}",
@@ -869,8 +888,8 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
     return None
 
 
-def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-arguments,too-many-branches
-    session: Session,
+async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-arguments,too-many-branches
+    session: AsyncSession,
     old_revision: NodeRevision,
     node: Node,
     data: UpdateNode = None,
@@ -961,7 +980,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
 
     # Link the new revision to its parents if a new revision was created and update its status
     if new_revision.type != NodeType.SOURCE:
-        node_validator = validate_node_data(new_revision, session)
+        node_validator = await validate_node_data(new_revision, session)
         new_revision.columns = node_validator.columns
         new_revision.status = node_validator.status
         if node_validator.errors:
@@ -975,14 +994,14 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
 
         new_parents = [n.name for n in node_validator.dependencies_map]
         parent_refs = (
-            session.execute(
+            (await session.execute(
                 select(Node).where(
                     # pylint: disable=no-member
                     Node.name.in_(  # type: ignore
                         new_parents,
                     ),
                 ),
-            )
+            ))
             .scalars()
             .all()
         )
@@ -1000,9 +1019,9 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
 
         # Update the primary key if one was set in the input
         if data is not None and data.primary_key:
-            pk_attribute = session.execute(
+            pk_attribute = (await session.execute(
                 select(AttributeType).where(AttributeType.name == "primary_key"),
-            ).scalar_one()
+            )).scalar_one()
             if set(data.primary_key) - set(col.name for col in new_revision.columns):
                 raise DJException(  # pragma: no cover
                     f"Primary key {data.primary_key} does not exist on {new_revision.name}",
@@ -1041,21 +1060,21 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
     return new_revision
 
 
-def save_column_level_lineage(
-    session: Session,
+async def save_column_level_lineage(
+    session: AsyncSession,
     node_revision: NodeRevision,
 ):
     """
     Saves the column-level lineage for a node
     """
-    column_level_lineage = get_column_level_lineage(session, node_revision)
+    column_level_lineage = await get_column_level_lineage(session, node_revision)
     node_revision.lineage = [lineage.dict() for lineage in column_level_lineage]
     session.add(node_revision)
-    session.commit()
+    await session.commit()
 
 
-def get_column_level_lineage(
-    session: Session,
+async def get_column_level_lineage(
+    session: AsyncSession,
     node_revision: NodeRevision,
 ) -> List[LineageColumn]:
     """
@@ -1066,7 +1085,7 @@ def get_column_level_lineage(
         NodeType.CUBE,
     ):
         return [
-            column_lineage(
+            await column_lineage(
                 session,
                 node_revision,
                 col.name,
@@ -1076,8 +1095,8 @@ def get_column_level_lineage(
     return []
 
 
-def column_lineage(
-    session: Session,
+async def column_lineage(
+    session: AsyncSession,
     node_rev: NodeRevision,
     column_name: str,
 ) -> LineageColumn:
@@ -1103,7 +1122,7 @@ def column_lineage(
         else node_rev.query
     )
     query_ast = parse(query)
-    query_ast.compile(ctx)
+    await query_ast.compile(ctx)
     query_ast.select.add_aliases_to_unnamed_columns()
 
     lineage_column = LineageColumn(
@@ -1144,7 +1163,7 @@ def column_lineage(
             and current.table.dj_node
         ):
             lineage_column.lineage.append(  # type: ignore
-                column_lineage(
+                await column_lineage(
                     session,
                     current.table.dj_node,
                     current.name.name
@@ -1166,7 +1185,7 @@ def column_lineage(
     return lineage_column
 
 
-def get_cube_revision_metadata(session: Session, name: str):
+async def get_cube_revision_metadata(session: AsyncSession, name: str):
     """
     Returns cube revision metadata for cube named `name`.
     """
@@ -1187,7 +1206,7 @@ def get_cube_revision_metadata(session: Session, name: str):
             joinedload(NodeRevision.cube_elements).joinedload(Column.node_revisions),
         )
     )
-    result = session.execute(statement).unique().first()
+    result = (await session.execute(statement)).unique().first()
     if not result:
         raise DJNodeNotFound(  # pragma: no cover
             message=f"A cube node with name `{name}` does not exist.",

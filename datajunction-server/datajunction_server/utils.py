@@ -8,11 +8,12 @@ from functools import lru_cache
 from string import ascii_letters, digits
 
 # pylint: disable=line-too-long
-from typing import TYPE_CHECKING, Iterator, List, Optional
+from typing import TYPE_CHECKING, Iterator, List, Optional, AsyncGenerator
 
 from dotenv import load_dotenv
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine, create_engine
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.requests import Request
 from yarl import URL
@@ -55,30 +56,37 @@ def get_settings() -> Settings:
 
 
 @lru_cache(maxsize=None)
-def get_engine() -> Engine:
+def get_engine() -> AsyncEngine:
     """
     Create the metadata engine.
     """
     settings = get_settings()
-    engine = create_engine(
-        settings.index,
-        pool_pre_ping=True,
-    )
+    # engine = create_engine(
+    #     settings.index,
+    #     pool_pre_ping=True,
+    # )
 
+    engine = create_async_engine(
+        settings.index,
+        future=True,
+        echo=True,
+    )
     return engine
 
 
-def get_session() -> Iterator[Session]:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """
-    Direct SQLAlchemy session.
+    Async database session.
     """
     engine = get_engine()
-    session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    session = session_local()
-    try:
+    # expire_on_commit=False will prevent attributes from being expired on commit
+    async_session_factory = async_sessionmaker(
+        bind=engine,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    async with async_session_factory() as session:
         yield session
-    finally:
-        session.close()
 
 
 def get_query_service_client() -> Optional[QueryServiceClient]:

@@ -21,3 +21,14 @@ class CatalogInfo(BaseModel):
 
     class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
         orm_mode = True
+
+
+class CatalogName(BaseModel):
+    """
+    Output catalog name
+    """
+
+    name: str
+
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True

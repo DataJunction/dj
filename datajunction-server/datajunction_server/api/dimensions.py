@@ -5,11 +5,13 @@ import logging
 from typing import List, Optional, Union
 
 from fastapi import Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from typing_extensions import Annotated
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
+from datajunction_server.database import Node
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -31,10 +33,10 @@ router = SecureAPIRouter(tags=["dimensions"])
 
 
 @router.get("/dimensions/", response_model=List[str])
-def list_dimensions(
+async def list_dimensions(
     prefix: Optional[str] = None,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -43,7 +45,7 @@ def list_dimensions(
     """
     List all available dimensions.
     """
-    return list_nodes(
+    return await list_nodes(
         node_type=NodeType.DIMENSION,
         prefix=prefix,
         session=session,
@@ -53,11 +55,11 @@ def list_dimensions(
 
 
 @router.get("/dimensions/{name}/nodes/", response_model=List[NodeRevisionOutput])
-def find_nodes_with_dimension(
+async def find_nodes_with_dimension(
     name: str,
     *,
     node_type: Annotated[Union[List[NodeType], None], Query()] = Query(None),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -66,8 +68,8 @@ def find_nodes_with_dimension(
     """
     List all nodes that have the specified dimension
     """
-    dimension_node = get_node_by_name(session, name)
-    nodes = get_nodes_with_dimension(session, dimension_node, node_type)
+    dimension_node = await Node.get_by_name(session, name)
+    nodes = await get_nodes_with_dimension(session, dimension_node, node_type)
     resource_requests = [
         access.ResourceRequest(
             verb=access.ResourceRequestVerb.READ,

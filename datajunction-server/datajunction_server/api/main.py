@@ -67,7 +67,10 @@ config.fileConfig(
     disable_existing_loggers=False,
 )
 
-dependencies = [Depends(default_attribute_types), Depends(default_catalog)]
+dependencies = [
+    Depends(default_attribute_types),
+    Depends(default_catalog)
+]
 
 app = FastAPI(
     title=settings.name,

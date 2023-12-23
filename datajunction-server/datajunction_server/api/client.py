@@ -6,9 +6,11 @@ import json
 import logging
 
 from fastapi import Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session, joinedload
 
 from datajunction_server.api.helpers import get_node_by_name
+from datajunction_server.database import Node, NodeRevision, Column, ColumnAttribute
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.materialization import MaterializationJobTypeEnum
 from datajunction_server.models.node import NodeOutput
@@ -21,39 +23,23 @@ router = SecureAPIRouter(tags=["client"])
 
 
 @router.get("/datajunction-clients/python/new_node/{node_name}", response_model=str)
-def client_code_for_creating_node(
-    node_name: str, *, session: Session = Depends(get_session)
+async def client_code_for_creating_node(
+    node_name: str, *, session: AsyncSession = Depends(get_session)
 ) -> str:
     """
     Generate the Python client code used for creating this node
     """
     node_short_name = node_name.split(".")[-1]
-    node = get_node_by_name(session, node_name)
-
-    # Generic user-configurable node creation params
-    params = NodeOutput.from_orm(node).current.dict(
-        exclude={
-            "id",
-            "version",
-            "type",
-            "catalog_id",
-            "lineage",
-            "status",
-            "metric_metadata_id",
-            "mode",
-            "node_id",
-            "updated_at",
-            "materializations",
-            "columns",
-            "catalog",
-            "parents",
-            "metric_metadata",
-            "query" if node.type == NodeType.CUBE else "",
-        },
-        exclude_none=True,
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[joinedload(Node.current).options(*NodeRevision.default_load_options())],
     )
 
-    params["primary_key"] = [col.name for col in node.current.primary_key()]
+    # Generic user-configurable node creation params
+    params = {"name": node.name, "display_name": node.current.display_name, "description": node.current.description,
+              "mode": node.current.mode, "query": node.current.query,
+              "primary_key": [col.name for col in node.current.primary_key()]}
 
     for key in params:
         if not isinstance(params[key], list) and key != "query" and key != "lineage":

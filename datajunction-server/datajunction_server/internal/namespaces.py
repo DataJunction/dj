@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.operators import is_
 
@@ -27,7 +28,7 @@ from datajunction_server.utils import SEPARATOR
 
 
 def get_nodes_in_namespace(
-    session: Session,
+    session: AsyncSession,
     namespace: str,
     node_type: NodeType = None,
     include_deactivated: bool = False,
@@ -35,7 +36,7 @@ def get_nodes_in_namespace(
     """
     Gets a list of node names in the namespace
     """
-    get_node_namespace(session, namespace)
+    NodeNamespace.get(session, namespace)
     list_nodes_query = select(
         Node.name,
         NodeRevision.display_name,
@@ -118,8 +119,8 @@ def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
     return namespaces
 
 
-def mark_namespace_deactivated(
-    session: Session,
+async def mark_namespace_deactivated(
+    session: AsyncSession,
     namespace: NodeNamespace,
     message: str = None,
     current_user: Optional[User] = None,
@@ -146,11 +147,11 @@ def mark_namespace_deactivated(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
+    await session.commit()
 
 
-def mark_namespace_restored(
-    session: Session,
+async def mark_namespace_restored(
+    session: AsyncSession,
     namespace: NodeNamespace,
     message: str = None,
     current_user: Optional[User] = None,
@@ -169,7 +170,7 @@ def mark_namespace_restored(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
+    await session.commit()
 
 
 def validate_namespace(namespace: str):
@@ -193,8 +194,8 @@ def get_parent_namespaces(namespace: str):
     return [SEPARATOR.join(parts[0:i]) for i in range(len(parts)) if parts[0:i]]
 
 
-def create_namespace(
-    session: Session,
+async def create_namespace(
+    session: AsyncSession,
     namespace: str,
     include_parents: bool = True,
     current_user: Optional[User] = None,
@@ -208,7 +209,7 @@ def create_namespace(
         else [namespace]
     )
     for parent_namespace in parents:
-        if not get_node_namespace(  # pragma: no cover
+        if not await get_node_namespace(  # pragma: no cover
             session=session,
             namespace=parent_namespace,
             raise_if_not_exists=False,
@@ -224,12 +225,12 @@ def create_namespace(
                     user=current_user.username if current_user else None,
                 ),
             )
-    session.commit()
+    await session.commit()
     return parents
 
 
-def hard_delete_namespace(
-    session: Session,
+async def hard_delete_namespace(
+    session: AsyncSession,
     namespace: str,
     cascade: bool = False,
     current_user: Optional[User] = None,
@@ -238,14 +239,14 @@ def hard_delete_namespace(
     Hard delete a node namespace.
     """
     node_names = (
-        session.execute(
+        (await session.execute(
             select(Node.name).where(
                 or_(
                     Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
                     Node.namespace == namespace,
                 ),
             ),
-        )
+        ))
         .scalars()
         .all()
     )
@@ -262,7 +263,7 @@ def hard_delete_namespace(
 
     impacts = {}
     for node_name in node_names:
-        impacts[node_name] = hard_delete_node(
+        impacts[node_name] = await hard_delete_node(
             node_name,
             session,
             current_user=current_user,
@@ -274,7 +275,7 @@ def hard_delete_namespace(
             "namespace": _namespace.namespace,
             "status": "deleted",
         }
-        session.delete(_namespace)
+        await session.delete(_namespace)
     return impacts
 
 

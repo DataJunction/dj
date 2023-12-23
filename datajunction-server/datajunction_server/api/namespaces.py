@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from fastapi import Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.operators import is_
 
@@ -46,16 +47,16 @@ router = SecureAPIRouter(tags=["namespaces"])
 
 
 @router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)
-def create_node_namespace(
+async def create_node_namespace(
     namespace: str,
     include_parents: Optional[bool] = False,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Create a node namespace
     """
-    if get_node_namespace(
+    if await get_node_namespace(
         session=session,
         namespace=namespace,
         raise_if_not_exists=False,
@@ -67,7 +68,7 @@ def create_node_namespace(
             },
         )
     validate_namespace(namespace)
-    created_namespaces = create_namespace(
+    created_namespaces = await create_namespace(
         session,
         namespace,
         include_parents,  # type: ignore
@@ -89,8 +90,8 @@ def create_node_namespace(
     response_model=List[NamespaceOutput],
     status_code=200,
 )
-def list_namespaces(
-    session: Session = Depends(get_session),
+async def list_namespaces(
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -99,17 +100,7 @@ def list_namespaces(
     """
     List namespaces with the number of nodes contained in them
     """
-    results = session.execute(
-        select(
-            NodeNamespace.namespace,
-            func.count(Node.id).label("num_nodes"),  # pylint: disable=not-callable
-        )
-        .join(Node, onclause=NodeNamespace.namespace == Node.namespace, isouter=True)
-        .where(
-            is_(NodeNamespace.deactivated_at, None),
-        )
-        .group_by(NodeNamespace.namespace),
-    ).all()
+    results = await NodeNamespace.get_all_with_node_count(session)
     resource_requests = [
         access.ResourceRequest(
             verb=access.ResourceRequestVerb.BROWSE,
@@ -137,50 +128,46 @@ def list_namespaces(
     response_model=List[NodeMinimumDetail],
     status_code=HTTPStatus.OK,
 )
-def list_nodes_in_namespace(
+async def list_nodes_in_namespace(
     namespace: str,
     type_: Optional[NodeType] = Query(
         default=None,
         description="Filter the list of nodes to this type",
     ),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> List[NodeMinimumDetail]:
     """
     List node names in namespace, filterable to a given type if desired.
     """
-    return get_nodes_in_namespace(session, namespace, type_)  # type: ignore
+    results = await NodeNamespace.list_nodes(session, namespace, type_)
+    return results
 
 
 @router.delete("/namespaces/{namespace}/", status_code=HTTPStatus.OK)
-def deactivate_a_namespace(
+async def deactivate_a_namespace(
     namespace: str,
     cascade: bool = Query(
         default=False,
         description="Cascade the deletion down to the nodes in the namespace",
     ),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Deactivates a node namespace
     """
-    node_namespace = get_node_namespace(
-        session=session,
-        namespace=namespace,
-        raise_if_not_exists=True,
-    )
-
+    node_namespace = await NodeNamespace.get(session, namespace, raise_if_not_exists=True)
     if node_namespace.deactivated_at:
         raise DJAlreadyExistsException(
             message=f"Namespace `{namespace}` is already deactivated.",
         )
 
     # If there are no active nodes in the namespace, we can safely deactivate this namespace
-    node_list = get_nodes_in_namespace(session, namespace)
+    node_list = await NodeNamespace.list_nodes(session, namespace)
     node_names = [node.name for node in node_list]
     if len(node_names) == 0:
         message = f"Namespace `{namespace}` has been deactivated."
-        mark_namespace_deactivated(session, node_namespace, message)
+        await mark_namespace_deactivated(session, node_namespace, message)
         return JSONResponse(
             status_code=HTTPStatus.OK,
             content={"message": message},
@@ -190,7 +177,7 @@ def deactivate_a_namespace(
     # subsequently deactivate this namespace
     if cascade:
         for node_name in node_names:
-            deactivate_node(
+            await deactivate_node(
                 session,
                 node_name,
                 f"Cascaded from deactivating namespace `{namespace}`",
@@ -200,7 +187,7 @@ def deactivate_a_namespace(
             f"Namespace `{namespace}` has been deactivated. The following nodes"
             f" have also been deactivated: {','.join(node_names)}"
         )
-        mark_namespace_deactivated(
+        await mark_namespace_deactivated(
             session,
             node_namespace,
             message,
@@ -282,11 +269,11 @@ def restore_a_namespace(
 
 
 @router.delete("/namespaces/{namespace}/hard/", name="Hard Delete a DJ Namespace")
-def hard_delete_node_namespace(
+async def hard_delete_node_namespace(
     namespace: str,
     *,
     cascade: bool = False,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -295,7 +282,7 @@ def hard_delete_node_namespace(
     is set to true. If cascade is set to false, we'll raise an error. This should be used
     with caution, as the impact may be large.
     """
-    impacts = hard_delete_namespace(
+    impacts = await hard_delete_namespace(
         session=session,
         namespace=namespace,
         cascade=cascade,

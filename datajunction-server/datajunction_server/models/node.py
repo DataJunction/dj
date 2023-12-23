@@ -18,7 +18,7 @@ from typing_extensions import TypedDict
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJError
 from datajunction_server.models.base import labelize
-from datajunction_server.models.catalog import CatalogInfo
+from datajunction_server.models.catalog import CatalogInfo, CatalogName
 from datajunction_server.models.column import ColumnYAML
 from datajunction_server.models.database import DatabaseOutput
 from datajunction_server.models.engine import Dialect
@@ -759,7 +759,7 @@ class NodeRevisionOutput(BaseModel):
     version: str
     status: NodeStatus
     mode: NodeMode
-    catalog: Optional[CatalogInfo]
+    catalog: Optional[CatalogName]
     schema_: Optional[str]
     table: Optional[str]
     description: str = ""
@@ -804,7 +804,7 @@ class DAGNodeRevisionOutput(BaseModel):
     version: str
     status: NodeStatus
     mode: NodeMode
-    catalog: Optional[CatalogInfo]
+    catalog: Optional[CatalogName]
     schema_: Optional[str]
     table: Optional[str]
     description: str = ""

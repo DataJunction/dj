@@ -5,6 +5,7 @@ import itertools
 from typing import Dict, List, Optional, Set, Union
 
 from sqlalchemy import and_, func, join, literal, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, aliased, joinedload
 from sqlalchemy.sql.operators import is_
 
@@ -43,8 +44,8 @@ def _node_output_options():
     ]
 
 
-def get_downstream_nodes(
-    session: Session,
+async def get_downstream_nodes(
+    session: AsyncSession,
     node_name: str,
     node_type: NodeType = None,
     include_deactivated: bool = True,
@@ -54,7 +55,7 @@ def get_downstream_nodes(
     Gets all downstream children of the given node, filterable by node type.
     Uses a recursive CTE query to build out all descendants from the node.
     """
-    node = session.execute(select(Node).where(Node.name == node_name)).scalar()
+    node = (await session.execute(select(Node).where(Node.name == node_name))).scalar()
 
     initial_dag = (
         select(
@@ -93,7 +94,7 @@ def get_downstream_nodes(
     statement = final_select.join(paths, paths.c.node_id == Node.id).options(
         *_node_output_options()
     )
-    results = session.execute(statement).unique().scalars().all()
+    results = (await session.execute(statement)).unique().scalars().all()
 
     return [
         downstream
@@ -102,8 +103,8 @@ def get_downstream_nodes(
     ]
 
 
-def get_upstream_nodes(
-    session: Session,
+async def get_upstream_nodes(
+    session: AsyncSession,
     node_name: str,
     node_type: NodeType = None,
     include_deactivated: bool = True,
@@ -113,10 +114,12 @@ def get_upstream_nodes(
     Uses a recursive CTE query to build out all parents of the node.
     """
     node = (
-        session.execute(
-            select(Node).where(
-                (Node.name == node_name) & (is_(Node.deactivated_at, None)),
-            ),
+        (
+            await session.execute(
+                select(Node).where(
+                    (Node.name == node_name) & (is_(Node.deactivated_at, None)),
+                ).options(joinedload(Node.current)),
+            )
         )
         .unique()
         .scalar()
@@ -165,7 +168,7 @@ def get_upstream_nodes(
         .options(*_node_output_options())
     )
 
-    results = session.execute(statement).unique().scalars().all()
+    results = (await session.execute(statement)).unique().scalars().all()
     return [
         upstream
         for upstream in results
@@ -173,8 +176,8 @@ def get_upstream_nodes(
     ]
 
 
-def get_dimensions_dag(
-    session: Session,
+async def get_dimensions_dag(
+    session: AsyncSession,
     node_revision: NodeRevision,
     with_attributes: bool = True,
 ) -> List[Union[DimensionAttributeOutput, Node]]:
@@ -270,13 +273,14 @@ def get_dimensions_dag(
     # ----
     # If attributes was set to False, we only need to return the dimension nodes
     if not with_attributes:
+        result = await session.execute(
+            select(Node)
+            .select_from(paths)
+            .join(Node, paths.c.node_name == Node.name)
+            .options(*_node_output_options())
+        )
         return (
-            session.execute(
-                select(Node)
-                .select_from(paths)
-                .join(Node, paths.c.node_name == Node.name)
-                .options(*_node_output_options()),
-            )
+            result
             .unique()
             .scalars()
             .all()
@@ -373,9 +377,9 @@ def get_dimensions_dag(
                 column_type,
                 attribute_types,
                 join_path,
-            ) in session.execute(
+            ) in (await session.execute(
                 final_query,
-            ).all()
+            )).all()
             if (  # column has dimension attribute
                 join_path == ""
                 and attribute_types is not None
@@ -393,8 +397,8 @@ def get_dimensions_dag(
     )
 
 
-def get_dimensions(
-    session: Session,
+async def get_dimensions(
+    session: AsyncSession,
     node: Node,
     with_attributes: bool = True,
 ) -> List[Union[DimensionAttributeOutput, Node]]:
@@ -404,12 +408,15 @@ def get_dimensions(
     * Setting `attributes` to False will return a list of dimension nodes
     """
     if node.type == NodeType.METRIC:
-        return get_dimensions_dag(
+        dag = await get_dimensions_dag(
             session,
             node.current.parents[0].current,
             with_attributes,
         )
-    return get_dimensions_dag(session, node.current, with_attributes)
+    else:
+        await session.refresh(node, attribute_names=["current"])
+        dag = await get_dimensions_dag(session, node.current, with_attributes)
+    return dag
 
 
 def check_convergence(path1: List[str], path2: List[str]) -> bool:
@@ -440,8 +447,8 @@ def check_convergence(path1: List[str], path2: List[str]) -> bool:
     return False  # pragma: no cover
 
 
-def group_dimensions_by_name(
-    session: Session,
+async def group_dimensions_by_name(
+    session: AsyncSession,
     node: Node,
 ) -> Dict[str, List[DimensionAttributeOutput]]:
     """
@@ -450,14 +457,14 @@ def group_dimensions_by_name(
     return {
         k: list(v)
         for k, v in itertools.groupby(
-            get_dimensions(session, node),
+            await get_dimensions(session, node),
             key=lambda dim: dim.name,
         )
     }
 
 
-def get_shared_dimensions(
-    session: Session,
+async def get_shared_dimensions(
+    session: AsyncSession,
     metric_nodes: List[Node],
 ) -> List[DimensionAttributeOutput]:
     """
@@ -484,10 +491,10 @@ def get_shared_dimensions(
             ),
         )
     )
-    parents = list(set(session.execute(statement).scalars().all()))
-    common = group_dimensions_by_name(session, parents[0])
+    parents = list(set((await session.execute(statement)).scalars().all()))
+    common = await group_dimensions_by_name(session, parents[0])
     for node in parents[1:]:
-        node_dimensions = group_dimensions_by_name(session, node)
+        node_dimensions = await group_dimensions_by_name(session, node)
 
         # Merge each set of dimensions based on the name and path
         to_delete = set(common.keys() - node_dimensions.keys())
@@ -510,8 +517,8 @@ def get_shared_dimensions(
     )
 
 
-def get_nodes_with_dimension(
-    session: Session,
+async def get_nodes_with_dimension(
+    session: AsyncSession,
     dimension_node: Node,
     node_types: Optional[List[NodeType]] = None,
 ) -> List[NodeRevision]:
@@ -555,14 +562,16 @@ def get_nodes_with_dimension(
                     ),
                 )
             )
-            node_revisions = session.execute(statement).unique().scalars().all()
+            node_revisions = (await session.execute(statement.options(joinedload(NodeRevision.node)))).unique().scalars().all()
             for node_rev in node_revisions:
                 to_process.append(node_rev.node)
         else:
             # All other nodes are added to the result set
+            await session.refresh(current_node, ["current", "children"])
             final_set.add(current_node.current)
             for child in current_node.children:
                 if child.name not in processed:
+                    await session.refresh(child, ["node"])
                     to_process.append(child.node)
     if node_types:
         return [node for node in final_set if node.type in node_types]

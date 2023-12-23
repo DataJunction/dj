@@ -8,10 +8,14 @@ from unittest import mock
 from unittest.mock import call
 
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
+from httpx import AsyncClient
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from datajunction_server.api.main import app
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
@@ -39,11 +43,12 @@ def materialization_compare(response, expected):
         assert materialization_response == materialization_expected
 
 
-def test_read_node(client_with_roads: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_read_node(client_with_roads: AsyncClient) -> None:
     """
     Test ``GET /nodes/{node_id}``.
     """
-    response = client_with_roads.get("/nodes/default.repair_orders/")
+    response = await client_with_roads.get("/nodes/default.repair_orders/")
     data = response.json()
 
     assert response.status_code == 200
@@ -52,14 +57,14 @@ def test_read_node(client_with_roads: TestClient) -> None:
     assert data["node_revision_id"] == 1
     assert data["type"] == "source"
 
-    response = client_with_roads.get("/nodes/default.nothing/")
+    response = await client_with_roads.get("/nodes/default.nothing/")
     data = response.json()
 
     assert response.status_code == 404
     assert data["message"] == "A node with name `default.nothing` does not exist."
 
     # Check that getting nodes via prefixes works
-    response = client_with_roads.get("/nodes/?prefix=default.ha")
+    response = await client_with_roads.get("/nodes/?prefix=default.ha")
     data = response.json()
     assert set(data) == {
         "default.hard_hats",
@@ -68,7 +73,8 @@ def test_read_node(client_with_roads: TestClient) -> None:
     }
 
 
-def test_read_nodes(session: Session, client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_read_nodes(session: AsyncSession, client: AsyncClient) -> None:
     """
     Test ``GET /nodes/``.
     """
@@ -112,16 +118,16 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     session.add(node_rev1)
     session.add(node_rev2)
     session.add(node_rev3)
-    session.commit()
+    await session.commit()
 
-    response = client.get("/nodes/")
+    response = await client.get("/nodes/")
     data = response.json()
 
     assert response.status_code == 200
     assert len(data) == 3
     assert set(data) == {"not-a-metric", "also-not-a-metric", "a-metric"}
 
-    response = client.get("/nodes?node_type=metric")
+    response = await client.get("/nodes?node_type=metric")
     data = response.json()
 
     assert response.status_code == 200
@@ -129,12 +135,13 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     assert set(data) == {"a-metric"}
 
 
-def test_get_nodes_with_details(client_with_examples: TestClient):
+@pytest.mark.asyncio
+async def test_get_nodes_with_details(client_with_examples: AsyncClient):
     """
     Test getting all nodes with some details
     """
-    response = client_with_examples.get("/nodes/details/")
-    assert response.ok
+    response = await client_with_examples.get("/nodes/details/")
+    assert response.status_code == 200
     data = response.json()
     assert {d["name"] for d in data} == {
         "default.country_dim",
@@ -239,6 +246,7 @@ def test_get_nodes_with_details(client_with_examples: TestClient):
     }
 
 
+@pytest.mark.asyncio
 class TestNodeCRUD:  # pylint: disable=too-many-public-methods
     """
     Test node CRUD
@@ -304,8 +312,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         session.commit()
         return database
 
-    @pytest.fixture
-    def source_node(self, session: Session) -> Node:
+    @pytest_asyncio.fixture
+    async def source_node(self, session: AsyncSession) -> Node:
         """
         A source node fixture.
         """
@@ -330,18 +338,18 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             ],
         )
         session.add(node_revision)
-        session.commit()
+        await session.commit()
         return node
 
-    def test_create_dimension_without_catalog(
+    async def test_create_dimension_without_catalog(
         self,
-        client_with_roads,
+        client_with_roads: AsyncClient,
     ):
         """
         Test that creating a dimension that's purely query-based and therefore
         doesn't reference a catalog works.
         """
-        response = client_with_roads.post(
+        response = await client_with_roads.post(
             "/nodes/dimension/",
             json={
                 "description": "Title",
@@ -378,12 +386,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ]
 
         # Link the dimension to a column on the source node
-        response = client_with_roads.post(
+        response = await client_with_roads.post(
             "/nodes/default.hard_hats/columns/title/"
             "?dimension=default.title&dimension_column=title",
         )
-        assert response.ok
-        response = client_with_roads.get("/nodes/default.hard_hats/")
+        assert response.status_code in (200, 201)
+        response = await client_with_roads.get("/nodes/default.hard_hats/")
         assert {
             "attributes": [],
             "dimension": {"name": "default.title"},
@@ -393,19 +401,19 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "partition": None,
         } in response.json()["columns"]
 
-    def test_deleting_node(
+    async def test_deleting_node(
         self,
-        client_with_basic: TestClient,
+        client_with_basic: AsyncClient,
     ):
         """
         Test deleting a node
         """
         # Delete a node
-        response = client_with_basic.delete("/nodes/basic.source.users/")
+        response = await client_with_basic.delete("/nodes/basic.source.users/")
         assert response.status_code == 200
         # Check that then retrieving the node returns an error
-        response = client_with_basic.get("/nodes/basic.source.users/")
-        assert not response.ok
+        response = await client_with_basic.get("/nodes/basic.source.users/")
+        assert not response.status_code in (201, 200, 204)
         assert response.json() == {
             "message": "A node with name `basic.source.users` does not exist.",
             "errors": [],
@@ -419,11 +427,11 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "basic.num_users",
         ]
         for downstream in expected_downstreams:
-            response = client_with_basic.get(f"/nodes/{downstream}/")
+            response = await client_with_basic.get(f"/nodes/{downstream}/")
             assert response.json()["status"] == NodeStatus.INVALID
 
             # The downstreams' status change should be recorded in their histories
-            response = client_with_basic.get(f"/history?node={downstream}")
+            response = await client_with_basic.get(f"/history?node={downstream}")
             assert [
                 (activity["pre"], activity["post"], activity["details"])
                 for activity in response.json()
@@ -437,7 +445,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             ]
 
         # Trying to create the node again should work.
-        response = client_with_basic.post(
+        response = await client_with_basic.post(
             "/nodes/source/",
             json={
                 "name": "basic.source.users",
@@ -459,10 +467,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "table": "dim_users",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
 
         # The deletion action should be recorded in the node's history
-        response = client_with_basic.get("/history?node=basic.source.users")
+        response = await client_with_basic.get("/history?node=basic.source.users")
         history = response.json()
         assert history == [
             {

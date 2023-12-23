@@ -5,10 +5,13 @@ import logging
 from typing import List, Optional
 
 from fastapi import Depends, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session, joinedload
 
 from datajunction_server.api.helpers import get_catalog_by_name, get_node_by_name
 from datajunction_server.construction.dimensions import build_dimensions_from_cube_query
+from datajunction_server.database import Node, NodeRevision, Catalog
+from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.internal.nodes import get_cube_revision_metadata
@@ -35,17 +38,17 @@ router = SecureAPIRouter(tags=["cubes"])
 
 
 @router.get("/cubes/{name}/", name="Get a Cube")
-def get_cube(
-    name: str, *, session: Session = Depends(get_session)
+async def get_cube(
+    name: str, *, session: AsyncSession = Depends(get_session)
 ) -> CubeRevisionMetadata:
     """
     Get information on a cube
     """
-    return get_cube_revision_metadata(session, name)
+    return await get_cube_revision_metadata(session, name)
 
 
 @router.get("/cubes/{name}/dimensions/sql", name="Dimensions SQL for Cube")
-def get_cube_dimension_sql(
+async def get_cube_dimension_sql(
     name: str,
     *,
     dimensions: List[str] = Query([], description="Dimensions to get values for"),
@@ -58,7 +61,7 @@ def get_cube_dimension_sql(
         description="Number of rows to limit the data retrieved to",
     ),
     include_counts: bool = False,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=redefined-outer-name
         validate_access,
     ),
@@ -66,9 +69,9 @@ def get_cube_dimension_sql(
     """
     Generates SQL to retrieve all unique values of a dimension for the cube
     """
-    node = get_node_by_name(session=session, name=name, node_type=NodeType.CUBE)
+    node = await Node.get_by_name(session, name, options=[joinedload(Node.current)])
     cube = node.current
-    return build_dimensions_from_cube_query(
+    return await build_dimensions_from_cube_query(
         session,
         cube,
         dimensions,
@@ -83,7 +86,7 @@ def get_cube_dimension_sql(
     "/cubes/{name}/dimensions/data",
     name="Dimensions Values for Cube",
 )
-def get_cube_dimension_values(  # pylint: disable=too-many-locals
+async def get_cube_dimension_values(  # pylint: disable=too-many-locals
     name: str,
     *,
     dimensions: List[str] = Query([], description="Dimensions to get values for"),
@@ -97,7 +100,7 @@ def get_cube_dimension_values(  # pylint: disable=too-many-locals
     ),
     include_counts: bool = False,
     async_: bool = False,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=redefined-outer-name
         validate_access,
@@ -106,9 +109,18 @@ def get_cube_dimension_values(  # pylint: disable=too-many-locals
     """
     All unique values of a dimension from the cube
     """
-    node = get_node_by_name(session=session, name=name, node_type=NodeType.CUBE)
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.current).options(
+                joinedload(NodeRevision.availability).joinedload(AvailabilityState.catalog).joinedload(Catalog.engines),
+                joinedload(NodeRevision.catalog).joinedload(Catalog.engines),
+            ),
+        ],
+    )
     cube = node.current
-    translated_sql = build_dimensions_from_cube_query(
+    translated_sql = await build_dimensions_from_cube_query(
         session,
         cube,
         dimensions,
@@ -118,7 +130,7 @@ def get_cube_dimension_values(  # pylint: disable=too-many-locals
         validate_access,
     )
     if cube.availability:
-        catalog = get_catalog_by_name(  # pragma: no cover
+        catalog = await get_catalog_by_name(  # pragma: no cover
             session,
             cube.availability.catalog,  # type: ignore
         )

@@ -6,9 +6,13 @@ from typing import Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
 from pydantic import Extra
-from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column, relationship, joinedload
+from sqlalchemy.sql.base import ExecutableOption
+from sqlalchemy.sql.operators import is_
 
+from datajunction_server.database import ColumnAttribute
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
@@ -16,7 +20,7 @@ from datajunction_server.database.connection import Base
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.tag import Tag
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import DJInvalidInputException, DJNodeNotFound
 from datajunction_server.models.base import (
     labelize,
     sqlalchemy_enum_with_name,
@@ -192,6 +196,60 @@ class Node(Base):  # pylint: disable=too-few-public-methods
     def __hash__(self) -> int:
         return hash(self.id)
 
+    @classmethod
+    async def get_by_name(
+        cls,
+        session: AsyncSession,
+        name: str,
+        options: List[ExecutableOption] = None,
+        raise_if_not_exists: bool = False,
+        include_inactive: bool = False,
+        for_update: bool = False,
+    ) -> Optional["Node"]:
+        statement = select(Node).where(Node.name == name)
+        if options:
+            statement = statement.options(*options)
+        if not include_inactive:
+            statement = statement.where(is_(Node.deactivated_at, None))
+        if for_update:
+            statement = statement.with_for_update().execution_options(
+                populate_existing=True,
+            )
+        result = await session.execute(statement)
+        node = result.unique().scalar_one_or_none()
+        if not node and raise_if_not_exists:
+            raise DJNodeNotFound(
+                message=(
+                    f"A node with name `{name}` does not exist."
+                ),
+                http_status_code=404,
+            )
+        return node
+
+    @classmethod
+    async def get_by_id(
+        cls,
+        session: AsyncSession,
+        id: int,
+        *options: ExecutableOption,
+    ) -> Optional["Node"]:
+        statement = select(Node).where(Node.id == id).options(*options)
+        result = await session.execute(statement)
+        node = result.unique().scalar_one_or_none()
+        return node
+
+    @classmethod
+    async def find(cls, session: AsyncSession, prefix: str, node_type: NodeType, *options: ExecutableOption):
+        statement = select(Node).where(is_(Node.deactivated_at, None))
+        if prefix:
+            statement = statement.where(
+                Node.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
+            )
+        if node_type:
+            statement = statement.where(Node.type == node_type)
+        result = await session.execute(statement.options(*options))
+        return result.unique().scalars().all()
+
 
 class NodeRevision(Base):  # pylint: disable=too-few-public-methods
     """
@@ -334,6 +392,23 @@ class NodeRevision(Base):  # pylint: disable=too-few-public-methods
             if col.has_primary_key_attribute():
                 primary_key_columns.append(col)
         return primary_key_columns
+
+    @classmethod
+    def default_load_options(cls):
+        return (
+            joinedload(NodeRevision.columns).options(
+                joinedload(Column.attributes).joinedload(
+                    ColumnAttribute.attribute_type,
+                ),
+                joinedload(Column.dimension),
+                joinedload(Column.partition),
+            ),
+            joinedload(NodeRevision.catalog),
+            joinedload(NodeRevision.parents),
+            joinedload(NodeRevision.materializations),
+            joinedload(NodeRevision.metric_metadata),
+            joinedload(NodeRevision.availability),
+        )
 
     @staticmethod
     def format_metric_alias(query: str, name: str) -> str:

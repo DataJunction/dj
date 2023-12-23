@@ -7,12 +7,12 @@ from typing import List, Optional
 
 from fastapi import Depends, HTTPException, Query
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.operators import is_
 
-from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
-from datajunction_server.database.node import Node
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
@@ -33,11 +33,18 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["metrics"])
 
 
-def get_metric(session: Session, name: str) -> Node:
+async def get_metric(session: AsyncSession, name: str) -> Node:
     """
     Return a metric node given a node name.
     """
-    node = get_node_by_name(session, name)
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[joinedload(Node.current).options(
+            joinedload(NodeRevision.parents),
+            joinedload(NodeRevision.metric_metadata),
+        )],
+    )
     if node.type != NodeType.METRIC:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
@@ -47,10 +54,10 @@ def get_metric(session: Session, name: str) -> Node:
 
 
 @router.get("/metrics/", response_model=List[str])
-def list_metrics(
+async def list_metrics(
     prefix: Optional[str] = None,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -59,7 +66,7 @@ def list_metrics(
     """
     List all available metrics.
     """
-    return list_nodes(
+    return await list_nodes(
         node_type=NodeType.METRIC,
         prefix=prefix,
         session=session,
@@ -81,12 +88,12 @@ def list_metric_metadata() -> MetricMetadataOptions:
 
 
 @router.get("/metrics/{name}/", response_model=Metric)
-def get_a_metric(name: str, *, session: Session = Depends(get_session)) -> Metric:
+async def get_a_metric(name: str, *, session: AsyncSession = Depends(get_session)) -> Metric:
     """
     Return a metric by name.
     """
-    node = get_metric(session, name)
-    dims = get_dimensions(session, node.current.parents[0])
+    node = await get_metric(session, name)
+    dims = await get_dimensions(session, node.current.parents[0])
     metric = Metric.parse_node(node, dims)
     return metric
 
@@ -100,7 +107,7 @@ async def get_common_dimensions(
         title="List of metrics to find common dimensions for",
         default=[],
     ),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> List[DimensionAttributeOutput]:
     """
     Return common dimensions for a set of metrics.
@@ -111,7 +118,7 @@ async def get_common_dimensions(
         .where(Node.name.in_(metric))  # type: ignore  # pylint: disable=no-member
         .where(is_(Node.deactivated_at, None))
     )
-    metric_nodes = session.execute(statement).scalars().all()
+    metric_nodes = (await session.execute(statement)).scalars().all()
     for node in metric_nodes:
         if node.type != NodeType.METRIC:
             errors.append(
@@ -130,4 +137,4 @@ async def get_common_dimensions(
 
     if errors:
         raise DJException(errors=errors)
-    return get_shared_dimensions(session, metric_nodes)
+    return await get_shared_dimensions(session, metric_nodes)
