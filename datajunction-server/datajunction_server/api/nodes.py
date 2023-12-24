@@ -305,7 +305,7 @@ async def delete_node(
 @router.delete("/nodes/{name}/hard/", name="Hard Delete a DJ Node")
 async def hard_delete(
     name: str,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -323,16 +323,16 @@ async def hard_delete(
 
 
 @router.post("/nodes/{name}/restore/")
-def restore_node(
+async def restore_node(
     name: str,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ):
     """
     Restore (aka re-activate) the specified node.
     """
-    activate_node(session, name, current_user=current_user)
+    await activate_node(session, name, current_user=current_user)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully restored."},
@@ -350,6 +350,7 @@ async def list_node_revisions(
         session,
         name,
         options=[joinedload(Node.revisions).options(*NodeRevision.default_load_options())],
+        raise_if_not_exists=True,
     )
     return node.revisions
 
@@ -512,8 +513,8 @@ async def create_node(
         session=session,
         node_revision=node_revision,
     )
-    await session.refresh(node_revision, ["columns"])
     await session.refresh(node)
+    await session.refresh(node_revision, ["columns"])
 
     column_names = {col.name for col in node_revision.columns}
     if data.primary_key and any(
@@ -954,11 +955,11 @@ def refresh_source_node(
 
 
 @router.patch("/nodes/{name}/", response_model=NodeOutput)
-def update_node(
+async def update_node(
     name: str,
     data: UpdateNode,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
     background_tasks: BackgroundTasks,
@@ -969,7 +970,7 @@ def update_node(
     """
     Update a node.
     """
-    node = update_any_node(
+    await update_any_node(
         name,
         data,
         session=session,
@@ -977,6 +978,14 @@ def update_node(
         current_user=current_user,
         background_tasks=background_tasks,
         validate_access=validate_access,
+    )
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.tags),
+        ],
     )
     return node  # type: ignore
 
@@ -1145,9 +1154,6 @@ async def set_column_display_name(
         ),
     )
     await session.commit()
-    await session.refresh(column)
-    await session.refresh(node)
-    await session.refresh(node.current)
     return column
 
 

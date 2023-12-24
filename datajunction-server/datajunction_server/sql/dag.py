@@ -531,6 +531,9 @@ async def get_nodes_with_dimension(
     while to_process:
         current_node = to_process.pop()
         processed.add(current_node.name)
+        current_node = await Node.get_by_name(
+            session, current_node.name,
+            options=[joinedload(Node.current), joinedload(Node.children).options(joinedload(NodeRevision.node))])
 
         # Dimension nodes are used to expand the searchable graph by finding
         # the next layer of nodes that are linked to this dimension
@@ -567,11 +570,9 @@ async def get_nodes_with_dimension(
                 to_process.append(node_rev.node)
         else:
             # All other nodes are added to the result set
-            await session.refresh(current_node, ["current", "children"])
             final_set.add(current_node.current)
             for child in current_node.children:
                 if child.name not in processed:
-                    await session.refresh(child, ["node"])
                     to_process.append(child.node)
     if node_types:
         return [node for node in final_set if node.type in node_types]

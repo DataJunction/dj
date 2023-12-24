@@ -3,6 +3,8 @@ Tests for basic auth helper functions
 """
 import pytest
 from fastapi.testclient import TestClient
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from datajunction_server.constants import AUTH_COOKIE
@@ -53,45 +55,49 @@ def test_validate_username_and_password(client: TestClient, session: Session):
     assert user.username == "dj"
 
 
-def test_get_user(client: TestClient, session: Session):
+@pytest.mark.asyncio
+async def test_get_user(client: AsyncClient, session: AsyncSession):
     """
     Test getting a user
     """
-    client.post(
+    await client.post(
         "/basic/user/",
         data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
     )
-    user = basic.get_user(username="dj", session=session)
+    user = await basic.get_user(username="dj", session=session)
     assert user.username == "dj"
 
 
-def test_get_user_raise_on_user_not_found(session: Session):
+@pytest.mark.asyncio
+async def test_get_user_raise_on_user_not_found(session: AsyncSession):
     """
     Test raising when trying to get a user that doesn't exist
     """
     with pytest.raises(DJException) as exc_info:
-        basic.get_user(username="dj", session=session)
+        await basic.get_user(username="dj", session=session)
     assert "User dj not found" in str(exc_info.value)
 
 
-def test_login_raise_on_user_not_found(client: TestClient):
+@pytest.mark.asyncio
+async def test_login_raise_on_user_not_found(client: AsyncClient):
     """
     Test raising when trying to login as a user that doesn't exist
     """
-    response = client.post("/basic/login/", data={"username": "foo", "password": "bar"})
+    response = await client.post("/basic/login/", data={"username": "foo", "password": "bar"})
     assert response.status_code == 401
 
 
-def test_fail_invalid_credentials(client: TestClient, session: Session):
+@pytest.mark.asyncio
+async def test_fail_invalid_credentials(client: AsyncClient, session: AsyncSession):
     """
     Test failing on invalid user credentials
     """
-    client.post(
+    await client.post(
         "/basic/user/",
         data={"email": "dj@datajunction.io", "username": "dj", "password": "incorrect"},
     )
     with pytest.raises(DJException) as exc_info:
-        basic.validate_user_password(username="dj", password="dj", session=session)
+        await basic.validate_user_password(username="dj", password="dj", session=session)
     assert "Invalid password for user dj" in str(exc_info.value)
 
 

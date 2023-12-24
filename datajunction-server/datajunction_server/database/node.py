@@ -168,6 +168,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         "NodeRevision",
         back_populates="node",
         primaryjoin="Node.id==NodeRevision.node_id",
+        # cascade="delete",
     )
     current: Mapped["NodeRevision"] = relationship(
         "NodeRevision",
@@ -429,6 +430,18 @@ class NodeRevision(Base):  # pylint: disable=too-few-public-methods
             ast.Name(amenable_name(name)),
         )
         return str(tree)
+
+    def query_ast(self):
+        from datajunction_server.sql.parsing.backends.antlr4 import parse
+        formatted_query = (
+            NodeRevision.format_metric_alias(
+                self.query,  # type: ignore
+                self.name,
+            )
+            if self.type == NodeType.METRIC
+            else self.query
+        )
+        return parse(formatted_query)
 
     def check_metric(self):
         """

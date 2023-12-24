@@ -523,8 +523,8 @@ def pytest_addoption(parser):
     )
 
 
-@pytest.fixture(scope="session", autouse=True)
-def mock_user_dj() -> Iterator[None]:
+@pytest_asyncio.fixture(autouse=True)
+async def mock_user_dj() -> Iterator[None]:
     """
     Mock a DJ user for tests
     """

@@ -385,10 +385,10 @@ async def save_node(
     await session.refresh(node.current)
 
 
-def update_any_node(  # pylint: disable=too-many-arguments
+async def update_any_node(  # pylint: disable=too-many-arguments
     name: str,
     data: UpdateNode,
-    session: Session,
+    session: AsyncSession,
     query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
     background_tasks: BackgroundTasks = None,
@@ -397,9 +397,16 @@ def update_any_node(  # pylint: disable=too-many-arguments
     """
     Node update helper function that handles updating any node
     """
-    node = get_node_by_name(session, name, for_update=True, include_inactive=True)
+    node = await Node.get_by_name(
+        session,
+        name,
+        for_update=True,
+        include_inactive=True,
+        options=[joinedload(Node.current).options(*NodeRevision.default_load_options())],
+        raise_if_not_exists=True,
+    )
     if node.type == NodeType.CUBE:
-        node_revision = update_cube_node(
+        node_revision = await update_cube_node(
             session,
             node.current,
             data,
@@ -409,7 +416,7 @@ def update_any_node(  # pylint: disable=too-many-arguments
             validate_access=validate_access,  # type: ignore
         )
         return node_revision.node if node_revision else node
-    return update_node_with_query(
+    return await update_node_with_query(
         name,
         data,
         session,
@@ -732,8 +739,12 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
                 session=session,
             )
 
+            result = await Node.get_by_name(session, child.name, options=[joinedload(Node.current).options(*NodeRevision.default_load_options())])
+            child = result.current
             # Update the child with a new node revision if its columns or status have changed
             if node_validator.differs_from(child):
+                print("type(child!)", type(child))
+                # await session.refresh(child, ["columns", "catalog", "materializations", "parents", "node"])
                 new_revision = copy_existing_node_revision(child)
                 new_revision.version = str(
                     Version.parse(child.version).next_major_version(),
@@ -750,12 +761,18 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
                 new_revision.columns = node_validator.columns
 
                 # Save the new revision of the child
-                new_revision.node = child.node
-                new_revision.node.current_version = new_revision.version
+                new_revision.node_id = child.node_id
                 session.add(new_revision)
+                await session.commit()
+                await session.refresh(new_revision, ["node"])
+                new_revision.node.current_version = new_revision.version
+                # session.add(new_revision)
                 session.add(new_revision.node)
 
                 # Add grandchildren for processing
+                await session.refresh(child, ["node"])
+                await session.refresh(child.node, ["children"])
+
                 for grandchild in child.node.children:
                     new_changelog = changelog + [grandchild]
                     to_process.append(new_changelog)

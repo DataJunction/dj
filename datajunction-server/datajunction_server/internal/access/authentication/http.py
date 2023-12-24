@@ -9,7 +9,7 @@ from fastapi.security import HTTPBearer
 from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.types import DecoratedCallable
 from jose.exceptions import JWEError, JWTError
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from datajunction_server.constants import AUTH_COOKIE
@@ -27,7 +27,7 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
     async def __call__(
         self,
         request: Request,
-        session: Session = Depends(get_session),
+        session: AsyncSession = Depends(get_session),
     ) -> None:
         # First check for a JWT sent in a cookie
         jwt = request.cookies.get(AUTH_COOKIE)
@@ -44,10 +44,11 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
                         ),
                     ],
                 ) from exc
-            request.state.user = get_user(
+            request.state.user = await get_user(
                 username=jwt_data["username"],
                 session=session,
             )
+            print("reauest.state.user", request.state.user)
             return
 
         authorization: str = request.headers.get("Authorization")
@@ -77,7 +78,8 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
                 )
             return  # pragma: no cover
         jwt_data = await decode_token(credentials)
-        request.state.user = get_user(username=jwt_data["username"], session=session)
+        request.state.user = await get_user(username=jwt_data["username"], session=session)
+        print("reauest.state.user", request.state.user)
         return
 
 

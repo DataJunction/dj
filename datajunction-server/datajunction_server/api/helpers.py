@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, make_transient
 from sqlalchemy.sql.operators import is_, and_
 
 from datajunction_server.construction.build import (
@@ -1238,7 +1238,7 @@ async def activate_node(
     node.deactivated_at = None  # type: ignore
 
     # Find all downstream nodes and revalidate them
-    downstreams = get_downstream_nodes(session, node.name)
+    downstreams = await get_downstream_nodes(session, node.name)
     for downstream in downstreams:
         old_status = downstream.current.status
         if downstream.type == NodeType.CUBE:
@@ -1252,7 +1252,7 @@ async def activate_node(
         else:
             # We should not fail node restoration just because of some nodes
             # that have been invalid already and stay that way.
-            node_validator = validate_node_data(downstream.current, session)
+            node_validator = await validate_node_data(downstream.current, session)
             downstream.current.status = node_validator.status
             if node_validator.errors:
                 downstream.current.status = NodeStatus.INVALID
@@ -1279,7 +1279,7 @@ async def activate_node(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
+    await session.commit()
 
 
 async def revalidate_node(
@@ -1309,10 +1309,13 @@ async def revalidate_node(
             await session.refresh(current_node_revision)
         return NodeStatus.VALID
     previous_status = current_node_revision.status
+    print("node!!", current_node_revision.name)
+    # session.add(current_node_revision)
+
     node_validator = await validate_node_data(current_node_revision, session)
     current_node_revision.status = node_validator.status
     if previous_status != current_node_revision.status:  # pragma: no cover
-        session.add(current_node_revision)
+        # session.add(current_node_revision)
         session.add(
             status_change_history(
                 current_node_revision,
@@ -1324,6 +1327,7 @@ async def revalidate_node(
         )
         await session.commit()
         await session.refresh(current_node_revision)
+        print("current_node_revision.status", current_node_revision.status)
         await session.refresh(node)
     return current_node_revision.status
 
@@ -1337,16 +1341,16 @@ async def hard_delete_node(
     Hard delete a node, destroying all links and invalidating all downstream nodes.
     This should be used with caution, deactivating a node is preferred.
     """
-    node = await get_node_by_name(session, name, with_current=True)
+    node = await Node.get_by_name(session, name, options=[joinedload(Node.current), joinedload(Node.revisions)])
     downstream_nodes = await get_downstream_nodes(session=session, node_name=name)
 
     linked_nodes = []
     if node.type == NodeType.DIMENSION:
         linked_nodes = await get_nodes_with_dimension(session=session, dimension_node=node)
 
-    await session.delete(node)
     for revision in node.revisions:
         await session.delete(revision)
+    await session.delete(node)
 
     await session.commit()
     impact = []  # Aggregate all impact of this deletion to include in response

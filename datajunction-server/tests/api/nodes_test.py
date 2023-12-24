@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from datajunction_server.api.main import app
 from datajunction_server.database.column import Column
@@ -24,7 +24,7 @@ from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.sql.dag import get_upstream_nodes
+from datajunction_server.sql.dag import get_upstream_nodes, get_downstream_nodes
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 from tests.sql.utils import compare_query_strings
@@ -523,18 +523,18 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         ]
 
-    def test_deleting_source_upstream_from_metric(
+    async def test_deleting_source_upstream_from_metric(
         self,
-        client: TestClient,
+        client: AsyncClient,
     ):
         """
         Test deleting a source that's upstream from a metric
         """
-        response = client.post("/catalogs/", json={"name": "warehouse"})
-        assert response.ok
-        response = client.post("/namespaces/default/")
-        assert response.ok
-        response = client.post(
+        response = await client.post("/catalogs/", json={"name": "warehouse"})
+        assert response.status_code == 201
+        response = await client.post("/namespaces/default/")
+        assert response.status_code == 201
+        response = await client.post(
             "/nodes/source/",
             json={
                 "name": "default.users",
@@ -556,8 +556,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "table": "users",
             },
         )
-        assert response.ok
-        response = client.post(
+        assert response.status_code < 300
+        response = await client.post(
             "/nodes/metric/",
             json={
                 "description": "Total number of users",
@@ -566,16 +566,16 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.num_users",
             },
         )
-        assert response.ok
+        assert response.status_code == 201
         # Delete the source node
-        response = client.delete("/nodes/default.users/")
-        assert response.ok
+        response = await client.delete("/nodes/default.users/")
+        assert response.status_code < 300
         # The downstream metric should have an invalid status
         assert (
-            client.get("/nodes/default.num_users/").json()["status"]
+            (await client.get("/nodes/default.num_users/")).json()["status"]
             == NodeStatus.INVALID
         )
-        response = client.get("/history?node=default.num_users")
+        response = await client.get("/history?node=default.num_users")
         assert [
             (activity["pre"], activity["post"], activity["details"])
             for activity in response.json()
@@ -589,16 +589,16 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ]
 
         # Restore the source node
-        response = client.post("/nodes/default.users/restore/")
-        assert response.ok
+        response = await client.post("/nodes/default.users/restore/")
+        assert response.status_code < 300
         # Retrieving the restored node should work
-        response = client.get("/nodes/default.users/")
-        assert response.ok
+        response = await client.get("/nodes/default.users/")
+        assert response.status_code < 300
         # The downstream metric should have been changed to valid
-        response = client.get("/nodes/default.num_users/")
+        response = await client.get("/nodes/default.num_users/")
         assert response.json()["status"] == NodeStatus.VALID
         # Check activity history of downstream metric
-        response = client.get("/history?node=default.num_users")
+        response = await client.get("/history?node=default.num_users")
         assert [
             (activity["pre"], activity["post"], activity["details"])
             for activity in response.json()
@@ -616,18 +616,18 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             ),
         ]
 
-    def test_deleting_transform_upstream_from_metric(
+    async def test_deleting_transform_upstream_from_metric(
         self,
-        client: TestClient,
+        client: AsyncClient,
     ):
         """
         Test deleting a transform that's upstream from a metric
         """
-        response = client.post("/catalogs/", json={"name": "warehouse"})
-        assert response.ok
-        response = client.post("/namespaces/default/")
-        assert response.ok
-        response = client.post(
+        response = await client.post("/catalogs/", json={"name": "warehouse"})
+        assert response.status_code == 201
+        response = await client.post("/namespaces/default/")
+        assert response.status_code == 201
+        response = await client.post(
             "/nodes/source/",
             json={
                 "name": "default.users",
@@ -649,8 +649,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "table": "users",
             },
         )
-        assert response.ok
-        response = client.post(
+        assert response.status_code < 300
+        response = await client.post(
             "/nodes/transform/",
             json={
                 "name": "default.us_users",
@@ -672,8 +672,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "mode": "published",
             },
         )
-        assert response.ok
-        response = client.post(
+        assert response.status_code < 300
+        response = await client.post(
             "/nodes/metric/",
             json={
                 "description": "Total number of US users",
@@ -682,11 +682,11 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.num_us_users",
             },
         )
-        assert response.ok
+        assert response.status_code < 300
         # Create an invalid draft downstream node
         # so we can test that it stays invalid
         # when the upstream node is restored
-        response = client.post(
+        response = await client.post(
             "/nodes/metric/",
             json={
                 "description": "An invalid node downstream of default.us_users",
@@ -695,29 +695,29 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.invalid_metric",
             },
         )
-        assert response.ok
-        response = client.get("/nodes/default.invalid_metric/")
-        assert response.ok
+        assert response.status_code < 300
+        response = await client.get("/nodes/default.invalid_metric/")
+        assert response.status_code < 300
         assert response.json()["status"] == NodeStatus.INVALID
         # Delete the transform node
-        response = client.delete("/nodes/default.us_users/")
-        assert response.ok
+        response = await client.delete("/nodes/default.us_users/")
+        assert response.status_code < 300
         # Retrieving the deleted node should respond that the node doesn't exist
-        assert client.get("/nodes/default.us_users/").json()["message"] == (
+        assert (await client.get("/nodes/default.us_users/")).json()["message"] == (
             "A node with name `default.us_users` does not exist."
         )
         # The downstream metrics should have an invalid status
         assert (
-            client.get("/nodes/default.num_us_users/").json()["status"]
+            (await client.get("/nodes/default.num_us_users/")).json()["status"]
             == NodeStatus.INVALID
         )
         assert (
-            client.get("/nodes/default.invalid_metric/").json()["status"]
+            (await client.get("/nodes/default.invalid_metric/")).json()["status"]
             == NodeStatus.INVALID
         )
 
         # Check history of downstream metrics
-        response = client.get("/history?node=default.num_us_users")
+        response = await client.get("/history?node=default.num_us_users")
         assert [
             (activity["pre"], activity["post"], activity["details"])
             for activity in response.json()
@@ -730,7 +730,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             ),
         ]
         # No change recorded here because the metric was already invalid
-        response = client.get("/history?node=default.invalid_metric")
+        response = await client.get("/history?node=default.invalid_metric")
         assert [
             (activity["pre"], activity["post"])
             for activity in response.json()
@@ -738,23 +738,23 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ] == []
 
         # Restore the transform node
-        response = client.post("/nodes/default.us_users/restore/")
-        assert response.ok
+        response = await client.post("/nodes/default.us_users/restore/")
+        assert response.status_code < 300
         # Retrieving the restored node should work
-        response = client.get("/nodes/default.us_users/")
-        assert response.ok
+        response = await client.get("/nodes/default.us_users/")
+        assert response.status_code < 300
         # Check history of the restored node
-        response = client.get("/history?node=default.us_users")
+        response = await client.get("/history?node=default.us_users")
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
         ] == [("create", "node"), ("delete", "node"), ("restore", "node")]
 
         # This downstream metric should have been changed to valid
-        response = client.get("/nodes/default.num_us_users/")
+        response = await client.get("/nodes/default.num_us_users/")
         assert response.json()["status"] == NodeStatus.VALID
         # Check history of downstream metric
-        response = client.get("/history?node=default.num_us_users")
+        response = await client.get("/history?node=default.num_us_users")
         assert [
             (activity["pre"], activity["post"], activity["details"])
             for activity in response.json()
@@ -773,28 +773,28 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ]
 
         # The other downstream metric should have remained invalid
-        response = client.get("/nodes/default.invalid_metric/")
+        response = await client.get("/nodes/default.invalid_metric/")
         assert response.json()["status"] == NodeStatus.INVALID
         # Check history of downstream metric
-        response = client.get("/history?node=default.invalid_metric")
+        response = await client.get("/history?node=default.invalid_metric")
         assert [
             (activity["pre"], activity["post"])
             for activity in response.json()
             if activity["activity_type"] == "status_change"
         ] == []
 
-    def test_deleting_linked_dimension(
+    async def test_deleting_linked_dimension(
         self,
-        client: TestClient,
+        client: AsyncClient,
     ):
         """
         Test deleting a dimension that's linked to columns on other nodes
         """
-        response = client.post("/catalogs/", json={"name": "warehouse"})
-        assert response.ok
-        response = client.post("/namespaces/default/")
-        assert response.ok
-        response = client.post(
+        response = await client.post("/catalogs/", json={"name": "warehouse"})
+        assert response.status_code < 300
+        response = await client.post("/namespaces/default/")
+        assert response.status_code < 300
+        response = await client.post(
             "/nodes/source/",
             json={
                 "name": "default.users",
@@ -816,8 +816,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "table": "users",
             },
         )
-        assert response.ok
-        response = client.post(
+        assert response.status_code < 300
+        response = await client.post(
             "/nodes/dimension/",
             json={
                 "name": "default.us_users",
@@ -840,8 +840,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "mode": "published",
             },
         )
-        assert response.ok
-        response = client.post(
+        assert response.status_code < 300
+        response = await client.post(
             "/nodes/source/",
             json={
                 "name": "default.messages",
@@ -858,9 +858,9 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "table": "messages",
             },
         )
-        assert response.ok
+        assert response.status_code < 300
         # Create a metric on the source node
-        response = client.post(
+        response = await client.post(
             "/nodes/metric/",
             json={
                 "description": "Total number of user messages",
@@ -869,10 +869,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.num_messages",
             },
         )
-        assert response.ok
+        assert response.status_code < 300
 
         # Create a metric on the source node w/ bound dimensions
-        response = client.post(
+        response = await client.post(
             "/nodes/metric/",
             json={
                 "description": "Total number of user messages by id",
@@ -882,11 +882,11 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "required_dimensions": ["default.messages.id"],
             },
         )
-        assert response.ok
+        assert response.status_code < 300
 
         # Create a metric w/ bound dimensions that to not exist
         with pytest.raises(Exception) as exc:
-            response = client.post(
+            await client.post(
                 "/nodes/metric/",
                 json={
                     "description": "Total number of user messages by id",
@@ -899,7 +899,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             assert "required dimensions that are not on parent nodes" in str(exc)
 
         # Create a metric on the source node w/ an invalid bound dimension
-        response = client.post(
+        response = await client.post(
             "/nodes/metric/",
             json={
                 "description": "Total number of user messages by id",
@@ -926,14 +926,14 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         }
 
         # Link the dimension to a column on the source node
-        response = client.post(
+        response = await client.post(
             "/nodes/default.messages/columns/user_id/"
             "?dimension=default.us_users&dimension_column=id",
         )
-        assert response.ok
+        assert response.status_code < 300
         # The dimension's attributes should now be available to the metric
-        response = client.get("/metrics/default.num_messages/")
-        assert response.ok
+        response = await client.get("/metrics/default.num_messages/")
+        assert response.status_code < 300
         assert response.json()["dimensions"] == [
             {
                 "is_primary_key": False,
@@ -1010,7 +1010,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ]
 
         # Check history of the node with column dimension link
-        response = client.get(
+        response = await client.get(
             "/history?node=default.messages",
         )
         history = response.json()
@@ -1019,28 +1019,28 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ] == [("create", "node"), ("create", "link")]
 
         # Delete the dimension node
-        response = client.delete("/nodes/default.us_users/")
-        assert response.ok
+        response = await client.delete("/nodes/default.us_users/")
+        assert response.status_code < 300
         # Retrieving the deleted node should respond that the node doesn't exist
-        assert client.get("/nodes/default.us_users/").json()["message"] == (
+        assert (await client.get("/nodes/default.us_users/")).json()["message"] == (
             "A node with name `default.us_users` does not exist."
         )
         # The deleted dimension's attributes should no longer be available to the metric
-        response = client.get("/metrics/default.num_messages/")
-        assert response.ok
+        response = await client.get("/metrics/default.num_messages/")
+        assert response.status_code < 300
         assert [] == response.json()["dimensions"]
         # The metric should still be VALID
-        response = client.get("/nodes/default.num_messages/")
+        response = await client.get("/nodes/default.num_messages/")
         assert response.json()["status"] == NodeStatus.VALID
         # Restore the dimension node
-        response = client.post("/nodes/default.us_users/restore/")
-        assert response.ok
+        response = await client.post("/nodes/default.us_users/restore/")
+        assert response.status_code < 300
         # Retrieving the restored node should work
-        response = client.get("/nodes/default.us_users/")
-        assert response.ok
+        response = await client.get("/nodes/default.us_users/")
+        assert response.status_code < 300
         # The dimension's attributes should now once again show for the linked metric
-        response = client.get("/metrics/default.num_messages/")
-        assert response.ok
+        response = await client.get("/metrics/default.num_messages/")
+        assert response.status_code < 300
         assert response.json()["dimensions"] == [
             {
                 "is_primary_key": False,
@@ -1116,21 +1116,21 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         ]
         # The metric should still be VALID
-        response = client.get("/nodes/default.num_messages/")
+        response = await client.get("/nodes/default.num_messages/")
         assert response.json()["status"] == NodeStatus.VALID
 
-    def test_restoring_an_already_active_node(
+    async def test_restoring_an_already_active_node(
         self,
-        client: TestClient,
+        client: AsyncClient,
     ):
         """
         Test raising when restoring an already active node
         """
-        response = client.post("/catalogs/", json={"name": "warehouse"})
-        assert response.ok
-        response = client.post("/namespaces/default/")
-        assert response.ok
-        response = client.post(
+        response = await client.post("/catalogs/", json={"name": "warehouse"})
+        assert response.status_code < 300
+        response = await client.post("/namespaces/default/")
+        assert response.status_code < 300
+        response = await client.post(
             "/nodes/source/",
             json={
                 "name": "default.users",
@@ -1152,19 +1152,19 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "table": "users",
             },
         )
-        assert response.ok
-        response = client.post("/nodes/default.users/restore/")
-        assert not response.ok
+        assert response.status_code < 300
+        response = await client.post("/nodes/default.users/restore/")
+        assert not response.status_code < 300
         assert response.json() == {
             "message": "Cannot restore `default.users`, node already active.",
             "errors": [],
             "warnings": [],
         }
 
-    def verify_complete_hard_delete(
+    async def verify_complete_hard_delete(
         self,
-        session: Session,
-        client_with_roads: TestClient,
+        session: AsyncSession,
+        client_with_roads: AsyncClient,
         node_name: str,
     ):
         """
@@ -1173,36 +1173,41 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         """
         # Record its upstream nodes
         upstream_names = [
-            node.name for node in get_upstream_nodes(session, node_name=node_name)
+            node.name for node in await get_upstream_nodes(session, node_name=node_name)
+        ]
+
+        # Record its downstream nodes
+        downstream_names = [
+            node.name for node in await get_downstream_nodes(session, node_name=node_name)
         ]
 
         # Hard delete the node
-        response = client_with_roads.delete(f"/nodes/{node_name}/hard/")
-        assert response.ok
+        response = await client_with_roads.delete(f"/nodes/{node_name}/hard/")
+        assert response.status_code < 300
 
         # Check that all revisions (and their relations) for the node have been deleted
         nodes = (
-            session.execute(select(Node).where(Node.name == node_name))
+            (await session.execute(select(Node).where(Node.name == node_name)))
             .unique()
             .scalars()
             .all()
         )
         revisions = (
-            session.execute(
+            (await session.execute(
                 select(NodeRevision).where(NodeRevision.name == node_name),
-            )
+            ))
             .unique()
             .scalars()
             .all()
         )
         relations = (
-            session.execute(
+            (await session.execute(
                 select(NodeRelationship).where(
                     NodeRelationship.child_id.in_(  # type: ignore  # pylint: disable=no-member
                         [rev.id for rev in revisions],
                     ),
                 ),
-            )
+            ))
             .unique()
             .scalars()
             .all()
@@ -1213,31 +1218,46 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Check that upstreams and downstreams of the node still remain
         upstreams = (
-            session.execute(
+            (await session.execute(
                 select(Node).where(
                     Node.name.in_(upstream_names),  # type: ignore  # pylint: disable=no-member
                 ),
-            )
+            ))
             .unique()
             .scalars()
             .all()
         )
         assert len(upstreams) == len(upstream_names)
 
-    def test_hard_deleting_node_with_versions(
+        # Check that upstreams and downstreams of the node still remain
+        downstreams = (
+            (await session.execute(
+                select(Node).where(
+                    Node.name.in_(downstream_names),  # type: ignore  # pylint: disable=no-member
+                ).options(joinedload(Node.current))
+            ))
+            .unique()
+            .scalars()
+            .all()
+        )
+        assert len(downstreams) == len(downstream_names)
+        for downstream in downstreams:
+            assert downstream.current.status == NodeStatus.INVALID
+
+    async def test_hard_deleting_node_with_versions(
         self,
-        client_with_roads: TestClient,
-        session: Session,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
     ):
         """
         Test that hard deleting a node will remove all previous node revisions.
         """
         # Create a few revisions for the `default.repair_order` dimension
-        client_with_roads.patch(
+        await client_with_roads.patch(
             "/nodes/default.repair_order/",
             json={"query": """SELECT repair_order_id FROM default.repair_orders"""},
         )
-        client_with_roads.patch(
+        await client_with_roads.patch(
             "/nodes/default.repair_order/",
             json={
                 "query": """SELECT
@@ -1251,13 +1271,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                         FROM default.repair_orders""",
             },
         )
-        response = client_with_roads.get("/nodes/default.repair_order")
+        response = await client_with_roads.get("/nodes/default.repair_order")
         assert response.json()["version"] == "v3.0"
 
         # Hard delete all nodes and verify after each delete
-        default_nodes = client_with_roads.get("/namespaces/default/").json()
+        default_nodes = (await client_with_roads.get("/namespaces/default/")).json()
         for node_name in default_nodes:
-            self.verify_complete_hard_delete(
+            await self.verify_complete_hard_delete(
                 session,
                 client_with_roads,
                 node_name["name"],
@@ -1265,7 +1285,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Check that all nodes under the `default` namespace and their revisions have been deleted
         nodes = (
-            session.execute(select(Node).where(Node.namespace == "default"))
+            (await session.execute(select(Node).where(Node.namespace == "default")))
             .unique()
             .scalars()
             .all()
@@ -1273,27 +1293,27 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert len(nodes) == 0
 
         revisions = (
-            session.execute(
+            (await session.execute(
                 select(NodeRevision).where(
                     NodeRevision.name.like("default%"),  # type: ignore # pylint: disable=no-member
                 ),
-            )
+            ))
             .unique()
             .scalars()
             .all()
         )
         assert len(revisions) == 0
 
-    def test_hard_deleting_a_node(
+    async def test_hard_deleting_a_node(
         self,
-        client_with_roads: TestClient,
+        client_with_roads: AsyncClient,
     ):
         """
         Test raising when restoring an already active node
         """
         # Hard deleting a node causes downstream nodes to become invalid
-        response = client_with_roads.delete("/nodes/default.repair_orders/hard/")
-        assert response.ok
+        response = await client_with_roads.delete("/nodes/default.repair_orders/hard/")
+        assert response.status_code < 300
         data = response.json()
         data["impact"] = sorted(data["impact"], key=lambda x: x["name"])
         assert data == {
@@ -1358,8 +1378,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         }
 
         # Hard deleting a dimension creates broken links
-        response = client_with_roads.delete("/nodes/default.repair_order/hard/")
-        assert response.ok
+        response = await client_with_roads.delete("/nodes/default.repair_order/hard/")
+        assert response.status_code < 300
         assert response.json() == {
             "impact": [
                 {
@@ -1427,33 +1447,33 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         }
 
         # Hard deleting an unlinked node has no impact
-        response = client_with_roads.delete(
+        response = await client_with_roads.delete(
             "/nodes/default.regional_repair_efficiency/hard/",
         )
-        assert response.ok
+        assert response.status_code < 300
         assert response.json() == {
             "message": "The node `default.regional_repair_efficiency` has been completely removed.",
             "impact": [],
         }
 
         # Hard delete a metric
-        response = client_with_roads.delete(
+        response = await client_with_roads.delete(
             "/nodes/default.avg_repair_order_discounts/hard/",
         )
-        assert response.ok
+        assert response.status_code < 300
         assert response.json() == {
             "message": "The node `default.avg_repair_order_discounts` has been completely removed.",
             "impact": [],
         }
 
-    def test_register_table_without_query_service(
+    async def test_register_table_without_query_service(
         self,
         client: TestClient,
     ):
         """
         Trying to register a table without a query service set up should fail.
         """
-        response = client.post("/register/table/foo/bar/baz/")
+        response = await client.post("/register/table/foo/bar/baz/")
         data = response.json()
         assert data["message"] == (
             "Registering tables requires that a query "
@@ -1621,9 +1641,9 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data_second["node_revision_id"] == data["node_revision_id"]
         assert data_second["columns"] == new_columns
 
-    def test_create_update_source_node(
+    async def test_create_update_source_node(
         self,
-        client_with_basic: TestClient,
+        client_with_basic: AsyncClient,
     ) -> None:
         """
         Test creating and updating a source node
@@ -1648,7 +1668,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         }
 
         # Trying to create it again should fail
-        response = client_with_basic.post(
+        response = await client_with_basic.post(
             "/nodes/source/",
             json=basic_source_comments,
         )
@@ -1660,7 +1680,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert response.status_code == 409
 
         # Update node with a new description should create a new revision
-        response = client_with_basic.patch(
+        response = await client_with_basic.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={
                 "description": "New description",
@@ -1676,7 +1696,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["description"] == "New description"
 
         # Try to update node with no changes
-        response = client_with_basic.patch(
+        response = await client_with_basic.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={"description": "New description", "display_name": "Comments facts"},
         )
@@ -1684,7 +1704,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data == new_data
 
         # Try to update a node with a table that has different columns
-        response = client_with_basic.patch(
+        response = await client_with_basic.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={
                 "columns": [
@@ -1736,15 +1756,15 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         ]
 
-    def test_update_nonexistent_node(
+    async def test_update_nonexistent_node(
         self,
-        client: TestClient,
+        client: AsyncClient,
     ) -> None:
         """
         Test updating a non-existent node.
         """
 
-        response = client.patch(
+        response = await client.patch(
             "/nodes/something/",
             json={"description": "new"},
         )
@@ -1752,14 +1772,14 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert response.status_code == 404
         assert data["message"] == "A node with name `something` does not exist."
 
-    def test_raise_on_source_node_with_no_catalog(
+    async def test_raise_on_source_node_with_no_catalog(
         self,
-        client: TestClient,
+        client: AsyncClient,
     ) -> None:
         """
         Test raise on source node with no catalog
         """
-        response = client.post(
+        response = await client.post(
             "/nodes/source/",
             json={
                 "name": "basic.source.comments",
@@ -1777,7 +1797,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "mode": "published",
             },
         )
-        assert not response.ok
+        assert not response.status_code < 300
         assert response.json() == {
             "detail": [
                 {
@@ -1798,18 +1818,17 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             ],
         }
 
-    def test_create_invalid_transform_node(
+    async def test_create_invalid_transform_node(
         self,
-        database: Database,  # pylint: disable=unused-argument
         source_node: Node,  # pylint: disable=unused-argument
-        client: TestClient,
+        client: AsyncClient,
         create_invalid_transform_node_payload: Dict[str, Any],
     ) -> None:
         """
         Test creating an invalid transform node in draft and published modes.
         """
-        client.post("/namespaces/default/")
-        response = client.post(
+        await client.post("/namespaces/default/")
+        response = await client.post(
             "/nodes/transform/",
             json=create_invalid_transform_node_payload,
         )
@@ -1819,15 +1838,15 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "Node definition contains references to nodes that do not exist",
         )
 
-    def test_create_node_with_type_inference_failure(
+    async def test_create_node_with_type_inference_failure(
         self,
-        client_with_namespaced_roads: TestClient,
+        client_with_namespaced_roads: AsyncClient,
     ):
         """
         Attempting to create a published metric where type inference fails should raise
         an appropriate error and fail.
         """
-        response = client_with_namespaced_roads.post(
+        response = await client_with_namespaced_roads.post(
             "/nodes/metric/",
             json={
                 "description": "Average length of employment",
@@ -1872,20 +1891,19 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "warnings": [],
         }
 
-    def test_create_update_transform_node(
+    async def test_create_update_transform_node(
         self,
-        database: Database,  # pylint: disable=unused-argument
         source_node: Node,  # pylint: disable=unused-argument
-        client: TestClient,
+        client: AsyncClient,
         create_transform_node_payload: Dict[str, Any],
     ) -> None:
         """
         Test creating and updating a transform node that references an existing source.
         """
 
-        client.post("/namespaces/default/")
+        await client.post("/namespaces/default/")
         # Create a transform node
-        response = client.post(
+        response = await client.post(
             "/nodes/transform/",
             json=create_transform_node_payload,
         )
@@ -1921,7 +1939,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["parents"] == [{"name": "basic.source.users"}]
 
         # Update the transform node with two minor changes
-        response = client.patch(
+        response = await client.patch(
             "/nodes/default.country_agg/",
             json={
                 "description": "Some new description",
@@ -1942,7 +1960,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["parents"] == [{"name": "basic.source.users"}]
 
         # Try to update with a new query that references a non-existent source
-        response = client.patch(
+        response = await client.patch(
             "/nodes/default.country_agg/",
             json={
                 "query": "SELECT country, COUNT(DISTINCT id) AS num_users FROM comments",
@@ -1954,7 +1972,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
 
         # Try to update with a new query that references an existing source
-        response = client.patch(
+        response = await client.patch(
             "/nodes/default.country_agg/",
             json={
                 "query": "SELECT country, COUNT(DISTINCT id) AS num_users, "
@@ -1998,12 +2016,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["parents"] == [{"name": "basic.source.users"}]
 
         # Verify that asking for revisions for a non-existent transform fails
-        response = client.get("/nodes/random_transform/revisions/")
+        response = await client.get("/nodes/random_transform/revisions/")
         data = response.json()
         assert data["message"] == "A node with name `random_transform` does not exist."
 
         # Verify that all historical revisions are available for the node
-        response = client.get("/nodes/default.country_agg/revisions/")
+        response = await client.get("/nodes/default.country_agg/revisions/")
         data = response.json()
         assert {rev["version"]: rev["query"] for rev in data} == {
             "v1.0": "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users",
@@ -2076,13 +2094,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             ],
         }
 
-    def test_update_metric_node(self, client_with_roads: TestClient):
+    async def test_update_metric_node(self, client_with_roads: AsyncClient):
         """
         Verify that during metric node updates, if the query changes, DJ will automatically
         alias the metric column. If this aliased query is the same as the current revision's
         query, DJ won't promote the version.
         """
-        response = client_with_roads.patch(
+        response = await client_with_roads.patch(
             "/nodes/default.total_repair_cost/",
             json={
                 "query": (
@@ -2101,7 +2119,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "SELECT sum(repair_orders_fact.total_repair_cost) "
             "FROM default.repair_orders_fact repair_orders_fact"
         )
-        response = client_with_roads.get("/metrics/default.total_repair_cost")
+        response = await client_with_roads.get("/metrics/default.total_repair_cost")
         metric_data = response.json()
         assert metric_data["metric_metadata"] == {
             "direction": "higher_is_better",
@@ -2114,10 +2132,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         }
 
-        response = client_with_roads.get("/nodes/default.total_repair_cost")
+        response = await client_with_roads.get("/nodes/default.total_repair_cost")
         assert response.json()["version"] == "v1.1"
 
-        response = client_with_roads.patch(
+        response = await client_with_roads.patch(
             "/nodes/default.total_repair_cost/",
             json={"query": "SELECT count(price) FROM default.repair_order_details"},
         )
@@ -2125,20 +2143,19 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert node_data["query"] == (
             "SELECT count(price) FROM default.repair_order_details"
         )
-        response = client_with_roads.get("/nodes/default.total_repair_cost")
+        response = await client_with_roads.get("/nodes/default.total_repair_cost")
         assert response.json()["version"] == "v2.0"
 
-    def test_create_dimension_node_fails(
+    async def test_create_dimension_node_fails(
         self,
-        database: Database,  # pylint: disable=unused-argument
         source_node: Node,  # pylint: disable=unused-argument
         client: TestClient,
     ):
         """
         Test various failure cases for dimension node creation.
         """
-        client.post("/namespaces/default/")
-        response = client.post(
+        await client.post("/namespaces/default/")
+        response = await client.post(
             "/nodes/dimension/",
             json={
                 "description": "Country dimension",
@@ -2152,7 +2169,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             response.json()["message"] == "Dimension nodes must define a primary key!"
         )
 
-        response = client.post(
+        response = await client.post(
             "/nodes/dimension/",
             json={
                 "description": "Country dimension",
@@ -2169,18 +2186,17 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "default.countries."
         )
 
-    def test_create_update_dimension_node(
+    async def test_create_update_dimension_node(
         self,
-        database: Database,  # pylint: disable=unused-argument
         source_node: Node,  # pylint: disable=unused-argument
-        client: TestClient,
+        client: AsyncClient,
         create_dimension_node_payload: Dict[str, Any],
     ) -> None:
         """
         Test creating and updating a dimension node that references an existing source.
         """
-        client.post("/namespaces/default/")
-        response = client.post(
+        await client.post("/namespaces/default/")
+        response = await client.post(
             "/nodes/dimension/",
             json=create_dimension_node_payload,
         )
@@ -2218,7 +2234,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ]
 
         # Test updating the dimension node with a new query
-        response = client.patch(
+        response = await client.patch(
             "/nodes/default.countries/",
             json={"query": "SELECT country FROM basic.source.users GROUP BY country"},
         )
@@ -2241,7 +2257,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ]
 
         # Test updating the dimension node with a new primary key
-        response = client.patch(
+        response = await client.patch(
             "/nodes/default.countries/",
             json={
                 "query": "SELECT country, SUM(age) as sum_age, count(1) AS num_users "
@@ -2281,7 +2297,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         ]
 
-        response = client.patch(
+        response = await client.patch(
             "/nodes/default.countries/",
             json={
                 "primary_key": ["country"],
@@ -2317,12 +2333,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         ]
 
-    def test_raise_on_multi_catalog_node(self, client_example_loader):
+    async def test_raise_on_multi_catalog_node(self, client_example_loader):
         """
         Test raising when trying to select from multiple catalogs
         """
-        custom_client = client_example_loader(["BASIC", "ACCOUNT_REVENUE"])
-        response = custom_client.post(
+        custom_client = await client_example_loader(["BASIC", "ACCOUNT_REVENUE"])
+        response = await custom_client.post(
             "/nodes/transform/",
             json={
                 "query": (
@@ -2339,18 +2355,17 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             in response.json()["message"]
         )
 
-    def test_updating_node_to_invalid_draft(
+    async def test_updating_node_to_invalid_draft(
         self,
-        database: Database,  # pylint: disable=unused-argument
         source_node: Node,  # pylint: disable=unused-argument
-        client: TestClient,
+        client: AsyncClient,
         create_dimension_node_payload: Dict[str, Any],
     ) -> None:
         """
         Test creating an invalid node in draft mode
         """
-        client.post("/namespaces/default/")
-        response = client.post(
+        await client.post("/namespaces/default/")
+        response = await client.post(
             "/nodes/dimension/",
             json=create_dimension_node_payload,
         )
@@ -2387,21 +2402,21 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         ]
 
-        response = client.patch(
+        response = await client.patch(
             "/nodes/default.countries/",
             json={"mode": "draft"},
         )
         assert response.status_code == 200
 
         # Test updating the dimension node with an invalid query
-        response = client.patch(
+        response = await client.patch(
             "/nodes/default.countries/",
             json={"query": "SELECT country FROM missing_parent GROUP BY country"},
         )
         assert response.status_code == 200
 
         # Check that node is now a draft with an invalid status
-        response = client.get("/nodes/default.countries")
+        response = await client.get("/nodes/default.countries")
         assert response.status_code == 200
         data = response.json()
         assert data["mode"] == "draft"
@@ -2449,12 +2464,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "types: ['SPARK_SQL', 'DRUID_CUBE']"
         )
 
-    def test_node_with_struct(self, client_with_roads: TestClient):
+    async def test_node_with_struct(self, client_with_roads: AsyncClient):
         """
         Test that building a query string with structs yields a correctly formatted struct
         reference.
         """
-        response = client_with_roads.post(
+        response = await client_with_roads.post(
             "/nodes/transform/",
             json={
                 "description": "Regional level agg with structs",
@@ -2518,7 +2533,7 @@ GROUP BY
             "partition": None,
         } in response.json()["columns"]
 
-        client_with_roads.post(
+        await client_with_roads.post(
             "/nodes/transform/",
             json={
                 "description": "Total Repair Amounts during the COVID-19 Pandemic",
@@ -2529,7 +2544,7 @@ GROUP BY
                 "mode": "published",
             },
         )
-        response = client_with_roads.get(
+        response = await client_with_roads.get(
             "/sql/default.total_amount_in_region_from_struct_transform?filters="
             "&dimensions=location_hierarchy",
         )
@@ -3555,11 +3570,11 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         ]
         assert response.json() == {"output_tables": [], "urls": ["http://fake.url/job"]}
 
-    def test_update_column_display_name(self, client_with_roads: TestClient):
+    async def test_update_column_display_name(self, client_with_roads: AsyncClient):
         """
         Test that updating a column display name works.
         """
-        response = client_with_roads.patch(
+        response = await client_with_roads.patch(
             url="/nodes/default.hard_hat/columns/hard_hat_id",
             params={"display_name": "test"},
         )

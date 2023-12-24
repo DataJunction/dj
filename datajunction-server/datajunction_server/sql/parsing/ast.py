@@ -26,11 +26,12 @@ from typing import (
 )
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from datajunction_server.construction.utils import get_dj_node, to_namespaced_name
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.node import NodeRevision as DJNode
+from datajunction_server.database.node import Node as DJNodeRef
 from datajunction_server.errors import DJError, DJErrorException, DJException, ErrorCode
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.node import BuildCriteria
@@ -936,21 +937,23 @@ class Column(Aliasable, Named, Expression):
             if isinstance(current_table, Table) and current_table.dj_node:
                 for dj_col in current_table.dj_node.columns:
                     if dj_col.dimension:
-                        await ctx.session.refresh(dj_col.dimension, ["current"])
-                        new_table = Table(
-                            name=to_namespaced_name(dj_col.dimension.name),
-                            _dj_node=dj_col.dimension.current,
-                        )
-                        await ctx.session.refresh(dj_col.dimension.current, ["columns"])
-                        new_table._columns = [
-                            Column(
-                                name=Name(col.name),
-                                _type=col.type,
-                                _table=new_table,
+                        col_dimension = await DJNodeRef.get_by_name(
+                            ctx.session, dj_col.dimension.name,
+                            options=[joinedload(DJNodeRef.current).options(joinedload(DJNode.columns))])
+                        if col_dimension:
+                            new_table = Table(
+                                name=to_namespaced_name(col_dimension.name),
+                                _dj_node=col_dimension.current,
                             )
-                            for col in dj_col.dimension.current.columns
-                        ]
-                        to_process.append(new_table)
+                            new_table._columns = [
+                                Column(
+                                    name=Name(col.name),
+                                    _type=col.type,
+                                    _table=new_table,
+                                )
+                                for col in col_dimension.current.columns
+                            ]
+                            to_process.append(new_table)
         return found
 
     async def compile(self, ctx: CompileContext):

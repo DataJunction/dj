@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.operators import is_, or_
 
-from datajunction_server.database import Node, NodeRevision
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.connection import Base
 from datajunction_server.errors import DJException
 from datajunction_server.models.node import NodeMinimumDetail
