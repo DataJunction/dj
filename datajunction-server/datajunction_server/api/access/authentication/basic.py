@@ -7,16 +7,17 @@ from http import HTTPStatus
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
+from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.access.authentication.basic import (
     get_password_hash,
     validate_user_password,
 )
 from datajunction_server.internal.access.authentication.tokens import create_token
-from datajunction_server.models.user import OAuthProvider, User
 from datajunction_server.utils import get_session
 
 router = APIRouter(tags=["Basic OAuth2"])
@@ -32,7 +33,11 @@ async def create_a_user(
     """
     Create a new user
     """
-    if session.exec(select(User).where(User.username == username)).one_or_none():
+    if (
+        session.execute(select(User).where(User.username == username))
+        .scalars()
+        .one_or_none()
+    ):
         raise DJException(
             http_status_code=HTTPStatus.CONFLICT,
             errors=[

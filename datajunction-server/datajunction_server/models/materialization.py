@@ -3,27 +3,19 @@ import enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from pydantic import AnyHttpUrl, BaseModel, validator
-from sqlalchemy import JSON
-from sqlalchemy import Column as SqlaColumn
-from sqlalchemy import DateTime, String
-from sqlalchemy.types import Enum
-from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import (
-    Backfill,
     BackfillOutput,
     PartitionColumnOutput,
     PartitionType,
 )
 from datajunction_server.models.query import ColumnMetadata
-from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
-    from datajunction_server.models import NodeRevision
+    from datajunction_server.database.node import NodeRevision
 
 DRUID_AGG_MAPPING = {
     ("bigint", "sum"): "longSum",
@@ -118,7 +110,7 @@ class MaterializationInfo(BaseModel):
     urls: List[AnyHttpUrl]
 
 
-class MaterializationConfigOutput(SQLModel):
+class MaterializationConfigOutput(BaseModel):
     """
     Output for materialization config.
     """
@@ -130,6 +122,9 @@ class MaterializationConfigOutput(SQLModel):
     backfills: List[BackfillOutput]
     strategy: Optional[str]
 
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
+
 
 class MaterializationConfigInfoUnified(
     MaterializationInfo,
@@ -140,7 +135,7 @@ class MaterializationConfigInfoUnified(
     """
 
 
-class SparkConf(BaseSQLModel):
+class SparkConf(BaseModel):
     """Spark configuration"""
 
     __root__: Dict[str, str] = {}
@@ -214,7 +209,7 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
         ]
 
 
-class DruidConf(BaseSQLModel):
+class DruidConf(BaseModel):
     """Druid configuration"""
 
     granularity: Optional[str]
@@ -224,7 +219,7 @@ class DruidConf(BaseSQLModel):
     parse_spec_format: Optional[str]
 
 
-class Measure(SQLModel):
+class Measure(BaseModel):
     """
     A measure with a simple aggregation
     """
@@ -243,7 +238,7 @@ class Measure(SQLModel):
         return hash(tuple(self.__dict__.items()))  # pragma: no cover
 
 
-class MetricMeasures(SQLModel):
+class MetricMeasures(BaseModel):
     """
     Represent a metric as a set of measures, along with the expression for
     combining the measures to make the metric.
@@ -356,74 +351,7 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         return druid_spec
 
 
-class Materialization(BaseSQLModel, table=True):  # type: ignore
-    """
-    Materialization configured for a node.
-    """
-
-    __table_args__ = (
-        UniqueConstraint(
-            "name",
-            "node_revision_id",
-            name="name_node_revision_uniq",
-        ),
-    )
-
-    id: Optional[int] = Field(
-        default=None,
-        primary_key=True,
-        sa_column_kwargs={
-            "autoincrement": True,
-        },
-    )
-
-    node_revision_id: int = Field(foreign_key="noderevision.id")
-    node_revision: "NodeRevision" = Relationship(
-        back_populates="materializations",
-    )
-
-    name: str
-
-    strategy: MaterializationStrategy = Field(
-        sa_column=SqlaColumn(Enum(MaterializationStrategy)),
-    )
-
-    # A cron schedule to materialize this node by
-    schedule: str
-
-    # Arbitrary config relevant to the materialization job
-    config: Union[GenericMaterializationConfig, DruidCubeConfig] = Field(
-        default={},
-        sa_column=SqlaColumn(JSON),
-    )
-
-    # The name of the plugin that handles materialization, if any
-    job: str = Field(
-        default="MaterializationJob",
-        sa_column=SqlaColumn("job", String),
-    )
-
-    deactivated_at: UTCDatetime = Field(
-        nullable=True,
-        sa_column=SqlaColumn(DateTime(timezone=True)),
-        default=None,
-    )
-
-    backfills: List[Backfill] = Relationship(
-        back_populates="materialization",
-        sa_relationship_kwargs={
-            "primaryjoin": "Materialization.id==Backfill.materialization_id",
-            "cascade": "all, delete",
-        },
-    )
-
-    @validator("config")
-    def config_validator(cls, value):  # pylint: disable=no-self-argument
-        """Changes `config` to a dict prior to saving"""
-        return value.dict()
-
-
-class MaterializationJobType(BaseSQLModel):
+class MaterializationJobType(BaseModel):
     """
     Materialization job types. These job types will map to their implementations
     under the subclasses of `MaterializationJob`.
@@ -472,7 +400,7 @@ class MaterializationJobTypeEnum(enum.Enum):
         return [job_type for job_type in cls if job_type.value.job_class == job_name][0]
 
 
-class UpsertMaterialization(BaseSQLModel):
+class UpsertMaterialization(BaseModel):
     """
     An upsert object for materialization configs
     """

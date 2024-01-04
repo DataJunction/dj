@@ -5,7 +5,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import Depends, Query
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.api.helpers import get_catalog_by_name, get_node_by_name
 from datajunction_server.construction.dimensions import build_dimensions_from_cube_query

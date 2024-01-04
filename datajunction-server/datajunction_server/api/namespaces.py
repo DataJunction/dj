@@ -7,14 +7,18 @@ from typing import Dict, List, Optional
 
 from fastapi import Depends, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 from sqlalchemy.sql.operators import is_
-from sqlmodel import Session, func, select
 
 from datajunction_server.api.helpers import (
     activate_node,
     deactivate_node,
     get_node_namespace,
 )
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -31,13 +35,8 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_restored,
     validate_namespace,
 )
-from datajunction_server.models import User, access
-from datajunction_server.models.node import (
-    NamespaceOutput,
-    Node,
-    NodeMinimumDetail,
-    NodeNamespace,
-)
+from datajunction_server.models import access
+from datajunction_server.models.node import NamespaceOutput, NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
@@ -100,8 +99,11 @@ def list_namespaces(
     """
     List namespaces with the number of nodes contained in them
     """
-    results = session.exec(
-        select(NodeNamespace.namespace, func.count(Node.id).label("num_nodes"))
+    results = session.execute(
+        select(
+            NodeNamespace.namespace,
+            func.count(Node.id).label("num_nodes"),  # pylint: disable=not-callable
+        )
         .join(Node, onclause=NodeNamespace.namespace == Node.namespace, isouter=True)
         .where(
             is_(NodeNamespace.deactivated_at, None),
@@ -123,7 +125,11 @@ def list_namespaces(
     approved_namespaces: List[str] = [
         request.access_object.name for request in approvals
     ]
-    return [record for record in results if record.namespace in approved_namespaces]
+    return [
+        NamespaceOutput(namespace=record.namespace, num_nodes=record.num_nodes)
+        for record in results
+        if record.namespace in approved_namespaces
+    ]
 
 
 @router.get(
@@ -171,7 +177,7 @@ def deactivate_a_namespace(
 
     # If there are no active nodes in the namespace, we can safely deactivate this namespace
     node_list = get_nodes_in_namespace(session, namespace)
-    node_names = [n["name"] for n in node_list]
+    node_names = [node.name for node in node_list]
     if len(node_names) == 0:
         message = f"Namespace `{namespace}` has been deactivated."
         mark_namespace_deactivated(session, node_namespace, message)
@@ -241,7 +247,7 @@ def restore_a_namespace(
         )
 
     node_list = get_nodes_in_namespace(session, namespace, include_deactivated=True)
-    node_names = [n["name"] for n in node_list]
+    node_names = [node.name for node in node_list]
     # If cascade=true is set, we'll restore all nodes in this namespace and then
     # subsequently restore this namespace
     if cascade:

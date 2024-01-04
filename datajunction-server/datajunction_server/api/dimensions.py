@@ -5,17 +5,18 @@ import logging
 from typing import List, Optional, Union
 
 from fastapi import Depends, Query
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from typing_extensions import Annotated
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
+from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     validate_access,
     validate_access_requests,
 )
-from datajunction_server.models import User, access
+from datajunction_server.models import access
 from datajunction_server.models.node import NodeRevisionOutput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import (

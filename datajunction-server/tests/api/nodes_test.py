@@ -9,17 +9,14 @@ from unittest.mock import call
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from datajunction_server.database.column import Column
+from datajunction_server.database.database import Database
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.internal.materializations import decompose_expression
-from datajunction_server.models import Database, Table
-from datajunction_server.models.column import Column
-from datajunction_server.models.node import (
-    Node,
-    NodeRelationship,
-    NodeRevision,
-    NodeStatus,
-)
+from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.service_clients import QueryServiceClient
@@ -308,18 +305,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         return database
 
     @pytest.fixture
-    def source_node(self, session: Session, database: Database) -> Node:
+    def source_node(self, session: Session) -> Node:
         """
         A source node fixture.
         """
-        table = Table(
-            database=database,
-            table="A",
-            columns=[
-                Column(name="ds", type=StringType()),
-                Column(name="user_id", type=IntegerType()),
-            ],
-        )
         node = Node(
             name="basic.source.users",
             type=NodeType.SOURCE,
@@ -331,7 +320,6 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             catalog_id=-100,
             type=node.type,
             version="v1",
-            tables=[table],
             columns=[
                 Column(name="id", type=IntegerType()),
                 Column(name="full_name", type=StringType()),
@@ -1185,16 +1173,22 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert response.ok
 
         # Check that all revisions (and their relations) for the node have been deleted
-        nodes = session.exec(select(Node).where(Node.name == node_name)).unique().all()
+        nodes = (
+            session.execute(select(Node).where(Node.name == node_name))
+            .unique()
+            .scalars()
+            .all()
+        )
         revisions = (
-            session.exec(
+            session.execute(
                 select(NodeRevision).where(NodeRevision.name == node_name),
             )
             .unique()
+            .scalars()
             .all()
         )
         relations = (
-            session.exec(
+            session.execute(
                 select(NodeRelationship).where(
                     NodeRelationship.child_id.in_(  # type: ignore  # pylint: disable=no-member
                         [rev.id for rev in revisions],
@@ -1202,6 +1196,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 ),
             )
             .unique()
+            .scalars()
             .all()
         )
         assert nodes == []
@@ -1210,12 +1205,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Check that upstreams and downstreams of the node still remain
         upstreams = (
-            session.exec(
+            session.execute(
                 select(Node).where(
                     Node.name.in_(upstream_names),  # type: ignore  # pylint: disable=no-member
                 ),
             )
             .unique()
+            .scalars()
             .all()
         )
         assert len(upstreams) == len(upstream_names)
@@ -1261,17 +1257,21 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Check that all nodes under the `default` namespace and their revisions have been deleted
         nodes = (
-            session.exec(select(Node).where(Node.namespace == "default")).unique().all()
+            session.execute(select(Node).where(Node.namespace == "default"))
+            .unique()
+            .scalars()
+            .all()
         )
         assert len(nodes) == 0
 
         revisions = (
-            session.exec(
+            session.execute(
                 select(NodeRevision).where(
                     NodeRevision.name.like("default%"),  # type: ignore # pylint: disable=no-member
                 ),
             )
             .unique()
+            .scalars()
             .all()
         )
         assert len(revisions) == 0
@@ -2282,14 +2282,6 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["columns"] == [
             {
-                "attributes": [],
-                "dimension": None,
-                "display_name": "Sum Age",
-                "name": "sum_age",
-                "type": "bigint",
-                "partition": None,
-            },
-            {
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
@@ -2297,6 +2289,14 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Country",
                 "name": "country",
                 "type": "string",
+                "partition": None,
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Sum Age",
+                "name": "sum_age",
+                "type": "bigint",
                 "partition": None,
             },
             {
@@ -3625,19 +3625,10 @@ class TestNodeColumnsAttributes:
         return database
 
     @pytest.fixture
-    def source_node(self, session: Session, database: Database) -> Node:
+    def source_node(self, session: Session) -> Node:
         """
         A source node fixture.
         """
-
-        table = Table(
-            database=database,
-            table="A",
-            columns=[
-                Column(name="ds", type=StringType()),
-                Column(name="user_id", type=IntegerType()),
-            ],
-        )
         node = Node(
             name="basic.source.users",
             type=NodeType.SOURCE,
@@ -3648,7 +3639,6 @@ class TestNodeColumnsAttributes:
             name=node.name,
             type=node.type,
             version="1",
-            tables=[table],
             columns=[
                 Column(name="id", type=IntegerType()),
                 Column(name="created_at", type=TimestampType()),
@@ -3973,14 +3963,12 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert len(data) == 6
         assert data["columns"] == [
             {
-                "dimension_column": None,
-                "dimension_id": None,
-                "id": None,
-                "name": "payment_id",
-                "type": "int",
+                "attributes": [],
+                "dimension": None,
                 "display_name": "Payment Id",
-                "measure_id": None,
-                "partition_id": None,
+                "name": "payment_id",
+                "partition": None,
+                "type": "int",
             },
         ]
         assert data["status"] == "valid"
@@ -4079,14 +4067,12 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "missing_parents": ["node_that_does_not_exist"],
             "columns": [
                 {
-                    "id": None,
-                    "name": "col0",
-                    "type": "int",
-                    "dimension_id": None,
+                    "attributes": [],
+                    "dimension": None,
                     "display_name": "Col0",
-                    "dimension_column": None,
-                    "measure_id": None,
-                    "partition_id": None,
+                    "name": "col0",
+                    "partition": None,
+                    "type": "int",
                 },
             ],
             "errors": [
@@ -4122,14 +4108,12 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert data["status"] == "invalid"
         assert data["columns"] == [
             {
-                "id": None,
-                "name": "col0",
-                "type": "int",
-                "dimension_id": None,
+                "attributes": [],
+                "dimension": None,
                 "display_name": "Col0",
-                "dimension_column": None,
-                "measure_id": None,
-                "partition_id": None,
+                "name": "col0",
+                "partition": None,
+                "type": "int",
             },
         ]
         assert data["missing_parents"] == ["node_that_does_not_exist"]
@@ -4488,7 +4472,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                         "lineage": [
                             {
                                 "column_name": "repair_order_id",
-                                "display_name": "Default: Repair Orders",
+                                "display_name": "default.roads.repair_orders",
                                 "lineage": [],
                                 "node_name": "default.repair_orders",
                                 "node_type": "source",
@@ -4532,14 +4516,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                         "column_name": "repair_order_id",
                         "node_name": "default.repair_order_details",
                         "node_type": "source",
-                        "display_name": "Default: Repair Order Details",
+                        "display_name": "default.roads.repair_order_details",
                         "lineage": [],
                     },
                     {
                         "column_name": "discount",
                         "node_name": "default.repair_order_details",
                         "node_type": "source",
-                        "display_name": "Default: Repair Order Details",
+                        "display_name": "default.roads.repair_order_details",
                         "lineage": [],
                     },
                 ],
@@ -4707,14 +4691,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                                 "column_name": "quantity",
                                 "node_name": "default.repair_order_details",
                                 "node_type": "source",
-                                "display_name": "Default: Repair Order Details",
+                                "display_name": "default.roads.repair_order_details",
                                 "lineage": [],
                             },
                             {
                                 "column_name": "price",
                                 "node_name": "default.repair_order_details",
                                 "node_type": "source",
-                                "display_name": "Default: Repair Order Details",
+                                "display_name": "default.roads.repair_order_details",
                                 "lineage": [],
                             },
                         ],
@@ -4729,14 +4713,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                                 "column_name": "quantity",
                                 "node_name": "default.repair_order_details",
                                 "node_type": "source",
-                                "display_name": "Default: Repair Order Details",
+                                "display_name": "default.roads.repair_order_details",
                                 "lineage": [],
                             },
                             {
                                 "column_name": "price",
                                 "node_name": "default.repair_order_details",
                                 "node_type": "source",
-                                "display_name": "Default: Repair Order Details",
+                                "display_name": "default.roads.repair_order_details",
                                 "lineage": [],
                             },
                         ],
@@ -4751,7 +4735,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                                 "column_name": "repair_order_id",
                                 "node_name": "default.repair_orders",
                                 "node_type": "source",
-                                "display_name": "Default: Repair Orders",
+                                "display_name": "default.roads.repair_orders",
                                 "lineage": [],
                             },
                         ],
@@ -4766,14 +4750,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                                 "column_name": "repair_order_id",
                                 "node_name": "default.repair_orders",
                                 "node_type": "source",
-                                "display_name": "Default: Repair Orders",
+                                "display_name": "default.roads.repair_orders",
                                 "lineage": [],
                             },
                             {
                                 "column_name": "dispatched_date",
                                 "node_name": "default.repair_orders",
                                 "node_type": "source",
-                                "display_name": "Default: Repair Orders",
+                                "display_name": "default.roads.repair_orders",
                                 "lineage": [],
                             },
                         ],

@@ -10,8 +10,9 @@ from typing import List, Optional, Union
 from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
 from fastapi_cache.decorator import cache
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 from sqlalchemy.sql.operators import is_
-from sqlmodel import Session, select
 from starlette.requests import Request
 
 from datajunction_server.api.catalogs import UNKNOWN_CATALOG_ID
@@ -30,6 +31,11 @@ from datajunction_server.api.helpers import (
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.constants import NODE_LIST_MAX
+from datajunction_server.database.column import Column
+from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.partition import Partition
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -49,14 +55,7 @@ from datajunction_server.internal.nodes import (
 )
 from datajunction_server.models import access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
-from datajunction_server.models.base import generate_display_name
-from datajunction_server.models.column import Column
-from datajunction_server.models.history import (
-    ActivityType,
-    EntityType,
-    History,
-    status_change_history,
-)
+from datajunction_server.models.history import status_change_history
 from datajunction_server.models.node import (
     ColumnOutput,
     CreateCubeNode,
@@ -65,11 +64,9 @@ from datajunction_server.models.node import (
     DAGNodeOutput,
     DimensionAttributeOutput,
     LineageColumn,
-    Node,
     NodeIndexItem,
     NodeMode,
     NodeOutput,
-    NodeRevision,
     NodeRevisionBase,
     NodeRevisionOutput,
     NodeStatus,
@@ -79,11 +76,9 @@ from datajunction_server.models.node import (
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import (
     Granularity,
-    Partition,
     PartitionInput,
     PartitionType,
 )
-from datajunction_server.models.user import User
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_dimensions,
@@ -108,7 +103,7 @@ router = SecureAPIRouter(tags=["nodes"])
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
 def validate_node(
-    data: Union[NodeRevisionBase, NodeRevision],
+    data: Union[NodeRevisionBase],
     response: Response,
     session: Session = Depends(get_session),
 ) -> NodeValidation:
@@ -202,7 +197,7 @@ def list_nodes(
         )
     if node_type:
         statement = statement.where(Node.type == node_type)
-    nodes = session.exec(statement).unique().all()
+    nodes = session.execute(statement).unique().scalars().all()
     return [
         approval.access_object.name
         for approval in validate_access_requests(
@@ -250,7 +245,7 @@ def list_all_nodes_with_details(
     )  # Very high limit as a safeguard
     results = [
         NodeIndexItem(name=row[0], display_name=row[1], description=row[2], type=row[3])
-        for row in session.exec(nodes_query).all()
+        for row in session.execute(nodes_query).all()
     ]
     if len(results) == NODE_LIST_MAX:  # pragma: no cover
         _logger.warning(
@@ -278,13 +273,13 @@ def list_all_nodes_with_details(
     return [row for row in results if row.name in approvals]
 
 
-@router.get("/nodes/{name}/", response_model=NodeOutput)
+@router.get("/nodes/{name}/")
 def get_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutput:
     """
     Show the active version of the specified node.
     """
     node = get_node_by_name(session, name, with_current=True)
-    return node  # type: ignore
+    return NodeOutput.from_orm(node)
 
 
 @router.delete("/nodes/{name}/")
@@ -389,6 +384,7 @@ def create_source(
     node = Node(
         name=data.name,
         namespace=data.namespace,
+        display_name=data.display_name or f"{data.catalog}.{data.schema_}.{data.table}",
         type=NodeType.SOURCE,
         current_version=0,
     )
@@ -412,10 +408,7 @@ def create_source(
 
     node_revision = NodeRevision(
         name=data.name,
-        namespace=data.namespace,
-        display_name=data.display_name
-        if data.display_name
-        else generate_display_name(data.name),
+        display_name=data.display_name or f"{catalog.name}.{data.schema_}.{data.table}",
         description=data.description,
         type=NodeType.SOURCE,
         status=NodeStatus.VALID,
@@ -425,11 +418,11 @@ def create_source(
         columns=columns,
         parents=[],
     )
+    node.display_name = node_revision.display_name
 
     # Point the node to the new node revision.
     save_node(session, node_revision, node, data.mode, current_user=current_user)
-
-    return node  # type: ignore
+    return node
 
 
 @router.post(
@@ -527,7 +520,7 @@ def create_node(
                 )
     session.refresh(node)
     session.refresh(node.current)
-    return node  # type: ignore
+    return node
 
 
 @router.post(
@@ -579,7 +572,7 @@ def create_cube(
     )
     node_revision = create_cube_node_revision(session=session, data=data)
     save_node(session, node_revision, node, data.mode, current_user=current_user)
-    return node  # type: ignore
+    return node
 
 
 @router.post(
@@ -631,7 +624,7 @@ def register_table(  # pylint: disable=too-many-arguments
             table=table,
             name=name,
             display_name=name,
-            columns=columns,
+            columns=[ColumnOutput.from_orm(col) for col in columns],
             description="This source node was automatically created as a registered table.",
             mode=NodeMode.PUBLISHED,
         ),
@@ -885,7 +878,18 @@ def refresh_source_node(
 
     # Create a new node revision with the updated columns and bump the version
     old_version = Version.parse(source_node.current_version)
-    new_revision = NodeRevision.parse_obj(current_revision.dict(exclude={"id"}))
+    new_revision = NodeRevision(
+        name=current_revision.name,
+        type=current_revision.type,
+        node_id=current_revision.node_id,
+        display_name=current_revision.display_name,
+        description=current_revision.description,
+        mode=current_revision.mode,
+        catalog_id=current_revision.catalog_id,
+        schema_=current_revision.schema_,
+        table=current_revision.table,
+        status=current_revision.status,
+    )
     new_revision.version = str(old_version.next_major_version())
     new_revision.columns = [
         Column(name=column.name, type=column.type, node_revisions=[new_revision])
@@ -974,7 +978,10 @@ def calculate_node_similarity(
     name="List Downstream Nodes For A Node",
 )
 def list_downstream_nodes(
-    name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
+    name: str,
+    *,
+    node_type: NodeType = None,
+    session: Session = Depends(get_session),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are downstream from the given node, filterable by type.
@@ -988,7 +995,10 @@ def list_downstream_nodes(
     name="List Upstream Nodes For A Node",
 )
 def list_upstream_nodes(
-    name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
+    name: str,
+    *,
+    node_type: NodeType = None,
+    session: Session = Depends(get_session),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are upstream from the given node, filterable by type.
@@ -998,7 +1008,6 @@ def list_upstream_nodes(
 
 @router.get(
     "/nodes/{name}/dag/",
-    response_model=List[DAGNodeOutput],
     name="List All Connected Nodes (Upstreams + Downstreams)",
 )
 def list_node_dag(
@@ -1023,7 +1032,8 @@ def list_node_dag(
         include_cubes=False,
     )
     upstreams = get_upstream_nodes(session, name, include_deactivated=False)
-    return list(set(dimension_nodes + downstreams + upstreams))  # type: ignore
+    dag_nodes = set(dimension_nodes + downstreams + upstreams)
+    return [DAGNodeOutput.from_orm(node) for node in dag_nodes]
 
 
 @router.get(

@@ -4,15 +4,12 @@ Models for measures.
 from typing import TYPE_CHECKING, List, Optional
 
 from pydantic.class_validators import root_validator
-from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlalchemy.types import Enum, String
-from sqlmodel import Field, Relationship
+from pydantic.main import BaseModel
 
 from datajunction_server.enum import StrEnum
-from datajunction_server.models.base import BaseSQLModel, generate_display_name
 
 if TYPE_CHECKING:
-    from datajunction_server.models import Column
+    pass
 
 
 class AggregationRule(StrEnum):
@@ -25,7 +22,7 @@ class AggregationRule(StrEnum):
     SEMI_ADDITIVE = "semi-additive"
 
 
-class NodeColumn(BaseSQLModel):
+class NodeColumn(BaseModel):
     """
     Defines a column on a node
     """
@@ -34,7 +31,7 @@ class NodeColumn(BaseSQLModel):
     column: str
 
 
-class CreateMeasure(BaseSQLModel):
+class CreateMeasure(BaseModel):
     """
     Input for creating a measure
     """
@@ -46,7 +43,7 @@ class CreateMeasure(BaseSQLModel):
     additive: AggregationRule = AggregationRule.NON_ADDITIVE
 
 
-class EditMeasure(BaseSQLModel):
+class EditMeasure(BaseModel):
     """
     Editable fields on a measure
     """
@@ -57,42 +54,7 @@ class EditMeasure(BaseSQLModel):
     additive: Optional[AggregationRule]
 
 
-class Measure(BaseSQLModel, table=True):  # type: ignore
-    """
-    Measure class.
-
-    Measure is a basic data modelling concept that helps with making Metric nodes portable,
-    that is, so they can be computed on various DJ nodes using the same Metric definitions.
-
-    By default, if a node column is not a Dimension or Dimension attribute then it should
-    be a Measure.
-    """
-
-    __tablename__ = "measures"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(unique=True)
-    display_name: Optional[str] = Field(
-        sa_column=SqlaColumn(
-            "display_name",
-            String,
-            default=generate_display_name("name"),
-        ),
-    )
-    description: Optional[str]
-    columns: List["Column"] = Relationship(
-        back_populates="measure",
-        sa_relationship_kwargs={
-            "lazy": "joined",
-        },
-    )
-    additive: AggregationRule = Field(
-        default=AggregationRule.NON_ADDITIVE,
-        sa_column=SqlaColumn(Enum(AggregationRule)),
-    )
-
-
-class ColumnOutput(BaseSQLModel):
+class ColumnOutput(BaseModel):
     """
     A simplified column schema, without ID or dimensions.
     """
@@ -112,8 +74,11 @@ class ColumnOutput(BaseSQLModel):
             "node": values.get("node_revisions")[0].name,
         }
 
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
-class MeasureOutput(BaseSQLModel):
+
+class MeasureOutput(BaseModel):
     """
     Output model for measures
     """
@@ -123,3 +88,6 @@ class MeasureOutput(BaseSQLModel):
     description: Optional[str]
     columns: List[ColumnOutput]
     additive: AggregationRule
+
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True

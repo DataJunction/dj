@@ -5,7 +5,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import Depends, Query
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.api.helpers import (
     assemble_column_metadata,
@@ -14,11 +14,13 @@ from datajunction_server.api.helpers import (
     validate_orderby,
 )
 from datajunction_server.construction.build import get_measures_query
+from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.internal.engines import get_engine
-from datajunction_server.models import User, access
+from datajunction_server.models import access
 from datajunction_server.models.metric import TranslatedSQL
+from datajunction_server.models.user import UserOutput
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
 _logger = logging.getLogger(__name__)
@@ -82,7 +84,7 @@ def get_sql(
     """
     access_control = access.AccessControlStore(
         validate_access=validate_access,
-        user=current_user,
+        user=UserOutput.from_orm(current_user) if current_user else None,
         base_verb=access.ResourceRequestVerb.READ,
     )
 

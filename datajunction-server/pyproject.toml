@@ -33,8 +33,7 @@ dependencies = [
     "redis<5.0.0,>=4.5.4",
     "requests<=2.29.0,>=2.28.2",
     "rich<14.0.0,>=13.3.3",
-    "SQLAlchemy<2.0.0,>=1.4.41",
-    "sqlmodel<1.0.0,>=0.0.8",
+    "sqlalchemy>=2",
     "sqlparse<1.0.0,>=0.4.3",
     "sse-starlette>=1.6.0",
     "yarl<2.0.0,>=1.8.2",
@@ -48,6 +47,7 @@ dependencies = [
     "types-cachetools>=5.3.0.6",
     "strawberry-graphql>=0.204.0",
     "fastapi-cache2>=0.2.1",
+    "psycopg>=3.1.16",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.md"

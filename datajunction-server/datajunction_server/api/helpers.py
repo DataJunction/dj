@@ -13,9 +13,9 @@ from datetime import datetime
 from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from sqlalchemy.orm import joinedload
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.sql.operators import is_
-from sqlmodel import Session, select
 
 from datajunction_server.construction.build import (
     build_materialized_cube_node,
@@ -25,6 +25,19 @@ from datajunction_server.construction.build import (
     validate_shared_dimensions,
 )
 from datajunction_server.construction.dj_query import build_dj_query
+from datajunction_server.database.attributetype import AttributeType
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.column import Column
+from datajunction_server.database.engine import Engine
+from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import (
+    MissingParent,
+    Node,
+    NodeMissingParents,
+    NodeRevision,
+)
+from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJError,
     DJException,
@@ -33,33 +46,13 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.internal.engines import get_engine
-from datajunction_server.models import (
-    AttributeType,
-    Catalog,
-    Column,
-    Engine,
-    User,
-    access,
-)
+from datajunction_server.models import access
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
+from datajunction_server.models.base import labelize
 from datajunction_server.models.engine import Dialect
-from datajunction_server.models.history import (
-    ActivityType,
-    EntityType,
-    History,
-    status_change_history,
-)
+from datajunction_server.models.history import status_change_history
 from datajunction_server.models.metric import TranslatedSQL
-from datajunction_server.models.node import (
-    BuildCriteria,
-    MissingParent,
-    Node,
-    NodeMissingParents,
-    NodeNamespace,
-    NodeRevision,
-    NodeRevisionBase,
-    NodeStatus,
-)
+from datajunction_server.models.node import BuildCriteria, NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import ColumnMetadata, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
@@ -82,7 +75,7 @@ def get_node_namespace(  # pylint: disable=too-many-arguments
     Get a node namespace
     """
     statement = select(NodeNamespace).where(NodeNamespace.namespace == namespace)
-    node_namespace = session.exec(statement).one_or_none()
+    node_namespace = session.execute(statement).scalar_one_or_none()
     if raise_if_not_exists:  # pragma: no cover
         if not node_namespace:
             raise DJException(
@@ -117,9 +110,9 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
         statement = statement.options(joinedload(Node.current)).options(
             joinedload(Node.tags),
         )
-        node = session.exec(statement).unique().one_or_none()
+        node = session.execute(statement).unique().scalar_one_or_none()
     else:
-        node = session.exec(statement).one_or_none()
+        node = session.execute(statement).scalar_one_or_none()
     if raise_if_not_exists:
         if not node:
             raise DJNodeNotFound(
@@ -175,7 +168,7 @@ def get_attribute_type(
         .where(AttributeType.name == name)
         .where(AttributeType.namespace == namespace)
     )
-    return session.exec(statement).one_or_none()
+    return session.execute(statement).scalar_one_or_none()
 
 
 def get_catalog_by_name(session: Session, name: str) -> Catalog:
@@ -183,7 +176,7 @@ def get_catalog_by_name(session: Session, name: str) -> Catalog:
     Get a catalog by name
     """
     statement = select(Catalog).where(Catalog.name == name)
-    catalog = session.exec(statement).one_or_none()
+    catalog = session.execute(statement).scalar()
     if not catalog:
         raise DJException(
             message=f"Catalog with name `{name}` does not exist.",
@@ -323,7 +316,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
         validated_node = data
     else:
         node = Node(name=data.name, type=data.type)
-        validated_node = NodeRevision.parse_obj(data)
+        validated_node = NodeRevision(**data.dict())
         validated_node.node = node
 
     ctx = ast.CompileContext(session=session, exception=DJException())
@@ -378,6 +371,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
             column_type = str(col.type)  # type: ignore
             column = Column(
                 name=column_name,
+                display_name=labelize(column_name),
                 type=column_type,
                 attributes=existing_column.attributes if existing_column else [],
                 dimension=existing_column.dimension if existing_column else None,
@@ -472,26 +466,34 @@ def resolve_downstream_references(
     """
     Find all node revisions with missing parent references to `node` and resolve them
     """
-    missing_parents = session.exec(
-        select(MissingParent).where(MissingParent.name == node_revision.name),
-    ).all()
+    missing_parents = (
+        session.execute(
+            select(MissingParent).where(MissingParent.name == node_revision.name),
+        )
+        .scalars()
+        .all()
+    )
     newly_valid_nodes = []
     for missing_parent in missing_parents:
-        missing_parent_links = session.exec(
-            select(NodeMissingParents).where(
-                NodeMissingParents.missing_parent_id == missing_parent.id,
-            ),
-        ).all()
+        missing_parent_links = (
+            session.execute(
+                select(NodeMissingParents).where(
+                    NodeMissingParents.missing_parent_id == missing_parent.id,
+                ),
+            )
+            .scalars()
+            .all()
+        )
         for (
             link
         ) in missing_parent_links:  # Remove from missing parents and add to parents
             downstream_node_id = link.referencing_node_id
             downstream_node_revision = (
-                session.exec(
+                session.execute(
                     select(NodeRevision).where(NodeRevision.id == downstream_node_id),
                 )
                 .unique()
-                .one()
+                .scalar_one()
             )
             downstream_node_revision.parents.append(node_revision.node)
             downstream_node_revision.missing_parents.remove(missing_parent)
@@ -663,13 +665,17 @@ def get_history(
     """
     Get the history for a given entity type and name
     """
-    return session.exec(
-        select(History)
-        .where(History.entity_type == entity_type)
-        .where(History.entity_name == entity_name)
-        .offset(offset)
-        .limit(limit),
-    ).all()
+    return (
+        session.execute(
+            select(History)
+            .where(History.entity_type == entity_type)
+            .where(History.entity_name == entity_name)
+            .offset(offset)
+            .limit(limit),
+        )
+        .scalars()
+        .all()
+    )
 
 
 def validate_orderby(
@@ -710,7 +716,7 @@ def find_existing_cube(
             NodeRevision.cube_elements.any(Column.name == name),  # type: ignore  # pylint: disable=no-member
         )
 
-    existing_cubes = session.exec(statement).unique().all()
+    existing_cubes = session.execute(statement).unique().scalars().all()
     for cube in existing_cubes:
         if not materialized or (  # pragma: no cover
             materialized and cube.materializations and cube.availability

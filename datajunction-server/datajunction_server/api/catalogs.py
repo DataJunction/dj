@@ -7,14 +7,17 @@ from http import HTTPStatus
 from typing import List
 
 from fastapi import Depends, HTTPException
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from datajunction_server.api.engines import EngineInfo
 from datajunction_server.api.helpers import get_catalog_by_name
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.engine import Engine
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.engines import get_engine
-from datajunction_server.models.catalog import Catalog, CatalogInfo
+from datajunction_server.models.catalog import CatalogInfo
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
@@ -29,7 +32,10 @@ def list_catalogs(*, session: Session = Depends(get_session)) -> List[CatalogInf
     """
     List all available catalogs
     """
-    return list(session.exec(select(Catalog)))
+    return [
+        CatalogInfo.from_orm(catalog)
+        for catalog in session.execute(select(Catalog)).scalars()
+    ]
 
 
 @router.get("/catalogs/{name}/", response_model=CatalogInfo, name="Get a Catalog")
@@ -64,19 +70,30 @@ def add_catalog(
             detail=f"Catalog already exists: `{data.name}`",
         )
 
-    catalog = Catalog.from_orm(data)
+    catalog = Catalog(
+        name=data.name,
+        engines=[
+            Engine(
+                name=engine.name,
+                version=engine.version,
+                uri=engine.uri,
+                dialect=engine.dialect,
+            )
+            for engine in data.engines  # type: ignore
+        ],
+    )
     catalog.engines.extend(
         list_new_engines(
             session=session,
             catalog=catalog,
-            create_engines=data.engines,
+            create_engines=data.engines,  # type: ignore
         ),
     )
     session.add(catalog)
     session.commit()
     session.refresh(catalog)
 
-    return catalog
+    return CatalogInfo.from_orm(catalog)
 
 
 @router.post(
@@ -101,14 +118,14 @@ def add_engines_to_catalog(
     session.add(catalog)
     session.commit()
     session.refresh(catalog)
-    return catalog
+    return CatalogInfo.from_orm(catalog)
 
 
 def list_new_engines(
     session: Session,
     catalog: Catalog,
     create_engines: List[EngineInfo],
-) -> List[EngineInfo]:
+) -> List[Engine]:
     """
     Filter to engines that are not already set on a catalog
     """
@@ -130,7 +147,7 @@ def default_catalog(session: Session = Depends(get_session)):
     particular catalog. This typically applies to on-the-fly user-defined dimensions.
     """
     statement = select(Catalog).filter(Catalog.id == UNKNOWN_CATALOG_ID)
-    catalogs = session.exec(statement).all()
+    catalogs = session.execute(statement).all()
     if not catalogs:
         unknown = Catalog(
             id=UNKNOWN_CATALOG_ID,

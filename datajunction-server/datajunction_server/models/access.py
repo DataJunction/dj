@@ -7,12 +7,12 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Callable, Iterable, Optional, Set, Union
 
 from pydantic import BaseModel, Field
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.construction.utils import try_get_dj_node
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJError, DJException, ErrorCode
-from datajunction_server.models.node import Node, NodeRevision
-from datajunction_server.models.user import User
+from datajunction_server.models.user import UserOutput
 
 if TYPE_CHECKING:
     from datajunction_server.sql.parsing.ast import Column
@@ -160,7 +160,7 @@ class AccessControlStore(BaseModel):
     """
 
     validate_access: Callable[["AccessControl"], bool]
-    user: Optional[User]
+    user: Optional[UserOutput]
     base_verb: Optional[ResourceRequestVerb] = None
     state: AccessControlState = AccessControlState.DIRECT
     direct_requests: Set[ResourceRequest] = Field(default_factory=set)

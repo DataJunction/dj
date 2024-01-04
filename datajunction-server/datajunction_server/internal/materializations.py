@@ -3,17 +3,18 @@ import zlib
 from typing import Dict, List, Tuple, Union
 
 from pydantic import ValidationError
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.construction.build import build_node, get_measures_query
+from datajunction_server.database.materialization import Materialization
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.materialization.jobs import MaterializationJob
-from datajunction_server.models import NodeRevision, access
+from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.materialization import (
     DruidCubeConfig,
     GenericMaterializationConfig,
-    Materialization,
     MaterializationInfo,
     Measure,
     MetricMeasures,
@@ -209,7 +210,7 @@ def create_new_materialization(
     return Materialization(
         name=materialization_name,
         node_revision=current_revision,
-        config=generic_config,
+        config=generic_config.dict(),  # type: ignore
         schedule=upsert.schedule or "@daily",
         strategy=upsert.strategy,
         job=upsert.job.value.job_class,  # type: ignore

@@ -13,7 +13,9 @@ import pytest
 from cachelib import SimpleCache
 from datajunction_server.api.main import app
 from datajunction_server.config import Settings
-from datajunction_server.models import Column, Engine
+from datajunction_server.database.column import Column
+from datajunction_server.database.connection import Base
+from datajunction_server.database.engine import Engine
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
@@ -25,8 +27,8 @@ from datajunction_server.utils import (
 )
 from pytest_mock import MockerFixture
 from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel
 from starlette.testclient import TestClient
 
 from datajunction import DJBuilder
@@ -65,7 +67,7 @@ def session() -> Iterator[Session]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    SQLModel.metadata.create_all(engine)
+    Base.metadata.create_all(engine)
 
     with Session(engine, autoflush=False) as session:
         yield session

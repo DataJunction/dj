@@ -1,33 +1,23 @@
 """
 Models for tags.
 """
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from pydantic import Extra
-from sqlalchemy import String
-from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlmodel import JSON, Field, Relationship
-
-from datajunction_server.models.base import BaseSQLModel, generate_display_name
+from pydantic.main import BaseModel
 
 if TYPE_CHECKING:
-    from datajunction_server.models.node import Node
+    pass
 
 
-class MutableTagFields(BaseSQLModel):
+class MutableTagFields(BaseModel):
     """
     Tag fields that can be changed.
     """
 
     description: str
-    display_name: Optional[str] = Field(
-        sa_column=SqlaColumn(
-            "display_name",
-            String,
-            default=generate_display_name("name"),
-        ),
-    )
-    tag_metadata: Dict[str, Any] = Field(default={}, sa_column=SqlaColumn(JSON))
+    display_name: Optional[str]
+    tag_metadata: Optional[Dict[str, Any]] = {}
 
     class Config:  # pylint: disable=too-few-public-methods
         """
@@ -37,46 +27,13 @@ class MutableTagFields(BaseSQLModel):
         arbitrary_types_allowed = True
 
 
-class ImmutableTagFields(BaseSQLModel):
+class ImmutableTagFields(BaseModel):
     """
     Tag fields that cannot be changed.
     """
 
-    name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
+    name: str
     tag_type: str
-
-
-class TagNodeRelationship(BaseSQLModel, table=True):  # type: ignore
-    """
-    Join table between tags and nodes
-    """
-
-    tag_id: Optional[int] = Field(
-        default=None,
-        foreign_key="tag.id",
-        primary_key=True,
-    )
-    node_id: Optional[int] = Field(
-        default=None,
-        foreign_key="node.id",
-        primary_key=True,
-    )
-
-
-class Tag(ImmutableTagFields, MutableTagFields, table=True):  # type: ignore
-    """
-    A tag.
-    """
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    nodes: List["Node"] = Relationship(
-        back_populates="tags",
-        link_model=TagNodeRelationship,
-        sa_relationship_kwargs={
-            "primaryjoin": "TagNodeRelationship.tag_id==Tag.id",
-            "secondaryjoin": "TagNodeRelationship.node_id==Node.id",
-        },
-    )
 
 
 class CreateTag(ImmutableTagFields, MutableTagFields):
@@ -89,6 +46,9 @@ class TagOutput(ImmutableTagFields, MutableTagFields):
     """
     Output tag model.
     """
+
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
 
 class UpdateTag(MutableTagFields):

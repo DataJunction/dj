@@ -3,7 +3,7 @@
 """
 Post requests for all example entities
 """
-from datajunction_server.models import Column
+from datajunction_server.database.column import Column
 from datajunction_server.models.query import QueryWithResults
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 from datajunction_server.typing import QueryState

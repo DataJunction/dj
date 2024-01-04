@@ -5,9 +5,9 @@ from collections import defaultdict, deque
 from http import HTTPStatus
 from typing import Any, Dict, List, Optional, Union
 
-from fastapi import BackgroundTasks, Depends
-from sqlalchemy.orm import joinedload
-from sqlmodel import Session, select
+from fastapi import BackgroundTasks
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 
 from datajunction_server.api.helpers import (
     activate_node,
@@ -18,6 +18,14 @@ from datajunction_server.api.helpers import (
     validate_cube,
     validate_node_data,
 )
+from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
+from datajunction_server.database.column import Column
+from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.materialization import Materialization
+from datajunction_server.database.metricmetadata import MetricMetadata
+from datajunction_server.database.node import MissingParent, Node, NodeRevision
+from datajunction_server.database.partition import Partition
+from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJDoesNotExistException,
     DJException,
@@ -27,29 +35,16 @@ from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
 )
-from datajunction_server.models import (
-    AttributeType,
-    Column,
-    ColumnAttribute,
-    History,
-    Node,
-    NodeRevision,
-    User,
-    access,
-)
+from datajunction_server.models import access
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
     UniquenessScope,
 )
 from datajunction_server.models.base import labelize
-from datajunction_server.models.cube import CubeColumnOutput, CubeRevisionMetadata
-from datajunction_server.models.history import (
-    ActivityType,
-    EntityType,
-    status_change_history,
-)
+from datajunction_server.models.cube import CubeRevisionMetadata
+from datajunction_server.models.history import status_change_history
 from datajunction_server.models.materialization import (
-    Materialization,
+    MaterializationConfigOutput,
     MaterializationJobTypeEnum,
     UpsertMaterialization,
 )
@@ -60,19 +55,16 @@ from datajunction_server.models.node import (
     CreateNode,
     CreateSourceNode,
     LineageColumn,
-    MetricMetadata,
-    MissingParent,
     NodeMode,
     NodeStatus,
     UpdateNode,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.partition import Partition
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.utils import Version, VersionUpgrade, get_session
+from datajunction_server.utils import Version, VersionUpgrade
 
 _logger = logging.getLogger(__name__)
 
@@ -213,7 +205,6 @@ def create_node_revision(
     """
     node_revision = NodeRevision(
         name=data.name,
-        namespace=data.namespace,
         display_name=data.display_name if data.display_name else labelize(data.name),
         description=data.description,
         type=node_type,
@@ -252,14 +243,18 @@ def create_node_revision(
             f"Cannot create nodes with multi-catalog dependencies: {set(catalog_ids)}",
         )
     catalog_id = next(iter(catalog_ids), 0)
-    parent_refs = session.exec(
-        select(Node).where(
-            # pylint: disable=no-member
-            Node.name.in_(  # type: ignore
-                new_parents,
+    parent_refs = (
+        session.execute(
+            select(Node).where(
+                # pylint: disable=no-member
+                Node.name.in_(  # type: ignore
+                    new_parents,
+                ),
             ),
-        ),
-    ).all()
+        )
+        .scalars()
+        .all()
+    )
     node_revision.parents = parent_refs
 
     _logger.info(
@@ -327,7 +322,6 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     node_revision = NodeRevision(
         name=data.name,
         display_name=data.display_name or labelize(data.name),
-        namespace=data.namespace,
         description=data.description,
         type=NodeType.CUBE,
         query="",
@@ -483,10 +477,11 @@ def update_node_with_query(
                     session,
                     new_revision,
                     UpsertMaterialization(
-                        **old.dict(exclude={"job"}),
-                        **{
-                            "job": MaterializationJobTypeEnum.find_match(old.job),
-                        },
+                        name=old.name,
+                        config=old.config,
+                        schedule=old.schedule,
+                        strategy=old.strategy,
+                        job=MaterializationJobTypeEnum.find_match(old.job),
                     ),
                     validate_access,
                 ),
@@ -636,10 +631,10 @@ def update_cube_node(  # pylint: disable=too-many-locals
                     session,
                     new_cube_revision,
                     UpsertMaterialization(
-                        **old.dict(exclude={"job"}),
-                        **{
-                            "job": MaterializationJobTypeEnum.find_match(old.job),
-                        },
+                        **MaterializationConfigOutput.from_orm(old).dict(
+                            exclude={"job"},
+                        ),
+                        job=MaterializationJobTypeEnum.find_match(old.job),
                     ),
                     validate_access,
                 ),
@@ -803,7 +798,7 @@ def copy_existing_node_revision(old_revision: NodeRevision):
 def _create_node_from_inactive(  # pylint: disable=too-many-arguments
     new_node_type: NodeType,
     data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
-    session: Session = Depends(get_session),
+    session: Session,
     *,
     current_user: Optional[User] = None,
     query_service_client: QueryServiceClient,
@@ -979,14 +974,18 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
                 )
 
         new_parents = [n.name for n in node_validator.dependencies_map]
-        parent_refs = session.exec(
-            select(Node).where(
-                # pylint: disable=no-member
-                Node.name.in_(  # type: ignore
-                    new_parents,
+        parent_refs = (
+            session.execute(
+                select(Node).where(
+                    # pylint: disable=no-member
+                    Node.name.in_(  # type: ignore
+                        new_parents,
+                    ),
                 ),
-            ),
-        ).all()
+            )
+            .scalars()
+            .all()
+        )
         new_revision.parents = list(parent_refs)
         catalogs = [
             parent.current.catalog_id
@@ -1001,9 +1000,9 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
 
         # Update the primary key if one was set in the input
         if data is not None and data.primary_key:
-            pk_attribute = session.exec(
+            pk_attribute = session.execute(
                 select(AttributeType).where(AttributeType.name == "primary_key"),
-            ).one()
+            ).scalar_one()
             if set(data.primary_key) - set(col.name for col in new_revision.columns):
                 raise DJException(  # pragma: no cover
                     f"Primary key {data.primary_key} does not exist on {new_revision.name}",
@@ -1195,28 +1194,4 @@ def get_cube_revision_metadata(session: Session, name: str):
             http_status_code=404,
         )
     cube = result[0]
-    return CubeRevisionMetadata(
-        id=cube.id,
-        node_id=cube.node_id,
-        type=cube.type,
-        name=cube.name,
-        display_name=cube.display_name,
-        version=cube.version,
-        description=cube.description,
-        availability=cube.availability,
-        cube_elements=cube.cube_elements,
-        query=cube.query,
-        columns=[
-            CubeColumnOutput(
-                name=col.name,
-                display_name=col.display_name,
-                type=str(col.type),
-                attributes=col.attributes,
-                dimension=col.dimension,
-                partition=col.partition,
-            )
-            for col in cube.columns
-        ],
-        updated_at=cube.updated_at,
-        materializations=cube.materializations,
-    )
+    return CubeRevisionMetadata.from_orm(cube)

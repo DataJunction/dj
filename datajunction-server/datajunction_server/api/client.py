@@ -6,11 +6,12 @@ import json
 import logging
 
 from fastapi import Depends
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.materialization import MaterializationJobTypeEnum
+from datajunction_server.models.node import NodeOutput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import get_session, get_settings
 
@@ -30,7 +31,7 @@ def client_code_for_creating_node(
     node = get_node_by_name(session, node_name)
 
     # Generic user-configurable node creation params
-    params = node.current.dict(
+    params = NodeOutput.from_orm(node).current.dict(
         exclude={
             "id",
             "version",
@@ -42,6 +43,11 @@ def client_code_for_creating_node(
             "mode",
             "node_id",
             "updated_at",
+            "materializations",
+            "columns",
+            "catalog",
+            "parents",
+            "metric_metadata",
             "query" if node.type == NodeType.CUBE else "",
         },
         exclude_none=True,

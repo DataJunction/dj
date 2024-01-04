@@ -3,11 +3,11 @@ Tests for API helpers.
 """
 
 import pytest
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.api import helpers
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.errors import DJException
-from datajunction_server.models import NodeRevision
 from datajunction_server.models.node import NodeStatus
 
 
@@ -27,7 +27,7 @@ def test_propagate_valid_status(session: Session):
     """
     invalid_node = NodeRevision(
         name="foo",
-        staus=NodeStatus.INVALID,
+        status=NodeStatus.INVALID,
     )
     with pytest.raises(DJException) as exc_info:
         helpers.propagate_valid_status(

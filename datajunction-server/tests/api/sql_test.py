@@ -6,12 +6,14 @@ from typing import Callable, List, Optional
 # pylint: disable=C0302
 import duckdb
 import pytest
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+from datajunction_server.database.column import Column
+from datajunction_server.database.database import Database
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.internal.access.authorization import validate_access
-from datajunction_server.models import Column, Database, Node, access
-from datajunction_server.models.node import NodeRevision
+from datajunction_server.models import access
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.types import StringType
 from tests.sql.utils import compare_query_strings

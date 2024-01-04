@@ -3,15 +3,15 @@ Authorization related functionality
 """
 from typing import Iterable, List, Optional, Union
 
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import User
 from datajunction_server.models.access import (
     AccessControl,
     AccessControlStore,
-    Node,
-    NodeRevision,
     ResourceRequest,
     ValidateAccessFn,
 )
-from datajunction_server.models.user import User
+from datajunction_server.models.user import UserOutput
 
 
 def validate_access_requests(
@@ -27,7 +27,11 @@ def validate_access_requests(
         return list(resource_requests)  # pragma: no cover
     access_control = AccessControlStore(
         validate_access=validate_access,
-        user=user,
+        user=UserOutput(
+            id=user.id,
+            username=user.username,
+            oauth_provider=user.oauth_provider,
+        ),
     )
 
     for request in resource_requests:

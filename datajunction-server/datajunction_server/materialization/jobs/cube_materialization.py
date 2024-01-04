@@ -1,15 +1,15 @@
 """
 Cube materialization jobs
 """
+from datajunction_server.database.materialization import Materialization
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.materialization.jobs.materialization_job import (
     MaterializationJob,
 )
-from datajunction_server.models import NodeRevision
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
     DruidCubeConfig,
     DruidMaterializationInput,
-    Materialization,
     MaterializationInfo,
 )
 from datajunction_server.service_clients import QueryServiceClient

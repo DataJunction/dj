@@ -8,11 +8,13 @@ from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from datajunction_server.database.node import Node
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
-from datajunction_server.models.node import Node
+from datajunction_server.models.node import AvailabilityStateBase
 
 
 class TestDataForNode:
@@ -687,9 +689,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         statement = select(Node).where(
             Node.name == "default.large_revenue_payments_and_business_only",
         )
-        large_revenue_payments_and_business_only = session.exec(statement).one()
-        node_dict = large_revenue_payments_and_business_only.current.availability.dict()
-        node_dict.pop("updated_at")
+        large_revenue_payments_and_business_only = session.execute(
+            statement,
+        ).scalar_one()
+        node_dict = AvailabilityStateBase.from_orm(
+            large_revenue_payments_and_business_only.current.availability,
+        ).dict()
         assert node_dict == {
             "valid_through_ts": 20230125,
             "catalog": "default",
@@ -698,7 +703,6 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "max_temporal_partition": ["2023", "01", "25"],
             "partitions": [],
             "schema_": "accounting",
-            "id": 1,
             "categorical_partitions": [],
             "temporal_partitions": [],
             "url": "http://some.catalog.com/default.accounting.pmts",
@@ -890,9 +894,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         statement = select(Node).where(
             Node.name == "default.large_revenue_payments_and_business_only",
         )
-        large_revenue_payments_and_business_only = session.exec(statement).one()
-        node_dict = large_revenue_payments_and_business_only.current.availability.dict()
-        node_dict.pop("updated_at")
+        large_revenue_payments_and_business_only = session.execute(
+            statement,
+        ).scalar_one()
+        node_dict = AvailabilityStateBase.from_orm(
+            large_revenue_payments_and_business_only.current.availability,
+        ).dict()
         assert node_dict == {
             "valid_through_ts": 20230125,
             "catalog": "default",
@@ -901,7 +908,6 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "max_temporal_partition": ["2023", "01", "25"],
             "partitions": [],
             "schema_": "new_accounting",
-            "id": 3,
             "categorical_partitions": [],
             "temporal_partitions": [],
             "url": None,
@@ -930,11 +936,11 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         statement = select(Node).where(
             Node.name == "default.large_revenue_payments_and_business_only",
         )
-        large_revenue_payments_and_business_only = session.exec(statement).one()
+        large_revenue_payments_and_business_only = session.execute(
+            statement,
+        ).scalar_one()
         updated_at_1 = (
-            large_revenue_payments_and_business_only.current.availability.dict()[
-                "updated_at"
-            ]
+            large_revenue_payments_and_business_only.current.availability.updated_at
         )
 
         response = client_with_account_revenue.post(
@@ -952,9 +958,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
 
         session.refresh(large_revenue_payments_and_business_only)
         updated_at_2 = (
-            large_revenue_payments_and_business_only.current.availability.dict()[
-                "updated_at"
-            ]
+            large_revenue_payments_and_business_only.current.availability.updated_at
         )
 
         assert updated_at_2 > updated_at_1
@@ -1032,9 +1036,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         statement = select(Node).where(
             Node.name == "default.large_revenue_payments_only",
         )
-        large_revenue_payments_only = session.exec(statement).one()
-        node_dict = large_revenue_payments_only.current.availability.dict()
-        node_dict.pop("updated_at")
+        large_revenue_payments_only = session.execute(statement).scalar_one()
+        node_dict = AvailabilityStateBase.from_orm(
+            large_revenue_payments_only.current.availability,
+        ).dict()
         assert node_dict == {
             "valid_through_ts": 20230102,
             "catalog": "default",
@@ -1043,7 +1048,6 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "max_temporal_partition": ["2023", "01", "02"],
             "schema_": "accounting",
             "partitions": [],
-            "id": 2,
             "categorical_partitions": [],
             "temporal_partitions": [],
             "url": None,
@@ -1107,7 +1111,6 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         )
         assert response.json()["availability"] == {
             "catalog": "default",
-            "id": mock.ANY,
             "min_temporal_partition": ["20230101"],
             "max_temporal_partition": ["20230110"],
             "categorical_partitions": [],
@@ -1115,7 +1118,6 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "partitions": [],
             "schema_": "dimensions",
             "table": "local_hard_hats",
-            "updated_at": mock.ANY,
             "valid_through_ts": 20230101,
             "url": None,
         }
@@ -1154,7 +1156,6 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         )
         assert response.json()["availability"] == {
             "catalog": "default",
-            "id": mock.ANY,
             "min_temporal_partition": ["20230101"],
             "max_temporal_partition": ["20230110"],
             "categorical_partitions": ["country", "postal_code"],
@@ -1162,7 +1163,6 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "partitions": [],
             "schema_": "dimensions",
             "table": "local_hard_hats",
-            "updated_at": mock.ANY,
             "valid_through_ts": 20230101,
             "url": None,
         }
@@ -1484,9 +1484,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         statement = select(Node).where(
             Node.name == "default.large_revenue_payments_only",
         )
-        large_revenue_payments_only = session.exec(statement).one()
-        node_dict = large_revenue_payments_only.current.availability.dict()
-        node_dict.pop("updated_at")
+        large_revenue_payments_only = session.execute(statement).scalar_one()
+        node_dict = AvailabilityStateBase.from_orm(
+            large_revenue_payments_only.current.availability,
+        ).dict()
         assert node_dict == {
             "valid_through_ts": 20230101,
             "catalog": "default",
@@ -1497,7 +1498,6 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "max_temporal_partition": ["2023", "01", "01"],
             "schema_": "accounting",
             "partitions": [],
-            "id": 2,
             "url": None,
         }
 
@@ -1547,9 +1547,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         statement = select(Node).where(
             Node.name == "default.large_revenue_payments_only",
         )
-        large_revenue_payments_only = session.exec(statement).one()
-        node_dict = large_revenue_payments_only.current.availability.dict()
-        node_dict.pop("updated_at")
+        large_revenue_payments_only = session.execute(statement).scalar_one()
+        node_dict = AvailabilityStateBase.from_orm(
+            large_revenue_payments_only.current.availability,
+        ).dict()
         assert node_dict == {
             "valid_through_ts": 20230101,
             "catalog": "default",
@@ -1558,7 +1559,6 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "max_temporal_partition": ["2023", "01", "01"],
             "schema_": "accounting",
             "partitions": [],
-            "id": 2,
             "categorical_partitions": [],
             "temporal_partitions": [],
             "url": None,
@@ -1591,9 +1591,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         statement = select(Node).where(
             Node.name == "default.revenue",
         )
-        revenue = session.exec(statement).one()
-        node_dict = revenue.current.availability.dict()
-        node_dict.pop("updated_at")
+        revenue = session.execute(statement).scalar_one()
+        node_dict = AvailabilityStateBase.from_orm(revenue.current.availability).dict()
         assert node_dict == {
             "valid_through_ts": 20230101,
             "catalog": "default",
@@ -1602,7 +1601,6 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "max_temporal_partition": ["2023", "01", "01"],
             "schema_": "accounting",
             "partitions": [],
-            "id": 1,
             "categorical_partitions": [],
             "temporal_partitions": [],
             "url": None,
