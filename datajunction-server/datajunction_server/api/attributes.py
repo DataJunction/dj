@@ -134,17 +134,17 @@ def default_attribute_types(session: Session = Depends(get_session)):
     )
     attribute_types = session.execute(statement).scalars().all()
     for type_ in attribute_types:
-        if type_:  # pragma: no cover
-            type_.name = default_attribute_type_names[type_.name].name
-            type_.namespace = default_attribute_type_names[type_.name].namespace
-            type_.description = default_attribute_type_names[type_.name].description
-            type_.allowed_node_types = default_attribute_type_names[
-                type_.name
-            ].allowed_node_types
-            type_.uniqueness_scope = default_attribute_type_names[
-                type_.name
-            ].uniqueness_scope
-            session.add(type_)
+        # if type_:  # pragma: no cover
+        type_.name = default_attribute_type_names[type_.name].name
+        type_.namespace = default_attribute_type_names[type_.name].namespace
+        type_.description = default_attribute_type_names[type_.name].description
+        type_.allowed_node_types = default_attribute_type_names[
+            type_.name
+        ].allowed_node_types
+        type_.uniqueness_scope = default_attribute_type_names[
+            type_.name
+        ].uniqueness_scope
+        session.add(type_)
 
     # Add new default attribute types
     new_types = set(default_attribute_type_names.keys()) - {
