@@ -16,12 +16,8 @@ install required dependencies with ``pdm install`` and call ``make test`` to run
 
 DJ relies heavily on these libraries:
 
-- `sqloxide <https://pypi.org/project/sqloxide/>`_, for SQL parsing.
 - `SQLAlchemy <https://www.sqlalchemy.org/>`_ for running queries and fetching table metadata.
-- `SQLModel <https://sqlmodel.tiangolo.com/>`_ for defining models.
 - `FastAPI <https://fastapi.tiangolo.com/>`_ for APIs.
-
-The SQLModel documentation is a good start, since it covers the basics of SQLAlchemy and FastAPI as well.
 
 Running the examples
 ====================

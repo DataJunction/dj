@@ -2,7 +2,7 @@
 Tests for ``datajunction_server.models.catalog``.
 """
 
-from datajunction_server.models.catalog import Catalog
+from datajunction_server.database.catalog import Catalog
 
 
 def test_catalog_str_and_hash():

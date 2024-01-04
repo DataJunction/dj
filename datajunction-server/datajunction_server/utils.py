@@ -8,20 +8,22 @@ from functools import lru_cache
 from string import ascii_letters, digits
 
 # pylint: disable=line-too-long
-from typing import Iterator, List, Optional
+from typing import TYPE_CHECKING, Iterator, List, Optional
 
 from dotenv import load_dotenv
 from rich.logging import RichHandler
-from sqlalchemy.engine import Engine
-from sqlmodel import Session, create_engine
+from sqlalchemy.engine import Engine, create_engine
+from sqlalchemy.orm import Session, sessionmaker
 from starlette.requests import Request
 from yarl import URL
 
 from datajunction_server.config import Settings
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJException
-from datajunction_server.models.user import User
 from datajunction_server.service_clients import QueryServiceClient
+
+if TYPE_CHECKING:
+    from datajunction_server.database.user import User
 
 
 def setup_logging(loglevel: str) -> None:
@@ -68,12 +70,15 @@ def get_engine() -> Engine:
 
 def get_session() -> Iterator[Session]:
     """
-    Per-request session.
+    Direct SQLAlchemy session.
     """
     engine = get_engine()
-
-    with Session(engine, autoflush=False) as session:  # pragma: no cover
+    session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = session_local()
+    try:
         yield session
+    finally:
+        session.close()
 
 
 def get_query_service_client() -> Optional[QueryServiceClient]:
@@ -219,7 +224,7 @@ def from_amenable_name(name: str) -> str:
     return name.replace(to_replace, SEPARATOR)
 
 
-async def get_current_user(request: Request) -> Optional[User]:
+async def get_current_user(request: Request) -> Optional["User"]:
     """
     Returns the current authenticated user
     """

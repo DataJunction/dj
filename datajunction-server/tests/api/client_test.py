@@ -39,7 +39,7 @@ def test_generated_python_client_code_new_source(client_with_roads: TestClient):
 
 repair_order_details = dj.create_source(
     description="Details on repair orders",
-    display_name="Default: Repair Order Details",
+    display_name="default.roads.repair_order_details",
     name="default.repair_order_details",
     primary_key=[],
     schema_="roads",

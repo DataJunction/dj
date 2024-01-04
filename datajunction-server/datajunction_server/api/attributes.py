@@ -6,13 +6,15 @@ import logging
 from typing import List
 
 from fastapi import Depends
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.errors import DJAlreadyExistsException, DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.attribute import (
     RESERVED_ATTRIBUTE_NAMESPACE,
-    AttributeType,
+    AttributeTypeBase,
     MutableAttributeTypeFields,
 )
 from datajunction_server.models.node_type import NodeType
@@ -23,23 +25,26 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["attributes"])
 
 
-@router.get("/attributes/", response_model=List[AttributeType])
-def list_attributes(*, session: Session = Depends(get_session)) -> List[AttributeType]:
+@router.get("/attributes/", response_model=List[AttributeTypeBase])
+def list_attributes(
+    *, session: Session = Depends(get_session)
+) -> List[AttributeTypeBase]:
     """
     List all available attribute types.
     """
-    return session.exec(select(AttributeType)).all()
+    attributes = session.execute(select(AttributeType)).scalars().all()
+    return [AttributeTypeBase.from_orm(attr) for attr in attributes]
 
 
 @router.post(
     "/attributes/",
-    response_model=AttributeType,
+    response_model=AttributeTypeBase,
     status_code=201,
     name="Add an Attribute Type",
 )
 def add_attribute_type(
     data: MutableAttributeTypeFields, *, session: Session = Depends(get_session)
-) -> AttributeType:
+) -> AttributeTypeBase:
     """
     Add a new attribute type
     """
@@ -48,12 +53,18 @@ def add_attribute_type(
             message="Cannot use `system` as the attribute type namespace as it is reserved.",
         )
     statement = select(AttributeType).where(AttributeType.name == data.name)
-    attribute_type = session.exec(statement).unique().one_or_none()
+    attribute_type = session.execute(statement).unique().one_or_none()
     if attribute_type:
         raise DJAlreadyExistsException(
             message=f"Attribute type `{data.name}` already exists!",
         )
-    attribute_type = AttributeType.from_orm(data)
+    attribute_type = AttributeType(
+        namespace=data.namespace,
+        name=data.name,
+        description=data.description,
+        allowed_node_types=data.allowed_node_types,
+        uniqueness_scope=[],
+    )
     session.add(attribute_type)
     session.commit()
     session.refresh(attribute_type)
@@ -121,18 +132,25 @@ def default_attribute_types(session: Session = Depends(get_session)):
             set(default_attribute_type_names.keys()),
         ),
     )
-    attribute_types = session.exec(statement).all()
+    attribute_types = session.execute(statement).scalars().all()
     for type_ in attribute_types:
-        updated_type = default_attribute_type_names[type_.name].dict(
-            exclude_unset=True,
-        )
-        type_ = type_.update(updated_type)
+        # if type_:  # pragma: no cover
+        type_.name = default_attribute_type_names[type_.name].name
+        type_.namespace = default_attribute_type_names[type_.name].namespace
+        type_.description = default_attribute_type_names[type_.name].description
+        type_.allowed_node_types = default_attribute_type_names[
+            type_.name
+        ].allowed_node_types
+        type_.uniqueness_scope = default_attribute_type_names[
+            type_.name
+        ].uniqueness_scope
         session.add(type_)
 
     # Add new default attribute types
     new_types = set(default_attribute_type_names.keys()) - {
-        type_.name for type_ in attribute_types
+        type_.name for type_ in attribute_types if type_
     }
-    for name in new_types:
-        session.add(default_attribute_type_names[name])
+    session.bulk_save_objects(
+        [default_attribute_type_names[name] for name in new_types],
+    )
     session.commit()

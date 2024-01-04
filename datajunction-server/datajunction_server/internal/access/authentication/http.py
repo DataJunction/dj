@@ -9,7 +9,7 @@ from fastapi.security import HTTPBearer
 from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.types import DecoratedCallable
 from jose.exceptions import JWEError, JWTError
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from datajunction_server.constants import AUTH_COOKIE

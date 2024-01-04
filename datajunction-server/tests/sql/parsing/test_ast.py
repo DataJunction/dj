@@ -4,7 +4,7 @@ testing ast Nodes and their methods
 """
 
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.errors import DJException
 from datajunction_server.sql.parsing import ast, types

@@ -25,14 +25,14 @@ from typing import (
     cast,
 )
 
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.construction.utils import get_dj_node, to_namespaced_name
+from datajunction_server.database.node import NodeRevision
+from datajunction_server.database.node import NodeRevision as DJNode
 from datajunction_server.errors import DJError, DJErrorException, DJException, ErrorCode
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.node import BuildCriteria
-from datajunction_server.models.node import NodeRevision
-from datajunction_server.models.node import NodeRevision as DJNode
 from datajunction_server.models.node_type import NodeType as DJNodeType
 from datajunction_server.sql.functions import function_registry, table_function_registry
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException

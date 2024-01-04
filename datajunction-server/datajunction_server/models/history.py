@@ -1,85 +1,45 @@
 """
 Model for history.
 """
-from datetime import datetime, timezone
-from functools import partial
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from sqlalchemy import DateTime
-from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlmodel import JSON, Field, SQLModel
+from pydantic.main import BaseModel
 
-from datajunction_server.enum import StrEnum
-from datajunction_server.models.node import NodeRevision, NodeStatus
-from datajunction_server.models.user import User
+from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.typing import UTCDatetime
 
+if TYPE_CHECKING:
+    from datajunction_server.database.node import NodeRevision
+    from datajunction_server.database.user import User
+    from datajunction_server.models.node import NodeStatus
 
-class ActivityType(StrEnum):
+
+class HistoryOutput(BaseModel):
     """
-    An activity type
-    """
-
-    CREATE = "create"
-    DELETE = "delete"
-    RESTORE = "restore"
-    UPDATE = "update"
-    REFRESH = "refresh"
-    TAG = "tag"
-    SET_ATTRIBUTE = "set_attribute"
-    STATUS_CHANGE = "status_change"
-
-
-class EntityType(StrEnum):
-    """
-    An entity type for which activity can occur
+    Output history event
     """
 
-    ATTRIBUTE = "attribute"
-    AVAILABILITY = "availability"
-    BACKFILL = "backfill"
-    CATALOG = "catalog"
-    COLUMN_ATTRIBUTE = "column_attribute"
-    DEPENDENCY = "dependency"
-    ENGINE = "engine"
-    LINK = "link"
-    MATERIALIZATION = "materialization"
-    NAMESPACE = "namespace"
-    NODE = "node"
-    PARTITION = "partition"
-    QUERY = "query"
-    TAG = "tag"
+    id: int
+    entity_type: Optional[EntityType]
+    entity_name: Optional[str]
+    node: Optional[str]
+    activity_type: Optional[ActivityType]
+    user: Optional[str]
+    pre: Dict[str, Any]
+    post: Dict[str, Any]
+    details: Dict[str, Any]
+    created_at: UTCDatetime
 
-
-class History(SQLModel, table=True):  # type: ignore
-    """
-    An event to store as part of the server's activity history
-    """
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    entity_type: Optional[EntityType] = Field(default=None)
-    entity_name: Optional[str] = Field(default=None)
-    node: Optional[str] = Field(default=None)
-    activity_type: Optional[ActivityType] = Field(default=None)
-    user: Optional[str] = Field(default=None)
-    pre: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))
-    post: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))
-    details: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))
-    created_at: UTCDatetime = Field(
-        sa_column=SqlaColumn(DateTime(timezone=True)),
-        default_factory=partial(datetime.now, timezone.utc),
-    )
-
-    def __hash__(self) -> int:
-        return hash(self.id)
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
 
 
 def status_change_history(
-    node_revision: NodeRevision,
-    start_status: NodeStatus,
-    end_status: NodeStatus,
+    node_revision: "NodeRevision",
+    start_status: "NodeStatus",
+    end_status: "NodeStatus",
     parent_node: str = None,
-    current_user: Optional[User] = None,
+    current_user: Optional["User"] = None,
 ) -> History:
     """
     Returns a status change history activity entry

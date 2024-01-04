@@ -9,9 +9,12 @@ from typing import List, Optional
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.api.helpers import get_node_by_name
+from datajunction_server.database.backfill import Backfill
+from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
@@ -22,17 +25,16 @@ from datajunction_server.internal.materializations import (
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models import access
 from datajunction_server.models.base import labelize
-from datajunction_server.models.history import ActivityType, EntityType, History
 from datajunction_server.models.materialization import (
     MaterializationConfigInfoUnified,
+    MaterializationConfigOutput,
     MaterializationInfo,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
     UpsertMaterialization,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.partition import Backfill, PartitionBackfill
-from datajunction_server.models.user import User
+from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
@@ -238,10 +240,12 @@ def list_node_materializations(
             )
             if materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME:
                 info.urls = [info.urls[0]]
+            materialization_config_output = MaterializationConfigOutput.from_orm(
+                materialization,
+            )
             materialization = MaterializationConfigInfoUnified(
-                **materialization.dict(),
+                **materialization_config_output.dict(),
                 **info.dict(),
-                backfills=materialization.backfills,
             )
             materializations.append(materialization)
     return materializations
@@ -357,7 +361,7 @@ def run_materialization_backfill(  # pylint: disable=too-many-locals
     )
     backfill = Backfill(
         materialization=materialization,
-        spec=backfill_spec,
+        spec=backfill_spec.dict(),
         urls=materialization_output.urls,
     )
     materialization.backfills.append(backfill)

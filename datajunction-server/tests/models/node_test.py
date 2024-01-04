@@ -4,17 +4,13 @@ Tests for ``datajunction_server.models.node``.
 
 # pylint: disable=use-implicit-booleaness-not-comparison
 
-from unittest import mock
 
 import pytest
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
-from datajunction_server.models.node import (
-    AvailabilityState,
-    Node,
-    NodeRevision,
-    PartitionAvailability,
-)
+from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.models.node import AvailabilityStateBase, PartitionAvailability
 from datajunction_server.models.node_type import NodeType
 
 
@@ -151,13 +147,13 @@ def test_merging_availability_simple_no_partitions() -> None:
     """
     Test merging simple availability for no partitions.
     """
-    avail_1 = AvailabilityState(
+    avail_1 = AvailabilityStateBase(
         catalog="catalog",
         schema_="schema",
         table="foo",
         valid_through_ts=111,
     )
-    avail_2 = AvailabilityState(
+    avail_2 = AvailabilityStateBase(
         catalog="catalog",
         schema_="schema",
         table="foo",
@@ -173,8 +169,6 @@ def test_merging_availability_simple_no_partitions() -> None:
         "categorical_partitions": [],
         "temporal_partitions": [],
         "partitions": [],
-        "id": None,
-        "updated_at": mock.ANY,
         "url": None,
     }
 
@@ -183,7 +177,7 @@ def test_merging_availability_complex_no_partitions() -> None:
     """
     Test merging complex availability for no partitions.
     """
-    avail_1 = AvailabilityState(
+    avail_1 = AvailabilityStateBase(
         catalog="druid",
         schema_="",
         table="dj_product__launchpad__launchpad_cube",
@@ -192,10 +186,9 @@ def test_merging_availability_complex_no_partitions() -> None:
         categorical_partitions=[],
         temporal_partitions=[],
         partitions=[],
-        id=903836919789355000,
         valid_through_ts=20230924,
     )
-    avail_2 = AvailabilityState(
+    avail_2 = AvailabilityStateBase(
         catalog="druid",
         schema_="",
         table="dj_product__launchpad__launchpad_cube",
@@ -204,7 +197,6 @@ def test_merging_availability_complex_no_partitions() -> None:
         categorical_partitions=[],
         temporal_partitions=[],
         partitions=[],
-        id=903836919789355000,
         valid_through_ts=20230927,
     )
     assert avail_1.merge(avail_2).dict() == {
@@ -217,8 +209,6 @@ def test_merging_availability_complex_no_partitions() -> None:
         "categorical_partitions": [],
         "temporal_partitions": [],
         "partitions": [],
-        "id": 903836919789355000,
-        "updated_at": mock.ANY,
         "url": None,
     }
 
@@ -227,7 +217,7 @@ def test_merging_availability_complex_with_partitions() -> None:
     """
     Test merging complex availability with partitions.
     """
-    avail_1 = AvailabilityState(
+    avail_1 = AvailabilityStateBase(
         catalog="iceberg",
         schema_="salad",
         table="dressing",
@@ -249,7 +239,6 @@ def test_merging_availability_complex_with_partitions() -> None:
                 max_temporal_partition=["20230925"],
             ),
         ],
-        id=903836919789355000,
         valid_through_ts=20230925,
     )
     avail_2 = AvailabilityState(
@@ -274,7 +263,6 @@ def test_merging_availability_complex_with_partitions() -> None:
                 max_temporal_partition=["20231010"],
             ),
         ],
-        id=903836919789355000,
         valid_through_ts=20231015,
     )
     avail_1 = avail_1.merge(avail_2)
@@ -301,7 +289,5 @@ def test_merging_availability_complex_with_partitions() -> None:
                 "max_temporal_partition": ["20230926"],
             },
         ],
-        "id": 903836919789355000,
-        "updated_at": mock.ANY,
         "url": None,
     }

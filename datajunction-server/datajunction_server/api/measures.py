@@ -6,16 +6,17 @@ import logging
 from typing import List, Optional
 
 from fastapi import Depends
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from datajunction_server.api.helpers import get_node_by_name
+from datajunction_server.database.column import Column
+from datajunction_server.database.measure import Measure
 from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.models import Column
 from datajunction_server.models.measure import (
     CreateMeasure,
     EditMeasure,
-    Measure,
     MeasureOutput,
     NodeColumn,
 )
@@ -33,8 +34,9 @@ def get_measure_by_name(
 ) -> Measure:
     """Retrieve a measure by name"""
     measure = (
-        session.exec(select(Measure).where(Measure.name == measure_name))
+        session.execute(select(Measure).where(Measure.name == measure_name))
         .unique()
+        .scalars()
         .one_or_none()
     )
     if raise_if_not_exists and not measure:
@@ -76,7 +78,7 @@ def list_measures(
         statement = statement.where(
             Measure.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
         )
-    return session.exec(statement).all()
+    return session.execute(statement).scalars().all()
 
 
 @router.get("/measures/{measure_name}", response_model=MeasureOutput)
@@ -126,7 +128,10 @@ def add_measure(
     name="Edit a Measure",
 )
 def edit_measure(
-    measure_name: str, data: EditMeasure, *, session: Session = Depends(get_session)
+    measure_name: str,
+    data: EditMeasure,
+    *,
+    session: Session = Depends(get_session),
 ) -> MeasureOutput:
     """
     Edit a measure

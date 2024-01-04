@@ -7,11 +7,12 @@ from typing import Optional
 from urllib.parse import urljoin
 
 import requests
+from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
-from sqlmodel import select
 
+from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.basic import get_password_hash
-from datajunction_server.models.user import OAuthProvider, User
+from datajunction_server.models.user import OAuthProvider
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
@@ -44,9 +45,9 @@ def get_github_user(access_token: str) -> Optional[User]:  # pragma: no cover
     session = next(get_session())
     existing_user: Optional[User] = None
     try:
-        existing_user = session.exec(
+        existing_user = session.execute(
             select(User).where(User.username == user_data["login"]),
-        ).one()
+        ).scalar()
     except NoResultFound:
         pass
     if existing_user:

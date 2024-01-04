@@ -38,14 +38,16 @@ def test_get_session(mocker: MockerFixture) -> None:
     """
     Test ``get_session``.
     """
-    mocker.patch("datajunction_server.utils.get_engine")
-    Session = mocker.patch(  # pylint: disable=invalid-name
-        "datajunction_server.utils.Session",
+    engine = mocker.patch("datajunction_server.utils.get_engine")
+    sessionmaker = mocker.patch(  # pylint: disable=invalid-name
+        "datajunction_server.utils.sessionmaker",
     )
 
     session = next(get_session())
-
-    assert session == Session().__enter__.return_value
+    assert (
+        session
+        == sessionmaker(autocommit=False, autoflush=False, bind=engine).return_value
+    )
 
 
 def test_get_settings(mocker: MockerFixture) -> None:

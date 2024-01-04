@@ -6,8 +6,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
+from datajunction_server.database.column import Column
 from datajunction_server.errors import DJQueryServiceClientException
-from datajunction_server.models.column import Column
 from datajunction_server.models.materialization import (
     DruidMaterializationInput,
     GenericMaterializationInput,
@@ -18,7 +18,7 @@ from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
-    from datajunction_server.models.engine import Engine
+    from datajunction_server.database.engine import Engine
 
 
 class RequestsSessionWithEndpoint(requests.Session):

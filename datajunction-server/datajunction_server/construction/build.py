@@ -7,17 +7,20 @@ import time
 # pylint: disable=too-many-lines
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from datajunction_server.construction.utils import to_namespaced_name
+from datajunction_server.database.column import Column
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.internal.engines import get_engine
-from datajunction_server.models import User, access
-from datajunction_server.models.column import Column, SemanticType
+from datajunction_server.models import access
+from datajunction_server.models.column import SemanticType
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.metric import TranslatedSQL
-from datajunction_server.models.node import BuildCriteria, Node, NodeRevision
+from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.sql.parsing.ast import CompileContext

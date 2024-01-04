@@ -4,13 +4,13 @@ Models for metrics.
 from typing import List, Optional
 
 from pydantic.class_validators import root_validator
-from sqlmodel import SQLModel
+from pydantic.main import BaseModel
 
+from datajunction_server.database.node import Node
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
     MetricMetadataOutput,
-    Node,
 )
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.transpilation import get_transpilation_plugin
@@ -18,7 +18,7 @@ from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import get_settings
 
 
-class Metric(SQLModel):
+class Metric(BaseModel):
     """
     Class for a metric.
     """
@@ -44,8 +44,12 @@ class Metric(SQLModel):
         """
 
         return cls(
-            **node.dict(),
+            id=node.id,
+            name=node.name,
+            display_name=node.current.display_name,
+            current_version=node.current_version,
             description=node.current.description,
+            created_at=node.created_at,
             updated_at=node.current.updated_at,
             query=node.current.query,
             dimensions=dims,
@@ -53,7 +57,7 @@ class Metric(SQLModel):
         )
 
 
-class TranslatedSQL(SQLModel):
+class TranslatedSQL(BaseModel):
     """
     Class for SQL generated from a given metric.
     """

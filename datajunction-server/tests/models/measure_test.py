@@ -3,8 +3,9 @@ Tests for ``datajunction_server.models.measures``.
 """
 
 import datajunction_server.sql.parsing.types as ct
-from datajunction_server.models.column import Column
-from datajunction_server.models.measure import AggregationRule, Measure
+from datajunction_server.database.column import Column
+from datajunction_server.database.measure import Measure
+from datajunction_server.models.measure import AggregationRule
 
 
 def test_measures_backpopulate() -> None:
