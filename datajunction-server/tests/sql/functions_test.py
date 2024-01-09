@@ -2675,6 +2675,44 @@ def test_round(session: Session):
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
+def test_sequence(session: Session):
+    """
+    Test `sequence`
+    """
+    query = parse("SELECT sequence(1, 10)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+    query = parse("SELECT sequence(1, 10, 2)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+    query = parse(
+        "SELECT sequence(to_date('2018-01-01'), to_date('2018-03-01'), interval 1 month)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.DateType())  # type: ignore
+
+    query = parse(
+        "SELECT sequence(to_timestamp('2018-01-01 00:00:00'), "
+        "to_timestamp('2018-01-01 12:00:00'), interval 1 hour)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.TimestampType())  # type: ignore
+
+
 def test_size(session: Session):
     """
     Test the `size` Spark function
