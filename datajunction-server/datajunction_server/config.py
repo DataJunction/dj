@@ -31,7 +31,7 @@ class Settings(
     cors_origin_whitelist: List[str] = ["http://localhost:3000"]
 
     # SQLAlchemy URI for the metadata database.
-    index: str = "postgresql://dj:dj@postgres_metadata:5432/dj"
+    index: str = "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj"
 
     # Directory where the repository lives. This should have 2 subdirectories, "nodes" and
     # "databases".

@@ -40,6 +40,7 @@ from datajunction_server.sql.parsing.types import (
     BigIntType,
     BooleanType,
     ColumnType,
+    DateTimeBase,
     DayTimeIntervalType,
     DecimalType,
     DoubleType,
@@ -1798,19 +1799,29 @@ class Interval(Value):
         units = ["YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND"]
         years_months_units = {"YEAR", "MONTH"}
         days_seconds_units = {"DAY", "HOUR", "MINUTE", "SECOND"}
-
+        from_ = [DateTimeBase.Unit(f.unit) for f in self.from_]
         if all(unit.unit in years_months_units for unit in self.from_):
-            if self.to.unit is None or self.to.unit in years_months_units:
-                # If all the units in the from_ list are YEAR or MONTH, the interval is a YearMonthInterval
+            if (
+                self.to is None
+                or self.to.unit is None
+                or self.to.unit in years_months_units
+            ):
+                # If all the units in the from_ list are YEAR or MONTH, the interval
+                # is a YearMonthInterval
                 return YearMonthIntervalType(
-                    sorted(self.from_, key=lambda u: units.index(u))[0],
+                    sorted(from_, key=lambda u: units.index(u))[0],
                     self.to,
                 )
         elif all(unit.unit in days_seconds_units for unit in self.from_):
-            if self.to.unit is None or self.to.unit in days_seconds_units:
-                # If the to_ attribute is None or its unit is DAY, HOUR, MINUTE, or SECOND, the interval is a DayTimeInterval
+            if (
+                self.to is None
+                or self.to.unit is None
+                or self.to.unit in days_seconds_units
+            ):
+                # If the to_ attribute is None or its unit is DAY, HOUR, MINUTE, or
+                # SECOND, the interval is a DayTimeInterval
                 return DayTimeIntervalType(
-                    sorted(self.from_, key=lambda u: units.index(u))[0],
+                    sorted(from_, key=lambda u: units.index(u))[0],
                     self.to,
                 )
         raise DJParseException(f"Invalid interval type specified in {self}.")
