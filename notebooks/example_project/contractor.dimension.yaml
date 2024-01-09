@@ -1,0 +1,18 @@
+description: Contractor dimension
+dimension_links: {}
+display_name: 'Default: Contractor'
+primary_key:
+- contractor_id
+query: |2-
+
+              SELECT
+              contractor_id,
+              company_name,
+              contact_name,
+              contact_title,
+              address,
+              city,
+              state,
+              postal_code,
+              country
+              FROM ${prefix}contractors

@@ -1,0 +1,13 @@
+columns:
+- name: state_id
+  type: int
+- name: state_region
+  type: int
+- name: state_name
+  type: string
+- name: state_abbr
+  type: string
+description: Information on different types of repairs
+dimension_links: {}
+display_name: warehouse.roads.us_states
+table: warehouse.roads.us_states

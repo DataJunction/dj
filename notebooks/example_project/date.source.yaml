@@ -1,0 +1,13 @@
+columns:
+- name: day
+  type: int
+- name: dateint
+  type: timestamp
+- name: year
+  type: int
+- name: month
+  type: int
+description: Date dimension
+dimension_links: {}
+display_name: warehouse.roads.date
+table: warehouse.roads.date

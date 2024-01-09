@@ -1,0 +1,20 @@
+description: Municipality dimension
+dimension_links: {}
+display_name: 'Default: Municipality Dim'
+primary_key:
+- municipality_id
+query: |2-
+
+              SELECT
+              m.municipality_id AS municipality_id,
+              contact_name,
+              contact_title,
+              local_region,
+              state_id,
+              mmt.municipality_type_id AS municipality_type_id,
+              mt.municipality_type_desc AS municipality_type_desc
+              FROM ${prefix}municipality AS m
+              LEFT JOIN ${prefix}municipality_municipality_type AS mmt
+              ON m.municipality_id = mmt.municipality_id
+              LEFT JOIN ${prefix}municipality_type AS mt
+              ON mmt.municipality_type_id = mt.municipality_type_desc

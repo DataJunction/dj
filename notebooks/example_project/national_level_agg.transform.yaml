@@ -1,0 +1,5 @@
+description: National level aggregates
+dimension_links: {}
+display_name: 'Default: National Level Agg'
+query: SELECT SUM(rd.price * rd.quantity) AS total_amount_nationwide FROM ${prefix}repair_order_details
+  rd

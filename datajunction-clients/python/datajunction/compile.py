@@ -452,15 +452,15 @@ class Project(BaseModel):
         return CompiledProject(**compiled)
 
     @staticmethod
-    def pull(client: DJBuilder, namespace: str, target_path: Union[str, Path]):
+    def pull(client: DJBuilder, namespace: str, target_path: Union[str, Path], ignore_existing_files: bool = False):
         """
         Pull down a namespace to a local project
         """
         path = Path(target_path)
-        if any(path.iterdir()):
+        if any(path.iterdir()) and not ignore_existing_files:
             raise DJClientException("The target path must be empty")
         with open(
-            Path(target_path) / Path("dj.yaml"),
+            path / Path("dj.yaml"),
             "w",
             encoding="utf-8",
         ) as yaml_file:
@@ -476,7 +476,7 @@ class Project(BaseModel):
             namespace=namespace,
         )
         for node in node_definitions:
-            node_definition_dir = Path(node.pop("directory"))
+            node_definition_dir = path / Path(node.pop("directory"))
             Path.mkdir(node_definition_dir, parents=True, exist_ok=True)
             if (
                 node["filename"].endswith(".dimension.yaml")

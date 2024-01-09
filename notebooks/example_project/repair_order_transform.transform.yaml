@@ -1,0 +1,11 @@
+description: Repair order dimension
+dimension_links: {}
+display_name: 'Default: Repair Order Transform'
+query: |2-
+
+              SELECT
+              repair_order_id,
+              municipality_id,
+              hard_hat_id,
+              dispatcher_id
+              FROM ${prefix}repair_orders
