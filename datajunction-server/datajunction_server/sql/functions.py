@@ -139,7 +139,9 @@ class Dispatch(metaclass=DispatchMeta):
 
         type_list = []
         for i, arg in enumerate(args):
-            type_list.append((i, type(arg.type) if hasattr(arg, "type") else type(arg)))
+            type_list.append(
+                (i, type(arg.type) if hasattr(arg, "type") else type(arg.type)),
+            )
 
         types = tuple(type_list)
 
@@ -3385,6 +3387,39 @@ def infer_type(  # type: ignore
     return ct.IntegerType()
 
 
+class Sequence(Function):
+    """
+    Generates an array of elements from start to stop (inclusive), incrementing by step.
+    """
+
+
+@Sequence.register
+def infer_type(  # type: ignore
+    start: ct.IntegerType,
+    end: ct.IntegerType,
+    step: Optional[ct.IntegerType] = None,
+) -> ct.ListType:
+    return ct.ListType(element_type=ct.IntegerType())
+
+
+@Sequence.register
+def infer_type(  # type: ignore
+    start: ct.TimestampType,
+    end: ct.TimestampType,
+    step: ct.IntervalTypeBase,
+) -> ct.ListType:
+    return ct.ListType(element_type=ct.TimestampType())
+
+
+@Sequence.register
+def infer_type(  # type: ignore
+    start: ct.DateType,
+    end: ct.DateType,
+    step: ct.IntervalTypeBase,
+) -> ct.ListType:
+    return ct.ListType(element_type=ct.DateType())
+
+
 class Size(Function):
     """
     size(expr) - Returns the size of an array or a map. The function returns
@@ -3613,6 +3648,20 @@ def infer_type(
     fmt: Optional[ct.StringType] = None,
 ) -> ct.DateType:
     return ct.DateType()
+
+
+class ToTimestamp(Function):  # pragma: no cover # pylint: disable=abstract-method
+    """
+    Parses the timestamp_str expression with the fmt expression to a timestamp.
+    """
+
+
+@ToTimestamp.register  # type: ignore
+def infer_type(
+    expr: ct.StringType,
+    fmt: Optional[ct.StringType] = None,
+) -> ct.TimestampType:
+    return ct.TimestampType()
 
 
 class Transform(Function):

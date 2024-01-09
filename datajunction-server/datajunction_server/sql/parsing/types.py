@@ -753,7 +753,7 @@ class DayTimeIntervalType(IntervalTypeBase):
         from_: DateTimeBase.Unit = DateTimeBase.Unit.day,
         to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.second,
     ):
-        key = (from_.upper(), to_.upper())  # type: ignore
+        key = (from_.unit.upper(), to_.unit.upper() if to_ else None)  # type: ignore
         cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
         return cls._instances[key]
 
@@ -763,8 +763,8 @@ class DayTimeIntervalType(IntervalTypeBase):
         to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.second,
     ):
         if not self._initialized:
-            from_ = from_.upper()  # type: ignore
-            to_ = to_.upper()  # type: ignore
+            from_ = from_.unit.upper()  # type: ignore
+            to_ = to_.unit.upper() if to_ else None  # type: ignore
             to_str = f" TO {to_}" if to_ else ""
             to_repr = f', to="{to_}"' if to_ else ""
             super().__init__(
@@ -800,7 +800,7 @@ class YearMonthIntervalType(IntervalTypeBase):
         from_: DateTimeBase.Unit = DateTimeBase.Unit.year,
         to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.month,
     ):
-        key = (from_.upper(), to_.upper())  # type: ignore
+        key = (from_.unit.upper(), to_.unit.upper() if to_ else None)  # type: ignore
         cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
         return cls._instances[key]
 
@@ -810,8 +810,8 @@ class YearMonthIntervalType(IntervalTypeBase):
         to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.month,
     ):
         if not self._initialized:
-            from_ = from_.upper()  # type: ignore
-            to_ = to_.upper()  # type: ignore
+            from_ = from_.unit.upper()  # type: ignore
+            to_ = to_.unit.upper() if to_ else None  # type: ignore
             to_str = f" TO {to_}" if to_ else ""
             to_repr = f', to="{to_}"' if to_ else ""
             super().__init__(
@@ -920,6 +920,7 @@ PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
     "boolean": BooleanType(),
     "varchar": VarcharType(),
     "int": IntegerType(),
+    "integer": IntegerType(),
     "tinyint": TinyIntType(),
     "smallint": SmallIntType(),
     "bigint": BigIntType(),
