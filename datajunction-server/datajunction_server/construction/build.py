@@ -243,6 +243,7 @@ def _build_joins_for_dimension(
 def join_tables_for_dimensions(
     session: Session,
     dimension_nodes_to_columns: Dict[NodeRevision, List[ast.Column]],
+    dimension_links: Dict[NodeRevision, Optional[str]],
     tables: DefaultDict[NodeRevision, List[ast.Table]],
     build_criteria: Optional[BuildCriteria] = None,
 ):
@@ -255,6 +256,7 @@ def join_tables_for_dimensions(
     the select, it will traverse through available linked tables (via dimension
     nodes) and join them in.
     """
+    ctx = CompileContext(session=session, exception=DJException())
     initial_nodes = set(tables)
     for dim_node, required_dimension_columns in sorted(
         dimension_nodes_to_columns.items(),
@@ -270,14 +272,22 @@ def join_tables_for_dimensions(
         # onto each select clause
         for select in selects_map:
             if dim_node not in initial_nodes:  # need to join dimension
-                join_asts = _build_joins_for_dimension(
-                    session,
-                    dim_node,
-                    initial_nodes,
-                    tables,
-                    build_criteria,
-                    required_dimension_columns,
-                )
+                if dim_node in dimension_links and dimension_links[dim_node]:
+                    join_query = parse(f"SELECT 1 FROM {dimension_links[dim_node]}")
+                    join_query.compile(ctx)
+                    join_query.build(session, memoized_queries={})
+                    alias = select.from_.relations[-1].primary.alias_or_name  # type: ignore
+                    join_query.select.from_.relations[-1].primary.set_alias(alias)  # type: ignore
+                    join_asts = join_query.select.from_.relations[-1].extensions  # type: ignore
+                else:
+                    join_asts = _build_joins_for_dimension(
+                        session,
+                        dim_node,
+                        initial_nodes,
+                        tables,
+                        build_criteria,
+                        required_dimension_columns,
+                    )
                 if join_asts and select.from_:
                     select.from_.relations[-1].extensions.extend(  # pragma: no cover
                         join_asts,
@@ -391,6 +401,22 @@ def dimension_columns_mapping(
     return dimension_nodes_to_columns
 
 
+def dimension_links_mapping(
+    select: ast.SelectExpression,
+) -> Dict[NodeRevision, Optional[str]]:
+    """
+    Extract all dimension nodes referenced by columns
+    """
+    dimensions_to_join_sql: Dict[NodeRevision, Optional[str]] = {}
+
+    for col in select.find_all(ast.Column):
+        if isinstance(col.table, ast.Table):
+            if node := col.table.dj_node:  # pragma: no cover
+                if node.type == NodeType.DIMENSION:
+                    dimensions_to_join_sql[node] = col.table.join_sql
+    return dimensions_to_join_sql
+
+
 # flake8: noqa: C901
 def _build_select_ast(
     session: Session,
@@ -409,7 +435,14 @@ def _build_select_ast(
     """
     tables = _get_tables_from_select(select)
     dimension_columns = dimension_columns_mapping(select)
-    join_tables_for_dimensions(session, dimension_columns, tables, build_criteria)
+    dimension_links = dimension_links_mapping(select)
+    join_tables_for_dimensions(
+        session,
+        dimension_columns,
+        dimension_links,
+        tables,
+        build_criteria,
+    )
     _build_tables_on_select(
         session,
         select,

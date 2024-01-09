@@ -49,6 +49,7 @@ def client_code_for_creating_node(
             "parents",
             "metric_metadata",
             "query" if node.type == NodeType.CUBE else "",
+            "dimension_links",
         },
         exclude_none=True,
     )

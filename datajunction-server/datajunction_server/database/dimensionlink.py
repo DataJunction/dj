@@ -58,4 +58,4 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
         for key, value in join_mapping.items():
             if key in join_type:
                 return value
-        return None
+        return JoinType.LEFT

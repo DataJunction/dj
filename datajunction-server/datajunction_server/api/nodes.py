@@ -741,7 +741,7 @@ def link_dimension_node(  # pylint: disable=too-many-locals
         and dimension_node.current.catalog is not None
         and node.current.catalog.name != dimension_node.current.catalog.name
     ):
-        raise DJException(
+        raise DJException(  # pragma: no cover
             message=(
                 "Cannot link dimension to node, because catalogs do not match: "
                 f"{node.current.catalog.name}, {dimension_node.current.catalog.name}"
