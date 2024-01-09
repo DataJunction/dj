@@ -32,6 +32,7 @@ from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.constants import NODE_LIST_MAX
 from datajunction_server.database.column import Column
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
@@ -55,6 +56,7 @@ from datajunction_server.internal.nodes import (
 )
 from datajunction_server.models import access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
+from datajunction_server.models.dimensionlink import LinkDimensionInput
 from datajunction_server.models.history import status_change_history
 from datajunction_server.models.node import (
     ColumnOutput,
@@ -86,6 +88,7 @@ from datajunction_server.sql.dag import (
     get_nodes_with_dimension,
     get_upstream_nodes,
 )
+from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import (
     Version,
@@ -704,6 +707,133 @@ def link_dimension(  # pylint: disable=too-many-arguments
             "message": (
                 f"Dimension node {dimension} has been successfully "
                 f"linked to column {column} on node {name}"
+            ),
+        },
+    )
+
+
+@router.post("/nodes/{name}/link/", status_code=201)
+def link_dimension_node(  # pylint: disable=too-many-locals
+    name: str,
+    link_input: LinkDimensionInput,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+) -> JSONResponse:
+    """
+    Links a source, dimension, or transform node to a dimension with a custom join query.
+    If a link already exists, updates the link definition.
+    """
+    node = get_node_by_name(session=session, name=name)
+    if node.type not in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):
+        raise DJInvalidInputException(
+            message=f"Cannot link dimension to a node of type {node.type}. "
+            "Must be a source, dimension, or transform node.",
+        )
+
+    # Find the dimension node and check that the catalogs match
+    dimension_node = get_node_by_name(
+        session=session,
+        name=link_input.dimension_node,
+        node_type=NodeType.DIMENSION,
+    )
+    if (
+        dimension_node.current.catalog_id != UNKNOWN_CATALOG_ID
+        and dimension_node.current.catalog is not None
+        and node.current.catalog.name != dimension_node.current.catalog.name
+    ):
+        raise DJException(
+            message=(
+                "Cannot link dimension to node, because catalogs do not match: "
+                f"{node.current.catalog.name}, {dimension_node.current.catalog.name}"
+            ),
+        )
+
+    # Parse the join query and do some basic verification of its validity
+    join_query = parse(f"SELECT 1 FROM {link_input.join_sql}")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    join_query.compile(ctx)
+
+    # Check that there is a valid join clause
+    if not join_query.select.from_.relations[0].extensions:  # type: ignore
+        raise DJInvalidInputException(
+            f"Provided SQL `{link_input.join_sql}` does contain JOIN clause",
+        )
+    join_relation = join_query.select.from_.relations[0].extensions[0]  # type: ignore
+
+    # Verify that the query references both the node and the dimension being joined
+    expected_references = {name, link_input.dimension_node}
+    references = {table.name.identifier() for table in join_query.find_all(ast.Table)}
+    if expected_references.difference(references):
+        raise DJInvalidInputException(
+            message=f"The join SQL provided does not reference both the origin node {name} and the "
+            f"dimension node {link_input.dimension_node} that it's being joined to.",
+        )
+
+    # Verify that the columns in the ON clause exist on both nodes
+    for col in join_query.find_all(ast.Column):
+        if not col.table or not col.table.dj_node:  # type: ignore
+            raise DJException(
+                message=f"Column {col.identifier()} does not exist on node",
+                http_status_code=404,
+            )
+
+    # Find an existing dimension link if there is already one defined for this node
+    existing_link = [
+        link
+        for link in node.current.dimension_links
+        if link.dimension_id == dimension_node.id
+    ]
+    is_update = False
+
+    if existing_link:
+        # Update the existing dimension link
+        is_update = True
+        dimension_link = existing_link[0]
+        dimension_link.join_sql = link_input.join_sql
+        dimension_link.join_type = DimensionLink.parse_join_type(
+            join_relation.join_type,
+        )
+        dimension_link.join_kind = link_input.join_kind
+    else:
+        # If there is no existing link, create new dimension link object
+        dimension_link = DimensionLink(
+            node_revision_id=node.current.id,
+            dimension_id=dimension_node.id,
+            join_sql=link_input.join_sql,
+            join_type=DimensionLink.parse_join_type(join_relation.join_type),
+            join_kind=link_input.join_kind,
+        )
+
+    # Add/update the dimension link in the database
+    session.add(dimension_link)
+    session.add(
+        History(
+            entity_type=EntityType.LINK,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.CREATE if not is_update else ActivityType.UPDATE,
+            details={
+                "dimension": dimension_node.name,
+                "join_sql": link_input.join_sql,
+                "join_kind": link_input.join_kind,
+            },
+            user=current_user.username if current_user else None,
+        ),
+    )
+    session.commit()
+    session.refresh(node)
+    return JSONResponse(
+        status_code=201,
+        content={
+            "message": (
+                f"Dimension node {dimension_node.name} has been successfully "
+                f"linked to node {name}."
+            )
+            if not is_update
+            else (
+                f"The dimension link between {name} and {dimension_node.name} "
+                "has been successfully updated."
             ),
         },
     )

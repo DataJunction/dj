@@ -21,9 +21,10 @@ from datajunction_server.models.base import labelize
 from datajunction_server.models.catalog import CatalogInfo
 from datajunction_server.models.column import ColumnYAML
 from datajunction_server.models.database import DatabaseOutput
+from datajunction_server.models.dimensionlink import LinkDimensionOutput
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import MaterializationConfigOutput
-from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.node_type import NodeNameOutput, NodeType
 from datajunction_server.models.partition import PartitionOutput
 from datajunction_server.models.tag import TagOutput
 from datajunction_server.sql.parsing.types import ColumnType
@@ -483,17 +484,6 @@ class MutableNodeQueryField(BaseModel):
     query: str
 
 
-class NodeNameOutput(BaseModel):
-    """
-    Node name only
-    """
-
-    name: str
-
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
-        orm_mode = True
-
-
 class NodeNameList(BaseModel):
     """
     List of node names
@@ -770,6 +760,7 @@ class NodeRevisionOutput(BaseModel):
     materializations: List[MaterializationConfigOutput]
     parents: List[NodeNameOutput]
     metric_metadata: Optional[MetricMetadataOutput] = None
+    dimension_links: Optional[List[LinkDimensionOutput]]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True

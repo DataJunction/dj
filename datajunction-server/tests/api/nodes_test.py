@@ -23,6 +23,8 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_upstream_nodes
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
+from tests.conftest import post_and_raise_if_error
+from tests.examples import EXAMPLES
 from tests.sql.utils import compare_query_strings
 
 
@@ -5407,3 +5409,152 @@ ON s.state_region = r.us_region_id""",
         "delete",
         "restore",
     ]
+
+
+def test_link_dimension(client_with_roads: TestClient):
+    """
+    Test linking dimensions (with join SQL)
+    """
+    for endpoint, json in EXAMPLES["DIMENSION_LINK"]:
+        post_and_raise_if_error(  # type: ignore
+            client=client_with_roads,
+            endpoint=endpoint,
+            json=json,
+        )
+
+    # Try to create a dimension link with errors
+    response = client_with_roads.post(
+        "/nodes/default.regional_level_agg/link",
+        json={
+            "dimension_node": "default.date_dim",
+            "join_sql": (
+                "default.regional_level_agg A JOIN default.regional_level_agg D "
+                "ON A.order_year = D.order_year"
+            ),
+            "join_kind": "many_to_one",
+        },
+    )
+    assert response.json()["message"] == (
+        "The join SQL provided does not reference both the origin node "
+        "default.regional_level_agg and the dimension node default.date_dim that "
+        "it's being joined to."
+    )
+
+    response = client_with_roads.post(
+        "/nodes/default.regional_level_agg/link",
+        json={
+            "dimension_node": "default.date_dim",
+            "join_sql": (
+                "default.regional_level_agg A JOIN default.date_dim D "
+                "ON A.order_year = D.year "
+                "AND A.order_month = D.month "
+                "AND A.order_day = D.daym"
+            ),
+            "join_kind": "many_to_one",
+        },
+    )
+    assert response.json()["message"] == "Column D.daym does not exist on node"
+
+    response = client_with_roads.post(
+        "/nodes/default.regional_level_agg/link",
+        json={
+            "dimension_node": "default.date_dim",
+            "join_sql": ("default.regional_level_agg A"),
+            "join_kind": "many_to_one",
+        },
+    )
+    assert response.json()["message"] == (
+        "Provided SQL `default.regional_level_agg A` does contain JOIN clause"
+    )
+
+    # Successfully link dimension
+    response = client_with_roads.post(
+        "/nodes/default.regional_level_agg/link",
+        json={
+            "dimension_node": "default.date_dim",
+            "join_sql": (
+                "default.regional_level_agg A JOIN default.date_dim D "
+                "ON A.order_year = D.year "
+                "AND A.order_month = D.month "
+                "AND A.order_day = D.day"
+            ),
+            "join_kind": "many_to_one",
+        },
+    )
+    assert response.json() == {
+        "message": "Dimension node default.date_dim has been successfully linked to "
+        "node default.regional_level_agg.",
+    }
+
+    response = client_with_roads.get("/nodes/default.regional_level_agg")
+    assert response.json()["dimension_links"] == [
+        {
+            "dimension": {"name": "default.date_dim"},
+            "join_kind": "many_to_one",
+            "join_sql": "default.regional_level_agg A JOIN default.date_dim D ON "
+            "A.order_year = D.year AND A.order_month = D.month AND "
+            "A.order_day = D.day",
+        },
+    ]
+
+    # Update dimension link
+    response = client_with_roads.post(
+        "/nodes/default.regional_level_agg/link",
+        json={
+            "dimension_node": "default.date_dim",
+            "join_sql": (
+                "default.regional_level_agg A JOIN default.date_dim D "
+                "ON A.order_year = D.year "
+                "AND A.order_month = D.month"
+            ),
+            "join_kind": "many_to_one",
+        },
+    )
+    assert response.json() == {
+        "message": "The dimension link between default.regional_level_agg and "
+        "default.date_dim has been successfully updated.",
+    }
+
+    response = client_with_roads.get("/history?node=default.regional_level_agg")
+    assert [entry for entry in response.json() if entry["entity_type"] == "link"] == [
+        {
+            "activity_type": "create",
+            "created_at": mock.ANY,
+            "details": {
+                "dimension": "default.date_dim",
+                "join_kind": "many_to_one",
+                "join_sql": "default.regional_level_agg A JOIN default.date_dim "
+                "D ON A.order_year = D.year AND A.order_month = "
+                "D.month AND A.order_day = D.day",
+            },
+            "entity_name": "default.regional_level_agg",
+            "entity_type": "link",
+            "id": mock.ANY,
+            "node": "default.regional_level_agg",
+            "post": {},
+            "pre": {},
+            "user": mock.ANY,
+        },
+        {
+            "activity_type": "update",
+            "created_at": mock.ANY,
+            "details": {
+                "dimension": "default.date_dim",
+                "join_kind": "many_to_one",
+                "join_sql": "default.regional_level_agg A JOIN default.date_dim "
+                "D ON A.order_year = D.year AND A.order_month = D.month",
+            },
+            "entity_name": "default.regional_level_agg",
+            "entity_type": "link",
+            "id": mock.ANY,
+            "node": "default.regional_level_agg",
+            "post": {},
+            "pre": {},
+            "user": mock.ANY,
+        },
+    ]
+
+    response = client_with_roads.get(
+        "/sql/default.regional_level_agg?dimensions=default.date_dim.year",
+    )
+    assert response.json() == {}
