@@ -5,7 +5,7 @@ Environment for Alembic migrations.
 
 from logging.config import fileConfig
 
-from sqlmodel import create_engine
+from sqlalchemy import create_engine
 
 from alembic import context
 from datajunction_server.database import (
@@ -18,6 +18,7 @@ from datajunction_server.database import (
     History,
     Measure,
     Node,
+    NodeNamespace,
     NodeRevision,
     Partition,
     Table,
