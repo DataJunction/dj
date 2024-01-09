@@ -452,7 +452,12 @@ class Project(BaseModel):
         return CompiledProject(**compiled)
 
     @staticmethod
-    def pull(client: DJBuilder, namespace: str, target_path: Union[str, Path], ignore_existing_files: bool = False):
+    def pull(
+        client: DJBuilder,
+        namespace: str,
+        target_path: Union[str, Path],
+        ignore_existing_files: bool = False,
+    ):
         """
         Pull down a namespace to a local project
         """
