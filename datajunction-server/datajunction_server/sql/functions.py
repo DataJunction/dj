@@ -140,7 +140,7 @@ class Dispatch(metaclass=DispatchMeta):
         type_list = []
         for i, arg in enumerate(args):
             type_list.append(
-                (i, type(arg.type) if hasattr(arg, "type") else type(arg.type)),
+                (i, type(arg.type) if hasattr(arg, "type") else type(arg)),
             )
 
         types = tuple(type_list)

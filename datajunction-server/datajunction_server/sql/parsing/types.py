@@ -753,9 +753,9 @@ class DayTimeIntervalType(IntervalTypeBase):
         from_: DateTimeBase.Unit = DateTimeBase.Unit.day,
         to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.second,
     ):
-        key = (from_.unit.upper(), to_.unit.upper() if to_ else None)  # type: ignore
-        cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
-        return cls._instances[key]
+        key = (from_.upper(), to_.upper() if to_ else None)
+        cls._instances[key] = cls._instances.get(key) or object.__new__(cls)  # type: ignore
+        return cls._instances[key]  # type: ignore
 
     def __init__(
         self,
@@ -763,8 +763,8 @@ class DayTimeIntervalType(IntervalTypeBase):
         to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.second,
     ):
         if not self._initialized:
-            from_ = from_.unit.upper()  # type: ignore
-            to_ = to_.unit.upper() if to_ else None  # type: ignore
+            from_ = from_.upper()  # type: ignore
+            to_ = to_.upper() if to_ else None  # type: ignore
             to_str = f" TO {to_}" if to_ else ""
             to_repr = f', to="{to_}"' if to_ else ""
             super().__init__(
@@ -800,9 +800,9 @@ class YearMonthIntervalType(IntervalTypeBase):
         from_: DateTimeBase.Unit = DateTimeBase.Unit.year,
         to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.month,
     ):
-        key = (from_.unit.upper(), to_.unit.upper() if to_ else None)  # type: ignore
-        cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
-        return cls._instances[key]
+        key = (from_.upper(), to_.upper() if to_ else None)
+        cls._instances[key] = cls._instances.get(key) or object.__new__(cls)  # type: ignore
+        return cls._instances[key]  # type: ignore
 
     def __init__(
         self,
@@ -810,8 +810,8 @@ class YearMonthIntervalType(IntervalTypeBase):
         to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.month,
     ):
         if not self._initialized:
-            from_ = from_.unit.upper()  # type: ignore
-            to_ = to_.unit.upper() if to_ else None  # type: ignore
+            from_ = from_.upper()  # type: ignore
+            to_ = to_.upper() if to_ else None  # type: ignore
             to_str = f" TO {to_}" if to_ else ""
             to_repr = f', to="{to_}"' if to_ else ""
             super().__init__(
