@@ -5478,7 +5478,7 @@ def test_link_dimension(client_with_roads: TestClient):
         },
     )
     assert response.json()["message"] == (
-        "Provided SQL `default.regional_level_agg A` does contain JOIN clause"
+        "Provided SQL `default.regional_level_agg A` does not contain JOIN clause"
     )
 
     # Successfully link dimension
