@@ -757,7 +757,7 @@ def link_dimension_node(  # pylint: disable=too-many-locals
     # Check that there is a valid join clause
     if not join_query.select.from_.relations[0].extensions:  # type: ignore
         raise DJInvalidInputException(
-            f"Provided SQL `{link_input.join_sql}` does contain JOIN clause",
+            f"Provided SQL `{link_input.join_sql}` does not contain JOIN clause",
         )
     join_relation = join_query.select.from_.relations[0].extensions[0]  # type: ignore
 
