@@ -1,0 +1,28 @@
+description: Hard hat dimension
+dimension_links:
+  birth_date:
+    dimension: ${prefix}date_dim
+  hire_date:
+    dimension: ${prefix}date_dim
+  state:
+    dimension: ${prefix}us_state
+display_name: 'Default: Hard Hat'
+primary_key:
+- hard_hat_id
+query: |2-
+
+              SELECT
+              hard_hat_id,
+              last_name,
+              first_name,
+              title,
+              birth_date,
+              hire_date,
+              address,
+              city,
+              state,
+              postal_code,
+              country,
+              manager,
+              contractor_id
+              FROM ${prefix}hard_hats

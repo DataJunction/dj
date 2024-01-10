@@ -1,0 +1,17 @@
+columns:
+- name: repair_order_id
+  type: int
+- name: discount
+  type: float
+- name: price
+  type: float
+- name: quantity
+  type: int
+- name: repair_type_id
+  type: int
+description: Details on repair orders
+dimension_links:
+  repair_order_id:
+    dimension: ${prefix}repair_order
+display_name: warehouse.roads.repair_order_details
+table: warehouse.roads.repair_order_details

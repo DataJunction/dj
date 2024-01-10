@@ -1,0 +1,3 @@
+description: Average time to dispatch a repair order
+display_name: 'Default: Avg Time To Dispatch'
+query: SELECT avg(dispatched_date - order_date) FROM ${prefix}repair_orders

@@ -1,0 +1,11 @@
+columns:
+- name: dispatcher_id
+  type: int
+- name: phone
+  type: string
+- name: company_name
+  type: string
+description: Information on different types of repairs
+dimension_links: {}
+display_name: warehouse.roads.dispatchers
+table: warehouse.roads.dispatchers

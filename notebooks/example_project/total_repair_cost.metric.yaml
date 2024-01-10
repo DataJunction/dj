@@ -1,0 +1,3 @@
+description: Total repair cost
+display_name: 'Default: Total Repair Cost'
+query: SELECT sum(price) FROM ${prefix}repair_order_details

@@ -1,0 +1,19 @@
+description: Repair order dimension
+dimension_links:
+  dispatcher_id:
+    dimension: ${prefix}dispatcher
+  hard_hat_id:
+    dimension: ${prefix}hard_hat
+  municipality_id:
+    dimension: ${prefix}municipality_dim
+display_name: 'Default: Repair Order'
+primary_key:
+- repair_order_id
+query: |2-
+
+              SELECT
+              repair_order_id,
+              municipality_id,
+              hard_hat_id,
+              dispatcher_id
+              FROM ${prefix}repair_orders

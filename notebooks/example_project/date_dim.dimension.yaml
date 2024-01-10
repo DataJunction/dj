@@ -1,0 +1,13 @@
+description: Date dimension
+dimension_links: {}
+display_name: 'Default: Date Dim'
+primary_key:
+- dateint
+query: |2-
+
+              SELECT
+                dateint,
+                month,
+                year,
+                day
+              FROM ${prefix}date

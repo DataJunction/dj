@@ -1,0 +1,9 @@
+columns:
+- name: us_region_description
+  type: string
+- name: us_region_id
+  type: int
+description: Information on different types of repairs
+dimension_links: {}
+display_name: warehouse.roads.us_region
+table: warehouse.roads.us_region

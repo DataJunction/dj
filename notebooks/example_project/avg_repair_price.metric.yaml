@@ -1,0 +1,3 @@
+description: Average repair price
+display_name: 'Default: Avg Repair Price'
+query: SELECT avg(price) FROM ${prefix}repair_order_details

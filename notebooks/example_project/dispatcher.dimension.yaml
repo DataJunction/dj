@@ -1,0 +1,12 @@
+description: Dispatcher dimension
+dimension_links: {}
+display_name: 'Default: Dispatcher'
+primary_key:
+- dispatcher_id
+query: |2-
+
+              SELECT
+              dispatcher_id,
+              company_name,
+              phone
+              FROM ${prefix}dispatchers
