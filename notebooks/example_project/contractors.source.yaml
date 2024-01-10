@@ -1,0 +1,23 @@
+columns:
+- name: contact_title
+  type: string
+- name: city
+  type: string
+- name: postal_code
+  type: string
+- name: contractor_id
+  type: int
+- name: country
+  type: string
+- name: address
+  type: string
+- name: company_name
+  type: string
+- name: state
+  type: string
+- name: contact_name
+  type: string
+description: Information on different types of repairs
+dimension_links: {}
+display_name: warehouse.roads.contractors
+table: warehouse.roads.contractors

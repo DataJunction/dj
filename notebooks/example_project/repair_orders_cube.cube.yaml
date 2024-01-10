@@ -1,0 +1,10 @@
+description: Repair Orders Cube
+dimensions:
+- ${prefix}dispatcher.company_name
+- ${prefix}hard_hat.state
+display_name: 'Default: Repair Orders Cube'
+metrics:
+- ${prefix}total_repair_cost
+- ${prefix}avg_repair_price
+- ${prefix}num_repair_orders
+- ${prefix}total_repair_order_discounts

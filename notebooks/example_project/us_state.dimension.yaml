@@ -1,0 +1,16 @@
+description: US state dimension
+dimension_links: {}
+display_name: 'Default: Us State'
+primary_key:
+- state_id
+query: |2-
+
+              SELECT
+              state_id,
+              state_name,
+              state_abbr,
+              state_region,
+              r.us_region_description AS state_region_description
+              FROM ${prefix}us_states s
+              LEFT JOIN ${prefix}us_region r
+              ON s.state_region = r.us_region_description

@@ -1,0 +1,13 @@
+columns:
+- name: repair_type_name
+  type: string
+- name: repair_type_id
+  type: int
+- name: contractor_id
+  type: int
+description: Information on different types of repairs
+dimension_links:
+  contractor_id:
+    dimension: ${prefix}contractor
+display_name: warehouse.roads.repair_type
+table: warehouse.roads.repair_type

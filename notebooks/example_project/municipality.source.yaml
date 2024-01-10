@@ -1,0 +1,17 @@
+columns:
+- name: local_region
+  type: string
+- name: municipality_id
+  type: string
+- name: state_id
+  type: int
+- name: contact_name
+  type: string
+- name: phone
+  type: string
+- name: contact_title
+  type: string
+description: Information on different types of repairs
+dimension_links: {}
+display_name: warehouse.roads.municipality
+table: warehouse.roads.municipality

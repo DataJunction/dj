@@ -1,0 +1,21 @@
+columns:
+- name: required_date
+  type: date
+- name: order_date
+  type: date
+- name: repair_order_id
+  type: int
+- name: hard_hat_id
+  type: int
+- name: municipality_id
+  type: string
+- name: dispatcher_id
+  type: int
+- name: dispatched_date
+  type: date
+description: Repair orders
+dimension_links:
+  repair_order_id:
+    dimension: ${prefix}repair_order
+display_name: warehouse.roads.repair_orders
+table: warehouse.roads.repair_orders

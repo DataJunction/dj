@@ -1,0 +1,9 @@
+columns:
+- name: municipality_id
+  type: string
+- name: municipality_type_id
+  type: string
+description: Information on different types of repairs
+dimension_links: {}
+display_name: warehouse.roads.municipality_municipality_type
+table: warehouse.roads.municipality_municipality_type
