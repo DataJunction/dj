@@ -5656,3 +5656,18 @@ FROM (
   AND default.regional_level_agg.order_month = default_DOT_date_dim.month
         """,
     )
+
+    response = client_with_roads.get(
+        "/nodes/default.regional_level_agg/dimensions",
+    )
+    assert [(attr["name"], attr["path"]) for attr in response.json()] == [
+        ("default.date_dim.dateint", ["default.regional_level_agg."]),
+        ("default.date_dim.day", ["default.regional_level_agg."]),
+        ("default.date_dim.month", ["default.regional_level_agg."]),
+        ("default.date_dim.year", ["default.regional_level_agg."]),
+        ("default.regional_level_agg.order_day", []),
+        ("default.regional_level_agg.order_month", []),
+        ("default.regional_level_agg.order_year", []),
+        ("default.regional_level_agg.state_name", []),
+        ("default.regional_level_agg.us_region_id", []),
+    ]
