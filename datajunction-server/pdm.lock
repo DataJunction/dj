@@ -2,10 +2,10 @@
 # It is not intended for manual editing.
 
 [metadata]
-groups = ["default", "test", "uvicorn", "transpilation", "dev"]
+groups = ["default", "test", "uvicorn", "transpilation"]
 strategy = ["cross_platform"]
 lock_version = "4.4.1"
-content_hash = "sha256:c4d46c5a0621cfddfd19cecc23cdfd1ae1ee6e7ff42ae17224908754789f0105"
+content_hash = "sha256:f74c0844d834243f44d7512e5b8c251575a14fa3ae42a7a94032065bd4f8db18"
 
 [[package]]
 name = "accept-types"
