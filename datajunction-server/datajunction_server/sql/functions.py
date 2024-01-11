@@ -3277,31 +3277,37 @@ class Percentile(Function):
 
 
 @Percentile.register
-def infer_type(col: ct.NumberType, percentage: ct.NumberType) -> ct.NumberType:
-    return col.type  # type: ignore
-
-
-@Percentile.register
 def infer_type(
-    col: ct.NumberType,
+    col: Union[ct.NumberType, ct.IntervalTypeBase],
     percentage: ct.NumberType,
-    freq: ct.NumberType,
-) -> ct.ListType:
-    return col.type  # type: ignore
-
-
-@Percentile.register
-def infer_type(col: ct.NumberType, percentage: ct.ListType) -> ct.ListType:
-    return ct.ListType(element_type=col.type)  # type: ignore
+) -> ct.FloatType:
+    return ct.FloatType()  # type: ignore
 
 
 @Percentile.register
 def infer_type(
-    col: ct.NumberType,
+    col: Union[ct.NumberType, ct.IntervalTypeBase],
+    percentage: ct.NumberType,
+    freq: ct.IntegerType,
+) -> ct.FloatType:
+    return ct.FloatType()  # type: ignore
+
+
+@Percentile.register
+def infer_type(
+    col: Union[ct.NumberType, ct.IntervalTypeBase],
     percentage: ct.ListType,
-    freq: ct.NumberType,
 ) -> ct.ListType:
-    return ct.ListType(element_type=col.type)  # type: ignore
+    return ct.ListType(element_type=ct.FloatType())  # type: ignore
+
+
+@Percentile.register
+def infer_type(
+    col: Union[ct.NumberType, ct.IntervalTypeBase],
+    percentage: ct.ListType,
+    freq: ct.IntegerType,
+) -> ct.ListType:
+    return ct.ListType(element_type=ct.FloatType())  # type: ignore
 
 
 class PercentRank(Function):
