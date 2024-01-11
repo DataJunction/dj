@@ -21,9 +21,9 @@ from datajunction_server.models.cube import (
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
+from datajunction_server.naming import from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
-    from_amenable_name,
     get_query_service_client,
     get_session,
     get_settings,

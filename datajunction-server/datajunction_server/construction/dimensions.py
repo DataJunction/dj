@@ -13,10 +13,11 @@ from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
+from datajunction_server.naming import amenable_name, from_amenable_name
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import IntegerType
-from datajunction_server.utils import SEPARATOR, amenable_name, from_amenable_name
+from datajunction_server.utils import SEPARATOR
 
 
 def build_dimensions_from_cube_query(  # pylint: disable=too-many-arguments,too-many-locals

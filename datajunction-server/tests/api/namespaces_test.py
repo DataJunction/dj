@@ -502,12 +502,12 @@ def test_hard_delete_namespace(client_with_examples: TestClient):
             "foo.bar.repair_order_details": [
                 {
                     "effect": "downstream node is " "now invalid",
-                    "name": "foo.bar.total_repair_order_discounts",
+                    "name": "foo.bar.total_repair_cost",
                     "status": "invalid",
                 },
                 {
                     "effect": "downstream node is " "now invalid",
-                    "name": "foo.bar.total_repair_cost",
+                    "name": "foo.bar.total_repair_order_discounts",
                     "status": "invalid",
                 },
             ],
