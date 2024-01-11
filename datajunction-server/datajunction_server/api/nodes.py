@@ -782,7 +782,7 @@ def link_dimension_node(  # pylint: disable=too-many-locals
     existing_link = [
         link
         for link in node.current.dimension_links
-        if link.dimension_id == dimension_node.id
+        if link.dimension_id == dimension_node.id and link.role == link_input.role
     ]
     is_update = False
 
@@ -794,7 +794,7 @@ def link_dimension_node(  # pylint: disable=too-many-locals
         dimension_link.join_type = DimensionLink.parse_join_type(
             join_relation.join_type,
         )
-        dimension_link.join_kind = link_input.join_kind
+        dimension_link.join_cardinality = link_input.join_cardinality
     else:
         # If there is no existing link, create new dimension link object
         dimension_link = DimensionLink(
@@ -802,7 +802,8 @@ def link_dimension_node(  # pylint: disable=too-many-locals
             dimension_id=dimension_node.id,
             join_sql=link_input.join_sql,
             join_type=DimensionLink.parse_join_type(join_relation.join_type),
-            join_kind=link_input.join_kind,
+            join_cardinality=link_input.join_cardinality,
+            role=link_input.role,
         )
 
     # Add/update the dimension link in the database
@@ -816,7 +817,8 @@ def link_dimension_node(  # pylint: disable=too-many-locals
             details={
                 "dimension": dimension_node.name,
                 "join_sql": link_input.join_sql,
-                "join_kind": link_input.join_kind,
+                "join_cardinality": link_input.join_cardinality,
+                "role": link_input.role,
             },
             user=current_user.username if current_user else None,
         ),

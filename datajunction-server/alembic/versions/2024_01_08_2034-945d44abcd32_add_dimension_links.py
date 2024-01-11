@@ -26,6 +26,7 @@ def upgrade():
             sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
             nullable=False,
         ),
+        sa.Column("role", sa.String(), nullable=True),
         sa.Column(
             "node_revision_id",
             sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
@@ -43,13 +44,13 @@ def upgrade():
             nullable=True,
         ),
         sa.Column(
-            "join_kind",
+            "join_cardinality",
             sa.Enum(
                 "ONE_TO_ONE",
                 "ONE_TO_MANY",
                 "MANY_TO_ONE",
                 "MANY_TO_MANY",
-                name="joinkind",
+                name="joincardinality",
             ),
             nullable=False,
         ),
