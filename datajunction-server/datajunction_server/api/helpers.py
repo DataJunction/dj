@@ -1142,9 +1142,6 @@ def hard_delete_node(
         linked_nodes = get_nodes_with_dimension(session=session, dimension_node=node)
 
     session.delete(node)
-    for revision in node.revisions:
-        session.delete(revision)
-
     session.commit()
     impact = []  # Aggregate all impact of this deletion to include in response
 

@@ -167,6 +167,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         "NodeRevision",
         back_populates="node",
         primaryjoin="Node.id==NodeRevision.node_id",
+        cascade="all,delete",
     )
     current: Mapped["NodeRevision"] = relationship(
         "NodeRevision",
@@ -267,6 +268,7 @@ class NodeRevision(
         primaryjoin="NodeRevision.id==CubeRelationship.cube_id",
         secondaryjoin="Column.id==CubeRelationship.cube_element_id",
         lazy="joined",
+        order_by="Column.order",
     )
 
     status: Mapped[NodeStatus] = mapped_column(
@@ -470,12 +472,17 @@ class NodeRevision(
             raise DJInvalidInputException(  # pragma: no cover
                 message="Cannot retrieve metrics for a non-cube node!",
             )
-
-        return [
-            node_revision.node  # type: ignore
-            for element, node_revision in self.cube_elements_with_nodes()
-            if node_revision and node_revision.type == NodeType.METRIC
-        ]
+        ordering = {
+            col.name.replace("_DOT_", SEPARATOR): col.order for col in self.columns
+        }
+        return sorted(
+            [
+                node_revision.node  # type: ignore
+                for element, node_revision in self.cube_elements_with_nodes()
+                if node_revision and node_revision.type == NodeType.METRIC
+            ],
+            key=lambda x: ordering[x.name],
+        )
 
     def cube_dimensions(self) -> List[str]:
         """
@@ -485,11 +492,15 @@ class NodeRevision(
             raise DJInvalidInputException(  # pragma: no cover
                 "Cannot retrieve dimensions for a non-cube node!",
             )
-        return [
-            node_revision.name + SEPARATOR + element.name
-            for element, node_revision in self.cube_elements_with_nodes()
-            if node_revision and node_revision.type != NodeType.METRIC
-        ]
+        ordering = {col.name: col.order for col in self.columns}
+        return sorted(
+            [
+                node_revision.name + SEPARATOR + element.name
+                for element, node_revision in self.cube_elements_with_nodes()
+                if node_revision and node_revision.type != NodeType.METRIC
+            ],
+            key=lambda x: ordering[x],
+        )
 
     def temporal_partition_columns(self) -> List[Column]:
         """

@@ -38,7 +38,9 @@ class Column(Base):  # type: ignore
     )
     type: Mapped[Optional[ColumnType]] = mapped_column(ColumnTypeDecorator)
 
-    dimension_id: Mapped[Optional[int]] = mapped_column(ForeignKey("node.id"))
+    dimension_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("node.id", ondelete="SET NULL"),
+    )
     dimension: Mapped[Optional["Node"]] = relationship(
         "Node",
         lazy="joined",

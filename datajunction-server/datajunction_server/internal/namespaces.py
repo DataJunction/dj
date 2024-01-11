@@ -36,25 +36,29 @@ def get_nodes_in_namespace(
     Gets a list of node names in the namespace
     """
     get_node_namespace(session, namespace)
-    list_nodes_query = select(
-        Node.name,
-        NodeRevision.display_name,
-        NodeRevision.description,
-        Node.type,
-        Node.current_version.label(  # type: ignore # pylint: disable=no-member
-            "version",
-        ),
-        NodeRevision.status,
-        NodeRevision.mode,
-        NodeRevision.updated_at,
-    ).where(
-        or_(
-            Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
-            Node.namespace == namespace,
-        ),
-        Node.current_version == NodeRevision.version,
-        Node.name == NodeRevision.name,
-        Node.type == node_type if node_type else True,
+    list_nodes_query = (
+        select(
+            Node.name,
+            NodeRevision.display_name,
+            NodeRevision.description,
+            Node.type,
+            Node.current_version.label(  # type: ignore # pylint: disable=no-member
+                "version",
+            ),
+            NodeRevision.status,
+            NodeRevision.mode,
+            NodeRevision.updated_at,
+        )
+        .where(
+            or_(
+                Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
+                Node.namespace == namespace,
+            ),
+            Node.current_version == NodeRevision.version,
+            Node.name == NodeRevision.name,
+            Node.type == node_type if node_type else True,
+        )
+        .order_by(Node.id)
     )
     if include_deactivated is False:
         list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))
@@ -239,12 +243,14 @@ def hard_delete_namespace(
     """
     node_names = (
         session.execute(
-            select(Node.name).where(
+            select(Node.name)
+            .where(
                 or_(
                     Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
                     Node.namespace == namespace,
                 ),
-            ),
+            )
+            .order_by(Node.name),
         )
         .scalars()
         .all()

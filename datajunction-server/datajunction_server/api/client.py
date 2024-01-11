@@ -65,20 +65,25 @@ def client_code_for_creating_node(
     # Cube-specific params
     cube_params = []
     if node.type == NodeType.CUBE:
-        cube_metrics = ", ".join(
+        ordering = {col.name: col.order for col in node.current.columns}
+        metrics_list = sorted(
             [
-                '"' + elem.node_revisions[-1].name + '"'
+                elem.node_revisions[-1].name
                 for elem in node.current.cube_elements
                 if elem.node_revisions[-1].type == NodeType.METRIC
             ],
+            key=lambda x: ordering[x],
         )
-        cube_dimensions = ", ".join(
+        dimensions_list = sorted(
             [
-                '"' + elem.node_revisions[-1].name + "." + elem.name + '"'
+                elem.node_revisions[-1].name + "." + elem.name
                 for elem in node.current.cube_elements
                 if elem.node_revisions[-1].type == NodeType.DIMENSION
             ],
+            key=lambda x: ordering[x],
         )
+        cube_metrics = ", ".join([f'"{metric}"' for metric in metrics_list])
+        cube_dimensions = ", ".join([f'"{dim}"' for dim in dimensions_list])
         cube_params = [
             f"    metrics=[{cube_metrics}]",
             f"    dimensions=[{cube_dimensions}]",
