@@ -1,4 +1,6 @@
 """Node type"""
+from pydantic import BaseModel
+
 from datajunction_server.enum import StrEnum
 
 
@@ -20,3 +22,14 @@ class NodeType(StrEnum):
     METRIC = "metric"
     DIMENSION = "dimension"
     CUBE = "cube"
+
+
+class NodeNameOutput(BaseModel):
+    """
+    Node name only
+    """
+
+    name: str
+
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True

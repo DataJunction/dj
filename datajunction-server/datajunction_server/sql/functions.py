@@ -2128,7 +2128,8 @@ def infer_type(
             message="The then result and else result must match in type! "
             f"Got {then.type} and {else_.type}",
         )
-
+    if then.type == ct.NullType():
+        return else_.type
     return then.type
 
 
@@ -3265,6 +3266,48 @@ def infer_type(
     length: Optional[ct.IntegerType] = None,
 ) -> ct.ColumnType:
     return ct.StringType()
+
+
+class Percentile(Function):
+    """
+    percentile() - Computes the percentage ranking of a value in a group of values.
+    """
+
+    is_aggregation = True
+
+
+@Percentile.register
+def infer_type(
+    col: Union[ct.NumberType, ct.IntervalTypeBase],
+    percentage: ct.NumberType,
+) -> ct.FloatType:
+    return ct.FloatType()  # type: ignore
+
+
+@Percentile.register
+def infer_type(
+    col: Union[ct.NumberType, ct.IntervalTypeBase],
+    percentage: ct.NumberType,
+    freq: ct.IntegerType,
+) -> ct.FloatType:
+    return ct.FloatType()  # type: ignore
+
+
+@Percentile.register
+def infer_type(
+    col: Union[ct.NumberType, ct.IntervalTypeBase],
+    percentage: ct.ListType,
+) -> ct.ListType:
+    return ct.ListType(element_type=ct.FloatType())  # type: ignore
+
+
+@Percentile.register
+def infer_type(
+    col: Union[ct.NumberType, ct.IntervalTypeBase],
+    percentage: ct.ListType,
+    freq: ct.IntegerType,
+) -> ct.ListType:
+    return ct.ListType(element_type=ct.FloatType())  # type: ignore
 
 
 class PercentRank(Function):
