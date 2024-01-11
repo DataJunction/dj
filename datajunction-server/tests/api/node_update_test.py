@@ -54,9 +54,9 @@ def test_update_source_node(
                             "name": "default.repair_order_details",
                             "previous_version": "v1.0",
                             "updated_columns": [
-                                "repair_order_id",
                                 "price",
                                 "quantity_v2",
+                                "repair_order_id",
                             ],
                         },
                         {
@@ -89,9 +89,9 @@ def test_update_source_node(
                             "name": "default.repair_order_details",
                             "previous_version": "v1.0",
                             "updated_columns": [
-                                "repair_order_id",
                                 "price",
                                 "quantity_v2",
+                                "repair_order_id",
                             ],
                         },
                         {
@@ -127,9 +127,9 @@ def test_update_source_node(
                             "name": "default.repair_order_details",
                             "previous_version": "v1.0",
                             "updated_columns": [
-                                "repair_order_id",
                                 "price",
                                 "quantity_v2",
+                                "repair_order_id",
                             ],
                         },
                         {
@@ -139,7 +139,7 @@ def test_update_source_node(
                             "updated_columns": [
                                 "price",
                                 "quantity",
-                                "total_repair_cost",
+                                "repair_order_id",
                             ],
                         },
                         {
@@ -176,9 +176,9 @@ def test_update_source_node(
                             "current_version": "v2.0",
                             "previous_version": "v1.0",
                             "updated_columns": [
-                                "repair_order_id",
                                 "price",
                                 "quantity_v2",
+                                "repair_order_id",
                             ],
                         },
                         {

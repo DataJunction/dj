@@ -14,7 +14,8 @@ from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
+from testcontainers.core.waiting_utils import wait_for_logs
+from testcontainers.postgres import PostgresContainer
 
 from datajunction_server.api.main import app
 from datajunction_server.config import Settings
@@ -91,14 +92,35 @@ def duckdb_conn() -> duckdb.DuckDBPyConnection:  # pylint: disable=c-extension-n
 
 
 @pytest.fixture
-def session() -> Iterator[Session]:
+def postgres_container() -> PostgresContainer:
+    """
+    Setup postgres container
+    """
+    postgres = PostgresContainer(
+        image="postgres:latest",
+        user="dj",
+        password="dj",
+        dbname="dj",
+        port=5432,
+        driver="psycopg",
+    )
+    with postgres:
+        wait_for_logs(
+            postgres,
+            r"UTC \[1\] LOG:  database system is ready to accept connections",
+            10,
+        )
+        yield postgres
+
+
+@pytest.fixture
+def session(postgres_container: PostgresContainer) -> Iterator[Session]:
     """
     Create an in-memory SQLite session to test models.
     """
+    url = postgres_container.get_connection_url()
     engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+        url=url,
     )
     Base.metadata.create_all(engine)
     with Session(engine, autoflush=False) as session:
