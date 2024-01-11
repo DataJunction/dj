@@ -421,7 +421,7 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
                 )
             )
         ],
-        key=lambda x: x.name,
+        key=lambda x: (x.name, ",".join(x.path)),
     )
 
 

@@ -54,9 +54,9 @@ def test_update_source_node(
                             "name": "default.repair_order_details",
                             "previous_version": "v1.0",
                             "updated_columns": [
+                                "repair_order_id",
                                 "price",
                                 "quantity_v2",
-                                "repair_order_id",
                             ],
                         },
                         {
@@ -89,9 +89,9 @@ def test_update_source_node(
                             "name": "default.repair_order_details",
                             "previous_version": "v1.0",
                             "updated_columns": [
+                                "repair_order_id",
                                 "price",
                                 "quantity_v2",
-                                "repair_order_id",
                             ],
                         },
                         {
@@ -215,6 +215,7 @@ def test_update_source_node(
         if expected_status == NodeStatus.INVALID:
             response = client_with_roads.get(f"/history?node={affected}")
             if node_history_events.get(affected):
+                print("affected", affected)
                 assert [
                     event
                     for event in response.json()

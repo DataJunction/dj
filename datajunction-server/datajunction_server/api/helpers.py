@@ -357,6 +357,12 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
         for parent in node_validator.dependencies_map
         if parent.type != NodeType.SOURCE and parent.status == NodeStatus.INVALID
     }
+    print(
+        "invalid_parents",
+        data.name,
+        invalid_parents,
+        {parent.name for parent in node_validator.dependencies_map},
+    )
     if invalid_parents:
         node_validator.status = NodeStatus.INVALID
 
@@ -395,6 +401,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
     )
     node_validator.required_dimensions = matched_bound_columns
 
+    print("validating", data.name, "missing_parents_map", missing_parents_map)
     if missing_parents_map or type_inference_failures or invalid_required_dimensions:
         # update status
         node_validator.status = NodeStatus.INVALID
@@ -1108,6 +1115,7 @@ def revalidate_node(
     previous_status = current_node_revision.status
     node_validator = validate_node_data(current_node_revision, session)
     current_node_revision.status = node_validator.status
+    print("current status", current_node_revision.name, node_validator.status)
     if previous_status != current_node_revision.status:  # pragma: no cover
         session.add(current_node_revision)
         session.add(
@@ -1142,9 +1150,6 @@ def hard_delete_node(
         linked_nodes = get_nodes_with_dimension(session=session, dimension_node=node)
 
     session.delete(node)
-    for revision in node.revisions:
-        session.delete(revision)
-
     session.commit()
     impact = []  # Aggregate all impact of this deletion to include in response
 

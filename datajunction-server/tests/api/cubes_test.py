@@ -650,6 +650,7 @@ def test_cube_materialization_sql_and_measures(
     assert (
         sorted(data["cube_elements"], key=lambda x: x["name"]) == repairs_cube_elements
     )
+    print("SQLL", data["materializations"][0]["config"]["query"])
     expected_materialization_query = """WITH
 default_DOT_repair_orders_fact AS (SELECT  default_DOT_repair_orders_fact.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id,
     default_DOT_repair_orders_fact.discount default_DOT_repair_orders_fact_DOT_discount,

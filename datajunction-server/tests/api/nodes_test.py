@@ -6,14 +6,15 @@ import re
 from typing import Any, Dict
 from unittest import mock
 from unittest.mock import call
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from datajunction_server.database import Catalog
 from datajunction_server.database.column import Column
-from datajunction_server.database.database import Database
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models.node import NodeStatus
@@ -294,15 +295,15 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         }
 
     @pytest.fixture
-    def database(self, session: Session) -> Database:
+    def catalog(self, session: Session) -> Catalog:
         """
         A database fixture.
         """
 
-        database = Database(name="postgres", URI="postgres://")
-        session.add(database)
+        catalog = Catalog(name="prod", uuid=uuid4())
+        session.add(catalog)
         session.commit()
-        return database
+        return catalog
 
     @pytest.fixture
     def source_node(self, session: Session) -> Node:
@@ -317,7 +318,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         node_revision = NodeRevision(
             node=node,
             name=node.name,
-            catalog_id=-100,
+            catalog_id=1,
             type=node.type,
             version="v1",
             columns=[
@@ -1792,7 +1793,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_create_invalid_transform_node(
         self,
-        database: Database,  # pylint: disable=unused-argument
+        catalog: Catalog,  # pylint: disable=unused-argument
         source_node: Node,  # pylint: disable=unused-argument
         client: TestClient,
         create_invalid_transform_node_payload: Dict[str, Any],
@@ -1866,7 +1867,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_create_update_transform_node(
         self,
-        database: Database,  # pylint: disable=unused-argument
+        catalog: Catalog,  # pylint: disable=unused-argument
         source_node: Node,  # pylint: disable=unused-argument
         client: TestClient,
         create_transform_node_payload: Dict[str, Any],
@@ -2122,7 +2123,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_create_dimension_node_fails(
         self,
-        database: Database,  # pylint: disable=unused-argument
+        catalog: Catalog,  # pylint: disable=unused-argument
         source_node: Node,  # pylint: disable=unused-argument
         client: TestClient,
     ):
@@ -2163,7 +2164,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_create_update_dimension_node(
         self,
-        database: Database,  # pylint: disable=unused-argument
+        catalog: Catalog,  # pylint: disable=unused-argument
         source_node: Node,  # pylint: disable=unused-argument
         client: TestClient,
         create_dimension_node_payload: Dict[str, Any],
@@ -2333,7 +2334,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_updating_node_to_invalid_draft(
         self,
-        database: Database,  # pylint: disable=unused-argument
+        catalog: Catalog,  # pylint: disable=unused-argument
         source_node: Node,  # pylint: disable=unused-argument
         client: TestClient,
         create_dimension_node_payload: Dict[str, Any],
@@ -3614,15 +3615,15 @@ class TestNodeColumnsAttributes:
         }
 
     @pytest.fixture
-    def database(self, session: Session) -> Database:
+    def catalog(self, session: Session) -> Catalog:
         """
-        A database fixture.
+        A catalog fixture.
         """
 
-        database = Database(name="postgres", URI="postgres://")
-        session.add(database)
+        catalog = Catalog(name="postgres", uuid=uuid4())
+        session.add(catalog)
         session.commit()
-        return database
+        return catalog
 
     @pytest.fixture
     def source_node(self, session: Session) -> Node:
