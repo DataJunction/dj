@@ -1,3 +1,4 @@
+# pylint: disable=too-many-arguments
 """
 SQL related APIs.
 """
