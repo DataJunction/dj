@@ -948,6 +948,21 @@ class Column(Aliasable, Named, Expression):
                             for col in dj_col.dimension.current.columns
                         ]
                         to_process.append(new_table)
+                for link in current_table.dj_node.dimension_links:
+                    new_table = Table(
+                        name=to_namespaced_name(link.dimension.name),
+                        _dj_node=link.dimension,
+                        join_sql=link.join_sql,
+                    )
+                    new_table._columns = [
+                        Column(
+                            name=Name(col.name),
+                            _type=col.type,
+                            _table=new_table,
+                        )
+                        for col in link.dimension.current.columns
+                    ]
+                    to_process.append(new_table)
         return found
 
     def compile(self, ctx: CompileContext):
@@ -1232,6 +1247,7 @@ class Table(TableExpression, Named):
     """
 
     _dj_node: Optional[DJNode] = field(repr=False, default=None)
+    join_sql: Optional[str] = field(repr=False, default=None)
 
     @property
     def dj_node(self) -> Optional[DJNode]:
@@ -1260,7 +1276,8 @@ class Table(TableExpression, Named):
     def set_alias(self: TNode, alias: "Name") -> TNode:
         self.alias = alias
         for col in self._columns:
-            col.table.alias = self.alias
+            if col.table:
+                col.table.alias = self.alias
         return self
 
     def compile(self, ctx: CompileContext):

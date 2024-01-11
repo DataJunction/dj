@@ -1667,6 +1667,20 @@ def test_hypot_func(session: Session):
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
+def test_if(session: Session):
+    """
+    Test the `if` functions
+    """
+    query = parse(
+        "SELECT if(col1 = 'x', NULL, 1) FROM (SELECT ('aee'), ('bee') AS col1)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
 def test_ilike_like_func(session: Session):
     """
     Test the `ilike`, `like` functions
@@ -2608,6 +2622,67 @@ def test_overlay_func(session: Session):
     query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
+def test_percentile(session: Session):
+    """
+    Test the `percentile` function
+    """
+    query = parse("SELECT percentile(col, 0.3) FROM (SELECT (0), (10) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+
+    query = parse(
+        "SELECT percentile(col, array(0.25, 0.75)) FROM (SELECT (0), (10) AS col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.FloatType())  # type: ignore
+
+    query = parse(
+        "SELECT percentile(col, 0.5) FROM ("
+        "SELECT (INTERVAL '0' MONTH), (INTERVAL '10' MONTH) AS col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+
+    query = parse(
+        "SELECT percentile(col, 0.5, 3) FROM ("
+        "SELECT (INTERVAL '0' MONTH), (INTERVAL '10' MONTH) AS col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+
+    query = parse(
+        "SELECT percentile(col, array(0.2, 0.5)) "
+        "FROM (SELECT (INTERVAL '0' MONTH), (INTERVAL '10' MONTH) AS col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(ct.FloatType())  # type: ignore
+
+    query = parse(
+        "SELECT percentile(col, array(0.2, 0.5), 2) "
+        "FROM (SELECT (INTERVAL '0' MONTH), (INTERVAL '10' MONTH) AS col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(ct.FloatType())  # type: ignore
 
 
 def test_rank(session: Session):

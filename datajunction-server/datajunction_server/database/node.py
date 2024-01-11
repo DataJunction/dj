@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
 from pydantic import Extra
@@ -32,6 +32,9 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR, amenable_name
+
+if TYPE_CHECKING:
+    from datajunction_server.database.dimensionlink import DimensionLink
 
 
 class NodeRelationship(Base):  # pylint: disable=too-few-public-methods
@@ -193,7 +196,9 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         return hash(self.id)
 
 
-class NodeRevision(Base):  # pylint: disable=too-few-public-methods
+class NodeRevision(
+    Base,
+):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """
     A node revision.
     """
@@ -297,6 +302,10 @@ class NodeRevision(Base):  # pylint: disable=too-few-public-methods
         primaryjoin="NodeRevision.id==NodeColumns.node_id",
         secondaryjoin="Column.id==NodeColumns.column_id",
         cascade="all, delete",
+    )
+
+    dimension_links: Mapped[List["DimensionLink"]] = relationship(
+        back_populates="node_revision",
     )
 
     # The availability of materialized data needs to be stored on the NodeRevision

@@ -10,6 +10,7 @@ from sqlalchemy.sql.operators import is_
 
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import (
     Node,
     NodeColumns,
@@ -173,7 +174,7 @@ def get_upstream_nodes(
     ]
 
 
-def get_dimensions_dag(
+def get_dimensions_dag(  # pylint: disable=too-many-locals
     session: Session,
     node_revision: NodeRevision,
     with_attributes: bool = True,
@@ -193,13 +194,45 @@ def get_dimensions_dag(
     next_rev = aliased(NodeRevision, name="next_rev")
     column = aliased(Column, name="c")
 
+    # Merge both branching points of the dimensions graph (the column -> dimension
+    # branch and the node -> dimension branch) into a single CTE. We do this merge because
+    # subqueries with UNION are not allowed in the recursive CTE.
+    graph_branches = (
+        (
+            select(
+                NodeColumns.node_id.label("node_revision_id"),
+                Column.dimension_id,
+                Column.name,
+            )
+            .select_from(NodeColumns)
+            .join(Column, NodeColumns.column_id == Column.id)
+        )
+        .union_all(
+            select(
+                DimensionLink.node_revision_id,
+                DimensionLink.dimension_id,
+                func.coalesce(  # pylint: disable=not-callable
+                    DimensionLink.role,
+                    literal(""),
+                ).label("name"),
+            ).select_from(DimensionLink),
+        )
+        .cte("graph_branches")
+    )
+
     # Recursive CTE
     dimensions_graph = (
         select(
             initial_node.id.label("path_start"),
-            column.name.label("col_name"),
+            graph_branches.c.name.label("col_name"),
             dimension_node.id.label("path_end"),
-            (initial_node.name + "." + column.name + "," + dimension_node.name).label(
+            (
+                initial_node.name
+                + "."
+                + graph_branches.c.name
+                + ","
+                + dimension_node.name
+            ).label(
                 "join_path",
             ),
             dimension_node.name.label("node_name"),
@@ -207,11 +240,10 @@ def get_dimensions_dag(
             dimension_rev.display_name.label("node_display_name"),
         )
         .select_from(initial_node)
-        .join(NodeColumns, initial_node.id == NodeColumns.node_id)
-        .join(column, NodeColumns.column_id == column.id)
+        .join(graph_branches, node_revision.id == graph_branches.c.node_revision_id)
         .join(
             dimension_node,
-            (column.dimension_id == dimension_node.id)
+            (dimension_node.id == graph_branches.c.dimension_id)
             & (is_(dimension_node.deactivated_at, None)),
         )
         .join(
