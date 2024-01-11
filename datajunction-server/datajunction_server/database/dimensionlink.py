@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datajunction_server.database.connection import Base
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.base import sqlalchemy_enum_with_name
-from datajunction_server.models.dimensionlink import JoinKind, JoinType
+from datajunction_server.models.dimensionlink import JoinCardinality, JoinType
 
 
 class DimensionLink(Base):  # pylint: disable=too-few-public-methods
@@ -22,6 +22,13 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
         BigInteger().with_variant(Integer, "sqlite"),
         primary_key=True,
     )
+
+    # A dimension node may be linked in multiple times to a given source, dimension,
+    # or transform node, with each link referencing a different conceptual role.
+    # One such example is a dimension node "default.users" that has "birth_date" and
+    # "registration_date" as fields. "default.users" will be linked to the "default.date"
+    # dimension twice, once per field, but each dimension link will have different roles.
+    role: Mapped[Optional[str]]
 
     node_revision_id: Mapped[int] = mapped_column(ForeignKey("noderevision.id"))
     node_revision: Mapped[NodeRevision] = relationship(
@@ -40,9 +47,9 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
 
     # Metadata about the join
     join_type: Mapped[Optional[JoinType]]
-    join_kind: Mapped[JoinKind] = mapped_column(
-        sqlalchemy_enum_with_name(JoinKind),
-        default=JoinKind.MANY_TO_ONE,
+    join_cardinality: Mapped[JoinCardinality] = mapped_column(
+        sqlalchemy_enum_with_name(JoinCardinality),
+        default=JoinCardinality.MANY_TO_ONE,
     )
 
     # Additional materialization settings that are needed in order to do this join

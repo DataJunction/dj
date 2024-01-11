@@ -7,7 +7,7 @@ from datajunction_server.enum import StrEnum
 from datajunction_server.models.node_type import NodeNameOutput
 
 
-class JoinKind(StrEnum):
+class JoinCardinality(StrEnum):
     """
     The version upgrade type
     """
@@ -37,7 +37,8 @@ class LinkDimensionInput(BaseModel):
 
     dimension_node: str
     join_sql: str
-    join_kind: Optional[JoinKind]
+    join_cardinality: Optional[JoinCardinality]
+    role: Optional[str]
 
 
 class LinkDimensionOutput(BaseModel):
@@ -47,7 +48,8 @@ class LinkDimensionOutput(BaseModel):
 
     dimension: NodeNameOutput
     join_sql: str
-    join_kind: Optional[JoinKind]
+    join_cardinality: Optional[JoinCardinality]
+    role: Optional[str]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         orm_mode = True

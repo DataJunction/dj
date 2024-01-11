@@ -211,7 +211,10 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
             select(
                 DimensionLink.node_revision_id,
                 DimensionLink.dimension_id,
-                literal("").label("name"),
+                func.coalesce(  # pylint: disable=not-callable
+                    DimensionLink.role,
+                    literal(""),
+                ).label("name"),
             ).select_from(DimensionLink),
         )
         .cte("graph_branches")
