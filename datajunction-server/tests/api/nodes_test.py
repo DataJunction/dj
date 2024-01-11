@@ -95,7 +95,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
         query="SELECT 42 AS answer",
         type=node2.type,
         columns=[
-            Column(name="answer", type=IntegerType()),
+            Column(name="answer", type=IntegerType(), order=0),
         ],
     )
     node3 = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
@@ -105,7 +105,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
         version="1",
         query="SELECT COUNT(*) FROM my_table",
         columns=[
-            Column(name="_col0", type=IntegerType()),
+            Column(name="_col0", type=IntegerType(), order=0),
         ],
         type=node3.type,
     )
@@ -321,12 +321,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             type=node.type,
             version="v1",
             columns=[
-                Column(name="id", type=IntegerType()),
-                Column(name="full_name", type=StringType()),
-                Column(name="age", type=IntegerType()),
-                Column(name="country", type=StringType()),
-                Column(name="gender", type=StringType()),
-                Column(name="preferred_language", type=StringType()),
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="full_name", type=StringType(), order=1),
+                Column(name="age", type=IntegerType(), order=2),
+                Column(name="country", type=StringType(), order=3),
+                Column(name="gender", type=StringType(), order=4),
+                Column(name="preferred_language", type=StringType(), order=5),
             ],
         )
         session.add(node_revision)

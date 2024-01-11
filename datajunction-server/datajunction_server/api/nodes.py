@@ -405,8 +405,9 @@ def create_source(
                     raise_if_not_exists=False,
                 )
             ),
+            order=idx,
         )
-        for column_data in data.columns
+        for idx, column_data in enumerate(data.columns)
     ]
 
     node_revision = NodeRevision(
@@ -1024,8 +1025,10 @@ def refresh_source_node(
     )
     new_revision.version = str(old_version.next_major_version())
     new_revision.columns = [
-        Column(name=column.name, type=column.type, node_revisions=[new_revision])
-        for column in columns
+        Column(
+            name=column.name, type=column.type, node_revisions=[new_revision], order=idx,
+        )
+        for idx, column in enumerate(columns)
     ]
 
     # Keep the dimension links and attributes on the columns from the node's

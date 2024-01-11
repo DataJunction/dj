@@ -302,6 +302,7 @@ class NodeRevision(
         primaryjoin="NodeRevision.id==NodeColumns.node_id",
         secondaryjoin="Column.id==NodeColumns.column_id",
         cascade="all, delete",
+        order_by="Column.order",
     )
 
     dimension_links: Mapped[List["DimensionLink"]] = relationship(

@@ -363,7 +363,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
     column_mapping = {col.name: col for col in validated_node.columns}
     node_validator.columns = []
     type_inference_failures = {}
-    for col in query_ast.select.projection:
+    for idx, col in enumerate(query_ast.select.projection):
         column = None
         column_name = col.alias_or_name.name  # type: ignore
         existing_column = column_mapping.get(column_name)
@@ -375,6 +375,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
                 type=column_type,
                 attributes=existing_column.attributes if existing_column else [],
                 dimension=existing_column.dimension if existing_column else None,
+                order=idx,
             )
         except DJParseException as parse_exc:
             type_inference_failures[column_name] = parse_exc.message
