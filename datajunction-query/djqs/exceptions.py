@@ -212,3 +212,9 @@ class DJInvalidTableRef(DJException):
     """
     Raised for invalid table values
     """
+
+
+class DJTableNotFound(DJException):
+    """
+    Raised for tables that cannot be found
+    """

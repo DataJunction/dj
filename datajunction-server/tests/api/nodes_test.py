@@ -10,12 +10,14 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from pytest_mock import MockerFixture
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from datajunction_server.database import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
+from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
@@ -1613,6 +1615,86 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data_second["version"] == "v2.0"
         assert data_second["node_revision_id"] == data["node_revision_id"]
         assert data_second["columns"] == new_columns
+
+    def test_refresh_source_node_with_problems(
+        self,
+        client_with_query_service_example_loader,
+        query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """
+        Refresh a source node with a query service and find that no columns are returned.
+        """
+        custom_client = client_with_query_service_example_loader(["ROADS"])
+        response = custom_client.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        data = response.json()
+
+        the_good_columns = query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+        )
+
+        # Columns have changed, so the new node revision should be bumped to a new version
+        assert data["version"] == "v2.0"
+        assert len(data["columns"]) == 8
+        assert response.status_code == 201
+        assert data["status"] == "valid"
+
+        response = custom_client.get("/history?node=default.repair_orders")
+        history = response.json()
+        assert [
+            (activity["activity_type"], activity["entity_type"]) for activity in history
+        ] == [("create", "node"), ("create", "link"), ("refresh", "node")]
+
+        # Refresh it again, but this time no columns are found
+        mocker.patch.object(
+            query_service_client,
+            "get_columns_for_table",
+            lambda *args: [],
+        )
+        response = custom_client.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        data_second = response.json()
+        assert data_second["version"] == "v3.0"
+        assert data_second["node_revision_id"] != data["node_revision_id"]
+        assert len(data_second["columns"]) == 8
+        assert data_second["status"] == "invalid"
+
+        # Refresh it again, but this time the table is missing
+        mocker.patch.object(
+            query_service_client,
+            "get_columns_for_table",
+            lambda *args: (_ for _ in ()).throw(
+                DJDoesNotExistException(message="Table not found: foo.bar.baz"),
+            ),
+        )
+        response = custom_client.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        data_third = response.json()
+        assert data_third["version"] == "v4.0"
+        assert data_third["node_revision_id"] != data_second["node_revision_id"]
+        assert len(data_third["columns"]) == 8
+        assert data_third["status"] == "invalid"
+
+        # Refresh it again, back to normal state
+        mocker.patch.object(
+            query_service_client,
+            "get_columns_for_table",
+            lambda *args: the_good_columns,
+        )
+        response = custom_client.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        data_fourth = response.json()
+        assert data_fourth["version"] == "v5.0"
+        assert data_fourth["node_revision_id"] != data_second["node_revision_id"]
+        assert len(data_fourth["columns"]) == 8
+        assert data_fourth["status"] == "valid"
 
     def test_create_update_source_node(
         self,

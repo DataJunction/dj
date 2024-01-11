@@ -8,7 +8,10 @@ from pytest_mock import MockerFixture
 from requests import Request
 
 from datajunction_server.database.engine import Engine
-from datajunction_server.errors import DJQueryServiceClientException
+from datajunction_server.errors import (
+    DJDoesNotExistException,
+    DJQueryServiceClientException,
+)
 from datajunction_server.models.materialization import (
     GenericMaterializationInput,
     MaterializationStrategy,
@@ -115,6 +118,31 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             params={"engine": "spark", "engine_version": "2.4.4"},
             allow_redirects=True,
         )
+
+        # failed request with unknown reason
+        mock_request = mocker.patch("requests.Session.request")
+        mock_request.return_value = MagicMock(ok=False)
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        with pytest.raises(DJQueryServiceClientException) as exc_info:
+            query_service_client.get_columns_for_table("hive", "test", "pies")
+        assert "Error response from query service" in str(exc_info.value)
+
+        # failed request with table not found
+        mock_request = mocker.patch("requests.Session.request")
+        mock_request.return_value = MagicMock(ok=False, status_code=404)
+        with pytest.raises(DJDoesNotExistException) as exc_info:
+            query_service_client.get_columns_for_table("hive", "test", "pies")
+        assert "Table not found" in str(exc_info.value)
+
+        # no columns returned
+        mock_request = mocker.patch("requests.Session.request")
+        mock_request.return_value = MagicMock(
+            ok=True,
+            json=MagicMock(return_value={"columns": []}),
+        )
+        with pytest.raises(DJQueryServiceClientException) as exc_info:
+            query_service_client.get_columns_for_table("hive", "test", "pies")
+        assert "No columns found" in str(exc_info.value)
 
     def test_query_service_client_submit_query(self, mocker: MockerFixture) -> None:
         """

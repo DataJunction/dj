@@ -9,7 +9,7 @@ from sqlalchemy import inspect
 from sqlalchemy.exc import NoResultFound, NoSuchTableError, OperationalError
 from sqlmodel import Session, create_engine, select
 
-from djqs.exceptions import DJException
+from djqs.exceptions import DJException, DJTableNotFound
 from djqs.models.catalog import Catalog
 from djqs.models.engine import Engine
 
@@ -66,8 +66,9 @@ def get_columns(
             schema=schema,
         )
     except NoSuchTableError as exc:  # pylint: disable=broad-except
-        raise DJException(
+        raise DJTableNotFound(
             message=f"No such table `{table}` in schema `{schema}` in catalog `{catalog}`",
+            http_status_code=404,
         ) from exc
     except OperationalError as exc:
         if "unknown database" in str(exc):
