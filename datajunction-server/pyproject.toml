@@ -24,8 +24,6 @@ test = [
     "typing-extensions>=4.5.0",
     "pytest-xdist>=3.3.0",
     "duckdb==0.8.1",
-]
-dev = [
     "testcontainers>=3.7.1",
 ]
 
