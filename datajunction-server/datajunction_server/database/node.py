@@ -30,8 +30,9 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
+from datajunction_server.naming import amenable_name
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import SEPARATOR, amenable_name
+from datajunction_server.utils import SEPARATOR
 
 if TYPE_CHECKING:
     from datajunction_server.database.dimensionlink import DimensionLink

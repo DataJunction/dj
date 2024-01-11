@@ -328,6 +328,6 @@ class UTCDatetime(datetime.datetime):
         Convert to UTC
         """
         if value.tzinfo is None:
-            return value.replace(tzinfo=datetime.timezone.utc)
+            return value.replace(tzinfo=datetime.timezone.utc)  # pragma: no cover
 
         return value.astimezone(datetime.timezone.utc)

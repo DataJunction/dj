@@ -12,7 +12,7 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import amenable_name
+from datajunction_server.naming import amenable_name
 
 from ..sql.utils import compare_query_strings
 from .fixtures import BUILD_EXPECTATION_PARAMETERS

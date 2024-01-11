@@ -13,6 +13,7 @@ from datajunction_server.models.partition import (
     PartitionType,
 )
 from datajunction_server.models.query import ColumnMetadata
+from datajunction_server.naming import amenable_name
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
@@ -299,10 +300,6 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         """
         Builds the Druid ingestion spec from a materialization config.
         """
-        from datajunction_server.utils import (  # pylint: disable=import-outside-toplevel
-            amenable_name,
-        )
-
         node_name = node_revision.name
         metrics_spec = list(self.metrics_spec().values())
         user_defined_temporal_partitions = node_revision.temporal_partition_columns()
