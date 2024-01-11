@@ -1667,6 +1667,20 @@ def test_hypot_func(session: Session):
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
+def test_if(session: Session):
+    """
+    Test the `if` functions
+    """
+    query = parse(
+        "SELECT if(col1 = 'x', NULL, 1) FROM (SELECT ('aee'), ('bee') AS col1)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
 def test_ilike_like_func(session: Session):
     """
     Test the `ilike`, `like` functions
