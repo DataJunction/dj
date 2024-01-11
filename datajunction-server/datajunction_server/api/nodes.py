@@ -1026,7 +1026,10 @@ def refresh_source_node(
     new_revision.version = str(old_version.next_major_version())
     new_revision.columns = [
         Column(
-            name=column.name, type=column.type, node_revisions=[new_revision], order=idx,
+            name=column.name,
+            type=column.type,
+            node_revisions=[new_revision],
+            order=idx,
         )
         for idx, column in enumerate(columns)
     ]
