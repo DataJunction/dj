@@ -39,7 +39,7 @@ def test_sql(
         version="1",
         schema_="rev",
         table="my_table",
-        columns=[Column(name="one", type=StringType())],
+        columns=[Column(name="one", type=StringType(), order=0)],
         type=NodeType.SOURCE,
     )
 

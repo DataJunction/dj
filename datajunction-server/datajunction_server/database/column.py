@@ -30,6 +30,7 @@ class Column(Base):  # type: ignore
         BigInteger().with_variant(Integer, "sqlite"),
         primary_key=True,
     )
+    order: Mapped[Optional[int]]
     name: Mapped[str] = mapped_column()
     display_name: Mapped[Optional[str]] = mapped_column(
         String,

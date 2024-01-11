@@ -56,16 +56,19 @@ def test_read_metric(session: Session, client: TestClient) -> None:
                 name="ds",
                 type=StringType(),
                 attributes=[ColumnAttribute(attribute_type=dimension_attribute)],
+                order=0,
             ),
             Column(
                 name="user_id",
                 type=IntegerType(),
                 attributes=[ColumnAttribute(attribute_type=dimension_attribute)],
+                order=2,
             ),
             Column(
                 name="foo",
                 type=FloatType(),
                 attributes=[ColumnAttribute(attribute_type=dimension_attribute)],
+                order=3,
             ),
         ],
     )

@@ -940,8 +940,9 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
                 type=column_data.type,
                 dimension_column=column_data.dimension,
                 attributes=column_data.attributes or [],
+                order=idx,
             )
-            for column_data in data.columns
+            for idx, column_data in enumerate(data.columns)
         ]
         if data and data.columns
         else old_revision.columns,

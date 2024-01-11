@@ -27,8 +27,8 @@ def test_get_dimensions(session: Session) -> None:
         display_name="B",
         version="1",
         columns=[
-            Column(name="id", type=IntegerType()),
-            Column(name="attribute", type=StringType()),
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="attribute", type=StringType(), order=1),
         ],
     )
     dimension_ref.current = dimension
@@ -43,8 +43,8 @@ def test_get_dimensions(session: Session) -> None:
         display_name="A",
         version="1",
         columns=[
-            Column(name="ds", type=StringType()),
-            Column(name="b_id", type=IntegerType(), dimension=dimension_ref),
+            Column(name="ds", type=StringType(), order=0),
+            Column(name="b_id", type=IntegerType(), dimension=dimension_ref, order=1),
         ],
     )
     parent_ref.current = parent
