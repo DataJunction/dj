@@ -1,4 +1,3 @@
-# pylint: disable=cyclic-import
 """
 Google OAuth Router
 """
