@@ -1,5 +1,4 @@
 [MESSAGES CONTROL]
-disable=cyclic-import
 
 [MASTER]
 # https://github.com/samuelcolvin/pydantic/issues/1961#issuecomment-759522422
