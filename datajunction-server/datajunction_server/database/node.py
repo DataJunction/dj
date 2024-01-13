@@ -46,7 +46,7 @@ class NodeRelationship(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "noderelationship"
 
     parent_id: Mapped[int] = mapped_column(
-        ForeignKey("node.id"),
+        ForeignKey("node.id", name="fk_noderelationship_parent_id_node"),
         primary_key=True,
     )
 
@@ -55,7 +55,7 @@ class NodeRelationship(Base):  # pylint: disable=too-few-public-methods
     parent_version: Mapped[Optional[str]] = mapped_column(default="latest")
 
     child_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
+        ForeignKey("noderevision.id", name="fk_noderelationship_child_id_noderevision"),
         primary_key=True,
     )
 
@@ -68,12 +68,12 @@ class CubeRelationship(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "cube"
 
     cube_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
+        ForeignKey("noderevision.id", name="fk_cube_cube_id_noderevision"),
         primary_key=True,
     )
 
     cube_element_id: Mapped[int] = mapped_column(
-        ForeignKey("column.id"),
+        ForeignKey("column.id", name="fk_cube_cube_element_id_column"),
         primary_key=True,
     )
 
@@ -87,12 +87,18 @@ class BoundDimensionsRelationship(Base):  # pylint: disable=too-few-public-metho
     __tablename__ = "metric_required_dimensions"
 
     metric_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
+        ForeignKey(
+            "noderevision.id",
+            name="fk_metric_required_dimensions_metric_id_noderevision",
+        ),
         primary_key=True,
     )
 
     bound_dimension_id: Mapped[int] = mapped_column(
-        ForeignKey("column.id"),
+        ForeignKey(
+            "column.id",
+            name="fk_metric_required_dimensions_bound_dimension_id_column",
+        ),
         primary_key=True,
     )
 
@@ -123,11 +129,17 @@ class NodeMissingParents(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "nodemissingparents"
 
     missing_parent_id: Mapped[int] = mapped_column(
-        ForeignKey("missingparent.id"),
+        ForeignKey(
+            "missingparent.id",
+            name="fk_nodemissingparents_missing_parent_id_missingparent",
+        ),
         primary_key=True,
     )
     referencing_node_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
+        ForeignKey(
+            "noderevision.id",
+            name="fk_nodemissingparents_referencing_node_id_noderevision",
+        ),
         primary_key=True,
     )
 
@@ -231,13 +243,17 @@ class NodeRevision(
         String,
         default=str(DEFAULT_DRAFT_VERSION),
     )
-    node_id: Mapped[int] = mapped_column(ForeignKey("node.id"))
+    node_id: Mapped[int] = mapped_column(
+        ForeignKey("node.id", name="fk_noderevision_node_id_node"),
+    )
     node: Mapped[Node] = relationship(
         "Node",
         back_populates="revisions",
         foreign_keys=[node_id],
     )
-    catalog_id: Mapped[Optional[int]] = mapped_column(ForeignKey("catalog.id"))
+    catalog_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("catalog.id", name="fk_noderevision_catalog_id_catalog"),
+    )
     catalog: Mapped[Optional[Catalog]] = relationship(
         "Catalog",
         back_populates="node_revisions",
@@ -255,7 +271,10 @@ class NodeRevision(
     )
 
     metric_metadata_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("metricmetadata.id"),
+        ForeignKey(
+            "metricmetadata.id",
+            name="fk_noderevision_metric_metadata_id_metricmetadata",
+        ),
     )
     metric_metadata: Mapped[Optional[MetricMetadata]] = relationship(
         primaryjoin="NodeRevision.metric_metadata_id==MetricMetadata.id",
@@ -540,10 +559,10 @@ class NodeColumns(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "nodecolumns"
 
     node_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
+        ForeignKey("noderevision.id", name="fk_nodecolumns_node_id_noderevision"),
         primary_key=True,
     )
     column_id: Mapped[int] = mapped_column(
-        ForeignKey("column.id"),
+        ForeignKey("column.id", name="fk_nodecolumns_column_id_column"),
         primary_key=True,
     )

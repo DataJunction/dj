@@ -62,10 +62,10 @@ class CatalogEngines(Base):  # type: ignore  # pylint: disable=too-few-public-me
     __tablename__ = "catalogengines"
 
     catalog_id: Mapped[int] = mapped_column(
-        ForeignKey("catalog.id"),
+        ForeignKey("catalog.id", name="fk_catalogengines_catalog_id_catalog"),
         primary_key=True,
     )
     engine_id: Mapped[int] = mapped_column(
-        ForeignKey("engine.id"),
+        ForeignKey("engine.id", name="fk_catalogengines_engine_id_engine"),
         primary_key=True,
     )

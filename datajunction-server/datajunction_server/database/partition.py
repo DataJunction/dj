@@ -42,7 +42,9 @@ class Partition(Base):  # type: ignore  # pylint: disable=too-few-public-methods
     format: Mapped[Optional[str]]
 
     # The column reference that this partition is defined on
-    column_id: Mapped[int] = mapped_column(ForeignKey("column.id"))
+    column_id: Mapped[int] = mapped_column(
+        ForeignKey("column.id", name="fk_partition_column_id_column"),
+    )
     column: Mapped[Column] = relationship(
         back_populates="partition",
         primaryjoin="Column.id==Partition.column_id",

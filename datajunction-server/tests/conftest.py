@@ -91,7 +91,7 @@ def duckdb_conn() -> duckdb.DuckDBPyConnection:  # pylint: disable=c-extension-n
             yield conn
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def postgres_container() -> PostgresContainer:
     """
     Setup postgres container
@@ -125,6 +125,7 @@ def session(postgres_container: PostgresContainer) -> Iterator[Session]:
     Base.metadata.create_all(engine)
     with Session(engine, autoflush=False) as session:
         yield session
+    Base.metadata.drop_all(engine)
 
 
 @pytest.fixture

@@ -38,7 +38,12 @@ class Materialization(Base):  # pylint: disable=too-few-public-methods
         autoincrement=True,
     )
 
-    node_revision_id: Mapped[int] = mapped_column(ForeignKey("noderevision.id"))
+    node_revision_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "noderevision.id",
+            name="fk_materialization_node_revision_id_noderevision",
+        ),
+    )
     node_revision: Mapped["NodeRevision"] = relationship(
         "NodeRevision",
         back_populates="materializations",

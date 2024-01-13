@@ -39,7 +39,7 @@ class Column(Base):  # type: ignore
     type: Mapped[Optional[ColumnType]] = mapped_column(ColumnTypeDecorator)
 
     dimension_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("node.id", ondelete="SET NULL"),
+        ForeignKey("node.id", ondelete="SET NULL", name="fk_column_dimension_id_node"),
     )
     dimension: Mapped[Optional["Node"]] = relationship(
         "Node",
@@ -56,10 +56,14 @@ class Column(Base):  # type: ignore
         lazy="joined",
         cascade="all,delete",
     )
-    measure_id: Mapped[Optional[int]] = mapped_column(ForeignKey("measures.id"))
+    measure_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("measures.id", name="fk_column_measure_id_measures"),
+    )
     measure: Mapped["Measure"] = relationship(back_populates="columns")
 
-    partition_id: Mapped[Optional[int]] = mapped_column(ForeignKey("partition.id"))
+    partition_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("partition.id", name="fk_column_partition_id_partition"),
+    )
     partition: Mapped["Partition"] = relationship(
         lazy="joined",
         primaryjoin="Column.id==Partition.column_id",

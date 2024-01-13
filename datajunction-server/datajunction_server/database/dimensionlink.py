@@ -30,13 +30,20 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
     # dimension twice, once per field, but each dimension link will have different roles.
     role: Mapped[Optional[str]]
 
-    node_revision_id: Mapped[int] = mapped_column(ForeignKey("noderevision.id"))
+    node_revision_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "noderevision.id",
+            name="fk_dimensionlink_node_revision_id_noderevision",
+        ),
+    )
     node_revision: Mapped[NodeRevision] = relationship(
         "NodeRevision",
         foreign_keys=[node_revision_id],
         back_populates="dimension_links",
     )
-    dimension_id: Mapped[int] = mapped_column(ForeignKey("node.id"))
+    dimension_id: Mapped[int] = mapped_column(
+        ForeignKey("node.id", name="fk_dimensionlink_dimension_id_node"),
+    )
     dimension: Mapped[Node] = relationship(
         "Node",
         foreign_keys=[dimension_id],
