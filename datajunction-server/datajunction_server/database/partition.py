@@ -4,8 +4,8 @@ from typing import Optional
 from sqlalchemy import BigInteger, Enum, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
-from datajunction_server.database.connection import Base
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.sql.parsing.types import TimestampType
 

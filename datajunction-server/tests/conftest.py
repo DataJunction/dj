@@ -19,8 +19,8 @@ from testcontainers.postgres import PostgresContainer
 
 from datajunction_server.api.main import app
 from datajunction_server.config import Settings
+from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
-from datajunction_server.database.connection import Base
 from datajunction_server.database.engine import Engine
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJQueryServiceClientException

@@ -31,9 +31,43 @@ def upgrade():
             ondelete="SET NULL",
         )
 
+        batch_op.drop_constraint("fk_column_measure_id_measures", type_="foreignkey")
+        batch_op.create_foreign_key(
+            "fk_column_measure_id_measures",
+            "measures",
+            ["measure_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
+
+        batch_op.drop_constraint("fk_column_partition_id_partition", type_="foreignkey")
+        batch_op.create_foreign_key(
+            "fk_column_partition_id_partition",
+            "partition",
+            ["partition_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
+
 
 def downgrade():
     with op.batch_alter_table("column", schema=None) as batch_op:
+        batch_op.drop_constraint("fk_column_partition_id_partition", type_="foreignkey")
+        batch_op.create_foreign_key(
+            "fk_column_partition_id_partition",
+            "partition",
+            ["partition_id"],
+            ["id"],
+        )
+
+        batch_op.drop_constraint("fk_column_measure_id_measures", type_="foreignkey")
+        batch_op.create_foreign_key(
+            "fk_column_measure_id_measures",
+            "measures",
+            ["measure_id"],
+            ["id"],
+        )
+
         batch_op.drop_constraint("fk_column_dimension_id_node", type_="foreignkey")
         batch_op.create_foreign_key(
             "fk_column_dimension_id_node",

@@ -1,5 +1,5 @@
 """
-Database connection functions.
+SQLAlchemy base model.
 """
 from sqlalchemy.ext.declarative import declarative_base
 

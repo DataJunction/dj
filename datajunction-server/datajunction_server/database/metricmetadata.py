@@ -5,7 +5,7 @@ import sqlalchemy as sa
 from sqlalchemy import Enum
 from sqlalchemy.orm import Mapped, mapped_column
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.models.node import (
     MetricDirection,
     MetricMetadataInput,

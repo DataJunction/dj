@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import JSON, BigInteger, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.models.partition import PartitionBackfill
 
 if TYPE_CHECKING:

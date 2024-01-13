@@ -10,9 +10,9 @@ from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.base import Base
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
-from datajunction_server.database.connection import Base
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.tag import Tag

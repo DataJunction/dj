@@ -4,7 +4,7 @@ from typing import Dict, Optional
 from sqlalchemy import JSON, BigInteger, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.base import sqlalchemy_enum_with_name
 from datajunction_server.models.dimensionlink import JoinCardinality, JoinType

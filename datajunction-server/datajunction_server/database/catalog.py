@@ -8,7 +8,7 @@ from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy_utils import UUIDType
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.database.engine import Engine
 from datajunction_server.typing import UTCDatetime
 

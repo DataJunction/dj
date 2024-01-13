@@ -7,7 +7,7 @@ import sqlalchemy as sa
 from sqlalchemy import JSON, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.models.node import BuildCriteria, PartitionAvailability
 from datajunction_server.typing import UTCDatetime
 
