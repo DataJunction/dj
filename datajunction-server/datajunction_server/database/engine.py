@@ -17,7 +17,7 @@ class Engine(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "engine"
 
     id: Mapped[int] = mapped_column(
-        sa.BigInteger().with_variant(sa.Integer, "sqlite"),
+        sa.BigInteger(),
         primary_key=True,
     )
     name: Mapped[str]
