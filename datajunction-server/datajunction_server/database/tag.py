@@ -5,7 +5,7 @@ import sqlalchemy as sa
 from sqlalchemy import JSON, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.models.base import labelize
 
 if TYPE_CHECKING:

@@ -5,7 +5,7 @@ import sqlalchemy as sa
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 
 if TYPE_CHECKING:
     from datajunction_server.database.column import Column

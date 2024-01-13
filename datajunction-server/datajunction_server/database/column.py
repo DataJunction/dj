@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 from sqlalchemy import BigInteger, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.models.base import labelize
 from datajunction_server.models.column import ColumnTypeDecorator
 from datajunction_server.sql.parsing.types import ColumnType
@@ -57,12 +57,20 @@ class Column(Base):  # type: ignore
         cascade="all,delete",
     )
     measure_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("measures.id", name="fk_column_measure_id_measures"),
+        ForeignKey(
+            "measures.id",
+            name="fk_column_measure_id_measures",
+            ondelete="SET NULL",
+        ),
     )
     measure: Mapped["Measure"] = relationship(back_populates="columns")
 
     partition_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("partition.id", name="fk_column_partition_id_partition"),
+        ForeignKey(
+            "partition.id",
+            name="fk_column_partition_id_partition",
+            ondelete="SET NULL",
+        ),
     )
     partition: Mapped["Partition"] = relationship(
         lazy="joined",

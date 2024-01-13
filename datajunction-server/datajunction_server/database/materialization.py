@@ -6,7 +6,7 @@ from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, UniqueConstrain
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.backfill import Backfill
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.models.materialization import (
     DruidCubeConfig,
     GenericMaterializationConfig,
