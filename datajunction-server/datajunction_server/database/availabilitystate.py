@@ -82,10 +82,16 @@ class NodeAvailabilityState(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "nodeavailabilitystate"
 
     availability_id: Mapped[int] = mapped_column(
-        ForeignKey("availabilitystate.id"),
+        ForeignKey(
+            "availabilitystate.id",
+            name="fk_nodeavailabilitystate_availability_id_availabilitystate",
+        ),
         primary_key=True,
     )
     node_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
+        ForeignKey(
+            "noderevision.id",
+            name="fk_nodeavailabilitystate_node_id_noderevision",
+        ),
         primary_key=True,
     )

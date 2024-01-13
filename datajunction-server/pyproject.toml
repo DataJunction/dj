@@ -5,6 +5,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["datajunction_server"]
 
+
 [tool.pdm]
 [tool.pdm.build]
 includes = ["dj"]
@@ -14,7 +15,7 @@ test = [
     "codespell>=2.2.4",
     "freezegun>=1.2.2",
     "pre-commit>=3.2.2",
-    "pylint>=2.17.3",
+    "pylint>=3.0.3",
     "pytest-asyncio>=0.15.1",
     "pytest-cov>=4.0.0",
     "pytest-integration>=0.2.2",
@@ -101,6 +102,7 @@ transpilation = [
 
 [project.entry-points.'superset.db_engine_specs']
 dj = 'datajunction_server.superset:DJEngineSpec'
+
 
 [tool.hatch.version]
 path = "datajunction_server/__about__.py"

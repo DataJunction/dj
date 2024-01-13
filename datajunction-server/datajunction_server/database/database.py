@@ -80,7 +80,9 @@ class Table(Base):
     table: Mapped[str]
     cost: Mapped[float] = mapped_column(default=1.0)
 
-    database_id: Mapped[int] = mapped_column(ForeignKey("database.id"))
+    database_id: Mapped[int] = mapped_column(
+        ForeignKey("database.id", name="fk_table_database_id_database"),
+    )
     database: Mapped["Database"] = relationship("Database", back_populates="tables")
 
     columns: Mapped[List["Column"]] = relationship(
@@ -115,10 +117,10 @@ class TableColumns(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "tablecolumns"
 
     table_id: Mapped[int] = mapped_column(
-        ForeignKey("table.id"),
+        ForeignKey("table.id", name="fk_tablecolumns_table_id_table"),
         primary_key=True,
     )
     column_id: Mapped[int] = mapped_column(
-        ForeignKey("column.id"),
+        ForeignKey("column.id", name="fk_tablecolumns_column_id_column"),
         primary_key=True,
     )

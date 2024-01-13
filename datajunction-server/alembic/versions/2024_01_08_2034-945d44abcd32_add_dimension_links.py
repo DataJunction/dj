@@ -58,10 +58,12 @@ def upgrade():
         sa.ForeignKeyConstraint(
             ["dimension_id"],
             ["node.id"],
+            name=op.f("fk_dimensionlink_dimension_id_node"),
         ),
         sa.ForeignKeyConstraint(
             ["node_revision_id"],
             ["noderevision.id"],
+            name=op.f("fk_dimensionlink_node_revision_id_noderevision"),
         ),
         sa.PrimaryKeyConstraint("id"),
     )

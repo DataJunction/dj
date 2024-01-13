@@ -95,7 +95,7 @@ def get_downstream_nodes(
         final_select = final_select.where(is_(Node.deactivated_at, None))
     statement = (
         final_select.join(paths, paths.c.node_id == Node.id)
-        .order_by(paths.c.depth)
+        .order_by(paths.c.depth, Node.id)
         .options(*_node_output_options())
     )
     results = session.execute(statement).unique().scalars().all()

@@ -46,12 +46,19 @@ class ColumnAttribute(Base):  # pylint: disable=too-few-public-methods
         primary_key=True,
     )
 
-    attribute_type_id: Mapped[int] = mapped_column(sa.ForeignKey("attributetype.id"))
+    attribute_type_id: Mapped[int] = mapped_column(
+        sa.ForeignKey(
+            "attributetype.id",
+            name="fk_columnattribute_attribute_type_id_attributetype",
+        ),
+    )
     attribute_type: Mapped[AttributeType] = relationship(
         foreign_keys=[attribute_type_id],
     )
 
-    column_id: Mapped[Optional[int]] = mapped_column(sa.ForeignKey("column.id"))
+    column_id: Mapped[Optional[int]] = mapped_column(
+        sa.ForeignKey("column.id", name="fk_columnattribute_column_id_column"),
+    )
     column: Mapped[Optional["Column"]] = relationship(
         back_populates="attributes",
         foreign_keys=[column_id],
