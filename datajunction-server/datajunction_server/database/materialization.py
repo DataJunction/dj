@@ -1,5 +1,5 @@
 """Materialization database schema."""
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 
 import sqlalchemy as sa
 from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, UniqueConstraint
@@ -51,7 +51,7 @@ class Materialization(Base):  # pylint: disable=too-few-public-methods
 
     name: Mapped[str]
 
-    strategy: Mapped[MaterializationStrategy] = mapped_column(
+    strategy: Mapped[Optional[MaterializationStrategy]] = mapped_column(
         Enum(MaterializationStrategy),
     )
 
