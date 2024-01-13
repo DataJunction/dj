@@ -182,11 +182,12 @@ def test_update_source_node(
                             ],
                         },
                         {
-                            "name": "default.national_level_agg",
+                            "name": "default.regional_level_agg",
                             "current_version": "v2.0",
                             "previous_version": "v1.0",
                             "updated_columns": [
-                                "total_amount_nationwide",
+                                "avg_repair_amount_in_region",
+                                "total_amount_in_region",
                             ],
                         },
                         {

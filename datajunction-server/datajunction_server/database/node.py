@@ -197,6 +197,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         secondary="noderelationship",
         primaryjoin="Node.id==NodeRelationship.parent_id",
         secondaryjoin="NodeRevision.id==NodeRelationship.child_id",
+        order_by="NodeRevision.id",
     )
 
     tags: Mapped[List["Tag"]] = relationship(
