@@ -1133,7 +1133,7 @@ def hard_delete_node(
     Hard delete a node, destroying all links and invalidating all downstream nodes.
     This should be used with caution, deactivating a node is preferred.
     """
-    node = get_node_by_name(session, name, with_current=True)
+    node = get_node_by_name(session, name, with_current=True, include_inactive=True)
     downstream_nodes = get_downstream_nodes(session=session, node_name=name)
 
     linked_nodes = []
