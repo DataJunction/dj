@@ -25,6 +25,12 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
 
+# A list of namespace names that cannot be used because they are
+# part of a list of reserved SQL keywords
+RESERVED_NAMESPACE_NAMES = [
+    "user",
+]
+
 
 def get_nodes_in_namespace(
     session: Session,
@@ -275,6 +281,7 @@ def hard_delete_namespace(
             "status": "deleted",
         }
         session.delete(_namespace)
+    session.commit()
     return impacts
 
 

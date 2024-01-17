@@ -349,6 +349,10 @@ def test_hard_delete_namespace(client_with_examples: TestClient):
     client_with_examples.post("/namespaces/foo.bar.baf/")
     client_with_examples.post("/namespaces/foo.bar.bif.d/")
 
+    # Deactivating a few nodes should still allow the hard delete to go through
+    client_with_examples.delete("/nodes/foo.bar.avg_length_of_employment")
+    client_with_examples.delete("/nodes/foo.bar.avg_repair_order_discounts")
+
     hard_delete_response = client_with_examples.delete(
         "/namespaces/foo.bar/hard/?cascade=true",
     )
