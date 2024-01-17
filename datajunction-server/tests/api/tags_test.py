@@ -58,9 +58,31 @@ class TestTags:
         assert response.status_code == 201
         assert response.json() == expected_tag_output
 
+        response = client.post(
+            "/tags/",
+            json={
+                "name": "sales_report2",
+                "display_name": "Sales Report2",
+                "tag_type": "group",
+            },
+        )
+        assert response.status_code == 201
+        expected_tag_output2 = {
+            "tag_metadata": {},
+            "display_name": "Sales Report2",
+            "description": None,
+            "name": "sales_report2",
+            "tag_type": "group",
+        }
+        assert response.json() == expected_tag_output2
+
         response = client.get("/tags/sales_report/")
         assert response.status_code == 200
         assert response.json() == expected_tag_output
+
+        response = client.get("/tags/sales_report2/")
+        assert response.status_code == 200
+        assert response.json() == expected_tag_output2
 
         # Check history
         response = client.get("/history/tag/sales_report/")
