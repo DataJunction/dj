@@ -144,11 +144,9 @@ export function AddEditNodePage() {
       values.metric_direction,
       values.metric_unit,
     );
-
-    console.log("TAGS", values.tags);
     const tagsResponse = await djClient.tagsNode(
       values.name,
-      values.tags.map(tag => tag.name),
+      values.tags.map(tag),
     );
     if ((status === 200 || status === 201) && tagsResponse.status === 200) {
       setStatus({
