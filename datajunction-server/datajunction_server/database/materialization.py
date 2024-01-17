@@ -1,12 +1,12 @@
 """Materialization database schema."""
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 
 import sqlalchemy as sa
 from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.backfill import Backfill
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.models.materialization import (
     DruidCubeConfig,
     GenericMaterializationConfig,
@@ -38,7 +38,12 @@ class Materialization(Base):  # pylint: disable=too-few-public-methods
         autoincrement=True,
     )
 
-    node_revision_id: Mapped[int] = mapped_column(ForeignKey("noderevision.id"))
+    node_revision_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "noderevision.id",
+            name="fk_materialization_node_revision_id_noderevision",
+        ),
+    )
     node_revision: Mapped["NodeRevision"] = relationship(
         "NodeRevision",
         back_populates="materializations",
@@ -46,7 +51,7 @@ class Materialization(Base):  # pylint: disable=too-few-public-methods
 
     name: Mapped[str]
 
-    strategy: Mapped[MaterializationStrategy] = mapped_column(
+    strategy: Mapped[Optional[MaterializationStrategy]] = mapped_column(
         Enum(MaterializationStrategy),
     )
 

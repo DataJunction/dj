@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy import JSON, BigInteger, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.enum import StrEnum
 from datajunction_server.models.base import sqlalchemy_enum_with_name
 from datajunction_server.typing import UTCDatetime

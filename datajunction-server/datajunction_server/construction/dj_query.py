@@ -9,9 +9,9 @@ from datajunction_server.construction.build import build_metric_nodes, build_nod
 from datajunction_server.construction.utils import try_get_dj_node
 from datajunction_server.database.node import Node
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.naming import amenable_name
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.utils import amenable_name
 
 
 def selects_only_metrics(select: ast.Select) -> bool:

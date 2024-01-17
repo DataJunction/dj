@@ -301,7 +301,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     # Build the "columns" for this node based on the cube elements. These are used
     # for marking partition columns when the cube gets materialized.
     node_columns = []
-    for col in metric_columns + dimension_columns:
+    for idx, col in enumerate(metric_columns + dimension_columns):
         referenced_node = col.node_revision()
         full_element_name = (
             referenced_node.name  # type: ignore
@@ -316,6 +316,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
                 ColumnAttribute(attribute_type_id=attr.attribute_type_id)
                 for attr in col.attributes
             ],
+            order=idx,
         )
         node_columns.append(node_column)
 
@@ -940,8 +941,9 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
                 type=column_data.type,
                 dimension_column=column_data.dimension,
                 attributes=column_data.attributes or [],
+                order=idx,
             )
-            for column_data in data.columns
+            for idx, column_data in enumerate(data.columns)
         ]
         if data and data.columns
         else old_revision.columns,

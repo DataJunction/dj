@@ -12,7 +12,7 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import amenable_name
+from datajunction_server.naming import amenable_name
 
 from ..sql.utils import compare_query_strings
 from .fixtures import BUILD_EXPECTATION_PARAMETERS
@@ -155,13 +155,15 @@ async def test_raise_on_build_without_required_dimension_column(request):
                 name="country",
                 type=ct.StringType(),
                 attributes=[ColumnAttribute(attribute_type=primary_key)],
+                order=0,
             ),
             Column(
                 name="country_id2",
                 type=ct.StringType(),
                 attributes=[ColumnAttribute(attribute_type=primary_key)],
+                order=1,
             ),
-            Column(name="user_cnt", type=ct.IntegerType()),
+            Column(name="user_cnt", type=ct.IntegerType(), order=2),
         ],
     )
     node_foo_ref = Node(name="basic.foo", type=NodeType.TRANSFORM, current_version="1")
@@ -175,11 +177,13 @@ async def test_raise_on_build_without_required_dimension_column(request):
             Column(
                 name="num_users",
                 type=ct.IntegerType(),
+                order=0,
             ),
             Column(
                 name="country_id",
                 type=ct.StringType(),
                 dimension=countries_dim_ref,
+                order=1,
             ),
         ],
     )
@@ -195,7 +199,7 @@ async def test_raise_on_build_without_required_dimension_column(request):
         query="SELECT SUM(num_users) AS num_users "
         "FROM basic.foo GROUP BY basic.dimension.compound_countries.country",
         columns=[
-            Column(name="num_users", type=ct.IntegerType()),
+            Column(name="num_users", type=ct.IntegerType(), order=0),
         ],
     )
     build_node(
@@ -252,7 +256,7 @@ async def test_build_node_with_unnamed_column(request):
         version="1",
         query="""SELECT 1 FROM basic.dimension.countries""",
         columns=[
-            Column(name="col1", type=ct.IntegerType()),
+            Column(name="col1", type=ct.IntegerType(), order=0),
         ],
     )
     build_node(

@@ -22,16 +22,12 @@ from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.naming import LOOKUP_CHARS, amenable_name, from_amenable_name
 from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.types import ColumnType
-from datajunction_server.utils import (
-    LOOKUP_CHARS,
-    SEPARATOR,
-    amenable_name,
-    from_amenable_name,
-)
+from datajunction_server.utils import SEPARATOR
 
 _logger = logging.getLogger(__name__)
 

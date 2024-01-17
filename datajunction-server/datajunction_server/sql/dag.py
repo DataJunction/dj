@@ -61,6 +61,7 @@ def get_downstream_nodes(
         select(
             NodeRelationship.parent_id,
             NodeRevision.node_id,
+            literal(1).label("depth"),
         )
         .where(NodeRelationship.parent_id == node.id)
         .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
@@ -78,6 +79,7 @@ def get_downstream_nodes(
         select(
             dag.c.parent_id,
             NodeRevision.node_id,
+            (dag.c.depth + 1).label("depth"),
         )
         .join(NodeRelationship, dag.c.node_id == NodeRelationship.parent_id)
         .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
@@ -91,8 +93,10 @@ def get_downstream_nodes(
     final_select = select(Node)
     if not include_deactivated:
         final_select = final_select.where(is_(Node.deactivated_at, None))
-    statement = final_select.join(paths, paths.c.node_id == Node.id).options(
-        *_node_output_options()
+    statement = (
+        final_select.join(paths, paths.c.node_id == Node.id)
+        .order_by(paths.c.depth, Node.id)
+        .options(*_node_output_options())
     )
     results = session.execute(statement).unique().scalars().all()
 
@@ -421,7 +425,7 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
                 )
             )
         ],
-        key=lambda x: x.name,
+        key=lambda x: (x.name, ",".join(x.path)),
     )
 
 

@@ -5,8 +5,38 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["datajunction_server"]
 
+
+[tool.pdm]
 [tool.pdm.build]
 includes = ["dj"]
+
+[tool.pdm.dev-dependencies]
+test = [
+    "codespell>=2.2.4",
+    "freezegun>=1.2.2",
+    "pre-commit>=3.2.2",
+    "pylint>=3.0.3",
+    "pytest-asyncio>=0.15.1",
+    "pytest-cov>=4.0.0",
+    "pytest-integration>=0.2.2",
+    "pytest-mock>=3.10.0",
+    "pytest>=7.3.0",
+    "requests-mock>=1.10.0",
+    "typing-extensions>=4.5.0",
+    "pytest-xdist>=3.3.0",
+    "duckdb==0.8.1",
+    "testcontainers>=3.7.1",
+]
+
+[[tool.pdm.autoexport]]
+filename = "requirements/docker.txt"
+groups = ["default", "uvicorn", "transpilation"]
+without-hashes = true
+
+[[tool.pdm.autoexport]]
+filename = "requirements/test.txt"
+groups = ["default", "test"]
+without-hashes = true
 
 [project]
 name = "datajunction-server"
@@ -73,38 +103,12 @@ transpilation = [
 [project.entry-points.'superset.db_engine_specs']
 dj = 'datajunction_server.superset:DJEngineSpec'
 
+
 [tool.hatch.version]
 path = "datajunction_server/__about__.py"
 
 [project.urls]
 repository = "https://github.com/DataJunction/dj"
-
-[tool.pdm.dev-dependencies]
-test = [
-    "codespell>=2.2.4",
-    "freezegun>=1.2.2",
-    "pre-commit>=3.2.2",
-    "pylint>=2.17.3",
-    "pytest-asyncio>=0.15.1",
-    "pytest-cov>=4.0.0",
-    "pytest-integration>=0.2.2",
-    "pytest-mock>=3.10.0",
-    "pytest>=7.3.0",
-    "requests-mock>=1.10.0",
-    "typing-extensions>=4.5.0",
-    "pytest-xdist>=3.3.0",
-    "duckdb==0.8.1",
-]
-
-[[tool.pdm.autoexport]]
-filename = "requirements/docker.txt"
-groups = ["default", "uvicorn", "transpilation"]
-without-hashes = true
-
-[[tool.pdm.autoexport]]
-filename = "requirements/test.txt"
-groups = ["default", "test"]
-without-hashes = true
 
 [tool.coverage.run]
 source = ['datajunction_server/']

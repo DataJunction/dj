@@ -10,9 +10,9 @@ from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.base import Base
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
-from datajunction_server.database.connection import Base
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.tag import Tag
@@ -30,8 +30,9 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
+from datajunction_server.naming import amenable_name
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import SEPARATOR, amenable_name
+from datajunction_server.utils import SEPARATOR
 
 if TYPE_CHECKING:
     from datajunction_server.database.dimensionlink import DimensionLink
@@ -45,7 +46,7 @@ class NodeRelationship(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "noderelationship"
 
     parent_id: Mapped[int] = mapped_column(
-        ForeignKey("node.id"),
+        ForeignKey("node.id", name="fk_noderelationship_parent_id_node"),
         primary_key=True,
     )
 
@@ -54,7 +55,7 @@ class NodeRelationship(Base):  # pylint: disable=too-few-public-methods
     parent_version: Mapped[Optional[str]] = mapped_column(default="latest")
 
     child_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
+        ForeignKey("noderevision.id", name="fk_noderelationship_child_id_noderevision"),
         primary_key=True,
     )
 
@@ -67,12 +68,12 @@ class CubeRelationship(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "cube"
 
     cube_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
+        ForeignKey("noderevision.id", name="fk_cube_cube_id_noderevision"),
         primary_key=True,
     )
 
     cube_element_id: Mapped[int] = mapped_column(
-        ForeignKey("column.id"),
+        ForeignKey("column.id", name="fk_cube_cube_element_id_column"),
         primary_key=True,
     )
 
@@ -86,12 +87,18 @@ class BoundDimensionsRelationship(Base):  # pylint: disable=too-few-public-metho
     __tablename__ = "metric_required_dimensions"
 
     metric_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
+        ForeignKey(
+            "noderevision.id",
+            name="fk_metric_required_dimensions_metric_id_noderevision",
+        ),
         primary_key=True,
     )
 
     bound_dimension_id: Mapped[int] = mapped_column(
-        ForeignKey("column.id"),
+        ForeignKey(
+            "column.id",
+            name="fk_metric_required_dimensions_bound_dimension_id_column",
+        ),
         primary_key=True,
     )
 
@@ -122,11 +129,17 @@ class NodeMissingParents(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "nodemissingparents"
 
     missing_parent_id: Mapped[int] = mapped_column(
-        ForeignKey("missingparent.id"),
+        ForeignKey(
+            "missingparent.id",
+            name="fk_nodemissingparents_missing_parent_id_missingparent",
+        ),
         primary_key=True,
     )
     referencing_node_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
+        ForeignKey(
+            "noderevision.id",
+            name="fk_nodemissingparents_referencing_node_id_noderevision",
+        ),
         primary_key=True,
     )
 
@@ -167,6 +180,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         "NodeRevision",
         back_populates="node",
         primaryjoin="Node.id==NodeRevision.node_id",
+        cascade="all,delete",
     )
     current: Mapped["NodeRevision"] = relationship(
         "NodeRevision",
@@ -183,6 +197,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         secondary="noderelationship",
         primaryjoin="Node.id==NodeRelationship.parent_id",
         secondaryjoin="NodeRevision.id==NodeRelationship.child_id",
+        order_by="NodeRevision.id",
     )
 
     tags: Mapped[List["Tag"]] = relationship(
@@ -229,13 +244,17 @@ class NodeRevision(
         String,
         default=str(DEFAULT_DRAFT_VERSION),
     )
-    node_id: Mapped[int] = mapped_column(ForeignKey("node.id"))
+    node_id: Mapped[int] = mapped_column(
+        ForeignKey("node.id", name="fk_noderevision_node_id_node"),
+    )
     node: Mapped[Node] = relationship(
         "Node",
         back_populates="revisions",
         foreign_keys=[node_id],
     )
-    catalog_id: Mapped[Optional[int]] = mapped_column(ForeignKey("catalog.id"))
+    catalog_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("catalog.id", name="fk_noderevision_catalog_id_catalog"),
+    )
     catalog: Mapped[Optional[Catalog]] = relationship(
         "Catalog",
         back_populates="node_revisions",
@@ -253,7 +272,10 @@ class NodeRevision(
     )
 
     metric_metadata_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("metricmetadata.id"),
+        ForeignKey(
+            "metricmetadata.id",
+            name="fk_noderevision_metric_metadata_id_metricmetadata",
+        ),
     )
     metric_metadata: Mapped[Optional[MetricMetadata]] = relationship(
         primaryjoin="NodeRevision.metric_metadata_id==MetricMetadata.id",
@@ -267,6 +289,7 @@ class NodeRevision(
         primaryjoin="NodeRevision.id==CubeRelationship.cube_id",
         secondaryjoin="Column.id==CubeRelationship.cube_element_id",
         lazy="joined",
+        order_by="Column.order",
     )
 
     status: Mapped[NodeStatus] = mapped_column(
@@ -302,6 +325,7 @@ class NodeRevision(
         primaryjoin="NodeRevision.id==NodeColumns.node_id",
         secondaryjoin="Column.id==NodeColumns.column_id",
         cascade="all, delete",
+        order_by="Column.order",
     )
 
     dimension_links: Mapped[List["DimensionLink"]] = relationship(
@@ -469,12 +493,17 @@ class NodeRevision(
             raise DJInvalidInputException(  # pragma: no cover
                 message="Cannot retrieve metrics for a non-cube node!",
             )
-
-        return [
-            node_revision.node  # type: ignore
-            for element, node_revision in self.cube_elements_with_nodes()
-            if node_revision and node_revision.type == NodeType.METRIC
-        ]
+        ordering = {
+            col.name.replace("_DOT_", SEPARATOR): col.order for col in self.columns
+        }
+        return sorted(
+            [
+                node_revision.node  # type: ignore
+                for element, node_revision in self.cube_elements_with_nodes()
+                if node_revision and node_revision.type == NodeType.METRIC
+            ],
+            key=lambda x: ordering[x.name],
+        )
 
     def cube_dimensions(self) -> List[str]:
         """
@@ -484,11 +513,15 @@ class NodeRevision(
             raise DJInvalidInputException(  # pragma: no cover
                 "Cannot retrieve dimensions for a non-cube node!",
             )
-        return [
-            node_revision.name + SEPARATOR + element.name
-            for element, node_revision in self.cube_elements_with_nodes()
-            if node_revision and node_revision.type != NodeType.METRIC
-        ]
+        ordering = {col.name: col.order for col in self.columns}
+        return sorted(
+            [
+                node_revision.name + SEPARATOR + element.name
+                for element, node_revision in self.cube_elements_with_nodes()
+                if node_revision and node_revision.type != NodeType.METRIC
+            ],
+            key=lambda x: ordering[x],
+        )
 
     def temporal_partition_columns(self) -> List[Column]:
         """
@@ -527,10 +560,10 @@ class NodeColumns(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "nodecolumns"
 
     node_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
+        ForeignKey("noderevision.id", name="fk_nodecolumns_node_id_noderevision"),
         primary_key=True,
     )
     column_id: Mapped[int] = mapped_column(
-        ForeignKey("column.id"),
+        ForeignKey("column.id", name="fk_nodecolumns_column_id_column"),
         primary_key=True,
     )

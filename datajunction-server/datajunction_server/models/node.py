@@ -568,6 +568,7 @@ class ColumnOutput(BaseModel):
     attributes: Optional[List[AttributeOutput]]
     dimension: Optional[NodeNameOutput]
     partition: Optional[PartitionOutput]
+    # order: Optional[int]
 
     class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
         """

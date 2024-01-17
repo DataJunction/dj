@@ -25,7 +25,7 @@ from datajunction_server.database import (
     Tag,
     User,
 )
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.utils import get_settings
 
 settings = get_settings()
