@@ -23,18 +23,18 @@ def upgrade():
         "dimensionlink",
         sa.Column(
             "id",
-            sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
+            sa.BigInteger(),
             nullable=False,
         ),
         sa.Column("role", sa.String(), nullable=True),
         sa.Column(
             "node_revision_id",
-            sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
+            sa.BigInteger(),
             nullable=False,
         ),
         sa.Column(
             "dimension_id",
-            sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
+            sa.BigInteger(),
             nullable=False,
         ),
         sa.Column("join_sql", sa.String(), nullable=False),
@@ -58,10 +58,12 @@ def upgrade():
         sa.ForeignKeyConstraint(
             ["dimension_id"],
             ["node.id"],
+            name=op.f("fk_dimensionlink_dimension_id_node"),
         ),
         sa.ForeignKeyConstraint(
             ["node_revision_id"],
             ["noderevision.id"],
+            name=op.f("fk_dimensionlink_node_revision_id_noderevision"),
         ),
         sa.PrimaryKeyConstraint("id"),
     )

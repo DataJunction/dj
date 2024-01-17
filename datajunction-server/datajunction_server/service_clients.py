@@ -97,8 +97,8 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         )
         table_columns = response.json()["columns"]
         return [
-            Column(name=column["name"], type=ColumnType(column["type"]))
-            for column in table_columns
+            Column(name=column["name"], type=ColumnType(column["type"]), order=idx)
+            for idx, column in enumerate(table_columns)
         ]
 
     def submit_query(  # pylint: disable=too-many-arguments

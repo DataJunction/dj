@@ -9,7 +9,7 @@ from alembic.config import Config
 from alembic.runtime.environment import EnvironmentContext
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 
 
 @pytest.fixture(scope="function", name="connection")

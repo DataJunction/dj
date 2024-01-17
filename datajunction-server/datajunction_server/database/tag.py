@@ -5,7 +5,7 @@ import sqlalchemy as sa
 from sqlalchemy import JSON, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.models.base import labelize
 
 if TYPE_CHECKING:
@@ -48,10 +48,10 @@ class TagNodeRelationship(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "tagnoderelationship"
 
     tag_id: Mapped[int] = mapped_column(
-        ForeignKey("tag.id"),
+        ForeignKey("tag.id", name="fk_tagnoderelationship_tag_id_tag"),
         primary_key=True,
     )
     node_id: Mapped[int] = mapped_column(
-        ForeignKey("node.id"),
+        ForeignKey("node.id", name="fk_tagnoderelationship_node_id_node"),
         primary_key=True,
     )

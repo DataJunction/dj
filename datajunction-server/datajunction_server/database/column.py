@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 from sqlalchemy import BigInteger, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.models.base import labelize
 from datajunction_server.models.column import ColumnTypeDecorator
 from datajunction_server.sql.parsing.types import ColumnType
@@ -30,6 +30,7 @@ class Column(Base):  # type: ignore
         BigInteger().with_variant(Integer, "sqlite"),
         primary_key=True,
     )
+    order: Mapped[Optional[int]]
     name: Mapped[str] = mapped_column()
     display_name: Mapped[Optional[str]] = mapped_column(
         String,
@@ -37,7 +38,9 @@ class Column(Base):  # type: ignore
     )
     type: Mapped[Optional[ColumnType]] = mapped_column(ColumnTypeDecorator)
 
-    dimension_id: Mapped[Optional[int]] = mapped_column(ForeignKey("node.id"))
+    dimension_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("node.id", ondelete="SET NULL", name="fk_column_dimension_id_node"),
+    )
     dimension: Mapped[Optional["Node"]] = relationship(
         "Node",
         lazy="joined",
@@ -53,10 +56,22 @@ class Column(Base):  # type: ignore
         lazy="joined",
         cascade="all,delete",
     )
-    measure_id: Mapped[Optional[int]] = mapped_column(ForeignKey("measures.id"))
+    measure_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey(
+            "measures.id",
+            name="fk_column_measure_id_measures",
+            ondelete="SET NULL",
+        ),
+    )
     measure: Mapped["Measure"] = relationship(back_populates="columns")
 
-    partition_id: Mapped[Optional[int]] = mapped_column(ForeignKey("partition.id"))
+    partition_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey(
+            "partition.id",
+            name="fk_column_partition_id_partition",
+            ondelete="SET NULL",
+        ),
+    )
     partition: Mapped["Partition"] = relationship(
         lazy="joined",
         primaryjoin="Column.id==Partition.column_id",

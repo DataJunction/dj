@@ -4,8 +4,8 @@ from typing import Optional
 from sqlalchemy import BigInteger, Enum, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
-from datajunction_server.database.connection import Base
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.sql.parsing.types import TimestampType
 
@@ -42,7 +42,9 @@ class Partition(Base):  # type: ignore  # pylint: disable=too-few-public-methods
     format: Mapped[Optional[str]]
 
     # The column reference that this partition is defined on
-    column_id: Mapped[int] = mapped_column(ForeignKey("column.id"))
+    column_id: Mapped[int] = mapped_column(
+        ForeignKey("column.id", name="fk_partition_column_id_column"),
+    )
     column: Mapped[Column] = relationship(
         back_populates="partition",
         primaryjoin="Column.id==Partition.column_id",

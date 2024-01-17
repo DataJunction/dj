@@ -7,7 +7,7 @@ import sqlalchemy as sa
 from sqlalchemy import JSON, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.models.node import BuildCriteria, PartitionAvailability
 from datajunction_server.typing import UTCDatetime
 
@@ -82,10 +82,16 @@ class NodeAvailabilityState(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "nodeavailabilitystate"
 
     availability_id: Mapped[int] = mapped_column(
-        ForeignKey("availabilitystate.id"),
+        ForeignKey(
+            "availabilitystate.id",
+            name="fk_nodeavailabilitystate_availability_id_availabilitystate",
+        ),
         primary_key=True,
     )
     node_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id"),
+        ForeignKey(
+            "noderevision.id",
+            name="fk_nodeavailabilitystate_node_id_noderevision",
+        ),
         primary_key=True,
     )

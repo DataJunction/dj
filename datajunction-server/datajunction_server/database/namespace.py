@@ -2,7 +2,7 @@
 from sqlalchemy import DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.typing import UTCDatetime
 
 

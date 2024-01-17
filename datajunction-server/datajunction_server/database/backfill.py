@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import JSON, BigInteger, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from datajunction_server.database.connection import Base
+from datajunction_server.database.base import Base
 from datajunction_server.models.partition import PartitionBackfill
 
 if TYPE_CHECKING:
@@ -25,7 +25,12 @@ class Backfill(Base):  # type: ignore  # pylint: disable=too-few-public-methods
     )
 
     # The column reference that this partition is defined on
-    materialization_id: Mapped[int] = mapped_column(ForeignKey("materialization.id"))
+    materialization_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "materialization.id",
+            name="fk_backfill_materialization_id_materialization",
+        ),
+    )
     materialization: Mapped["Materialization"] = relationship(
         back_populates="backfills",
         primaryjoin="Materialization.id==Backfill.materialization_id",

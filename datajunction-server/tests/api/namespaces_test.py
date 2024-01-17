@@ -332,7 +332,7 @@ def test_hard_delete_namespace(client_with_examples: TestClient):
         "'foo.bar.avg_repair_order_discounts', 'foo.bar.avg_repair_price', "
         "'foo.bar.avg_time_to_dispatch', 'foo.bar.contractor', 'foo.bar.contractors', "
         "'foo.bar.dispatcher', 'foo.bar.dispatchers', 'foo.bar.hard_hat', "
-        "'foo.bar.hard_hat_state', 'foo.bar.hard_hats', 'foo.bar.local_hard_hats', "
+        "'foo.bar.hard_hats', 'foo.bar.hard_hat_state', 'foo.bar.local_hard_hats', "
         "'foo.bar.municipality', 'foo.bar.municipality_dim', "
         "'foo.bar.municipality_municipality_type', 'foo.bar.municipality_type', "
         "'foo.bar.num_repair_orders', 'foo.bar.repair_order', "

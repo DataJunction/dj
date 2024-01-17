@@ -12,10 +12,10 @@ from datajunction_server.models.materialization import (
     DruidMaterializationInput,
     MaterializationInfo,
 )
+from datajunction_server.naming import amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.utils import amenable_name
 
 
 class DefaultCubeMaterialization(

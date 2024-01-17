@@ -1964,20 +1964,20 @@ EXAMPLES = {  # type: ignore
 
 COLUMN_MAPPINGS = {
     "public.basic.comments": [
-        Column(name="id", type=IntegerType()),
-        Column(name="user_id", type=IntegerType()),
-        Column(name="timestamp", type=TimestampType()),
-        Column(name="text", type=StringType()),
+        Column(name="id", type=IntegerType(), order=0),
+        Column(name="user_id", type=IntegerType(), order=1),
+        Column(name="timestamp", type=TimestampType(), order=2),
+        Column(name="text", type=StringType(), order=3),
     ],
     "default.roads.repair_orders": [
-        Column(name="repair_order_id", type=IntegerType()),
-        Column(name="municipality_id", type=StringType()),
-        Column(name="hard_hat_id", type=IntegerType()),
-        Column(name="order_date", type=TimestampType()),
-        Column(name="required_date", type=TimestampType()),
-        Column(name="dispatched_date", type=TimestampType()),
-        Column(name="dispatcher_id", type=IntegerType()),
-        Column(name="rating", type=IntegerType()),
+        Column(name="repair_order_id", type=IntegerType(), order=0),
+        Column(name="municipality_id", type=StringType(), order=1),
+        Column(name="hard_hat_id", type=IntegerType(), order=2),
+        Column(name="order_date", type=TimestampType(), order=3),
+        Column(name="required_date", type=TimestampType(), order=4),
+        Column(name="dispatched_date", type=TimestampType(), order=5),
+        Column(name="dispatcher_id", type=IntegerType(), order=6),
+        Column(name="rating", type=IntegerType(), order=7),
     ],
 }
 

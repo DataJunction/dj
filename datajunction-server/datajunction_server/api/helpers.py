@@ -55,13 +55,14 @@ from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import BuildCriteria, NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import ColumnMetadata, QueryWithResults
+from datajunction_server.naming import LOOKUP_CHARS
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_downstream_nodes, get_nodes_with_dimension
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import END_JOB_STATES, UTCDatetime
-from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR
+from datajunction_server.utils import SEPARATOR
 
 _logger = logging.getLogger(__name__)
 
@@ -363,7 +364,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
     column_mapping = {col.name: col for col in validated_node.columns}
     node_validator.columns = []
     type_inference_failures = {}
-    for col in query_ast.select.projection:
+    for idx, col in enumerate(query_ast.select.projection):
         column = None
         column_name = col.alias_or_name.name  # type: ignore
         existing_column = column_mapping.get(column_name)
@@ -375,6 +376,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
                 type=column_type,
                 attributes=existing_column.attributes if existing_column else [],
                 dimension=existing_column.dimension if existing_column else None,
+                order=idx,
             )
         except DJParseException as parse_exc:
             type_inference_failures[column_name] = parse_exc.message
@@ -1141,9 +1143,6 @@ def hard_delete_node(
         linked_nodes = get_nodes_with_dimension(session=session, dimension_node=node)
 
     session.delete(node)
-    for revision in node.revisions:
-        session.delete(revision)
-
     session.commit()
     impact = []  # Aggregate all impact of this deletion to include in response
 
