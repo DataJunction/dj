@@ -145,7 +145,6 @@ export function AddEditNodePage() {
       values.metric_unit,
     );
 
-    console.log("TAGS", values.tags);
     const tagsResponse = await djClient.tagsNode(
       values.name,
       values.tags.map(tag => tag.name),
