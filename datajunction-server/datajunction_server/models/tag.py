@@ -15,7 +15,7 @@ class MutableTagFields(BaseModel):
     Tag fields that can be changed.
     """
 
-    description: str
+    description: Optional[str]
     display_name: Optional[str]
     tag_metadata: Optional[Dict[str, Any]] = {}
 
