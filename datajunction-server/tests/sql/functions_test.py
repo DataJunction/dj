@@ -2685,6 +2685,22 @@ def test_percentile(session: Session):
     assert query.select.projection[0].type == ct.ListType(ct.FloatType())  # type: ignore
 
 
+def test_random(session: Session):
+    """
+    Test `random`, `rand` and `randn`
+    """
+    query = parse(
+        "SELECT random(), random(0), random(null), rand(), rand(0), "
+        "rand(null), randn(), randn(0), randn(null)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    for column in query.select.projection:
+        assert column.type == ct.FloatType()  # type: ignore
+
+
 def test_rank(session: Session):
     """
     Test `rank`

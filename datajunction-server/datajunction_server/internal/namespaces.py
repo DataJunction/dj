@@ -25,6 +25,12 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
 
+# A list of namespace names that cannot be used because they are
+# part of a list of reserved SQL keywords
+RESERVED_NAMESPACE_NAMES = [
+    "user",
+]
+
 
 def get_nodes_in_namespace(
     session: Session,
@@ -182,10 +188,10 @@ def validate_namespace(namespace: str):
     """
     parts = namespace.split(SEPARATOR)
     for part in parts:
-        if not part or (part and part[0].isdigit()):
+        if not part or (part and part[0].isdigit()) or part in RESERVED_NAMESPACE_NAMES:
             raise DJInvalidInputException(
-                f"{namespace} is not a valid namespace. Namespace parts cannot start with "
-                "numbers or be empty.",
+                f"{namespace} is not a valid namespace. Namespace parts cannot start with numbers"
+                f", be empty, or use the reserved keyword [{', '.join(RESERVED_NAMESPACE_NAMES)}]",
             )
 
 
@@ -281,6 +287,7 @@ def hard_delete_namespace(
             "status": "deleted",
         }
         session.delete(_namespace)
+    session.commit()
     return impacts
 
 

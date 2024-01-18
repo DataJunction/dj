@@ -349,6 +349,10 @@ def test_hard_delete_namespace(client_with_examples: TestClient):
     client_with_examples.post("/namespaces/foo.bar.baf/")
     client_with_examples.post("/namespaces/foo.bar.bif.d/")
 
+    # Deactivating a few nodes should still allow the hard delete to go through
+    client_with_examples.delete("/nodes/foo.bar.avg_length_of_employment")
+    client_with_examples.delete("/nodes/foo.bar.avg_repair_order_discounts")
+
     hard_delete_response = client_with_examples.delete(
         "/namespaces/foo.bar/hard/?cascade=true",
     )
@@ -588,13 +592,20 @@ def test_create_namespace(client_with_service_setup: TestClient):
     }
 
     # Verify that it raises when creating an invalid namespace
-    invalid_namespaces = ["a.111b.c", "111mm.abcd", "aa.bb.111", "1234", "aa..bb"]
+    invalid_namespaces = [
+        "a.111b.c",
+        "111mm.abcd",
+        "aa.bb.111",
+        "1234",
+        "aa..bb",
+        "user.abc",
+    ]
     for invalid_namespace in invalid_namespaces:
         response = client_with_service_setup.post(f"/namespaces/{invalid_namespace}")
         assert response.status_code == 422
         assert response.json()["message"] == (
             f"{invalid_namespace} is not a valid namespace. Namespace parts cannot start "
-            "with numbers or be empty."
+            "with numbers, be empty, or use the reserved keyword [user]"
         )
 
 

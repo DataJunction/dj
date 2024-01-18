@@ -3351,6 +3351,72 @@ def infer_type(
     return ct.DoubleType()
 
 
+class Rand(Function):
+    """
+    rand() - Returns a random value with independent and identically distributed
+    (i.i.d.) uniformly distributed values in [0, 1).
+    """
+
+
+@Rand.register
+def infer_type() -> ct.FloatType:
+    return ct.FloatType()
+
+
+@Rand.register
+def infer_type(seed: ct.IntegerType) -> ct.FloatType:
+    return ct.FloatType()
+
+
+@Rand.register
+def infer_type(seed: ct.NullType) -> ct.FloatType:
+    return ct.FloatType()
+
+
+class Randn(Function):
+    """
+    randn() - Returns a random value with independent and identically
+    distributed (i.i.d.) values drawn from the standard normal distribution.
+    """
+
+
+@Randn.register
+def infer_type() -> ct.FloatType:
+    return ct.FloatType()
+
+
+@Randn.register
+def infer_type(seed: ct.IntegerType) -> ct.FloatType:
+    return ct.FloatType()
+
+
+@Randn.register
+def infer_type(seed: ct.NullType) -> ct.FloatType:
+    return ct.FloatType()
+
+
+class Random(Function):
+    """
+    random() - Returns a random value with independent and identically
+    distributed (i.i.d.) uniformly distributed values in [0, 1).
+    """
+
+
+@Random.register
+def infer_type() -> ct.FloatType:
+    return ct.FloatType()
+
+
+@Random.register
+def infer_type(seed: ct.IntegerType) -> ct.FloatType:
+    return ct.FloatType()
+
+
+@Random.register
+def infer_type(seed: ct.NullType) -> ct.FloatType:
+    return ct.FloatType()
+
+
 class Rank(Function):
     """
     rank() - Computes the rank of a value in a group of values. The result is
