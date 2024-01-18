@@ -1,12 +1,11 @@
 """User database schema."""
 from typing import Optional
 
-from sqlalchemy import BigInteger, Integer, Enum
+from sqlalchemy import BigInteger, Enum, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 
 from datajunction_server.database.base import Base
 from datajunction_server.enum import StrEnum
-from datajunction_server.models.base import sqlalchemy_enum_with_name
 
 
 class OAuthProvider(StrEnum):

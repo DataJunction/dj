@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
 from pydantic import Extra
-from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint, Enum
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.availabilitystate import AvailabilityState
@@ -17,11 +17,7 @@ from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.tag import Tag
 from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.models.base import (
-    labelize,
-    sqlalchemy_enum_with_name,
-    sqlalchemy_enum_with_value,
-)
+from datajunction_server.models.base import labelize
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     BuildCriteria,
@@ -559,11 +555,11 @@ class NodeColumns(Base):  # pylint: disable=too-few-public-methods
 
     __tablename__ = "nodecolumns"
 
-    node_id: Mapped[int] = mapped_column(
+    node_id: Mapped[int] = mapped_column(  # pylint: disable=unsubscriptable-object
         ForeignKey("noderevision.id", name="fk_nodecolumns_node_id_noderevision"),
         primary_key=True,
     )
-    column_id: Mapped[int] = mapped_column(
+    column_id: Mapped[int] = mapped_column(  # pylint: disable=unsubscriptable-object
         ForeignKey("column.id", name="fk_nodecolumns_column_id_column"),
         primary_key=True,
     )

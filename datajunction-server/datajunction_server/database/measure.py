@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
-from datajunction_server.models.base import labelize, sqlalchemy_enum_with_name
+from datajunction_server.models.base import labelize
 from datajunction_server.models.measure import AggregationRule
 
 
