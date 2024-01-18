@@ -2,10 +2,10 @@
 from typing import Optional
 
 import sqlalchemy as sa
+from sqlalchemy import Enum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from datajunction_server.database.base import Base
-from datajunction_server.models.base import sqlalchemy_enum_with_name
 from datajunction_server.models.engine import Dialect
 
 
@@ -24,5 +24,5 @@ class Engine(Base):  # pylint: disable=too-few-public-methods
     version: Mapped[str]
     uri: Mapped[Optional[str]]
     dialect: Mapped[Optional[Dialect]] = mapped_column(
-        sqlalchemy_enum_with_name(Dialect),
+        Enum(Dialect),
     )

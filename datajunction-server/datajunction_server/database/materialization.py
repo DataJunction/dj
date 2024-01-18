@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.base import Base
+from datajunction_server.models.base import sqlalchemy_enum_with_name
 from datajunction_server.models.materialization import (
     DruidCubeConfig,
     GenericMaterializationConfig,
