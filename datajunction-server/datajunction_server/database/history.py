@@ -3,12 +3,11 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import Any, Dict, Optional
 
-from sqlalchemy import JSON, BigInteger, DateTime, Integer, String
+from sqlalchemy import JSON, BigInteger, DateTime, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from datajunction_server.database.base import Base
 from datajunction_server.enum import StrEnum
-from datajunction_server.models.base import sqlalchemy_enum_with_name
 from datajunction_server.typing import UTCDatetime
 
 
@@ -60,13 +59,13 @@ class History(Base):  # pylint: disable=too-few-public-methods
         primary_key=True,
     )
     entity_type: Mapped[Optional[EntityType]] = mapped_column(
-        sqlalchemy_enum_with_name(EntityType),
+        Enum(EntityType),
         default=None,
     )
     entity_name: Mapped[Optional[str]] = mapped_column(String, default=None)
     node: Mapped[Optional[str]] = mapped_column(String, default=None)
     activity_type: Mapped[Optional[ActivityType]] = mapped_column(
-        sqlalchemy_enum_with_name(ActivityType),
+        Enum(ActivityType),
         default=None,
     )
     user: Mapped[Optional[str]] = mapped_column(String, default=None)
