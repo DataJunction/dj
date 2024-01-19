@@ -20,6 +20,9 @@ depends_on = None
 
 
 def upgrade():
+    with op.batch_alter_table("nodenamespace", schema=None) as batch_op:
+        batch_op.create_unique_constraint("uq_nodenamespace_namespace", ["namespace"])
+
     op.execute("ALTER TYPE oauthprovider RENAME VALUE 'basic' TO 'BASIC'")
     op.execute("ALTER TYPE oauthprovider RENAME VALUE 'github' TO 'GITHUB'")
     op.execute("ALTER TYPE oauthprovider RENAME VALUE 'google' TO 'GOOGLE'")
@@ -199,3 +202,6 @@ def downgrade():
     op.execute(
         "UPDATE users set oauth_provider = lower(oauth_provider::text)::oauthprovider",
     )
+
+    with op.batch_alter_table("nodenamespace", schema=None) as batch_op:
+        batch_op.drop_constraint("uq_nodenamespace_namespace", type_="unique")

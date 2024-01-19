@@ -5,6 +5,7 @@ __all__ = [
     "Catalog",
     "Column",
     "Database",
+    "DimensionLink",
     "Engine",
     "History",
     "Node",
@@ -21,6 +22,7 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database, Table
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.engine import Engine
 from datajunction_server.database.measure import Measure
 from datajunction_server.database.namespace import NodeNamespace
