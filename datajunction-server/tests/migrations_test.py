@@ -34,7 +34,7 @@ def test_migrations_are_current(connection):  # pylint: disable=redefined-outer-
     target_metadata = Base.metadata
 
     config = Config("alembic.ini")
-    config.set_main_option("script_location", "../alembic")
+    config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
 
     context = EnvironmentContext(
