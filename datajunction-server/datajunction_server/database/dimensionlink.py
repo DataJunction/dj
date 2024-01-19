@@ -1,12 +1,11 @@
 """Dimension links table."""
 from typing import Dict, Optional
 
-from sqlalchemy import JSON, BigInteger, ForeignKey, Integer
+from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.models.base import sqlalchemy_enum_with_name
 from datajunction_server.models.dimensionlink import JoinCardinality, JoinType
 
 
@@ -55,7 +54,7 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
     # Metadata about the join
     join_type: Mapped[Optional[JoinType]]
     join_cardinality: Mapped[JoinCardinality] = mapped_column(
-        sqlalchemy_enum_with_name(JoinCardinality),
+        Enum(JoinCardinality),
         default=JoinCardinality.MANY_TO_ONE,
     )
 

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
 from pydantic import Extra
-from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.availabilitystate import AvailabilityState
@@ -17,11 +17,7 @@ from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.tag import Tag
 from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.models.base import (
-    labelize,
-    sqlalchemy_enum_with_name,
-    sqlalchemy_enum_with_value,
-)
+from datajunction_server.models.base import labelize
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     BuildCriteria,
@@ -159,7 +155,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         primary_key=True,
     )
     name: Mapped[str] = mapped_column(String, unique=True)
-    type: Mapped[NodeType] = mapped_column(sqlalchemy_enum_with_name(NodeType))
+    type: Mapped[NodeType] = mapped_column(Enum(NodeType))
     display_name: Mapped[Optional[str]]
     namespace: Mapped[str] = mapped_column(String, default="default")
     current_version: Mapped[str] = mapped_column(
@@ -232,12 +228,12 @@ class NodeRevision(
         String,
         insert_default=lambda context: labelize(context.current_parameters.get("name")),
     )
-    type: Mapped[NodeType] = mapped_column(sqlalchemy_enum_with_name(NodeType))
+    type: Mapped[NodeType] = mapped_column(Enum(NodeType))
     description: Mapped[str] = mapped_column(String, default="")
     query: Mapped[Optional[str]] = mapped_column(String)
     mode: Mapped[NodeMode] = mapped_column(
-        sqlalchemy_enum_with_value(NodeMode),
-        default=NodeMode.PUBLISHED.value,  # pylint: disable=no-member
+        Enum(NodeMode),
+        default=NodeMode.PUBLISHED,  # pylint: disable=no-member
     )
 
     version: Mapped[Optional[str]] = mapped_column(
@@ -293,7 +289,7 @@ class NodeRevision(
     )
 
     status: Mapped[NodeStatus] = mapped_column(
-        sqlalchemy_enum_with_value(NodeStatus),
+        Enum(NodeStatus),
         default=NodeStatus.INVALID,
     )
     updated_at: Mapped[UTCDatetime] = mapped_column(
@@ -559,11 +555,11 @@ class NodeColumns(Base):  # pylint: disable=too-few-public-methods
 
     __tablename__ = "nodecolumns"
 
-    node_id: Mapped[int] = mapped_column(
+    node_id: Mapped[int] = mapped_column(  # pylint: disable=unsubscriptable-object
         ForeignKey("noderevision.id", name="fk_nodecolumns_node_id_noderevision"),
         primary_key=True,
     )
-    column_id: Mapped[int] = mapped_column(
+    column_id: Mapped[int] = mapped_column(  # pylint: disable=unsubscriptable-object
         ForeignKey("column.id", name="fk_nodecolumns_column_id_column"),
         primary_key=True,
     )

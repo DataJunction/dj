@@ -14,6 +14,7 @@ from datajunction_server.database import (
     Column,
     ColumnAttribute,
     Database,
+    DimensionLink,
     Engine,
     History,
     Measure,

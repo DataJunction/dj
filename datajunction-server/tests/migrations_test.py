@@ -2,7 +2,7 @@
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.engine.base import Connection
-from sqlalchemy.pool import StaticPool
+from testcontainers.postgres import PostgresContainer
 
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
@@ -13,14 +13,13 @@ from datajunction_server.database.base import Base
 
 
 @pytest.fixture(scope="function", name="connection")
-def connection_fixture() -> Connection:
+def connection(postgres_container: PostgresContainer) -> Connection:
     """
-    Create an in-memory SQLite connection for verifying models.
+    Create a Postgres connection for verifying models.
     """
+    url = postgres_container.get_connection_url()
     engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+        url=url,
     )
     with engine.connect() as conn:
         transaction = conn.begin()
@@ -28,7 +27,7 @@ def connection_fixture() -> Connection:
         transaction.rollback()
 
 
-def test_migrations_are_current(connection):
+def test_migrations_are_current(connection):  # pylint: disable=redefined-outer-name
     """
     Verify that the alembic migrations are in line with the models.
     """

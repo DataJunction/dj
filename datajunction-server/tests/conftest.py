@@ -116,7 +116,7 @@ def postgres_container() -> PostgresContainer:
 @pytest.fixture
 def session(postgres_container: PostgresContainer) -> Iterator[Session]:
     """
-    Create an in-memory SQLite session to test models.
+    Create a Postgres session to test models.
     """
     url = postgres_container.get_connection_url()
     engine = create_engine(
