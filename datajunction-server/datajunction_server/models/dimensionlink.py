@@ -30,13 +30,23 @@ class JoinType(StrEnum):
     CROSS = "cross"
 
 
+class LinkDimensionIdentifier(BaseModel):
+    """
+    Input for linking a dimension to a node
+    """
+
+    dimension_node: str
+    role: Optional[str]
+
+
 class LinkDimensionInput(BaseModel):
     """
     Input for linking a dimension to a node
     """
 
     dimension_node: str
-    join_sql: str
+    join_type: Optional[JoinType] = JoinType.LEFT
+    join_on: str
     join_cardinality: Optional[JoinCardinality]
     role: Optional[str]
 
@@ -47,6 +57,7 @@ class LinkDimensionOutput(BaseModel):
     """
 
     dimension: NodeNameOutput
+    join_type: JoinType
     join_sql: str
     join_cardinality: Optional[JoinCardinality]
     role: Optional[str]

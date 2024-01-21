@@ -215,9 +215,13 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
             select(
                 DimensionLink.node_revision_id,
                 DimensionLink.dimension_id,
-                func.coalesce(  # pylint: disable=not-callable
-                    DimensionLink.role,
-                    literal(""),
+                func.concat(
+                    literal("["),
+                    func.coalesce(  # pylint: disable=not-callable
+                        DimensionLink.role,
+                        literal(""),
+                    ),
+                    literal("]"),
                 ).label("name"),
             ).select_from(DimensionLink),
         )
@@ -263,10 +267,10 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
     paths = dimensions_graph.union_all(
         select(
             dimensions_graph.c.path_start,
-            column.name.label("col_name"),
+            graph_branches.c.name.label("col_name"),
             next_node.id.label("path_end"),
             (
-                dimensions_graph.c.join_path + "." + column.name + "," + next_node.name
+                dimensions_graph.c.join_path + "." + graph_branches.c.name + "," + next_node.name
             ).label(
                 "join_path",
             ),
@@ -285,11 +289,10 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
                     current_rev.node_id == current_node.id,
                 ),
             )
-            .join(NodeColumns, current_rev.id == NodeColumns.node_id)
-            .join(column, NodeColumns.column_id == column.id)
+            .join(graph_branches, current_rev.id == graph_branches.c.node_revision_id)
             .join(
                 next_node,
-                (column.dimension_id == next_node.id)
+                (next_node.id == graph_branches.c.dimension_id)
                 & (is_(next_node.deactivated_at, None)),
             )
             .join(
@@ -393,14 +396,20 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
     return sorted(
         [
             DimensionAttributeOutput(
-                name=f"{node_name}.{column_name}",
+                name=f"{node_name}.{column_name}"
+                f"[{'->'.join([path.replace('[', '').replace(']', '').split('.')[-1] for path in join_path.split(',') if '[' in path])}]",
                 node_name=node_name,
                 node_display_name=node_display_name,
                 is_primary_key=(
                     attribute_types is not None and "primary_key" in attribute_types
                 ),
                 type=str(column_type),
-                path=join_path.split(",")[:-1] if join_path else [],
+                path=[
+                    path.replace("[", "").replace("]", "")
+                    for path in join_path.split(",")[:-1]
+                ]
+                if join_path
+                else [],
             )
             for (
                 node_name,
