@@ -56,7 +56,10 @@ from datajunction_server.internal.nodes import (
 )
 from datajunction_server.models import access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
-from datajunction_server.models.dimensionlink import LinkDimensionInput
+from datajunction_server.models.dimensionlink import (
+    LinkDimensionIdentifier,
+    LinkDimensionInput,
+)
 from datajunction_server.models.history import status_change_history
 from datajunction_server.models.node import (
     ColumnOutput,
@@ -713,9 +716,9 @@ def link_dimension(  # pylint: disable=too-many-arguments
     )
 
 
-@router.post("/nodes/{name}/link/", status_code=201)
-def link_dimension_node(  # pylint: disable=too-many-locals
-    name: str,
+@router.post("/nodes/{node_name}/link/", status_code=201)
+def add_complex_dimension_link(  # pylint: disable=too-many-locals
+    node_name: str,
     link_input: LinkDimensionInput,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
@@ -724,7 +727,7 @@ def link_dimension_node(  # pylint: disable=too-many-locals
     Links a source, dimension, or transform node to a dimension with a custom join query.
     If a link already exists, updates the link definition.
     """
-    node = get_node_by_name(session=session, name=name)
+    node = get_node_by_name(session=session, name=node_name)
     if node.type not in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):
         raise DJInvalidInputException(
             message=f"Cannot link dimension to a node of type {node.type}. "
@@ -750,34 +753,34 @@ def link_dimension_node(  # pylint: disable=too-many-locals
         )
 
     # Parse the join query and do some basic verification of its validity
-    join_query = parse(f"SELECT 1 FROM {link_input.join_sql}")
+    join_query = parse(
+        f"SELECT 1 FROM {node_name} "
+        f"{link_input.join_type} JOIN {link_input.dimension_node} "
+        f"ON {link_input.join_on}",
+    )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     join_query.compile(ctx)
-
-    # Check that there is a valid join clause
-    if not join_query.select.from_.relations[0].extensions:  # type: ignore
-        raise DJInvalidInputException(
-            f"Provided SQL `{link_input.join_sql}` does not contain JOIN clause",
-        )
     join_relation = join_query.select.from_.relations[0].extensions[0]  # type: ignore
+    join_on = join_query.select.from_.relations[0].extensions[0].criteria.on
 
     # Verify that the query references both the node and the dimension being joined
-    expected_references = {name, link_input.dimension_node}
-    references = {table.name.identifier() for table in join_query.find_all(ast.Table)}
+    expected_references = {node_name, link_input.dimension_node}
+    references = {
+        table.name.namespace.identifier() for table in join_on.find_all(ast.Column)
+    }
     if expected_references.difference(references):
         raise DJInvalidInputException(
-            message=f"The join SQL provided does not reference both the origin node {name} and the "
+            message=f"The join SQL provided does not reference both the origin node {node_name} and the "
             f"dimension node {link_input.dimension_node} that it's being joined to.",
         )
 
     # Verify that the columns in the ON clause exist on both nodes
-    for col in join_query.find_all(ast.Column):
-        if not col.table or not col.table.dj_node:  # type: ignore
-            raise DJException(
-                message=f"Column {col.identifier()} does not exist on node",
-                http_status_code=404,
-            )
+    if ctx.exception.errors:
+        raise DJException(
+            message=f"Join query {link_input.join_on} is not valid",
+            errors=ctx.exception.errors,
+        )
 
     # Find an existing dimension link if there is already one defined for this node
     existing_link = [
@@ -785,13 +788,20 @@ def link_dimension_node(  # pylint: disable=too-many-locals
         for link in node.current.dimension_links
         if link.dimension_id == dimension_node.id and link.role == link_input.role
     ]
+    if existing_link:
+        print(
+            "existing_link",
+            node.current.dimension_links[0].role,
+            link_input.role,
+            existing_link,
+        )
     is_update = False
 
     if existing_link:
         # Update the existing dimension link
         is_update = True
         dimension_link = existing_link[0]
-        dimension_link.join_sql = link_input.join_sql
+        dimension_link.join_sql = link_input.join_on
         dimension_link.join_type = DimensionLink.parse_join_type(
             join_relation.join_type,
         )
@@ -801,7 +811,7 @@ def link_dimension_node(  # pylint: disable=too-many-locals
         dimension_link = DimensionLink(
             node_revision_id=node.current.id,
             dimension_id=dimension_node.id,
-            join_sql=link_input.join_sql,
+            join_sql=link_input.join_on,
             join_type=DimensionLink.parse_join_type(join_relation.join_type),
             join_cardinality=link_input.join_cardinality,
             role=link_input.role,
@@ -817,7 +827,7 @@ def link_dimension_node(  # pylint: disable=too-many-locals
             activity_type=ActivityType.CREATE if not is_update else ActivityType.UPDATE,
             details={
                 "dimension": dimension_node.name,
-                "join_sql": link_input.join_sql,
+                "join_sql": link_input.join_on,
                 "join_cardinality": link_input.join_cardinality,
                 "role": link_input.role,
             },
@@ -831,12 +841,71 @@ def link_dimension_node(  # pylint: disable=too-many-locals
         content={
             "message": (
                 f"Dimension node {dimension_node.name} has been successfully "
-                f"linked to node {name}."
+                f"linked to node {node_name}."
             )
             if not is_update
             else (
-                f"The dimension link between {name} and {dimension_node.name} "
+                f"The dimension link between {node_name} and {dimension_node.name} "
                 "has been successfully updated."
+            ),
+        },
+    )
+
+
+@router.delete("/nodes/{node_name}/link/", status_code=201)
+def remove_complex_dimension_link(  # pylint: disable=too-many-locals
+    node_name: str,
+    link_identifier: LinkDimensionIdentifier,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+) -> JSONResponse:
+    """
+    Removes a complex dimension link based on the dimension node and its role (if any).
+    """
+    node = get_node_by_name(session=session, name=node_name)
+
+    # Find the dimension node
+    dimension_node = get_node_by_name(
+        session=session,
+        name=link_identifier.dimension_node,
+        node_type=NodeType.DIMENSION,
+    )
+    removed = False
+
+    # Delete the dimension link if one exists
+    for link in node.current.dimension_links:
+        if link.dimension_id == dimension_node.id and link.role == link_identifier.role:
+            removed = True
+            session.delete(link)
+
+    session.add(
+        History(
+            entity_type=EntityType.LINK,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.DELETE,
+            details={
+                "dimension": dimension_node.name,
+                "role": link_identifier.role,
+            },
+            user=current_user.username if current_user else None,
+        ),
+    )
+    session.commit()
+    session.refresh(node)
+    return JSONResponse(
+        status_code=201,
+        content={
+            "message": (
+                f"Dimension link {dimension_node.name} "
+                + (f"(role {link_identifier.role}) " if link_identifier.role else "")
+                + f"to node {node_name} has been removed."
+            )
+            if removed
+            else (
+                f"Dimension link {dimension_node.name} "
+                + (f"(role {link_identifier.role}) " if link_identifier.role else "")
+                + f"to node {node_name} does not exist!"
             ),
         },
     )

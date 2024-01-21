@@ -28,6 +28,7 @@ from typing import (
 from sqlalchemy.orm import Session
 
 from datajunction_server.construction.utils import get_dj_node, to_namespaced_name
+from datajunction_server.database import DimensionLink
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.node import NodeRevision as DJNode
 from datajunction_server.errors import DJError, DJErrorException, DJException, ErrorCode
@@ -727,6 +728,7 @@ class Column(Aliasable, Named, Expression):
     _type: Optional["ColumnType"] = field(repr=False, default=None)
     _expression: Optional[Expression] = field(repr=False, default=None)
     _is_compiled: bool = False
+    role: Optional[str] = None
 
     @property
     def type(self):
@@ -933,6 +935,8 @@ class Column(Aliasable, Named, Expression):
             # If the table has a DJ node, check to see if the DJ node has dimensions,
             # which would link us to new nodes to search for this column in
             if isinstance(current_table, Table) and current_table.dj_node:
+                if not isinstance(current_table.dj_node, NodeRevision):
+                    current_table.set_dj_node(current_table.dj_node.current)
                 for dj_col in current_table.dj_node.columns:
                     if dj_col.dimension:
                         new_table = Table(
@@ -949,20 +953,21 @@ class Column(Aliasable, Named, Expression):
                         ]
                         to_process.append(new_table)
                 for link in current_table.dj_node.dimension_links:
-                    new_table = Table(
-                        name=to_namespaced_name(link.dimension.name),
-                        _dj_node=link.dimension,
-                        join_sql=link.join_sql,
-                    )
-                    new_table._columns = [
-                        Column(
-                            name=Name(col.name),
-                            _type=col.type,
-                            _table=new_table,
+                    if link.role == self.role:
+                        new_table = Table(
+                            name=to_namespaced_name(link.dimension.name),
+                            _dj_node=link.dimension,
+                            dimension_link=link,
                         )
-                        for col in link.dimension.current.columns
-                    ]
-                    to_process.append(new_table)
+                        new_table._columns = [
+                            Column(
+                                name=Name(col.name),
+                                _type=col.type,
+                                _table=new_table,
+                            )
+                            for col in link.dimension.current.columns
+                        ]
+                        to_process.append(new_table)
         return found
 
     def compile(self, ctx: CompileContext):
@@ -1247,7 +1252,7 @@ class Table(TableExpression, Named):
     """
 
     _dj_node: Optional[DJNode] = field(repr=False, default=None)
-    join_sql: Optional[str] = field(repr=False, default=None)
+    dimension_link: Optional[DimensionLink] = field(repr=False, default=None)
 
     @property
     def dj_node(self) -> Optional[DJNode]:
