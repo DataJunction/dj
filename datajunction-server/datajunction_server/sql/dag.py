@@ -551,16 +551,8 @@ def get_shared_dimensions(
         common_dim_keys = common.keys() & list(node_dimensions.keys())
         if not common_dim_keys:
             return []
-        for common_dim in common_dim_keys:
-            for existing_attr in common[common_dim]:
-                for new_attr in node_dimensions[common_dim]:
-                    converged = check_convergence(existing_attr.path, new_attr.path)
-                    if not converged:
-                        to_delete.add(common_dim)  # pragma: no cover
-
         for dim_key in to_delete:
             del common[dim_key]  # pragma: no cover
-
     return sorted(
         [y for x in common.values() for y in x],
         key=lambda x: (x.name, x.path),
