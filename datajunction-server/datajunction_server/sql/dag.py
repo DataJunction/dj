@@ -19,7 +19,7 @@ from datajunction_server.database.node import (
 )
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import SEPARATOR, get_settings
+from datajunction_server.utils import get_settings
 
 settings = get_settings()
 
@@ -467,34 +467,6 @@ def get_dimensions(
             with_attributes,
         )
     return get_dimensions_dag(session, node.current, with_attributes)
-
-
-def check_convergence(path1: List[str], path2: List[str]) -> bool:
-    """
-    Determines whether two join paths converge before we reach the
-    final element, the dimension attribute.
-    """
-    if path1 == path2:
-        return True  # pragma: no cover
-    len1 = len(path1)
-    len2 = len(path2)
-    min_len = min(len1, len2)
-
-    for i in range(min_len):
-        partial1 = path1[len1 - i - 1 :]
-        partial2 = path2[len2 - i - 1 :]
-        if partial1 == partial2:
-            return True
-
-    # TODO: Once we introduce dimension roles, we can remove this.  # pylint: disable=fixme
-    # To workaround this for now, we're using column names as the effective role of the dimension
-    if (
-        path1
-        and path2
-        and path1[-1].split(SEPARATOR)[-1] == path2[-1].split(SEPARATOR)[-1]
-    ):
-        return True
-    return False  # pragma: no cover
 
 
 def group_dimensions_by_name(
