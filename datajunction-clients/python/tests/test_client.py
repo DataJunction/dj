@@ -381,3 +381,24 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             {"name": "spark", "version": "3.1.1"},
             {"name": "postgres", "version": "15.2"},
         ]
+
+    def test_get_dag(self, client):
+        """
+        Check that `node.upstreams()`, `node.downstreams()`, and `node.dimensions()`
+        all work as expected
+        """
+        num_repair_orders = client.metric("default.num_repair_orders")
+        result = num_repair_orders.upstreams()
+        assert result == ["default.repair_orders"]
+        result = num_repair_orders.downstreams()
+        assert result == ["default.cube_two"]
+        result = num_repair_orders.dimensions()
+        assert len(result) == 28
+
+        hard_hat = client.dimension("default.hard_hat")
+        result = hard_hat.upstreams()
+        assert result == ["default.hard_hats"]
+        result = hard_hat.downstreams()
+        assert result == []
+        result = hard_hat.dimensions()
+        assert len(result) == 18

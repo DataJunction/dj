@@ -215,13 +215,13 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
             select(
                 DimensionLink.node_revision_id,
                 DimensionLink.dimension_id,
-                func.concat(  # pylint: disable=not-callable
-                    literal("["),
-                    func.coalesce(  # pylint: disable=not-callable
+                (
+                    literal("[")
+                    + func.coalesce(  # pylint: disable=not-callable
                         DimensionLink.role,
                         literal(""),
-                    ),
-                    literal("]"),
+                    )
+                    + literal("]")
                 ).label("name"),
             ).select_from(DimensionLink),
         )
