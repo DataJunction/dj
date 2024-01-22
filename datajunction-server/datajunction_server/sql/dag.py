@@ -215,7 +215,7 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
             select(
                 DimensionLink.node_revision_id,
                 DimensionLink.dimension_id,
-                func.concat(
+                func.concat(  # pylint: disable=not-callable
                     literal("["),
                     func.coalesce(  # pylint: disable=not-callable
                         DimensionLink.role,
@@ -270,7 +270,11 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
             graph_branches.c.name.label("col_name"),
             next_node.id.label("path_end"),
             (
-                dimensions_graph.c.join_path + "." + graph_branches.c.name + "," + next_node.name
+                dimensions_graph.c.join_path
+                + "."
+                + graph_branches.c.name
+                + ","
+                + next_node.name
             ).label(
                 "join_path",
             ),
@@ -391,13 +395,21 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
         )
     )
 
+    def _extract_roles_from_path(join_path) -> str:
+        """Extracts dimension roles from the query results' join path"""
+        roles = [
+            path.replace("[", "").replace("]", "").split(".")[-1]
+            for path in join_path.split(",")
+            if "[" in path  # this indicates that this a role
+        ]
+        return f"[{'->'.join(roles)}]" if roles else ""
+
     # Only include a given column it's an attribute on a dimension node or
     # if the column is tagged with the attribute type 'dimension'
     return sorted(
         [
             DimensionAttributeOutput(
-                name=f"{node_name}.{column_name}"
-                f"[{'->'.join([path.replace('[', '').replace(']', '').split('.')[-1] for path in join_path.split(',') if '[' in path])}]",
+                name=f"{node_name}.{column_name}{_extract_roles_from_path(join_path)}",
                 node_name=node_name,
                 node_display_name=node_display_name,
                 is_primary_key=(
