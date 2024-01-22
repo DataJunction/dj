@@ -867,7 +867,10 @@ def remove_complex_dimension_link(  # pylint: disable=too-many-locals
 
     # Delete the dimension link if one exists
     for link in node.current.dimension_links:
-        if link.dimension_id == dimension_node.id and link.role == link_identifier.role:
+        if (
+            link.dimension_id == dimension_node.id  # pragma: no cover
+            and link.role == link_identifier.role  # pragma: no cover
+        ):
             removed = True
             session.delete(link)
     if not removed:

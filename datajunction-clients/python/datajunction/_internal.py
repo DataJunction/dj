@@ -323,6 +323,36 @@ class DJClient:
         except DJClientException as exc:  # pragma: no cover
             return exc.__dict__
 
+    def _get_node_upstreams(self, node_name: str):
+        """
+        Retrieves a node's upstreams
+        """
+        try:
+            response = self._session.get(f"/nodes/{node_name}/upstream")
+            return response.json()
+        except DJClientException as exc:  # pragma: no cover
+            return exc.__dict__
+
+    def _get_node_downstreams(self, node_name: str):
+        """
+        Retrieves a node's downstreams
+        """
+        try:
+            response = self._session.get(f"/nodes/{node_name}/downstream")
+            return response.json()
+        except DJClientException as exc:  # pragma: no cover
+            return exc.__dict__
+
+    def _get_node_dimensions(self, node_name: str):
+        """
+        Retrieves a node's dimensions
+        """
+        try:
+            response = self._session.get(f"/nodes/{node_name}/dimensions")
+            return response.json()
+        except DJClientException as exc:  # pragma: no cover
+            return exc.__dict__
+
     def _get_cube(self, node_name: str):
         """
         Retrieves a Cube node.
@@ -364,6 +394,33 @@ class DJClient:
         )
         return response.json()
 
+    def _link_complex_dimension_to_node(  # pylint: disable=too-many-arguments
+        self,
+        node_name: str,
+        dimension_node: str,
+        join_type: Optional[str] = None,
+        *,
+        join_on: str,
+        join_cardinality: Optional[str] = None,
+        role: Optional[str] = None,
+    ):
+        """
+        Helper function to link a dimension to the node.
+        """
+        params = {
+            "dimension_node": dimension_node,
+            "join_type": join_type or "LEFT",
+            "join_on": join_on,
+            "join_cardinality": join_cardinality or "one_to_one",
+            "role": role,
+        }
+        response = self._session.post(
+            f"/nodes/{node_name}/link/",
+            timeout=self._timeout,
+            json=params,
+        )
+        return response.json()
+
     def _unlink_dimension_from_node(
         self,
         node_name: str,
@@ -378,6 +435,25 @@ class DJClient:
             f"/nodes/{node_name}/columns/{column_name}/"
             f"?dimension={dimension_name}&dimension_column={dimension_column}",
             timeout=self._timeout,
+        )
+        return response.json()
+
+    def _remove_complex_dimension_link(
+        self,
+        node_name: str,
+        dimension_node: str,
+        role: Optional[str] = None,
+    ):
+        """
+        Helper function to link a dimension to the node.
+        """
+        response = self._session.delete(
+            f"/nodes/{node_name}/link/",
+            timeout=self._timeout,
+            json={
+                "dimension_node": dimension_node,
+                "role": role,
+            },
         )
         return response.json()
 
