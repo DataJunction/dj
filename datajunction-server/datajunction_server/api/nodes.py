@@ -762,16 +762,16 @@ def add_complex_dimension_link(  # pylint: disable=too-many-locals
     ctx = ast.CompileContext(session=session, exception=exc)
     join_query.compile(ctx)
     join_relation = join_query.select.from_.relations[0].extensions[0]  # type: ignore
-    join_on = join_query.select.from_.relations[0].extensions[0].criteria.on
 
     # Verify that the query references both the node and the dimension being joined
     expected_references = {node_name, link_input.dimension_node}
     references = {
-        table.name.namespace.identifier() for table in join_on.find_all(ast.Column)
+        table.name.namespace.identifier()  # type: ignore
+        for table in join_relation.criteria.on.find_all(ast.Column)  # type: ignore
     }
     if expected_references.difference(references):
         raise DJInvalidInputException(
-            message=f"The join SQL provided does not reference both the origin node {node_name} and the "
+            f"The join SQL provided does not reference both the origin node {node_name} and the "
             f"dimension node {link_input.dimension_node} that it's being joined to.",
         )
 
@@ -788,13 +788,6 @@ def add_complex_dimension_link(  # pylint: disable=too-many-locals
         for link in node.current.dimension_links
         if link.dimension_id == dimension_node.id and link.role == link_input.role
     ]
-    if existing_link:
-        print(
-            "existing_link",
-            node.current.dimension_links[0].role,
-            link_input.role,
-            existing_link,
-        )
     is_update = False
 
     if existing_link:
@@ -877,7 +870,15 @@ def remove_complex_dimension_link(  # pylint: disable=too-many-locals
         if link.dimension_id == dimension_node.id and link.role == link_identifier.role:
             removed = True
             session.delete(link)
-
+    if not removed:
+        return JSONResponse(
+            status_code=HTTPStatus.NOT_FOUND,
+            content={
+                "message": f"Dimension link to node {link_identifier.dimension_node} "
+                + (f"with role {link_identifier.role} " if link_identifier.role else "")
+                + "not found",
+            },
+        )
     session.add(
         History(
             entity_type=EntityType.LINK,

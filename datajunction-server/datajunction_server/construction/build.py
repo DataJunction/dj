@@ -129,10 +129,6 @@ def _get_or_build_join_table(
         as_=True,
     )
     join_table.compile(CompileContext(session, DJException()))
-    # for col in join_table.columns:
-    #     print("join_table", str(col), str(join_table))
-    #     col._table = join_table  # pylint: disable=protected-access
-    #     print("join_table[after]", str(col), str(join_table))
     join_table.set_alias(right_alias)  # type: ignore
     return join_right
 
@@ -242,7 +238,7 @@ def _build_joins_for_dimension(
 def join_tables_for_dimensions(
     session: Session,
     dimension_nodes_to_columns: Dict[NodeRevision, List[ast.Column]],
-    dimension_links: Dict[NodeRevision, Optional[DimensionLink]],
+    dimension_links: Dict[NodeRevision, DimensionLink],
     tables: DefaultDict[NodeRevision, List[ast.Table]],
     build_criteria: Optional[BuildCriteria] = None,
 ):
@@ -268,7 +264,7 @@ def join_tables_for_dimensions(
         }
         for col in required_dimension_columns:
             if isinstance(col.parent, ast.Subscript):
-                col.parent.swap(col)
+                col.parent.swap(col)  # pragma: no cover
 
         # Join the source tables (if necessary) for these dimension columns
         # onto each select clause
@@ -276,8 +272,10 @@ def join_tables_for_dimensions(
             if dim_node not in initial_nodes:  # need to join dimension
                 if dim_node in dimension_links and dimension_links[dim_node]:
                     link = dimension_links[dim_node]
+                    primary_node = select.from_.relations[-1].primary.identifier()  # type: ignore
                     join_query = parse(
-                        f"SELECT 1 FROM {select.from_.relations[-1].primary.identifier()} {link.join_type.name} JOIN {link.dimension.name} ON {link.join_sql}",
+                        f"SELECT 1 FROM {primary_node} "
+                        f"{link.join_type.name} JOIN {link.dimension.name} ON {link.join_sql}",
                     )
                     join_query.compile(ctx)
 
@@ -291,7 +289,7 @@ def join_tables_for_dimensions(
                         dim_node.current,
                         build_criteria,
                     )
-                    join_query.select.from_.relations[-1].extensions[
+                    join_query.select.from_.relations[-1].extensions[  # type: ignore
                         0
                     ].right = join_right.child
                     for dim_col in required_dimension_columns:
@@ -422,17 +420,17 @@ def dimension_columns_mapping(
 
 def dimension_links_mapping(
     select: ast.SelectExpression,
-) -> Dict[NodeRevision, Optional[str]]:
+) -> Dict[NodeRevision, DimensionLink]:
     """
     Extract all dimension nodes referenced by columns
     """
-    dimensions_to_join_sql: Dict[NodeRevision, Optional[str]] = {}
+    dimensions_to_join_sql: Dict[NodeRevision, DimensionLink] = {}
 
     for col in select.find_all(ast.Column):
         if isinstance(col.table, ast.Table):
             if node := col.table.dj_node:  # pragma: no cover
                 if node.type == NodeType.DIMENSION:
-                    dimensions_to_join_sql[node] = col.table.dimension_link
+                    dimensions_to_join_sql[node] = col.table.dimension_link  # type: ignore
     return dimensions_to_join_sql
 
 
@@ -537,7 +535,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 # if the dimension has a role (encoded in its subscript), attach the
                 # dimension role to the column metadata
                 if isinstance(dim, ast.Subscript):
-                    dim.expr.role = dim.index.identifier()
+                    dim.expr.role = dim.index.identifier()  # type: ignore
                     dim.swap(dim.expr)
 
             if include_dimensions_in_groupby:
@@ -569,7 +567,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 # if the dimension has a role (encoded in its subscript), attach the
                 # dimension role to the column metadata
                 if isinstance(col.parent, ast.Subscript):
-                    col.role = col.parent.index.identifier()
+                    col.role = col.parent.index.identifier()  # type: ignore
                     col.parent.swap(col)
 
                 if not dimensions:
@@ -842,11 +840,13 @@ def rename_columns(built_ast: ast.Query, node: NodeRevision):
         for i in range(  # pylint: disable=consider-using-enumerate
             len(built_ast.select.group_by),
         ):
-            if hasattr(built_ast.select.group_by[i], "alias"):
+            if hasattr(built_ast.select.group_by[i], "alias"):  # pragma: no cover
                 built_ast.select.group_by[i] = ast.Column(
-                    name=built_ast.select.group_by[i].name,
-                    _type=built_ast.select.group_by[i].type,
-                    _table=built_ast.select.group_by[i]._table,
+                    name=built_ast.select.group_by[i].name,  # type: ignore
+                    # pylint:disable=protected-access
+                    _type=built_ast.select.group_by[i].type,  # type: ignore
+                    # pylint:disable=protected-access
+                    _table=built_ast.select.group_by[i]._table,  # type: ignore
                 )
                 built_ast.select.group_by[i].alias = None
     return built_ast
@@ -977,7 +977,7 @@ def build_metric_nodes(
                     f"_{LOOKUP_CHARS.get('.')}_",
                     SEPARATOR,
                 )
-                + (f"[{expr.role}]" if expr.role else "")
+                + (f"[{expr.role}]" if expr.role else "")  # type: ignore
             )
             in dimensions
         ]
@@ -988,9 +988,10 @@ def build_metric_nodes(
             ):
                 if hasattr(parent_ast.select.group_by[i], "alias"):
                     parent_ast.select.group_by[i] = ast.Column(
-                        name=parent_ast.select.group_by[i].name,
-                        _type=parent_ast.select.group_by[i].type,
-                        _table=parent_ast.select.group_by[i]._table,
+                        name=parent_ast.select.group_by[i].name,  # type: ignore
+                        _type=parent_ast.select.group_by[i].type,  # type: ignore
+                        # pylint: disable=protected-access
+                        _table=parent_ast.select.group_by[i]._table,  # type: ignore
                     )
 
             if parent_ast.select.where:
