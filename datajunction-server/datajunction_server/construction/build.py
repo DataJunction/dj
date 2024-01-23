@@ -573,7 +573,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 # dimension role to the column metadata
                 if isinstance(col.parent, ast.Subscript):
                     if isinstance(col.parent.index, ast.Lambda):
-                        col.role = str(col)
+                        col.role = str(col.parent.index)
                     else:
                         col.role = col.parent.index.identifier()  # type: ignore
                     col.parent.swap(col)

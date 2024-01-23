@@ -402,7 +402,8 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
             for path in join_path.split(",")
             if "[" in path  # this indicates that this a role
         ]
-        return f"[{'->'.join(roles)}]" if roles else ""
+        non_empty_roles = [role for role in roles if role]
+        return f"[{'->'.join(non_empty_roles)}]" if non_empty_roles else ""
 
     # Only include a given column it's an attribute on a dimension node or
     # if the column is tagged with the attribute type 'dimension'
