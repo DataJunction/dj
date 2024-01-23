@@ -1642,6 +1642,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert len(data["columns"]) == 8
         assert response.status_code == 201
         assert data["status"] == "valid"
+        assert data["missing_table"] is False
 
         response = custom_client.get("/history?node=default.repair_orders")
         history = response.json()
@@ -1662,7 +1663,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data_second["version"] == "v3.0"
         assert data_second["node_revision_id"] != data["node_revision_id"]
         assert len(data_second["columns"]) == 8
-        assert data_second["status"] == "invalid"
+        assert data_second["status"] == "valid"
+        assert data_second["missing_table"] is True
 
         # Refresh it again, but this time the table is missing
         mocker.patch.object(
@@ -1679,7 +1681,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data_third["version"] == "v4.0"
         assert data_third["node_revision_id"] != data_second["node_revision_id"]
         assert len(data_third["columns"]) == 8
-        assert data_third["status"] == "invalid"
+        assert data_third["status"] == "valid"
+        assert data_third["missing_table"] is True
 
         # Refresh it again, back to normal state
         mocker.patch.object(
@@ -1695,6 +1698,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data_fourth["node_revision_id"] != data_second["node_revision_id"]
         assert len(data_fourth["columns"]) == 8
         assert data_fourth["status"] == "valid"
+        assert data_fourth["missing_table"] is False
 
     def test_create_update_source_node(
         self,

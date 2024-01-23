@@ -618,6 +618,7 @@ class SourceNodeFields(BaseModel):
     schema_: str
     table: str
     columns: List["SourceColumnOutput"]
+    missing_table: bool = False
 
 
 class CubeNodeFields(BaseModel):
@@ -778,6 +779,7 @@ class NodeOutput(OutputModel):
     created_at: UTCDatetime
     tags: List[TagOutput] = []
     current_version: str
+    missing_table: Optional[bool] = False
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         orm_mode = True

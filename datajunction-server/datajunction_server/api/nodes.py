@@ -1084,21 +1084,27 @@ def refresh_source_node(
         # continue with the update, if the table was not found
         pass
 
+    refresh_details = {}
     if new_columns:
         # check if any of the columns have changed (only continue with update if they have)
         column_changes = {col.identifier() for col in current_revision.columns} != {
             col.identifier() for col in new_columns
         }
-        # if the columns haven't changed and the node is valid, we don't need to do anything
+
+        # FIXME: there is a bug with type translation (bigint != long) - fix it. # pylint: disable=fixme
+
+        # if the columns haven't changed and the node has a table, we can skip the update
         if not column_changes:
-            if current_revision.status == NodeStatus.VALID:
+            if not source_node.missing_table:
                 return source_node
-            # if the columns haven't changed but the node is invalid, we should fix it
-            current_revision.status = NodeStatus.VALID
+            # if the columns haven't changed but the node has a missing table, we should fix it
+            source_node.missing_table = False
+            refresh_details["missing_table"] = "False"
     else:
         # since we don't see any columns, we'll assume the table is gone
-        current_revision.status = NodeStatus.INVALID
+        source_node.missing_table = True
         new_columns = current_revision.columns
+        refresh_details["missing_table"] = "True"
 
     # Create a new node revision with the updated columns and bump the version
     old_version = Version.parse(source_node.current_version)
@@ -1136,15 +1142,14 @@ def refresh_source_node(
     session.add(new_revision)
     session.add(source_node)
 
+    refresh_details["version"] = new_revision.version
     session.add(
         History(
             entity_type=EntityType.NODE,
             entity_name=source_node.name,
             node=source_node.name,
             activity_type=ActivityType.REFRESH,
-            details={
-                "version": new_revision.version,
-            },
+            details=refresh_details,
             user=current_user.username if current_user else None,
         ),
     )
