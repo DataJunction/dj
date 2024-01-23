@@ -283,11 +283,11 @@ FROM (
 
     response = dimensions_link_client.get("/nodes/default.events/dimensions")
     assert [(attr["name"], attr["path"]) for attr in response.json()] == [
-        ("default.users.account_type[]", ["default.events."]),
-        ("default.users.registration_country[]", ["default.events."]),
-        ("default.users.residence_country[]", ["default.events."]),
-        ("default.users.snapshot_date[]", ["default.events."]),
-        ("default.users.user_id[]", ["default.events."]),
+        ("default.users.account_type", ["default.events."]),
+        ("default.users.registration_country", ["default.events."]),
+        ("default.users.residence_country", ["default.events."]),
+        ("default.users.snapshot_date", ["default.events."]),
+        ("default.users.user_id", ["default.events."]),
     ]
 
 
@@ -491,15 +491,22 @@ GROUP BY default_DOT_users.user_id,
   default_DOT_users.registration_country""",
     )
 
-    # Get SQL for the downstream metric grouped by the user's registration country
+    # Get SQL for the downstream metric grouped by the user's registration country and
+    # filtered by the user's residence country
     response = dimensions_link_client.get(
-        "/sql/default.elapsed_secs?"
-        "dimensions=default.countries.name[user_direct->registration_country]"
-        "&dimensions=default.users.snapshot_date[user_direct]"
-        "&dimensions=default.users.registration_country[user_direct]",
+        "/sql/default.elapsed_secs?",
+        params={
+            "dimensions": [
+                "default.countries.name[user_direct->registration_country]",
+                "default.users.snapshot_date[user_direct]",
+                "default.users.registration_country[user_direct]",
+            ],
+            "filters": [
+                "default.countries.name[user_direct->registration_country] = 'NZ'",
+            ],
+        },
     )
     query = response.json()["sql"]
-    print("query!!", query)
     assert compare_query_strings(
         query,
         # pylint: disable=line-too-long
@@ -524,11 +531,69 @@ LEFT  JOIN (SELECT  default_DOT_users.user_id,
     default_DOT_users.account_type
  FROM examples.users AS default_DOT_users
 ) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+ WHERE  default_DOT_countries.name = 'NZ'
  GROUP BY  default_DOT_countries.name, default_DOT_users.snapshot_date, default_DOT_users.registration_country""",
     )
 
 
 def test_remove_dimension_link(
+    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+    link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
+    link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test removing complex dimension links
+    """
+    link_events_to_users_with_role_direct()
+    response = dimensions_link_client.delete(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "role": "user_direct",
+        },
+    )
+    assert response.json() == {
+        "message": "Dimension link default.users (role user_direct) to node "
+        "default.events has been removed.",
+    }
+
+    # Deleting again should not work
+    response = dimensions_link_client.delete(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "role": "user_direct",
+        },
+    )
+    assert response.json() == {
+        "message": "Dimension link to node default.users with role user_direct not found",
+    }
+
+    link_events_to_users_without_role()
+    response = dimensions_link_client.delete(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+        },
+    )
+    assert response.json() == {
+        "message": "Dimension link default.users to node "
+        "default.events has been removed.",
+    }
+
+    # Deleting again should not work
+    response = dimensions_link_client.delete(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+        },
+    )
+    assert response.json() == {
+        "message": "Dimension link to node default.users not found",
+    }
+
+
+def test_measures_sql(
     dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
     link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
     link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
