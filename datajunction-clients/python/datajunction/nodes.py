@@ -366,13 +366,13 @@ class NodeWithQuery(Node):
         )
         return True
 
-    def upstreams(self) -> List[str]:
+    def get_upstreams(self) -> List[str]:
         """
         Lists the upstream nodes of this node
         """
         return [node["name"] for node in self.dj_client._get_node_upstreams(self.name)]
 
-    def downstreams(self) -> List[str]:
+    def get_downstreams(self) -> List[str]:
         """
         Lists the downstream nodes of this node
         """
@@ -380,7 +380,7 @@ class NodeWithQuery(Node):
             node["name"] for node in self.dj_client._get_node_downstreams(self.name)
         ]
 
-    def dimensions(self) -> List[str]:
+    def get_dimensions(self) -> List[str]:
         """
         Lists dimensions available for the node
         """
