@@ -19,7 +19,7 @@ from datajunction_server.database.node import (
 )
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import SEPARATOR, get_settings
+from datajunction_server.utils import get_settings
 
 settings = get_settings()
 
@@ -215,9 +215,13 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
             select(
                 DimensionLink.node_revision_id,
                 DimensionLink.dimension_id,
-                func.coalesce(  # pylint: disable=not-callable
-                    DimensionLink.role,
-                    literal(""),
+                (
+                    literal("[")
+                    + func.coalesce(  # pylint: disable=not-callable
+                        DimensionLink.role,
+                        literal(""),
+                    )
+                    + literal("]")
                 ).label("name"),
             ).select_from(DimensionLink),
         )
@@ -263,10 +267,14 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
     paths = dimensions_graph.union_all(
         select(
             dimensions_graph.c.path_start,
-            column.name.label("col_name"),
+            graph_branches.c.name.label("col_name"),
             next_node.id.label("path_end"),
             (
-                dimensions_graph.c.join_path + "." + column.name + "," + next_node.name
+                dimensions_graph.c.join_path
+                + "."
+                + graph_branches.c.name
+                + ","
+                + next_node.name
             ).label(
                 "join_path",
             ),
@@ -285,11 +293,10 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
                     current_rev.node_id == current_node.id,
                 ),
             )
-            .join(NodeColumns, current_rev.id == NodeColumns.node_id)
-            .join(column, NodeColumns.column_id == column.id)
+            .join(graph_branches, current_rev.id == graph_branches.c.node_revision_id)
             .join(
                 next_node,
-                (column.dimension_id == next_node.id)
+                (next_node.id == graph_branches.c.dimension_id)
                 & (is_(next_node.deactivated_at, None)),
             )
             .join(
@@ -388,19 +395,34 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
         )
     )
 
+    def _extract_roles_from_path(join_path) -> str:
+        """Extracts dimension roles from the query results' join path"""
+        roles = [
+            path.replace("[", "").replace("]", "").split(".")[-1]
+            for path in join_path.split(",")
+            if "[" in path  # this indicates that this a role
+        ]
+        non_empty_roles = [role for role in roles if role]
+        return f"[{'->'.join(non_empty_roles)}]" if non_empty_roles else ""
+
     # Only include a given column it's an attribute on a dimension node or
     # if the column is tagged with the attribute type 'dimension'
     return sorted(
         [
             DimensionAttributeOutput(
-                name=f"{node_name}.{column_name}",
+                name=f"{node_name}.{column_name}{_extract_roles_from_path(join_path)}",
                 node_name=node_name,
                 node_display_name=node_display_name,
                 is_primary_key=(
                     attribute_types is not None and "primary_key" in attribute_types
                 ),
                 type=str(column_type),
-                path=join_path.split(",")[:-1] if join_path else [],
+                path=[
+                    path.replace("[", "").replace("]", "")
+                    for path in join_path.split(",")[:-1]
+                ]
+                if join_path
+                else [],
             )
             for (
                 node_name,
@@ -446,34 +468,6 @@ def get_dimensions(
             with_attributes,
         )
     return get_dimensions_dag(session, node.current, with_attributes)
-
-
-def check_convergence(path1: List[str], path2: List[str]) -> bool:
-    """
-    Determines whether two join paths converge before we reach the
-    final element, the dimension attribute.
-    """
-    if path1 == path2:
-        return True  # pragma: no cover
-    len1 = len(path1)
-    len2 = len(path2)
-    min_len = min(len1, len2)
-
-    for i in range(min_len):
-        partial1 = path1[len1 - i - 1 :]
-        partial2 = path2[len2 - i - 1 :]
-        if partial1 == partial2:
-            return True
-
-    # TODO: Once we introduce dimension roles, we can remove this.  # pylint: disable=fixme
-    # To workaround this for now, we're using column names as the effective role of the dimension
-    if (
-        path1
-        and path2
-        and path1[-1].split(SEPARATOR)[-1] == path2[-1].split(SEPARATOR)[-1]
-    ):
-        return True
-    return False  # pragma: no cover
 
 
 def group_dimensions_by_name(
@@ -530,16 +524,8 @@ def get_shared_dimensions(
         common_dim_keys = common.keys() & list(node_dimensions.keys())
         if not common_dim_keys:
             return []
-        for common_dim in common_dim_keys:
-            for existing_attr in common[common_dim]:
-                for new_attr in node_dimensions[common_dim]:
-                    converged = check_convergence(existing_attr.path, new_attr.path)
-                    if not converged:
-                        to_delete.add(common_dim)  # pragma: no cover
-
         for dim_key in to_delete:
             del common[dim_key]  # pragma: no cover
-
     return sorted(
         [y for x in common.values() for y in x],
         key=lambda x: (x.name, x.path),

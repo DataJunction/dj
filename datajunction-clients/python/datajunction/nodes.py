@@ -179,6 +179,29 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         self.refresh()
         return link_response
 
+    def link_complex_dimension(  # pylint: disable=too-many-arguments
+        self,
+        dimension_node: str,
+        join_type: Optional[str] = None,
+        *,
+        join_on: str,
+        join_cardinality: Optional[str] = None,
+        role: Optional[str] = None,
+    ):
+        """
+        Links the dimension to this node via the specified join SQL.
+        """
+        link_response = self.dj_client._link_complex_dimension_to_node(
+            node_name=self.name,
+            dimension_node=dimension_node,
+            join_type=join_type,
+            join_on=join_on,
+            join_cardinality=join_cardinality,
+            role=role,
+        )
+        self.refresh()
+        return link_response
+
     def unlink_dimension(
         self,
         column: str,
@@ -196,6 +219,22 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         )
         self.refresh()
         return link_response
+
+    def remove_complex_dimension_link(
+        self,
+        dimension_node: str,
+        role: Optional[str] = None,
+    ):
+        """
+        Removes a complex dimension link from this node
+        """
+        unlink_response = self.dj_client._remove_complex_dimension_link(
+            node_name=self.name,
+            dimension_node=dimension_node,
+            role=role,
+        )
+        self.refresh()
+        return unlink_response
 
     def add_materialization(self, config: models.Materialization):
         """
@@ -326,6 +365,26 @@ class NodeWithQuery(Node):
             models.UpdateNode(mode=models.NodeMode.PUBLISHED),
         )
         return True
+
+    def get_upstreams(self) -> List[str]:
+        """
+        Lists the upstream nodes of this node
+        """
+        return [node["name"] for node in self.dj_client._get_node_upstreams(self.name)]
+
+    def get_downstreams(self) -> List[str]:
+        """
+        Lists the downstream nodes of this node
+        """
+        return [
+            node["name"] for node in self.dj_client._get_node_downstreams(self.name)
+        ]
+
+    def get_dimensions(self) -> List[str]:
+        """
+        Lists dimensions available for the node
+        """
+        return self.dj_client._get_node_dimensions(self.name)
 
 
 class Transform(NodeWithQuery):

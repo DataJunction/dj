@@ -1812,6 +1812,119 @@ LATERAL_VIEW = (  # type: ignore
     ),
 )
 
+COMPLEX_DIMENSION_LINK = (
+    (
+        "/nodes/source/",
+        {
+            "columns": [
+                {"name": "user_id", "type": "int"},
+                {"name": "event_start_date", "type": "int"},
+                {"name": "event_end_date", "type": "int"},
+                {"name": "elapsed_secs", "type": "int"},
+            ],
+            "description": "Events table",
+            "mode": "published",
+            "name": "default.events_table",
+            "catalog": "default",
+            "schema_": "examples",
+            "table": "events",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "columns": [
+                {"name": "user_id", "type": "int"},
+                {"name": "snapshot_date", "type": "int"},
+                {"name": "registration_country", "type": "string"},
+                {"name": "residence_country", "type": "string"},
+                {"name": "account_type", "type": "string"},
+            ],
+            "description": "Users table",
+            "mode": "published",
+            "name": "default.users_table",
+            "catalog": "default",
+            "schema_": "examples",
+            "table": "users",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "columns": [
+                {"name": "country_code", "type": "string"},
+                {"name": "name", "type": "string"},
+                {"name": "population", "type": "int"},
+            ],
+            "description": "Countries table",
+            "mode": "published",
+            "name": "default.countries_table",
+            "catalog": "default",
+            "schema_": "examples",
+            "table": "countries",
+        },
+    ),
+    (
+        "/nodes/transform/",
+        {
+            "description": "Events fact",
+            "query": """
+        SELECT
+            user_id,
+            event_start_date,
+            event_end_date,
+            elapsed_secs
+        FROM default.events_table
+    """,
+            "mode": "published",
+            "name": "default.events",
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "description": "Users",
+            "query": """
+        SELECT
+            user_id,
+            snapshot_date,
+            registration_country,
+            residence_country,
+            account_type
+        FROM default.users_table
+    """,
+            "mode": "published",
+            "name": "default.users",
+            "primary_key": ["user_id", "snapshot_date"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "description": "Countries",
+            "query": """
+        SELECT
+            country_code,
+            name,
+            population
+        FROM default.countries_table
+    """,
+            "mode": "published",
+            "name": "default.countries",
+            "primary_key": ["country_code"],
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "description": "Elapsed Time in Seconds",
+            "query": "SELECT SUM(elapsed_secs) FROM default.events",
+            "mode": "published",
+            "name": "default.elapsed_secs",
+        },
+    ),
+)
+
 DIMENSION_LINK = (  # type: ignore
     (
         "/nodes/source/",
