@@ -13,6 +13,7 @@ from datajunction_server.api.helpers import (
     activate_node,
     get_attribute_type,
     get_node_by_name,
+    map_dimensions_to_roles,
     propagate_valid_status,
     resolve_downstream_references,
     validate_cube,
@@ -301,6 +302,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     # Build the "columns" for this node based on the cube elements. These are used
     # for marking partition columns when the cube gets materialized.
     node_columns = []
+    dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions)
     for idx, col in enumerate(metric_columns + dimension_columns):
         referenced_node = col.node_revision()
         full_element_name = (
@@ -318,6 +320,9 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
             ],
             order=idx,
         )
+        if full_element_name in dimension_to_roles_mapping:
+            node_column.dimension_column = dimension_to_roles_mapping[full_element_name]
+
         node_columns.append(node_column)
 
     node_revision = NodeRevision(

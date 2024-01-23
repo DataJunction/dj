@@ -1,6 +1,7 @@
 """Functions to add to an ast DJ node queries"""
 import collections
 import logging
+import re
 import time
 
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
@@ -262,6 +263,7 @@ def join_tables_for_dimensions(
             cast(ast.Select, dim_col.get_nearest_parent_of_type(ast.Select))
             for dim_col in required_dimension_columns
         }
+        # if the dimension has a role (encoded in its subscript), remove the role
         for col in required_dimension_columns:
             if isinstance(col.parent, ast.Subscript):
                 col.parent.swap(col)  # pragma: no cover
@@ -1389,7 +1391,9 @@ def get_measures_query(
         session,
         metric_nodes,
     )
-
+    column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
+    matcher = re.compile(column_name_regex)
+    dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
     for parent_node, _ in common_parents.items():  # type: ignore
         measure_columns, dimensional_columns = [], []
         parent_ast = build_node(
@@ -1413,7 +1417,7 @@ def get_measures_query(
             ]
             in parents_to_measures[parent_node.name]
             or from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
-            in dimensions
+            in dimensions_without_roles
         ]
         parent_ast = rename_columns(parent_ast, parent_node.current)
 
@@ -1421,7 +1425,7 @@ def get_measures_query(
         # generate identifiers for them
         for expr in parent_ast.select.projection:
             column_identifier = expr.alias_or_name.identifier(False)  # type: ignore
-            if from_amenable_name(column_identifier) in dimensions:
+            if from_amenable_name(column_identifier) in dimensions_without_roles:
                 dimensional_columns.append(expr)
                 expr.set_semantic_type(SemanticType.DIMENSION)  # type: ignore
             else:
@@ -1479,15 +1483,16 @@ def get_measures_query(
                     outer_dimensional_columns,
                 )
             ]
-            combined_ast.select.from_.relations[0].extensions.append(  # type: ignore
-                ast.Join(
-                    "FULL OUTER",
-                    ast.Table(parent_ast_alias),
-                    ast.JoinCriteria(
-                        on=ast.BinaryOp.And(*join_parents_on),
+            if join_parents_on:  # pragma: no cover
+                combined_ast.select.from_.relations[0].extensions.append(  # type: ignore
+                    ast.Join(
+                        "FULL OUTER",
+                        ast.Table(parent_ast_alias),
+                        ast.JoinCriteria(
+                            on=ast.BinaryOp.And(*join_parents_on),
+                        ),
                     ),
-                ),
-            )
+                )
 
     # Include dimensions in the final select: COALESCE the dimensions across
     # all parent nodes, which will be used as the joins
