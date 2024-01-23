@@ -593,58 +593,59 @@ def test_remove_dimension_link(
     }
 
 
-def test_measures_sql(
+def test_measures_sql_with_dimension_roles(
     dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
     link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
-    link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
+    link_events_to_users_with_role_windowed,  # pylint: disable=redefined-outer-name
+    link_users_to_countries_with_role_registration,  # pylint: disable=redefined-outer-name
 ):
     """
-    Test removing complex dimension links
+    Test measures SQL with dimension roles
     """
     link_events_to_users_with_role_direct()
-    response = dimensions_link_client.delete(
-        "/nodes/default.events/link",
-        json={
-            "dimension_node": "default.users",
-            "role": "user_direct",
-        },
-    )
-    assert response.json() == {
-        "message": "Dimension link default.users (role user_direct) to node "
-        "default.events has been removed.",
+    link_events_to_users_with_role_windowed()
+    link_users_to_countries_with_role_registration()
+    sql_params = {
+        "metrics": ["default.elapsed_secs"],
+        "dimensions": [
+            "default.countries.name[user_direct->registration_country]",
+            "default.users.snapshot_date[user_direct]",
+            "default.users.registration_country[user_direct]",
+        ],
+        "filters": ["default.countries.name[user_direct->registration_country] = 'UG'"],
     }
-
-    # Deleting again should not work
-    response = dimensions_link_client.delete(
-        "/nodes/default.events/link",
-        json={
-            "dimension_node": "default.users",
-            "role": "user_direct",
-        },
+    response = dimensions_link_client.get("/sql/measures", params=sql_params)
+    query = response.json()["sql"]
+    assert compare_query_strings(
+        query,
+        """WITH
+default_DOT_events AS (SELECT  default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+    default_DOT_countries.name default_DOT_countries_DOT_name,
+    default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
+    default_DOT_users.registration_country default_DOT_users_DOT_registration_country
+ FROM (SELECT  default_DOT_events_table.user_id,
+    default_DOT_events_table.event_start_date,
+    default_DOT_events_table.event_end_date,
+    default_DOT_events_table.elapsed_secs
+ FROM examples.events AS default_DOT_events_table)
+ AS default_DOT_events INNER  JOIN (SELECT  default_DOT_countries.country_code,
+    default_DOT_countries.name,
+    default_DOT_countries.population
+ FROM examples.countries AS default_DOT_countries
+) default_DOT_countries ON default.users.registration_country = default_DOT_countries.country_code
+LEFT  JOIN (SELECT  default_DOT_users.user_id,
+    default_DOT_users.snapshot_date,
+    default_DOT_users.registration_country,
+    default_DOT_users.residence_country,
+    default_DOT_users.account_type
+ FROM examples.users AS default_DOT_users
+) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
+AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+ WHERE  default_DOT_countries.name = 'UG'
+)
+SELECT  default_DOT_events.default_DOT_events_DOT_elapsed_secs,
+    default_DOT_events.default_DOT_countries_DOT_name,
+    default_DOT_events.default_DOT_users_DOT_snapshot_date,
+    default_DOT_events.default_DOT_users_DOT_registration_country
+ FROM default_DOT_events""",
     )
-    assert response.json() == {
-        "message": "Dimension link to node default.users with role user_direct not found",
-    }
-
-    link_events_to_users_without_role()
-    response = dimensions_link_client.delete(
-        "/nodes/default.events/link",
-        json={
-            "dimension_node": "default.users",
-        },
-    )
-    assert response.json() == {
-        "message": "Dimension link default.users to node "
-        "default.events has been removed.",
-    }
-
-    # Deleting again should not work
-    response = dimensions_link_client.delete(
-        "/nodes/default.events/link",
-        json={
-            "dimension_node": "default.users",
-        },
-    )
-    assert response.json() == {
-        "message": "Dimension link to node default.users not found",
-    }
