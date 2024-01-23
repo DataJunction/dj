@@ -513,6 +513,33 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             "foo.bar.contractor has been successfully removed."
         )
 
+    def test_link_complex_dimension(self, client):
+        """
+        Check that linking complex dimensions to a node works as expected
+        """
+
+        repair_type = client.source("foo.bar.repair_type")
+        result = repair_type.link_complex_dimension(
+            dimension_node="foo.bar.contractor",
+            join_type="inner",
+            join_on="foo.bar.repair_type.contractor_id = foo.bar.contractor.contractor_id",
+            role="repair_contractor",
+        )
+        assert result["message"] == (
+            "Dimension node foo.bar.contractor has been "
+            "successfully linked to node foo.bar.repair_type."
+        )
+
+        # Unlink the dimension
+        result = repair_type.remove_complex_dimension_link(
+            dimension_node="foo.bar.contractor",
+            role="repair_contractor",
+        )
+        assert result["message"] == (
+            "Dimension link foo.bar.contractor (role repair_contractor) to "
+            "node foo.bar.repair_type has been removed."
+        )
+
     def test_sql(self, client):  # pylint: disable=unused-argument
         """
         Check that getting sql via the client works as expected.

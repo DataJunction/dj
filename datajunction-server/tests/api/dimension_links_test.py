@@ -1,26 +1,26 @@
 """Dimension linking related tests."""
-from unittest import mock
 
 import pytest
+from requests import Response
 from starlette.testclient import TestClient
 
 from tests.conftest import post_and_raise_if_error
-from tests.examples import EXAMPLES
+from tests.examples import COMPLEX_DIMENSION_LINK, SERVICE_SETUP
 from tests.sql.utils import compare_query_strings
 
 
 @pytest.fixture
-def dimensions_link_client(client_with_roads: TestClient) -> TestClient:
+def dimensions_link_client(client: TestClient) -> TestClient:
     """
     Add dimension link examples to the roads test client.
     """
-    for endpoint, json in EXAMPLES["DIMENSION_LINK"]:
+    for endpoint, json in SERVICE_SETUP + COMPLEX_DIMENSION_LINK:
         post_and_raise_if_error(  # type: ignore
-            client=client_with_roads,
+            client=client,
             endpoint=endpoint,
             json=json,  # type: ignore
         )
-    return client_with_roads
+    return client
 
 
 def test_link_dimension_with_errors(
@@ -30,12 +30,10 @@ def test_link_dimension_with_errors(
     Test linking dimensions with errors
     """
     response = dimensions_link_client.post(
-        "/nodes/default.num_repair_orders/link",
+        "/nodes/default.elapsed_secs/link",
         json={
-            "dimension_node": "default.date_dim",
-            "join_sql": (
-                "default.num_repair_orders A JOIN default.date_dim D ON A.x = D.y"
-            ),
+            "dimension_node": "default.users",
+            "join_on": ("default.elapsed_secs.x = default.users.y"),
             "join_cardinality": "many_to_one",
         },
     )
@@ -44,376 +42,610 @@ def test_link_dimension_with_errors(
         "dimension, or transform node."
     )
     response = dimensions_link_client.post(
-        "/nodes/default.regional_level_agg/link",
+        "/nodes/default.events/link",
         json={
-            "dimension_node": "default.date_dim",
-            "join_sql": (
-                "default.regional_level_agg A JOIN default.regional_level_agg D "
-                "ON A.order_year = D.order_year"
-            ),
+            "dimension_node": "default.users",
+            "join_on": ("default.users.user_id = default.users.user_id"),
             "join_cardinality": "many_to_one",
         },
     )
     assert response.json()["message"] == (
-        "The join SQL provided does not reference both the origin node "
-        "default.regional_level_agg and the dimension node default.date_dim that "
-        "it's being joined to."
+        "The join SQL provided does not reference both the origin node default.events "
+        "and the dimension node default.users that it's being joined to."
     )
 
     response = dimensions_link_client.post(
-        "/nodes/default.regional_level_agg/link",
+        "/nodes/default.events/link",
         json={
-            "dimension_node": "default.date_dim",
-            "join_sql": (
-                "default.regional_level_agg A JOIN default.date_dim D "
-                "ON A.order_year = D.year "
-                "AND A.order_month = D.month "
-                "AND A.order_day = D.daym"
-            ),
+            "dimension_node": "default.users",
+            "join_on": ("default.events.order_year = default.users.year"),
             "join_cardinality": "many_to_one",
         },
     )
-    assert response.json()["message"] == "Column D.daym does not exist on node"
-
-    response = dimensions_link_client.post(
-        "/nodes/default.regional_level_agg/link",
-        json={
-            "dimension_node": "default.date_dim",
-            "join_sql": ("default.regional_level_agg A"),
-            "join_cardinality": "many_to_one",
-        },
-    )
-    assert response.json()["message"] == (
-        "Provided SQL `default.regional_level_agg A` does not contain JOIN clause"
+    assert (
+        response.json()["message"]
+        == "Join query default.events.order_year = default.users.year is not valid"
     )
 
 
-def test_link_dimension_success(
+@pytest.fixture
+def link_events_to_users_without_role(
     dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
 ):
     """
-    Test linking dimensions (with join SQL) successfully
+    Link events with the users dimension without a role
     """
-    response = dimensions_link_client.post(
-        "/nodes/default.regional_level_agg/link",
-        json={
-            "dimension_node": "default.date_dim",
-            "join_sql": (
-                "default.regional_level_agg A LEFT JOIN default.date_dim D "
-                "ON A.order_year = D.year "
-                "AND A.order_month = D.month "
-                "AND A.order_day = D.day"
-            ),
-            "join_cardinality": "many_to_one",
-        },
-    )
+
+    def _link_events_to_users_without_role() -> Response:
+        response = dimensions_link_client.post(
+            "/nodes/default.events/link",
+            json={
+                "dimension_node": "default.users",
+                "join_type": "left",
+                "join_on": (
+                    "default.events.user_id = default.users.user_id "
+                    "AND default.events.event_start_date = default.users.snapshot_date"
+                ),
+                "join_cardinality": "one_to_one",
+            },
+        )
+        return response
+
+    return _link_events_to_users_without_role
+
+
+@pytest.fixture
+def link_events_to_users_with_role_direct(
+    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Link events with the users dimension with the role "user_direct",
+    indicating a direct mapping between the user's snapshot date with the
+    event's start date
+    """
+
+    def _link_events_to_users_with_role_direct() -> Response:
+        response = dimensions_link_client.post(
+            "/nodes/default.events/link",
+            json={
+                "dimension_node": "default.users",
+                "join_type": "left",
+                "join_on": (
+                    "default.events.user_id = default.users.user_id "
+                    "AND default.events.event_start_date = default.users.snapshot_date"
+                ),
+                "join_cardinality": "one_to_one",
+                "role": "user_direct",
+            },
+        )
+        return response
+
+    return _link_events_to_users_with_role_direct
+
+
+@pytest.fixture
+def link_events_to_users_with_role_windowed(
+    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Link events with the users dimension with the role "user_windowed",
+    indicating windowed join between events and the user dimension
+    """
+
+    def _link_events_to_users_with_role_windowed() -> Response:
+        response = dimensions_link_client.post(
+            "/nodes/default.events/link",
+            json={
+                "dimension_node": "default.users",
+                "join_type": "left",
+                "join_on": "default.events.user_id = default.users.user_id "
+                "AND default.events.event_start_date BETWEEN default.users.snapshot_date "
+                "AND CAST(DATE_ADD(CAST(default.users.snapshot_date AS DATE), 10) AS INT)",
+                "join_cardinality": "one_to_many",
+                "role": "user_windowed",
+            },
+        )
+        return response
+
+    return _link_events_to_users_with_role_windowed
+
+
+@pytest.fixture
+def link_users_to_countries_with_role_registration(
+    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Link users to the countries dimension with role "registration_country".
+    """
+
+    def _link_users_to_countries_with_role_registration() -> Response:
+        response = dimensions_link_client.post(
+            "/nodes/default.users/link",
+            json={
+                "dimension_node": "default.countries",
+                "join_type": "inner",
+                "join_on": "default.users.registration_country = default.countries.country_code ",
+                "join_cardinality": "one_to_one",
+                "role": "registration_country",
+            },
+        )
+        return response
+
+    return _link_users_to_countries_with_role_registration
+
+
+def test_link_complex_dimension_without_role(
+    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name,
+    link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test linking complex dimension without role
+    """
+    response = link_events_to_users_without_role()
     assert response.json() == {
-        "message": "Dimension node default.date_dim has been successfully linked to "
-        "node default.regional_level_agg.",
+        "message": "Dimension node default.users has been successfully "
+        "linked to node default.events.",
     }
 
-    response = dimensions_link_client.get("/nodes/default.regional_level_agg")
+    response = dimensions_link_client.get("/nodes/default.events")
     assert response.json()["dimension_links"] == [
         {
-            "dimension": {"name": "default.date_dim"},
-            "join_cardinality": "many_to_one",
-            "join_sql": "default.regional_level_agg A LEFT JOIN default.date_dim D ON "
-            "A.order_year = D.year AND A.order_month = D.month AND "
-            "A.order_day = D.day",
+            "dimension": {"name": "default.users"},
+            "join_cardinality": "one_to_one",
+            "join_sql": "default.events.user_id = default.users.user_id "
+            "AND default.events.event_start_date = default.users.snapshot_date",
+            "join_type": "left",
             "role": None,
         },
     ]
 
     # Update dimension link
     response = dimensions_link_client.post(
-        "/nodes/default.regional_level_agg/link",
+        "/nodes/default.events/link",
         json={
-            "dimension_node": "default.date_dim",
-            "join_sql": (
-                "default.regional_level_agg A JOIN default.date_dim D "
-                "ON A.order_year = D.year "
-                "AND A.order_month = D.month"
+            "dimension_node": "default.users",
+            "join_type": "left",
+            "join_on": (
+                "default.events.user_id = default.users.user_id "
+                "AND default.events.event_end_date = default.users.snapshot_date"
             ),
-            "join_cardinality": "many_to_one",
+            "join_cardinality": "one_to_many",
         },
     )
     assert response.json() == {
-        "message": "The dimension link between default.regional_level_agg and "
-        "default.date_dim has been successfully updated.",
+        "message": "The dimension link between default.events and "
+        "default.users has been successfully updated.",
     }
 
-    response = dimensions_link_client.get("/history?node=default.regional_level_agg")
-    assert [entry for entry in response.json() if entry["entity_type"] == "link"] == [
-        {
-            "activity_type": "create",
-            "created_at": mock.ANY,
-            "details": {
-                "dimension": "default.date_dim",
-                "join_cardinality": "many_to_one",
-                "join_sql": "default.regional_level_agg A LEFT JOIN default.date_dim "
-                "D ON A.order_year = D.year AND A.order_month = "
-                "D.month AND A.order_day = D.day",
+    response = dimensions_link_client.get("/history?node=default.events")
+    assert [
+        (entry["activity_type"], entry["details"])
+        for entry in response.json()
+        if entry["entity_type"] == "link"
+    ] == [
+        (
+            "create",
+            {
+                "dimension": "default.users",
+                "join_cardinality": "one_to_one",
+                "join_sql": "default.events.user_id = default.users.user_id AND "
+                "default.events.event_start_date = default.users.snapshot_date",
                 "role": None,
             },
-            "entity_name": "default.regional_level_agg",
-            "entity_type": "link",
-            "id": mock.ANY,
-            "node": "default.regional_level_agg",
-            "post": {},
-            "pre": {},
-            "user": mock.ANY,
-        },
-        {
-            "activity_type": "update",
-            "created_at": mock.ANY,
-            "details": {
-                "dimension": "default.date_dim",
-                "join_cardinality": "many_to_one",
-                "join_sql": "default.regional_level_agg A JOIN default.date_dim "
-                "D ON A.order_year = D.year AND A.order_month = D.month",
+        ),
+        (
+            "update",
+            {
+                "dimension": "default.users",
+                "join_cardinality": "one_to_many",
+                "join_sql": "default.events.user_id = default.users.user_id AND "
+                "default.events.event_end_date = default.users.snapshot_date",
                 "role": None,
             },
-            "entity_name": "default.regional_level_agg",
-            "entity_type": "link",
-            "id": mock.ANY,
-            "node": "default.regional_level_agg",
-            "post": {},
-            "pre": {},
-            "user": mock.ANY,
-        },
+        ),
     ]
 
+    # Switch back to original join definition
+    link_events_to_users_without_role()
+
     response = dimensions_link_client.get(
-        "/sql/default.regional_level_agg?dimensions=default.date_dim.year",
+        "/sql/default.events?dimensions=default.users.user_id"
+        "&dimensions=default.users.snapshot_date"
+        "&dimensions=default.users.registration_country",
     )
     query = response.json()["sql"]
-    compare_query_strings(
+    assert compare_query_strings(
         query,
         # pylint: disable=line-too-long
-        """SELECT
-  default_DOT_regional_level_agg.us_region_id default_DOT_regional_level_agg_DOT_us_region_id,
-  default_DOT_regional_level_agg.state_name default_DOT_regional_level_agg_DOT_state_name,
-  default_DOT_regional_level_agg.location_hierarchy default_DOT_regional_level_agg_DOT_location_hierarchy,
-  default_DOT_regional_level_agg.order_year default_DOT_regional_level_agg_DOT_order_year,
-  default_DOT_regional_level_agg.order_month default_DOT_regional_level_agg_DOT_order_month,
-  default_DOT_regional_level_agg.order_day default_DOT_regional_level_agg_DOT_order_day,
-  default_DOT_regional_level_agg.completed_repairs default_DOT_regional_level_agg_DOT_completed_repairs,
-  default_DOT_regional_level_agg.total_repairs_dispatched default_DOT_regional_level_agg_DOT_total_repairs_dispatched,
-  default_DOT_regional_level_agg.total_amount_in_region default_DOT_regional_level_agg_DOT_total_amount_in_region,
-  default_DOT_regional_level_agg.avg_repair_amount_in_region default_DOT_regional_level_agg_DOT_avg_repair_amount_in_region,
-  default_DOT_regional_level_agg.avg_dispatch_delay default_DOT_regional_level_agg_DOT_avg_dispatch_delay,
-  default_DOT_regional_level_agg.unique_contractors default_DOT_regional_level_agg_DOT_unique_contractors,
-  default.date_dim.year default_DOT_date_dim_DOT_year
+        """SELECT default_DOT_users.user_id default_DOT_events_DOT_user_id,
+  default_DOT_events.event_start_date default_DOT_events_DOT_event_start_date,
+  default_DOT_events.event_end_date default_DOT_events_DOT_event_end_date,
+  default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+  default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
+  default_DOT_users.registration_country default_DOT_users_DOT_registration_country
 FROM (
-    SELECT default_DOT_us_region.us_region_id,
-      default_DOT_us_states.state_name,
-      CONCAT(
-        default_DOT_us_states.state_name,
-        '-',
-        default_DOT_us_region.us_region_description
-      ) AS location_hierarchy,
-      EXTRACT(YEAR, ro.order_date) AS order_year,
-      EXTRACT(MONTH, ro.order_date) AS order_month,
-      EXTRACT(DAY, ro.order_date) AS order_day,
-      COUNT(
-        DISTINCT CASE
-          WHEN ro.dispatched_date IS NOT NULL THEN ro.repair_order_id
-          ELSE NULL
-        END
-      ) AS completed_repairs,
-      COUNT(DISTINCT ro.repair_order_id) AS total_repairs_dispatched,
-      SUM(
-        default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity
-      ) AS total_amount_in_region,
-      AVG(
-        default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity
-      ) AS avg_repair_amount_in_region,
-      AVG(DATEDIFF(ro.dispatched_date, ro.order_date)) AS avg_dispatch_delay,
-      COUNT(DISTINCT default_DOT_contractors.contractor_id) AS unique_contractors
-    FROM (
-        SELECT default_DOT_repair_orders.repair_order_id,
-          default_DOT_repair_orders.municipality_id,
-          default_DOT_repair_orders.hard_hat_id,
-          default_DOT_repair_orders.order_date,
-          default_DOT_repair_orders.required_date,
-          default_DOT_repair_orders.dispatched_date,
-          default_DOT_repair_orders.dispatcher_id
-        FROM roads.repair_orders AS default_DOT_repair_orders
-      ) AS ro
-      JOIN roads.municipality AS default_DOT_municipality ON ro.municipality_id = default_DOT_municipality.municipality_id
-      JOIN roads.us_states AS default_DOT_us_states ON default_DOT_municipality.state_id = default_DOT_us_states.state_id
-      AND AVG(
-        default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity
-      ) > (
-        SELECT AVG(
-            default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity
-          )
-        FROM roads.repair_order_details AS default_DOT_repair_order_details
-        WHERE default_DOT_repair_order_details.repair_order_id = ro.repair_order_id
-      )
-      JOIN roads.us_states AS default_DOT_us_states ON default_DOT_municipality.state_id = default_DOT_us_states.state_id
-      JOIN roads.us_region AS default_DOT_us_region ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_id
-      JOIN roads.repair_order_details AS default_DOT_repair_order_details ON ro.repair_order_id = default_DOT_repair_order_details.repair_order_id
-      JOIN roads.repair_type AS default_DOT_repair_type ON default_DOT_repair_order_details.repair_type_id = default_DOT_repair_type.repair_type_id
-      JOIN roads.contractors AS default_DOT_contractors ON default_DOT_repair_type.contractor_id = default_DOT_contractors.contractor_id
-    GROUP BY default_DOT_us_region.us_region_id,
-      EXTRACT(YEAR, ro.order_date),
-      EXTRACT(MONTH, ro.order_date),
-      EXTRACT(DAY, ro.order_date)
-  ) AS default_DOT_regional_level_agg
-  JOIN (
-    SELECT default_DOT_date.dateint,
-      default_DOT_date.month,
-      default_DOT_date.year,
-      default_DOT_date.day
-    FROM examples.date AS default_DOT_date
-  ) AS default_DOT_date_dim ON default.regional_level_agg.order_year = default_DOT_date_dim.year
-  AND default.regional_level_agg.order_month = default_DOT_date_dim.month
-        """,
+    SELECT default_DOT_events_table.user_id,
+      default_DOT_events_table.event_start_date,
+      default_DOT_events_table.event_end_date,
+      default_DOT_events_table.elapsed_secs
+    FROM examples.events AS default_DOT_events_table
+  ) AS default_DOT_events
+  LEFT JOIN (
+    SELECT default_DOT_users.user_id,
+      default_DOT_users.snapshot_date,
+      default_DOT_users.registration_country,
+      default_DOT_users.residence_country,
+      default_DOT_users.account_type
+    FROM examples.users AS default_DOT_users
+  ) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
+  AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date""",
     )
 
-    response = dimensions_link_client.get(
-        "/nodes/default.regional_level_agg/dimensions",
-    )
+    response = dimensions_link_client.get("/nodes/default.events/dimensions")
     assert [(attr["name"], attr["path"]) for attr in response.json()] == [
-        ("default.date_dim.dateint", ["default.regional_level_agg."]),
-        ("default.date_dim.day", ["default.regional_level_agg."]),
-        ("default.date_dim.month", ["default.regional_level_agg."]),
-        ("default.date_dim.year", ["default.regional_level_agg."]),
-        ("default.regional_level_agg.order_day", []),
-        ("default.regional_level_agg.order_month", []),
-        ("default.regional_level_agg.order_year", []),
-        ("default.regional_level_agg.state_name", []),
-        ("default.regional_level_agg.us_region_id", []),
+        ("default.users.account_type", ["default.events."]),
+        ("default.users.registration_country", ["default.events."]),
+        ("default.users.residence_country", ["default.events."]),
+        ("default.users.snapshot_date", ["default.events."]),
+        ("default.users.user_id", ["default.events."]),
     ]
 
 
-def test_link_dimension_with_role(
+def test_link_complex_dimension_with_role(
     dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+    link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
+    link_events_to_users_with_role_windowed,  # pylint: disable=redefined-outer-name
+    link_users_to_countries_with_role_registration,  # pylint: disable=redefined-outer-name
 ):
     """
-    Test linking dimension with role
+    Testing linking complex dimension with roles.
     """
-    # Link the date dimension with a role of "order_date"
-    response = dimensions_link_client.post(
-        "/nodes/default.regional_level_agg/link",
-        json={
-            "dimension_node": "default.date_dim",
-            "join_sql": (
-                "default.regional_level_agg A LEFT JOIN default.date_dim D "
-                "ON A.order_year = D.year "
-                "AND A.order_month = D.month "
-                "AND A.order_day = D.day"
-            ),
-            "join_cardinality": "many_to_one",
-            "role": "order_date",
-        },
-    )
-    assert response.status_code == 201
+    response = link_events_to_users_with_role_direct()
+    assert response.json() == {
+        "message": "Dimension node default.users has been successfully "
+        "linked to node default.events.",
+    }
 
-    response = dimensions_link_client.get(
-        "/nodes/default.regional_level_agg/dimensions",
-    )
-    assert [(attr["name"], attr["path"]) for attr in response.json()] == [
-        ("default.date_dim.dateint", ["default.regional_level_agg.order_date"]),
-        ("default.date_dim.day", ["default.regional_level_agg.order_date"]),
-        ("default.date_dim.month", ["default.regional_level_agg.order_date"]),
-        ("default.date_dim.year", ["default.regional_level_agg.order_date"]),
-        ("default.regional_level_agg.order_day", []),
-        ("default.regional_level_agg.order_month", []),
-        ("default.regional_level_agg.order_year", []),
-        ("default.regional_level_agg.state_name", []),
-        ("default.regional_level_agg.us_region_id", []),
-    ]
-
-    # Link the date dimension with a role of "backorder_date"
-    response = dimensions_link_client.post(
-        "/nodes/default.regional_level_agg/link",
-        json={
-            "dimension_node": "default.date_dim",
-            "join_sql": (
-                "default.regional_level_agg A LEFT JOIN default.date_dim D "
-                "ON A.order_year = D.year "
-                "AND A.order_month = D.month "
-                "AND A.order_day = D.day"
-            ),
-            "join_cardinality": "many_to_one",
-            "role": "backorder_date",
-        },
-    )
-    assert response.status_code == 201
-
-    response = dimensions_link_client.get("/nodes/default.regional_level_agg")
+    response = dimensions_link_client.get("/nodes/default.events")
     assert response.json()["dimension_links"] == [
         {
-            "dimension": {"name": "default.date_dim"},
-            "join_cardinality": "many_to_one",
-            "join_sql": "default.regional_level_agg A LEFT JOIN default.date_dim D ON "
-            "A.order_year = D.year AND A.order_month = D.month AND "
-            "A.order_day = D.day",
-            "role": "order_date",
-        },
-        {
-            "dimension": {"name": "default.date_dim"},
-            "join_cardinality": "many_to_one",
-            "join_sql": "default.regional_level_agg A LEFT JOIN default.date_dim D ON "
-            "A.order_year = D.year AND A.order_month = D.month AND "
-            "A.order_day = D.day",
-            "role": "backorder_date",
+            "dimension": {"name": "default.users"},
+            "join_cardinality": "one_to_one",
+            "join_sql": "default.events.user_id = default.users.user_id "
+            "AND default.events.event_start_date = default.users.snapshot_date",
+            "join_type": "left",
+            "role": "user_direct",
         },
     ]
 
-    response = dimensions_link_client.get(
-        "/nodes/default.regional_level_agg/dimensions",
-    )
-    assert [(attr["name"], attr["path"]) for attr in response.json()] == [
-        ("default.date_dim.dateint", ["default.regional_level_agg.backorder_date"]),
-        ("default.date_dim.dateint", ["default.regional_level_agg.order_date"]),
-        ("default.date_dim.day", ["default.regional_level_agg.backorder_date"]),
-        ("default.date_dim.day", ["default.regional_level_agg.order_date"]),
-        ("default.date_dim.month", ["default.regional_level_agg.backorder_date"]),
-        ("default.date_dim.month", ["default.regional_level_agg.order_date"]),
-        ("default.date_dim.year", ["default.regional_level_agg.backorder_date"]),
-        ("default.date_dim.year", ["default.regional_level_agg.order_date"]),
-        ("default.regional_level_agg.order_day", []),
-        ("default.regional_level_agg.order_month", []),
-        ("default.regional_level_agg.order_year", []),
-        ("default.regional_level_agg.state_name", []),
-        ("default.regional_level_agg.us_region_id", []),
-    ]
+    # Add a dimension link with different role
+    response = link_events_to_users_with_role_windowed()
+    assert response.json() == {
+        "message": "Dimension node default.users has been successfully linked to node "
+        "default.events.",
+    }
 
-    # Update the "backorder_date" dimension role
-    response = dimensions_link_client.post(
-        "/nodes/default.regional_level_agg/link",
-        json={
-            "dimension_node": "default.date_dim",
-            "join_sql": (
-                "default.regional_level_agg R LEFT JOIN default.date_dim D "
-                "ON R.order_year = D.year "
-                "AND R.order_month = D.month"
-            ),
-            "join_cardinality": "many_to_one",
-            "role": "backorder_date",
-        },
-    )
-    assert response.status_code == 201
+    # Add a dimension link on users for registration country
+    response = link_users_to_countries_with_role_registration()
+    assert response.json() == {
+        "message": "Dimension node default.countries has been successfully linked to node "
+        "default.users.",
+    }
 
-    # Check that only the backorder_date dimension role was updated
-    response = dimensions_link_client.get("/nodes/default.regional_level_agg")
+    response = dimensions_link_client.get("/nodes/default.events")
     assert response.json()["dimension_links"] == [
         {
-            "dimension": {"name": "default.date_dim"},
-            "join_cardinality": "many_to_one",
-            "join_sql": "default.regional_level_agg A LEFT JOIN default.date_dim D ON "
-            "A.order_year = D.year AND A.order_month = D.month AND "
-            "A.order_day = D.day",
-            "role": "order_date",
+            "dimension": {"name": "default.users"},
+            "join_cardinality": "one_to_one",
+            "join_sql": "default.events.user_id = default.users.user_id AND "
+            "default.events.event_start_date = default.users.snapshot_date",
+            "join_type": "left",
+            "role": "user_direct",
         },
         {
-            "dimension": {"name": "default.date_dim"},
-            "join_cardinality": "many_to_one",
-            "join_sql": "default.regional_level_agg R LEFT JOIN default.date_dim D ON "
-            "R.order_year = D.year AND R.order_month = D.month",
-            "role": "backorder_date",
+            "dimension": {"name": "default.users"},
+            "join_cardinality": "one_to_many",
+            "join_sql": "default.events.user_id = default.users.user_id AND "
+            "default.events.event_start_date BETWEEN "
+            "default.users.snapshot_date AND "
+            "CAST(DATE_ADD(CAST(default.users.snapshot_date AS DATE), 10) AS "
+            "INT)",
+            "join_type": "left",
+            "role": "user_windowed",
         },
     ]
+
+    # Verify that the dimensions on the downstream metric have roles specified
+    response = dimensions_link_client.get("/nodes/default.elapsed_secs/dimensions")
+    assert [(attr["name"], attr["path"]) for attr in response.json()] == [
+        (
+            "default.countries.country_code[user_direct->registration_country]",
+            ["default.events.user_direct", "default.users.registration_country"],
+        ),
+        (
+            "default.countries.country_code[user_windowed->registration_country]",
+            ["default.events.user_windowed", "default.users.registration_country"],
+        ),
+        (
+            "default.countries.name[user_direct->registration_country]",
+            ["default.events.user_direct", "default.users.registration_country"],
+        ),
+        (
+            "default.countries.name[user_windowed->registration_country]",
+            ["default.events.user_windowed", "default.users.registration_country"],
+        ),
+        (
+            "default.countries.population[user_direct->registration_country]",
+            ["default.events.user_direct", "default.users.registration_country"],
+        ),
+        (
+            "default.countries.population[user_windowed->registration_country]",
+            ["default.events.user_windowed", "default.users.registration_country"],
+        ),
+        ("default.users.account_type[user_direct]", ["default.events.user_direct"]),
+        ("default.users.account_type[user_windowed]", ["default.events.user_windowed"]),
+        (
+            "default.users.registration_country[user_direct]",
+            ["default.events.user_direct"],
+        ),
+        (
+            "default.users.registration_country[user_windowed]",
+            ["default.events.user_windowed"],
+        ),
+        (
+            "default.users.residence_country[user_direct]",
+            ["default.events.user_direct"],
+        ),
+        (
+            "default.users.residence_country[user_windowed]",
+            ["default.events.user_windowed"],
+        ),
+        ("default.users.snapshot_date[user_direct]", ["default.events.user_direct"]),
+        (
+            "default.users.snapshot_date[user_windowed]",
+            ["default.events.user_windowed"],
+        ),
+        ("default.users.user_id[user_direct]", ["default.events.user_direct"]),
+        ("default.users.user_id[user_windowed]", ["default.events.user_windowed"]),
+    ]
+
+    # Get SQL for the downstream metric grouped by the user dimension of role "user_windowed"
+    response = dimensions_link_client.get(
+        "/sql/default.elapsed_secs",
+        params={
+            "dimensions": [
+                "default.users.user_id[user_windowed]",
+                "default.users.snapshot_date[user_windowed]",
+                "default.users.registration_country[user_windowed]",
+            ],
+            "filters": ["default.users.registration_country[user_windowed] = 'NZ'"],
+        },
+    )
+    query = response.json()["sql"]
+    assert compare_query_strings(
+        query,
+        # pylint: disable=line-too-long
+        """SELECT SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs,
+  default_DOT_users.user_id default_DOT_users_DOT_user_id,
+  default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
+  default_DOT_users.registration_country default_DOT_users_DOT_registration_country
+FROM (
+    SELECT default_DOT_events_table.user_id,
+      default_DOT_events_table.event_start_date,
+      default_DOT_events_table.event_end_date,
+      default_DOT_events_table.elapsed_secs
+    FROM examples.events AS default_DOT_events_table
+  ) AS default_DOT_events
+  LEFT JOIN (
+    SELECT default_DOT_users.user_id,
+      default_DOT_users.snapshot_date,
+      default_DOT_users.registration_country,
+      default_DOT_users.residence_country,
+      default_DOT_users.account_type
+    FROM examples.users AS default_DOT_users
+  ) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
+  AND default_DOT_events.event_start_date BETWEEN default_DOT_users.snapshot_date AND CAST(
+    DATE_ADD(
+      CAST(default_DOT_users.snapshot_date AS DATE),
+      10
+    ) AS INT
+  )
+WHERE default_DOT_users.registration_country = 'NZ'
+GROUP BY default_DOT_users.user_id,
+  default_DOT_users.snapshot_date,
+  default_DOT_users.registration_country""",
+    )
+
+    # Get SQL for the downstream metric grouped by the user dimension of role "user"
+    response = dimensions_link_client.get(
+        "/sql/default.elapsed_secs?dimensions=default.users.user_id[user_direct]"
+        "&dimensions=default.users.snapshot_date[user_direct]"
+        "&dimensions=default.users.registration_country[user_direct]",
+    )
+    query = response.json()["sql"]
+    assert compare_query_strings(
+        query,
+        # pylint: disable=line-too-long
+        """SELECT SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs,
+  default_DOT_users.user_id default_DOT_users_DOT_user_id,
+  default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
+  default_DOT_users.registration_country default_DOT_users_DOT_registration_country
+FROM (
+    SELECT default_DOT_events_table.user_id,
+      default_DOT_events_table.event_start_date,
+      default_DOT_events_table.event_end_date,
+      default_DOT_events_table.elapsed_secs
+    FROM examples.events AS default_DOT_events_table
+  ) AS default_DOT_events
+  LEFT JOIN (
+    SELECT default_DOT_users.user_id,
+      default_DOT_users.snapshot_date,
+      default_DOT_users.registration_country,
+      default_DOT_users.residence_country,
+      default_DOT_users.account_type
+    FROM examples.users AS default_DOT_users
+  ) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
+  AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+GROUP BY default_DOT_users.user_id,
+  default_DOT_users.snapshot_date,
+  default_DOT_users.registration_country""",
+    )
+
+    # Get SQL for the downstream metric grouped by the user's registration country and
+    # filtered by the user's residence country
+    response = dimensions_link_client.get(
+        "/sql/default.elapsed_secs?",
+        params={
+            "dimensions": [
+                "default.countries.name[user_direct->registration_country]",
+                "default.users.snapshot_date[user_direct]",
+                "default.users.registration_country[user_direct]",
+            ],
+            "filters": [
+                "default.countries.name[user_direct->registration_country] = 'NZ'",
+            ],
+        },
+    )
+    query = response.json()["sql"]
+    assert compare_query_strings(
+        query,
+        # pylint: disable=line-too-long
+        """SELECT  SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs,
+    default_DOT_countries.name default_DOT_countries_DOT_name,
+    default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
+    default_DOT_users.registration_country default_DOT_users_DOT_registration_country
+ FROM (SELECT  default_DOT_events_table.user_id,
+    default_DOT_events_table.event_start_date,
+    default_DOT_events_table.event_end_date,
+    default_DOT_events_table.elapsed_secs
+ FROM examples.events AS default_DOT_events_table)
+ AS default_DOT_events INNER  JOIN (SELECT  default_DOT_countries.country_code,
+    default_DOT_countries.name,
+    default_DOT_countries.population
+ FROM examples.countries AS default_DOT_countries
+) default_DOT_countries ON default.users.registration_country = default_DOT_countries.country_code
+LEFT  JOIN (SELECT  default_DOT_users.user_id,
+    default_DOT_users.snapshot_date,
+    default_DOT_users.registration_country,
+    default_DOT_users.residence_country,
+    default_DOT_users.account_type
+ FROM examples.users AS default_DOT_users
+) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+ WHERE  default_DOT_countries.name = 'NZ'
+ GROUP BY  default_DOT_countries.name, default_DOT_users.snapshot_date, default_DOT_users.registration_country""",
+    )
+
+
+def test_remove_dimension_link(
+    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+    link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
+    link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test removing complex dimension links
+    """
+    link_events_to_users_with_role_direct()
+    response = dimensions_link_client.delete(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "role": "user_direct",
+        },
+    )
+    assert response.json() == {
+        "message": "Dimension link default.users (role user_direct) to node "
+        "default.events has been removed.",
+    }
+
+    # Deleting again should not work
+    response = dimensions_link_client.delete(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "role": "user_direct",
+        },
+    )
+    assert response.json() == {
+        "message": "Dimension link to node default.users with role user_direct not found",
+    }
+
+    link_events_to_users_without_role()
+    response = dimensions_link_client.delete(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+        },
+    )
+    assert response.json() == {
+        "message": "Dimension link default.users to node "
+        "default.events has been removed.",
+    }
+
+    # Deleting again should not work
+    response = dimensions_link_client.delete(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+        },
+    )
+    assert response.json() == {
+        "message": "Dimension link to node default.users not found",
+    }
+
+
+def test_measures_sql_with_dimension_roles(
+    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+    link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
+    link_events_to_users_with_role_windowed,  # pylint: disable=redefined-outer-name
+    link_users_to_countries_with_role_registration,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test measures SQL with dimension roles
+    """
+    link_events_to_users_with_role_direct()
+    link_events_to_users_with_role_windowed()
+    link_users_to_countries_with_role_registration()
+    sql_params = {
+        "metrics": ["default.elapsed_secs"],
+        "dimensions": [
+            "default.countries.name[user_direct->registration_country]",
+            "default.users.snapshot_date[user_direct]",
+            "default.users.registration_country[user_direct]",
+        ],
+        "filters": ["default.countries.name[user_direct->registration_country] = 'UG'"],
+    }
+    response = dimensions_link_client.get("/sql/measures", params=sql_params)
+    query = response.json()["sql"]
+    assert compare_query_strings(
+        query,
+        """WITH
+default_DOT_events AS (SELECT  default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+    default_DOT_countries.name default_DOT_countries_DOT_name,
+    default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
+    default_DOT_users.registration_country default_DOT_users_DOT_registration_country
+ FROM (SELECT  default_DOT_events_table.user_id,
+    default_DOT_events_table.event_start_date,
+    default_DOT_events_table.event_end_date,
+    default_DOT_events_table.elapsed_secs
+ FROM examples.events AS default_DOT_events_table)
+ AS default_DOT_events INNER  JOIN (SELECT  default_DOT_countries.country_code,
+    default_DOT_countries.name,
+    default_DOT_countries.population
+ FROM examples.countries AS default_DOT_countries
+) default_DOT_countries ON default.users.registration_country = default_DOT_countries.country_code
+LEFT  JOIN (SELECT  default_DOT_users.user_id,
+    default_DOT_users.snapshot_date,
+    default_DOT_users.registration_country,
+    default_DOT_users.residence_country,
+    default_DOT_users.account_type
+ FROM examples.users AS default_DOT_users
+) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
+AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+ WHERE  default_DOT_countries.name = 'UG'
+)
+SELECT  default_DOT_events.default_DOT_events_DOT_elapsed_secs,
+    default_DOT_events.default_DOT_countries_DOT_name,
+    default_DOT_events.default_DOT_users_DOT_snapshot_date,
+    default_DOT_events.default_DOT_users_DOT_registration_country
+ FROM default_DOT_events""",
+    )

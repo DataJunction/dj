@@ -509,10 +509,25 @@ class NodeRevision(
             raise DJInvalidInputException(  # pragma: no cover
                 "Cannot retrieve dimensions for a non-cube node!",
             )
-        ordering = {col.name: col.order for col in self.columns}
+        dimension_to_roles_mapping = {
+            col.name: col.dimension_column for col in self.columns
+        }
+        ordering = {
+            col.name + (col.dimension_column or ""): col.order for col in self.columns
+        }
         return sorted(
             [
-                node_revision.name + SEPARATOR + element.name
+                node_revision.name
+                + SEPARATOR
+                + element.name
+                + (
+                    dimension_to_roles_mapping[
+                        node_revision.name + SEPARATOR + element.name
+                    ]
+                    if node_revision.name + SEPARATOR + element.name
+                    in dimension_to_roles_mapping
+                    else ""
+                )
                 for element, node_revision in self.cube_elements_with_nodes()
                 if node_revision and node_revision.type != NodeType.METRIC
             ],

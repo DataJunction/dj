@@ -1,6 +1,7 @@
 """Functions to add to an ast DJ node queries"""
 import collections
 import logging
+import re
 import time
 
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
@@ -10,6 +11,7 @@ from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, 
 from sqlalchemy.orm import Session
 
 from datajunction_server.construction.utils import to_namespaced_name
+from datajunction_server.database import DimensionLink
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
@@ -120,9 +122,6 @@ def _get_or_build_join_table(
         join_table = build_ast(session, join_query)  # type: ignore
         join_table.parenthesized = True  # type: ignore
 
-    for col in join_table.columns:
-        col._table = join_table  # pylint: disable=protected-access
-
     join_table = cast(ast.TableExpression, join_table)  # type: ignore
     right_alias = ast.Name(table_node_alias)
     join_right = ast.Alias(  # type: ignore
@@ -130,6 +129,7 @@ def _get_or_build_join_table(
         child=join_table,
         as_=True,
     )
+    join_table.compile(CompileContext(session, DJException()))
     join_table.set_alias(right_alias)  # type: ignore
     return join_right
 
@@ -239,7 +239,7 @@ def _build_joins_for_dimension(
 def join_tables_for_dimensions(
     session: Session,
     dimension_nodes_to_columns: Dict[NodeRevision, List[ast.Column]],
-    dimension_links: Dict[NodeRevision, Optional[str]],
+    dimension_links: Dict[NodeRevision, DimensionLink],
     tables: DefaultDict[NodeRevision, List[ast.Table]],
     build_criteria: Optional[BuildCriteria] = None,
 ):
@@ -263,17 +263,40 @@ def join_tables_for_dimensions(
             cast(ast.Select, dim_col.get_nearest_parent_of_type(ast.Select))
             for dim_col in required_dimension_columns
         }
+        # if the dimension has a role (encoded in its subscript), remove the role
+        for col in required_dimension_columns:
+            if isinstance(col.parent, ast.Subscript):
+                col.parent.swap(col)  # pragma: no cover
 
         # Join the source tables (if necessary) for these dimension columns
         # onto each select clause
         for select in selects_map:
             if dim_node not in initial_nodes:  # need to join dimension
                 if dim_node in dimension_links and dimension_links[dim_node]:
-                    join_query = parse(f"SELECT 1 FROM {dimension_links[dim_node]}")
+                    link = dimension_links[dim_node]
+                    primary_node = select.from_.relations[-1].primary.identifier()  # type: ignore
+                    join_query = parse(
+                        f"SELECT 1 FROM {primary_node} "
+                        f"{link.join_type.name} JOIN {link.dimension.name} ON {link.join_sql}",
+                    )
                     join_query.compile(ctx)
-                    join_query.build(session, memoized_queries={})
+
                     alias = select.from_.relations[-1].primary.alias_or_name  # type: ignore
                     join_query.select.from_.relations[-1].primary.set_alias(alias)  # type: ignore
+
+                    # Assemble table on right of join
+                    join_query.build(session, memoized_queries={})
+                    join_right = _get_or_build_join_table(
+                        session,
+                        dim_node.current,
+                        build_criteria,
+                    )
+                    join_query.select.from_.relations[-1].extensions[  # type: ignore
+                        0
+                    ].right = join_right.child
+                    for dim_col in required_dimension_columns:
+                        join_right.child.add_ref_column(dim_col)
+
                     join_asts = join_query.select.from_.relations[-1].extensions  # type: ignore
                 else:
                     join_asts = _build_joins_for_dimension(
@@ -399,17 +422,17 @@ def dimension_columns_mapping(
 
 def dimension_links_mapping(
     select: ast.SelectExpression,
-) -> Dict[NodeRevision, Optional[str]]:
+) -> Dict[NodeRevision, DimensionLink]:
     """
     Extract all dimension nodes referenced by columns
     """
-    dimensions_to_join_sql: Dict[NodeRevision, Optional[str]] = {}
+    dimensions_to_join_sql: Dict[NodeRevision, DimensionLink] = {}
 
     for col in select.find_all(ast.Column):
         if isinstance(col.table, ast.Table):
             if node := col.table.dj_node:  # pragma: no cover
                 if node.type == NodeType.DIMENSION:
-                    dimensions_to_join_sql[node] = col.table.join_sql
+                    dimensions_to_join_sql[node] = col.table.dimension_link  # type: ignore
     return dimensions_to_join_sql
 
 
@@ -509,6 +532,17 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             temp_select = parse(
                 f"select * group by {agg}",
             ).select
+
+            for dim in temp_select.group_by:
+                # if the dimension has a role (encoded in its subscript), attach the
+                # dimension role to the column metadata
+                if isinstance(dim, ast.Subscript):
+                    if isinstance(dim.index, ast.Lambda):
+                        dim.expr.role = str(dim.index)
+                    else:
+                        dim.expr.role = dim.index.identifier()  # type: ignore
+                    dim.swap(dim.expr)
+
             if include_dimensions_in_groupby:
                 query.select.group_by += temp_select.group_by  # type:ignore
             for col in temp_select.find_all(ast.Column):
@@ -534,10 +568,16 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
         for filter_ in filters:
             # use parse to get the asts from the strings we got
             temp_select = parse(f"select * where {filter_}").select
-            filter_asts.append(
-                temp_select.where,  # type:ignore
-            )
             for col in temp_select.find_all(ast.Column):
+                # if the dimension has a role (encoded in its subscript), attach the
+                # dimension role to the column metadata
+                if isinstance(col.parent, ast.Subscript):
+                    if isinstance(col.parent.index, ast.Lambda):
+                        col.role = str(col.parent.index)
+                    else:
+                        col.role = col.parent.index.identifier()  # type: ignore
+                    col.parent.swap(col)
+
                 if not dimensions:
                     projection_addition[col.identifier(False)] = col
                 if access_control:
@@ -552,6 +592,9 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                             col,
                         )
 
+            filter_asts.append(
+                temp_select.where,  # type:ignore
+            )
         query.select.where = ast.BinaryOp.And(*filter_asts)
 
     if not query.select.organization:
@@ -806,7 +849,13 @@ def rename_columns(built_ast: ast.Query, node: NodeRevision):
             len(built_ast.select.group_by),
         ):
             if hasattr(built_ast.select.group_by[i], "alias"):  # pragma: no cover
-                built_ast.select.group_by[i] = built_ast.select.group_by[i].copy()
+                built_ast.select.group_by[i] = ast.Column(
+                    name=built_ast.select.group_by[i].name,  # type: ignore
+                    # pylint:disable=protected-access
+                    _type=built_ast.select.group_by[i].type,  # type: ignore
+                    # pylint:disable=protected-access
+                    _table=built_ast.select.group_by[i]._table,  # type: ignore
+                )
                 built_ast.select.group_by[i].alias = None
     return built_ast
 
@@ -848,7 +897,10 @@ def validate_shared_dimensions(
         columns_in_filter = temp_select.where.find_all(ast.Column)  # type: ignore
         dims_without_prefix = {dim.split(".")[-1]: dim for dim in shared_dimensions}
         for col in columns_in_filter:
-            if str(col) not in shared_dimensions:
+            if (
+                str(col) not in shared_dimensions
+                and str(col.parent) not in shared_dimensions
+            ):
                 potential_dimension_match = (
                     f" Did you mean `{dims_without_prefix[str(col)]}`?"
                     if str(col) in dims_without_prefix
@@ -928,9 +980,12 @@ def build_metric_nodes(
         parent_ast.select.projection = [
             expr
             for expr in parent_ast.select.projection
-            if expr.alias_or_name.identifier(False).replace(  # type: ignore
-                f"_{LOOKUP_CHARS.get('.')}_",
-                SEPARATOR,
+            if (
+                expr.alias_or_name.identifier(False).replace(  # type: ignore
+                    f"_{LOOKUP_CHARS.get('.')}_",
+                    SEPARATOR,
+                )
+                + (f"[{expr.role}]" if expr.role else "")  # type: ignore
             )
             in dimensions
         ]
@@ -939,9 +994,13 @@ def build_metric_nodes(
             for i in range(  # pylint: disable=consider-using-enumerate
                 len(parent_ast.select.group_by),
             ):
-                if hasattr(parent_ast.select.group_by[i], "alias"):  # pragma: no cover
-                    parent_ast.select.group_by[i] = parent_ast.select.group_by[i].copy()
-                    parent_ast.select.group_by[i].alias = None
+                if hasattr(parent_ast.select.group_by[i], "alias"):
+                    parent_ast.select.group_by[i] = ast.Column(
+                        name=parent_ast.select.group_by[i].name,  # type: ignore
+                        _type=parent_ast.select.group_by[i].type,  # type: ignore
+                        # pylint: disable=protected-access
+                        _table=parent_ast.select.group_by[i]._table,  # type: ignore
+                    )
 
             if parent_ast.select.where:
                 for col in parent_ast.select.where.find_all(ast.Column):
@@ -1338,7 +1397,9 @@ def get_measures_query(
         session,
         metric_nodes,
     )
-
+    column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
+    matcher = re.compile(column_name_regex)
+    dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
     for parent_node, _ in common_parents.items():  # type: ignore
         measure_columns, dimensional_columns = [], []
         parent_ast = build_node(
@@ -1362,7 +1423,7 @@ def get_measures_query(
             ]
             in parents_to_measures[parent_node.name]
             or from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
-            in dimensions
+            in dimensions_without_roles
         ]
         parent_ast = rename_columns(parent_ast, parent_node.current)
 
@@ -1370,7 +1431,7 @@ def get_measures_query(
         # generate identifiers for them
         for expr in parent_ast.select.projection:
             column_identifier = expr.alias_or_name.identifier(False)  # type: ignore
-            if from_amenable_name(column_identifier) in dimensions:
+            if from_amenable_name(column_identifier) in dimensions_without_roles:
                 dimensional_columns.append(expr)
                 expr.set_semantic_type(SemanticType.DIMENSION)  # type: ignore
             else:
@@ -1428,15 +1489,16 @@ def get_measures_query(
                     outer_dimensional_columns,
                 )
             ]
-            combined_ast.select.from_.relations[0].extensions.append(  # type: ignore
-                ast.Join(
-                    "FULL OUTER",
-                    ast.Table(parent_ast_alias),
-                    ast.JoinCriteria(
-                        on=ast.BinaryOp.And(*join_parents_on),
+            if join_parents_on:  # pragma: no cover
+                combined_ast.select.from_.relations[0].extensions.append(  # type: ignore
+                    ast.Join(
+                        "FULL OUTER",
+                        ast.Table(parent_ast_alias),
+                        ast.JoinCriteria(
+                            on=ast.BinaryOp.And(*join_parents_on),
+                        ),
                     ),
-                ),
-            )
+                )
 
     # Include dimensions in the final select: COALESCE the dimensions across
     # all parent nodes, which will be used as the joins
