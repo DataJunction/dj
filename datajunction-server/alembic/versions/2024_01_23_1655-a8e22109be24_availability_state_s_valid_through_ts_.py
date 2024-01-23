@@ -1,7 +1,7 @@
 """Availability state's valid_through_ts should be bigint
 
 Revision ID: a8e22109be24
-Revises: 20f060b02772
+Revises: c9cef8864ecb
 Create Date: 2024-01-23 16:55:20.951715+00:00
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "a8e22109be24"
-down_revision = "20f060b02772"
+down_revision = "c9cef8864ecb"
 branch_labels = None
 depends_on = None
 

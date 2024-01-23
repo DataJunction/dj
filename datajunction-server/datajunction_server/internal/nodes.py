@@ -842,6 +842,7 @@ def _create_node_from_inactive(
                 update_node.schema_ = data.schema_
                 update_node.table = data.table
                 update_node.columns = data.columns
+                update_node.missing_table = data.missing_table
 
             if isinstance(data, CreateNode):
                 update_node.query = data.query
