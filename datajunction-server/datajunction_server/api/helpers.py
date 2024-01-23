@@ -6,6 +6,7 @@ import asyncio
 import http.client
 import json
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -65,6 +66,8 @@ from datajunction_server.typing import END_JOB_STATES, UTCDatetime
 from datajunction_server.utils import SEPARATOR
 
 _logger = logging.getLogger(__name__)
+
+COLUMN_NAME_REGEX = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
 
 
 def get_node_namespace(  # pylint: disable=too-many-arguments
@@ -574,6 +577,16 @@ def propagate_valid_status(
         valid_nodes = resolved_nodes
 
 
+def map_dimensions_to_roles(dimensions: List[str]) -> Dict[str, str]:
+    """
+    Returns a mapping between dimension attributes and their roles.
+    For example, ["default.users.user_id[user]"] would turn into
+    {"default.users.user_id": "[user]"}
+    """
+    dimension_roles = [re.findall(COLUMN_NAME_REGEX, dim)[0] for dim in dimensions]
+    return {dim_rols[0]: dim_rols[1] for dim_rols in dimension_roles}
+
+
 def validate_cube(  # pylint: disable=too-many-locals
     session: Session,
     metric_names: List[str],
@@ -627,8 +640,14 @@ def validate_cube(  # pylint: disable=too-many-locals
             ) from exc
         dimension_nodes.append(dimension_node)
         columns = {col.name: col for col in dimension_node.current.columns}
-        if column_name in columns:  # pragma: no cover
-            dimensions.append(columns[column_name])
+
+        column_name_without_role = column_name
+        match = re.fullmatch(COLUMN_NAME_REGEX, column_name)
+        if match:
+            column_name_without_role = match.groups()[0]
+
+        if column_name_without_role in columns:  # pragma: no cover
+            dimensions.append(columns[column_name_without_role])
 
     if require_dimensions and not dimensions:
         raise DJException(
@@ -651,7 +670,7 @@ def validate_cube(  # pylint: disable=too-many-locals
     validate_shared_dimensions(
         session,
         metric_nodes,
-        [dim.full_name() for dim in dimensions],
+        dimension_names,
         [],
     )
     return metrics, metric_nodes, dimension_nodes, dimensions, catalog
