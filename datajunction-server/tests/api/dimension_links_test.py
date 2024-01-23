@@ -492,42 +492,40 @@ GROUP BY default_DOT_users.user_id,
     )
 
     # Get SQL for the downstream metric grouped by the user's registration country
-
-
-#     response = dimensions_link_client.get(
-#         "/sql/default.elapsed_secs?"
-#         "dimensions=default.countries.name[user_direct->registration_country]"
-#         "&dimensions=default.users.snapshot_date[user_direct]"
-#         "&dimensions=default.users.registration_country[user_direct]",
-#     )
-#     query = response.json()["sql"]
-#     assert compare_query_strings(
-#         query,
-#         # pylint: disable=line-too-long
-#         """SELECT SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs,
-#   default_DOT_users.user_id default_DOT_users_DOT_user_id,
-#   default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
-#   default_DOT_users.registration_country default_DOT_users_DOT_registration_country
-# FROM (
-#     SELECT default_DOT_events_table.user_id,
-#       default_DOT_events_table.event_start_date,
-#       default_DOT_events_table.event_end_date,
-#       default_DOT_events_table.elapsed_secs
-#     FROM examples.events AS default_DOT_events_table
-#   ) AS default_DOT_events
-#   LEFT JOIN (
-#     SELECT default_DOT_users.user_id,
-#       default_DOT_users.snapshot_date,
-#       default_DOT_users.registration_country,
-#       default_DOT_users.residence_country,
-#       default_DOT_users.account_type
-#     FROM examples.users AS default_DOT_users
-#   ) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
-#   AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
-# GROUP BY default_DOT_users.user_id,
-#   default_DOT_users.snapshot_date,
-#   default_DOT_users.registration_country""",
-#     )
+    response = dimensions_link_client.get(
+        "/sql/default.elapsed_secs?"
+        "dimensions=default.countries.name[user_direct->registration_country]"
+        "&dimensions=default.users.snapshot_date[user_direct]"
+        "&dimensions=default.users.registration_country[user_direct]",
+    )
+    query = response.json()["sql"]
+    print("query!!", query)
+    assert compare_query_strings(
+        query,
+        # pylint: disable=line-too-long
+        """SELECT  SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs,
+    default_DOT_countries.name default_DOT_countries_DOT_name,
+    default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
+    default_DOT_users.registration_country default_DOT_users_DOT_registration_country
+ FROM (SELECT  default_DOT_events_table.user_id,
+    default_DOT_events_table.event_start_date,
+    default_DOT_events_table.event_end_date,
+    default_DOT_events_table.elapsed_secs
+ FROM examples.events AS default_DOT_events_table)
+ AS default_DOT_events INNER  JOIN (SELECT  default_DOT_countries.country_code,
+    default_DOT_countries.name,
+    default_DOT_countries.population
+ FROM examples.countries AS default_DOT_countries
+) default_DOT_countries ON default.users.registration_country = default_DOT_countries.country_code
+LEFT  JOIN (SELECT  default_DOT_users.user_id,
+    default_DOT_users.snapshot_date,
+    default_DOT_users.registration_country,
+    default_DOT_users.residence_country,
+    default_DOT_users.account_type
+ FROM examples.users AS default_DOT_users
+) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+ GROUP BY  default_DOT_countries.name, default_DOT_users.snapshot_date, default_DOT_users.registration_country""",
+    )
 
 
 def test_remove_dimension_link(

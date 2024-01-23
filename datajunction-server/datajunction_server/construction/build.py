@@ -537,7 +537,10 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 # if the dimension has a role (encoded in its subscript), attach the
                 # dimension role to the column metadata
                 if isinstance(dim, ast.Subscript):
-                    dim.expr.role = dim.index.identifier()  # type: ignore
+                    if isinstance(dim.index, ast.Lambda):
+                        dim.expr.role = str(dim.index)
+                    else:
+                        dim.expr.role = dim.index.identifier()  # type: ignore
                     dim.swap(dim.expr)
 
             if include_dimensions_in_groupby:
@@ -569,7 +572,10 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 # if the dimension has a role (encoded in its subscript), attach the
                 # dimension role to the column metadata
                 if isinstance(col.parent, ast.Subscript):
-                    col.role = col.parent.index.identifier()  # type: ignore
+                    if isinstance(col.parent.index, ast.Lambda):
+                        col.role = str(col)
+                    else:
+                        col.role = col.parent.index.identifier()  # type: ignore
                     col.parent.swap(col)
 
                 if not dimensions:
