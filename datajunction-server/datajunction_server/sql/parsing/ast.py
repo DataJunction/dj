@@ -953,7 +953,10 @@ class Column(Aliasable, Named, Expression):
                         ]
                         to_process.append(new_table)
                 for link in current_table.dj_node.dimension_links:
-                    if link.role == self.role:
+                    all_roles = []
+                    if self.role:
+                        all_roles = self.role.split(" -> ")
+                    if (not link.role and not all_roles) or (link.role in all_roles):
                         new_table = Table(
                             name=to_namespaced_name(link.dimension.name),
                             _dj_node=link.dimension,
