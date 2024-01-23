@@ -405,13 +405,13 @@ class DJClient:
         role: Optional[str] = None,
     ):
         """
-        Helper function to link a dimension to the node.
+        Helper function to link a complex dimension to the node.
         """
         params = {
             "dimension_node": dimension_node,
             "join_type": join_type or "LEFT",
             "join_on": join_on,
-            "join_cardinality": join_cardinality or "one_to_one",
+            "join_cardinality": join_cardinality or "one_to_many",
             "role": role,
         }
         response = self._session.post(
@@ -445,7 +445,7 @@ class DJClient:
         role: Optional[str] = None,
     ):
         """
-        Helper function to link a dimension to the node.
+        Helper function to remove a complex dimension link.
         """
         response = self._session.delete(
             f"/nodes/{node_name}/link/",
