@@ -27,7 +27,7 @@ class AvailabilityState(Base):  # pylint: disable=too-few-public-methods
     catalog: Mapped[str]
     schema_: Mapped[Optional[str]] = mapped_column(nullable=True)
     table: Mapped[str]
-    valid_through_ts: Mapped[int]
+    valid_through_ts: Mapped[int] = mapped_column(sa.BigInteger())
     url: Mapped[Optional[str]]
 
     # An ordered list of categorical partitions like ["country", "group_id"]
