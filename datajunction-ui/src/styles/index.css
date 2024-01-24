@@ -1101,3 +1101,9 @@ pre {
   line-height: 1.55rem;
   font-size: 0.95rem;
 }
+
+.DimensionAttribute {
+  background: #effcff;
+  padding: 5px;
+  font-family: Consolas, serif;
+}

@@ -543,6 +543,13 @@ export const DataJunctionAPI = {
       })
     ).json();
   },
+  nodeDimensions: async function (nodeName) {
+    return await (
+      await fetch(`${DJ_URL}/nodes/${nodeName}/dimensions`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
   linkDimension: async function (nodeName, columnName, dimensionName) {
     const response = await fetch(
       `${DJ_URL}/nodes/${nodeName}/columns/${columnName}?dimension=${dimensionName}`,
