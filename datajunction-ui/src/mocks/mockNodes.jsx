@@ -43,6 +43,7 @@ export const mocks = {
     ],
     created_at: '2023-08-21T16:48:56.841631+00:00',
     tags: [{ name: 'purpose', display_name: 'Purpose' }],
+    dimension_links: [],
     dimensions: [
       {
         value: 'default.date_dim.dateint',

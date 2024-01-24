@@ -68,6 +68,7 @@ describe('<NodePage />', () => {
       query:
         'SELECT  avg(price) default_DOT_avg_repair_price \n FROM default.repair_order_details\n\n',
       availability: null,
+      dimension_links: [],
       columns: [
         {
           name: 'default_DOT_avg_repair_price',
