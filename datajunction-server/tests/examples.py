@@ -658,13 +658,6 @@ CROSS JOIN
         ),
         {},
     ),
-    # (
-    #     (
-    #         "/nodes/default.repair_orders_fact/columns/order_date/"
-    #         "?dimension=default.date_dim"
-    #     ),
-    #     {},
-    # ),
     (
         (
             "/nodes/default.repair_order_details/columns/repair_order_id/"

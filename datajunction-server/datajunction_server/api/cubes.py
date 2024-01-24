@@ -1,3 +1,4 @@
+# pylint: disable=too-many-arguments
 """
 Cube related APIs.
 """
