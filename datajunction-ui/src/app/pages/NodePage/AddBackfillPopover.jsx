@@ -1,10 +1,8 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import * as React from 'react';
 import DJClientContext from '../../providers/djclient';
-import { ErrorMessage, Field, Form, Formik } from 'formik';
-import { FormikSelect } from '../AddEditNodePage/FormikSelect';
-import EditIcon from '../../icons/EditIcon';
-import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
+import { Field, Form, Formik } from 'formik';
+import { displayMessageAfterSubmit } from '../../../utils/form';
 
 export default function AddBackfillPopover({
   node,
