@@ -21,9 +21,15 @@ depends_on = None
 def upgrade():
     with op.batch_alter_table("node", schema=None) as batch_op:
         batch_op.add_column(
+            sa.Column("missing_table", sa.Boolean(), nullable=True, default=False),
+        )
+
+    op.execute("UPDATE node SET missing_table = False WHERE missing_table IS NULL")
+
+    with op.batch_alter_table("node", schema=None) as batch_op:
+        batch_op.alter_column(
             sa.Column("missing_table", sa.Boolean(), nullable=False, default=False),
         )
-    op.execute("UPDATE node SET missing_table = False WHERE missing_table IS NULL")
 
 
 def downgrade():
