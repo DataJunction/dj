@@ -33,7 +33,9 @@ class AttributeType(Base):  # pylint: disable=too-few-public-methods
         return hash(self.id)
 
 
-class ColumnAttribute(Base):  # pylint: disable=too-few-public-methods
+class ColumnAttribute(
+    Base,
+):  # pylint: disable=too-few-public-methods,unsubscriptable-object
     """
     Column attributes.
     """

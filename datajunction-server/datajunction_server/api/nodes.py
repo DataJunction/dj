@@ -1,11 +1,11 @@
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines,too-many-arguments
 """
 Node related APIs.
 """
 import logging
 import os
 from http import HTTPStatus
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
@@ -37,7 +37,11 @@ from datajunction_server.database.history import ActivityType, EntityType, Histo
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.errors import (
+    DJDoesNotExistException,
+    DJException,
+    DJInvalidInputException,
+)
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     validate_access,
@@ -109,7 +113,7 @@ router = SecureAPIRouter(tags=["nodes"])
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
 def validate_node(
-    data: Union[NodeRevisionBase],
+    data: NodeRevisionBase,
     response: Response,
     session: Session = Depends(get_session),
 ) -> NodeValidation:
@@ -587,7 +591,7 @@ def create_cube(
     response_model=NodeOutput,
     status_code=201,
 )
-def register_table(  # pylint: disable=too-many-arguments
+def register_table(
     catalog: str,
     schema_: str,
     table: str,
@@ -641,7 +645,7 @@ def register_table(  # pylint: disable=too-many-arguments
 
 
 @router.post("/nodes/{name}/columns/{column}/", status_code=201)
-def link_dimension(  # pylint: disable=too-many-arguments
+def link_dimension(
     name: str,
     column: str,
     dimension: str,
@@ -916,7 +920,7 @@ def remove_complex_dimension_link(  # pylint: disable=too-many-locals
 
 
 @router.delete("/nodes/{name}/columns/{column}/", status_code=201)
-def delete_dimension_link(  # pylint: disable=too-many-arguments
+def delete_dimension_link(
     name: str,
     column: str,
     dimension: str,
@@ -1066,21 +1070,41 @@ def refresh_source_node(
     current_revision = source_node.current
 
     # Get the latest columns for the source node's table from the query service
-    columns = query_service_client.get_columns_for_table(
-        current_revision.catalog.name,
-        current_revision.schema_,  # type: ignore
-        current_revision.table,  # type: ignore
-        current_revision.catalog.engines[0]
-        if len(current_revision.catalog.engines) >= 1
-        else None,
-    )
+    new_columns = []
+    try:
+        new_columns = query_service_client.get_columns_for_table(
+            current_revision.catalog.name,
+            current_revision.schema_,  # type: ignore
+            current_revision.table,  # type: ignore
+            current_revision.catalog.engines[0]
+            if len(current_revision.catalog.engines) >= 1
+            else None,
+        )
+    except DJDoesNotExistException:
+        # continue with the update, if the table was not found
+        pass
 
-    # Check if any of the columns have changed (only continue with update if they have)
-    column_changes = {col.identifier() for col in current_revision.columns} != {
-        col.identifier() for col in columns
-    }
-    if not column_changes:
-        return source_node
+    refresh_details = {}
+    if new_columns:
+        # check if any of the columns have changed (only continue with update if they have)
+        column_changes = {col.identifier() for col in current_revision.columns} != {
+            col.identifier() for col in new_columns
+        }
+
+        # FIXME: there is a bug with type translation (bigint != long) - fix it. # pylint: disable=fixme
+
+        # if the columns haven't changed and the node has a table, we can skip the update
+        if not column_changes:
+            if not source_node.missing_table:
+                return source_node
+            # if the columns haven't changed but the node has a missing table, we should fix it
+            source_node.missing_table = False
+            refresh_details["missing_table"] = "False"
+    else:
+        # since we don't see any columns, we'll assume the table is gone
+        source_node.missing_table = True
+        new_columns = current_revision.columns
+        refresh_details["missing_table"] = "True"
 
     # Create a new node revision with the updated columns and bump the version
     old_version = Version.parse(source_node.current_version)
@@ -1104,7 +1128,7 @@ def refresh_source_node(
             node_revisions=[new_revision],
             order=idx,
         )
-        for idx, column in enumerate(columns)
+        for idx, column in enumerate(new_columns)
     ]
 
     # Keep the dimension links and attributes on the columns from the node's
@@ -1118,15 +1142,14 @@ def refresh_source_node(
     session.add(new_revision)
     session.add(source_node)
 
+    refresh_details["version"] = new_revision.version
     session.add(
         History(
             entity_type=EntityType.NODE,
             entity_name=source_node.name,
             node=source_node.name,
             activity_type=ActivityType.REFRESH,
-            details={
-                "version": new_revision.version,
-            },
+            details=refresh_details,
             user=current_user.username if current_user else None,
         ),
     )

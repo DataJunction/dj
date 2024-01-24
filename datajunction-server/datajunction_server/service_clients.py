@@ -1,4 +1,5 @@
 """Clients for various configurable services."""
+from http import HTTPStatus
 from typing import TYPE_CHECKING, List, Optional, Union
 from urllib.parse import urljoin
 
@@ -7,7 +8,10 @@ from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
 from datajunction_server.database.column import Column
-from datajunction_server.errors import DJQueryServiceClientException
+from datajunction_server.errors import (
+    DJDoesNotExistException,
+    DJQueryServiceClientException,
+)
 from datajunction_server.models.materialization import (
     DruidMaterializationInput,
     GenericMaterializationInput,
@@ -95,7 +99,19 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             if engine
             else {},
         )
+        if not response.ok:
+            if response.status_code == HTTPStatus.NOT_FOUND:
+                raise DJDoesNotExistException(
+                    message=f"Table not found: {response.text}",
+                )
+            raise DJQueryServiceClientException(
+                message=f"Error response from query service: {response.text}",
+            )
         table_columns = response.json()["columns"]
+        if not table_columns:
+            raise DJQueryServiceClientException(
+                message=f"No columns found: {response.text}",
+            )
         return [
             Column(name=column["name"], type=ColumnType(column["type"]), order=idx)
             for idx, column in enumerate(table_columns)
@@ -135,7 +151,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         query_info = response.json()
         return QueryWithResults(**query_info)
 
-    def materialize(  # pylint: disable=too-many-arguments
+    def materialize(
         self,
         materialization_input: Union[
             GenericMaterializationInput,

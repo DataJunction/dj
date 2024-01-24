@@ -1,4 +1,4 @@
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines,too-many-arguments
 """Nodes endpoint helper functions"""
 import logging
 from collections import defaultdict, deque
@@ -385,7 +385,7 @@ def save_node(
     session.refresh(node.current)
 
 
-def update_any_node(  # pylint: disable=too-many-arguments
+def update_any_node(
     name: str,
     data: UpdateNode,
     session: Session,
@@ -801,7 +801,7 @@ def copy_existing_node_revision(old_revision: NodeRevision):
     )
 
 
-def _create_node_from_inactive(  # pylint: disable=too-many-arguments
+def _create_node_from_inactive(
     new_node_type: NodeType,
     data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
     session: Session,
@@ -842,6 +842,7 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 update_node.schema_ = data.schema_
                 update_node.table = data.table
                 update_node.columns = data.columns
+                update_node.missing_table = data.missing_table
 
             if isinstance(data, CreateNode):
                 update_node.query = data.query
@@ -875,7 +876,7 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
     return None
 
 
-def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-arguments,too-many-branches
+def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-branches
     session: Session,
     old_revision: NodeRevision,
     node: Node,

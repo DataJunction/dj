@@ -13,7 +13,9 @@ from datajunction_server.models.node import (
 )
 
 
-class MetricMetadata(Base):  # pylint: disable=too-few-public-methods
+class MetricMetadata(
+    Base,
+):  # pylint: disable=too-few-public-methods,unsubscriptable-object
     """
     Additional metric metadata
     """

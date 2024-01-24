@@ -203,6 +203,8 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         secondaryjoin="TagNodeRelationship.tag_id==Tag.id",
     )
 
+    missing_table: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+
     def __hash__(self) -> int:
         return hash(self.id)
 
