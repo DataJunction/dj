@@ -5,6 +5,8 @@ import EditColumnPopover from './EditColumnPopover';
 import LinkDimensionPopover from './LinkDimensionPopover';
 import { labelize } from '../../../utils/form';
 import PartitionColumnPopover from './PartitionColumnPopover';
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 
 export default function NodeColumnTab({ node, djClient }) {
   const [attributes, setAttributes] = useState([]);
@@ -175,26 +177,65 @@ export default function NodeColumnTab({ node, djClient }) {
   };
 
   return (
-    <div className="table-responsive">
-      <table className="card-inner-table table">
-        <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-          <tr>
-            <th className="text-start">Column</th>
-            <th>Display Name</th>
-            <th>Type</th>
-            {node?.type !== 'cube' ? (
-              <>
-                <th>Linked Dimension</th>
-                <th>Attributes</th>
-              </>
-            ) : (
-              ''
-            )}
-            <th>Partition</th>
-          </tr>
-        </thead>
-        <tbody>{columnList(columns)}</tbody>
-      </table>
-    </div>
+    <>
+      <div className="table-responsive">
+        <table className="card-inner-table table">
+          <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
+            <tr>
+              <th className="text-start">Column</th>
+              <th>Display Name</th>
+              <th>Type</th>
+              {node?.type !== 'cube' ? (
+                <>
+                  <th>Linked Dimension</th>
+                  <th>Attributes</th>
+                </>
+              ) : (
+                ''
+              )}
+              <th>Partition</th>
+            </tr>
+          </thead>
+          <tbody>{columnList(columns)}</tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Linked Dimensions (Custom Join SQL)</h3>
+        <table className="card-inner-table table">
+          <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
+            <tr>
+              <th className="text-start">Dimension Node</th>
+              <th>Join Type</th>
+              <th>Join SQL</th>
+              <th>Role</th>
+            </tr>
+          </thead>
+          <tbody>
+            {node?.dimension_links.map(link => {
+              return (
+                <tr>
+                  <td>
+                    <a href={'/nodes/' + link.dimension.name}>
+                      {link.dimension.name}
+                    </a>
+                  </td>
+                  <td>{link.join_type.toUpperCase()}</td>
+                  <td style={{ width: '25rem', maxWidth: 'none' }}>
+                    <SyntaxHighlighter
+                      language="sql"
+                      style={foundation}
+                      wrapLongLines={true}
+                    >
+                      {link.join_sql}
+                    </SyntaxHighlighter>
+                  </td>
+                  <td>{link.role}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
