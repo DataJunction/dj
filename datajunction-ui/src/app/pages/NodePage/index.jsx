@@ -15,6 +15,7 @@ import NodesWithDimension from './NodesWithDimension';
 import NodeColumnLineage from './NodeLineageTab';
 import EditIcon from '../../icons/EditIcon';
 import AlertIcon from '../../icons/AlertIcon';
+import NodeDimensionsTab from "./NodeDimensionsTab";
 
 export function NodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -104,6 +105,11 @@ export function NodePage() {
         name: 'Lineage',
         display: node?.type === 'metric',
       },
+      {
+        id: 8,
+        name: 'Dimensions',
+        display: node?.type !== 'cube',
+      },
     ];
   };
 
@@ -136,6 +142,9 @@ export function NodePage() {
       break;
     case 7:
       tabToDisplay = <NodeColumnLineage djNode={node} djClient={djClient} />;
+      break;
+    case 8:
+      tabToDisplay = <NodeDimensionsTab node={node} djClient={djClient} />;
       break;
     default: /* istanbul ignore next */
       tabToDisplay = <NodeInfoTab node={node} />;
