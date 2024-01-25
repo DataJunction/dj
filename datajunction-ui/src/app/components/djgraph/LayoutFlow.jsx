@@ -32,8 +32,10 @@ const getLayoutedElements = (
   const nodeHeightTracker = {};
 
   nodes.forEach(node => {
-    nodeHeightTracker[node.id] =
-      Math.min(node.data.column_names.length, 10) * 40 + 250;
+    const minColumnsLength = node.data.column_names.filter(
+      col => col.order > 0,
+    ).length;
+    nodeHeightTracker[node.id] = Math.min(minColumnsLength, 5) * 40 + 250;
     dagreGraph.setNode(node.id, {
       width: nodeWidth,
       height: nodeHeightTracker[node.id],
@@ -52,7 +54,7 @@ const getLayoutedElements = (
     node.sourcePosition = isHorizontal ? 'right' : 'bottom';
     node.position = {
       x: nodeWithPosition.x - nodeWidth / 2,
-      y: nodeWithPosition.y - nodeHeightTracker[node.id] / 2,
+      y: nodeWithPosition.y - nodeHeightTracker[node.id] / 3,
     };
     node.width = nodeWidth;
     node.height = nodeHeightTracker[node.id];
