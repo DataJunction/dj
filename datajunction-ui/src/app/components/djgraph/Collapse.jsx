@@ -5,6 +5,7 @@ import { DJNodeColumns } from './DJNodeColumns';
 export default function Collapse({ collapsed, text, data }) {
   const [isCollapsed, setIsCollapsed] = React.useState(collapsed);
 
+  const limit = 5;
   return (
     <>
       <div className="collapse">
@@ -26,11 +27,11 @@ export default function Collapse({ collapsed, text, data }) {
         >
           {data.type !== 'metric'
             ? isCollapsed
-              ? DJNodeColumns({ data: data, limit: 10 })
+              ? DJNodeColumns({ data: data, limit: limit })
               : DJNodeColumns({ data: data, limit: 100 })
             : DJNodeDimensions(data)}
         </div>
-        {data.type !== 'metric' && data.column_names.length > 10 ? (
+        {data.type !== 'metric' && data.column_names.length > limit ? (
           <button
             className="collapse-button"
             onClick={() => setIsCollapsed(!isCollapsed)}

@@ -208,10 +208,12 @@
 }
 .custom-node-port {
   color: #636776;
-  font-size: 20px;
+  font-size: 23px;
   text-align: center;
 }
-
+.custom-node-emphasis {
+  border: 2px dashed #636776;
+}
 .white_badge {
   background-color: #ffffff !important;
   display: inline-block;

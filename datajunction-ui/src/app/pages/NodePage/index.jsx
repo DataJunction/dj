@@ -15,7 +15,7 @@ import NodesWithDimension from './NodesWithDimension';
 import NodeColumnLineage from './NodeLineageTab';
 import EditIcon from '../../icons/EditIcon';
 import AlertIcon from '../../icons/AlertIcon';
-import NodeDimensionsTab from "./NodeDimensionsTab";
+import NodeDimensionsTab from './NodeDimensionsTab';
 
 export function NodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;

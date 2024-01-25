@@ -15,9 +15,20 @@ const NodeLineage = djNode => {
         col.attributes.some(attr => attr.attribute_type.name === 'primary_key'),
       )
       .map(col => col.name);
-    const column_names = node.columns.map(col => {
-      return { name: col.name, type: col.type };
-    });
+    const column_names = node.columns
+      .map(col => {
+        return {
+          name: col.name,
+          type: col.type,
+          dimension: col.dimension !== null ? col.dimension.name : null,
+          order: primary_key.includes(col.name)
+            ? -1
+            : col.dimension !== null
+            ? 0
+            : 1,
+        };
+      })
+      .sort((a, b) => a.order - b.order);
     return {
       id: String(node.name),
       type: 'DJNode',
