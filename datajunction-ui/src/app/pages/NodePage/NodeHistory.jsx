@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
+import * as React from 'react';
 
 export default function NodeHistory({ node, djClient }) {
   const [history, setHistory] = useState([]);
@@ -175,7 +178,15 @@ export default function NodeHistory({ node, djClient }) {
         </td>
         <td>{revision.display_name}</td>
         <td>{revision.description}</td>
-        <td>{revision.query}</td>
+        <td>
+          <SyntaxHighlighter
+            language="sql"
+            style={foundation}
+            wrapLongLines={true}
+          >
+            {revision.query}
+          </SyntaxHighlighter>
+        </td>
         <td>{revision.tags}</td>
       </tr>
     ));
