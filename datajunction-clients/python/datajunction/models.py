@@ -1,17 +1,19 @@
 """Models used by the DJ client."""
 import enum
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
 
-class Engine(BaseModel):
+@dataclass
+class Engine:
     """
     Represents an engine
     """
 
     name: str
-    version: Optional[str]
+    version: Optional[str] = None
 
 
 class MaterializationJobType(str, enum.Enum):
@@ -34,7 +36,8 @@ class MaterializationStrategy(str, enum.Enum):
     VIEW = "view"
 
 
-class Materialization(BaseModel):
+@dataclass
+class Materialization:
     """
     A node's materialization config
     """
@@ -75,27 +78,30 @@ class NodeType(str, enum.Enum):
     CUBE = "cube"
 
 
-class ColumnAttribute(BaseModel):
+@dataclass
+class ColumnAttribute:
     """
     Represents a column attribute
     """
 
-    namespace: Optional[str] = "system"
     name: str
+    namespace: Optional[str] = "system"
 
 
-class SourceColumn(BaseModel):
+@dataclass
+class SourceColumn:
     """
     A column used in creation of a source node
     """
 
     name: str
     type: str
-    attributes: Optional[List[ColumnAttribute]]
-    dimension: Optional[str]
+    attributes: Optional[List[ColumnAttribute]] = None
+    dimension: Optional[str] = None
 
 
-class UpdateNode(BaseModel):
+@dataclass
+class UpdateNode:
     """
     Fields for updating a node
     """
@@ -110,7 +116,7 @@ class UpdateNode(BaseModel):
     catalog: Optional[str]
     schema_: Optional[str]
     table: Optional[str]
-    columns: Optional[List[SourceColumn]] = []
+    columns: Optional[List[SourceColumn]]
 
     # cube nodes only
     metrics: Optional[List[str]]
