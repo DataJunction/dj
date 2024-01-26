@@ -33,7 +33,7 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
         jwt = request.cookies.get(AUTH_COOKIE)
         if jwt:
             try:
-                jwt_data = await decode_token(jwt)
+                jwt_data = decode_token(jwt)
             except (JWEError, JWTError) as exc:
                 raise DJException(
                     http_status_code=HTTPStatus.UNAUTHORIZED,
@@ -76,7 +76,7 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
                     ],
                 )
             return  # pragma: no cover
-        jwt_data = await decode_token(credentials)
+        jwt_data = decode_token(credentials)
         request.state.user = get_user(username=jwt_data["username"], session=session)
         return
 

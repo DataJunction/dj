@@ -1,7 +1,6 @@
 """
 Tests for whoami router
 """
-import asyncio
 
 from fastapi.testclient import TestClient
 
@@ -24,5 +23,5 @@ def test_short_lived_token(client: TestClient):
     response = client.get("/token/")
     assert response.ok
     data = response.json()
-    user = asyncio.run(decode_token(data["token"]))
+    user = decode_token(data["token"])
     assert user["username"] == "dj"

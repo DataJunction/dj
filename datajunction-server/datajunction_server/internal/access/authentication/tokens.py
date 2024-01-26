@@ -62,7 +62,7 @@ def create_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     return encrypt(encoded_jwt)
 
 
-async def decode_token(token: str) -> dict:
+def decode_token(token: str) -> dict:
     """
     Decodes a token by first decrypting the JWE and then decoding the signed JWT.
     """

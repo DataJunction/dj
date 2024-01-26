@@ -20,7 +20,7 @@ router = APIRouter(tags=["GitHub OAuth2"])
 
 
 @router.get("/github/login/", status_code=HTTPStatus.FOUND)
-async def login() -> RedirectResponse:  # pragma: no cover
+def login() -> RedirectResponse:  # pragma: no cover
     """
     Login
     """
@@ -42,7 +42,7 @@ async def login() -> RedirectResponse:  # pragma: no cover
 
 
 @router.get("/github/token/")
-async def get_access_token(
+def get_access_token(
     code: str,
     response: Response,
 ) -> JSONResponse:  # pragma: no cover
