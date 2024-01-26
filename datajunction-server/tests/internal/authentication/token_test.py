@@ -1,7 +1,6 @@
 """
 Test JWT helper functions
 """
-import asyncio
 from datetime import timedelta
 
 from datajunction_server.internal.access.authentication import tokens
@@ -15,7 +14,7 @@ def test_create_and_get_token():
         data={"foo": "bar"},
         expires_delta=timedelta(minutes=30),
     )
-    data = asyncio.run(tokens.decode_token(jwe_string))
+    data = tokens.decode_token(jwe_string)
     assert data["foo"] == "bar"
 
 
