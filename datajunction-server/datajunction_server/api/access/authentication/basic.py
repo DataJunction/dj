@@ -24,7 +24,7 @@ router = APIRouter(tags=["Basic OAuth2"])
 
 
 @router.post("/basic/user/")
-async def create_a_user(
+def create_a_user(
     email: str = Form(),
     username: str = Form(),
     password: str = Form(),
@@ -63,7 +63,7 @@ async def create_a_user(
 
 
 @router.post("/basic/login/")
-async def login(
+def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session),
 ):
@@ -89,7 +89,7 @@ async def login(
 
 
 @router.post("/logout/")
-async def logout():
+def logout():
     """
     Logout a user by deleting the auth cookie
     """

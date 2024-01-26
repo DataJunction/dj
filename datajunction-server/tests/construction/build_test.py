@@ -19,8 +19,7 @@ from .fixtures import BUILD_EXPECTATION_PARAMETERS
 
 
 @pytest.mark.parametrize("node_name,db_id", BUILD_EXPECTATION_PARAMETERS)
-@pytest.mark.asyncio
-async def test_build_node(node_name: str, db_id: int, request):
+def test_build_node(node_name: str, db_id: int, request):
     """
     Test building a node
     """
@@ -51,8 +50,7 @@ async def test_build_node(node_name: str, db_id: int, request):
             assert expected in str(exc)
 
 
-@pytest.mark.asyncio
-async def test_build_metric_with_dimensions_aggs(request):
+def test_build_metric_with_dimensions_aggs(request):
     """
     Test building metric with dimensions
     """
@@ -122,8 +120,7 @@ def test_build_metric_with_required_dimensions(request):
     assert compare_query_strings(str(query), expected)
 
 
-@pytest.mark.asyncio
-async def test_raise_on_build_without_required_dimension_column(request):
+def test_raise_on_build_without_required_dimension_column(request):
     """
     Test building a node that has a dimension reference without a column and a compound PK
     """
@@ -209,8 +206,7 @@ async def test_raise_on_build_without_required_dimension_column(request):
     )
 
 
-@pytest.mark.asyncio
-async def test_build_metric_with_dimensions_filters(request):
+def test_build_metric_with_dimensions_filters(request):
     """
     Test building metric with dimension filters
     """
@@ -244,8 +240,7 @@ async def test_build_metric_with_dimensions_filters(request):
     assert compare_query_strings(str(query), expected)
 
 
-@pytest.mark.asyncio
-async def test_build_node_with_unnamed_column(request):
+def test_build_node_with_unnamed_column(request):
     """
     Test building a node that has an unnamed column (so defaults to col<n>)
     """

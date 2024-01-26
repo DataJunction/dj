@@ -74,7 +74,7 @@ def get_data_for_djsql(  # pylint: disable=R0914, R0913
 
 # pylint: disable=R0914, R0913
 @router.get("/djsql/stream/", response_model=QueryWithResults)
-async def get_data_stream_for_djsql(  # pragma: no cover
+def get_data_stream_for_djsql(  # pragma: no cover
     query: str,
     *,
     session: Session = Depends(get_session),
