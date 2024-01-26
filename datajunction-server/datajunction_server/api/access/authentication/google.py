@@ -35,7 +35,7 @@ settings = get_settings()
 
 
 @router.get("/google/login/", status_code=HTTPStatus.FOUND)
-async def login(target: Optional[str] = None):
+def login(target: Optional[str] = None):
     """
     Login using Google OAuth
     """
@@ -46,7 +46,7 @@ async def login(target: Optional[str] = None):
 
 
 @router.get("/google/token/")
-async def get_access_token(
+def get_access_token(
     request: Request,
     state: Optional[str] = None,
     error: Optional[str] = None,

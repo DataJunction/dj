@@ -35,7 +35,7 @@ class HealthCheck(BaseModel):
     status: HealthcheckStatus
 
 
-async def database_health(session: Session) -> HealthcheckStatus:
+def database_health(session: Session) -> HealthcheckStatus:
     """
     The status of the database.
     """
@@ -50,7 +50,7 @@ async def database_health(session: Session) -> HealthcheckStatus:
 
 
 @router.get("/health/", response_model=List[HealthCheck])
-async def health_check(
+def health_check(
     session: Session = Depends(get_session),
 ) -> List[HealthCheck]:
     """
@@ -59,6 +59,6 @@ async def health_check(
     return [
         HealthCheck(
             name="database",
-            status=await database_health(session),
+            status=database_health(session),
         ),
     ]

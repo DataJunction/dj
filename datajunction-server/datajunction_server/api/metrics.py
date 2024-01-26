@@ -95,7 +95,7 @@ def get_a_metric(name: str, *, session: Session = Depends(get_session)) -> Metri
     "/metrics/common/dimensions/",
     response_model=List[DimensionAttributeOutput],
 )
-async def get_common_dimensions(
+def get_common_dimensions(
     metric: List[str] = Query(
         title="List of metrics to find common dimensions for",
         default=[],
