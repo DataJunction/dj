@@ -113,7 +113,7 @@ describe('AddEditNodePage submission succeeded', () => {
         'Number of repair orders!!!',
         'SELECT count(repair_order_id) default_DOT_num_repair_orders FROM default.repair_orders',
         'published',
-        null,
+        [],
         'neutral',
         'unitless',
       );
