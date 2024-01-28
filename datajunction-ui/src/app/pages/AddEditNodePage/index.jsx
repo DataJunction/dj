@@ -15,6 +15,7 @@ import { FullNameField } from './FullNameField';
 import { FormikSelect } from './FormikSelect';
 import { NodeQueryField } from './NodeQueryField';
 import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
+import { PrimaryKeySelect } from './PrimaryKeySelect';
 
 class Action {
   static Add = new Action('add');
@@ -42,7 +43,7 @@ export function AddEditNodePage() {
     namespace: action === Action.Add ? initialNamespace : '',
     display_name: '',
     query: '',
-    node_type: '',
+    type: nodeType,
     description: '',
     primary_key: '',
     mode: 'draft',
@@ -98,7 +99,7 @@ export function AddEditNodePage() {
   );
 
   const primaryKeyToList = primaryKey => {
-    return primaryKey.split(',').map(columnName => columnName.trim());
+    return primaryKey.map(columnName => columnName.trim());
   };
 
   const createNode = async (values, setStatus) => {
@@ -213,7 +214,7 @@ export function AddEditNodePage() {
       .map(col => col.name);
     fields.forEach(field => {
       if (field === 'primary_key') {
-        setFieldValue(field, primaryKey.join(', '));
+        setFieldValue(field, primaryKey);
       } else if (field === 'tags') {
         setFieldValue(
           field,
@@ -297,6 +298,7 @@ export function AddEditNodePage() {
             >
               {function Render({ isSubmitting, status, setFieldValue }) {
                 const [node, setNode] = useState([]);
+                const [selectPrimaryKey, setSelectPrimaryKey] = useState(null);
                 const [selectTags, setSelectTags] = useState(null);
                 const [message, setMessage] = useState('');
 
@@ -317,6 +319,20 @@ export function AddEditNodePage() {
                           formikFieldName="tags"
                           placeholder="Choose Tags"
                         />
+                      )}
+                    </span>
+                  </div>
+                );
+
+                const primaryKeyInput = (
+                  <div className="CubeCreationInput">
+                    <ErrorMessage name="primary_key" component="span" />
+                    <label htmlFor="react-select-3-input">Primary Key</label>
+                    <span data-testid="select-primary-key">
+                      {action === Action.Edit ? (
+                        selectPrimaryKey
+                      ) : (
+                        <PrimaryKeySelect />
                       )}
                     </span>
                   </div>
@@ -397,6 +413,20 @@ export function AddEditNodePage() {
                           })}
                         />,
                       );
+                      const primaryKey = data.columns.filter(
+                        col =>
+                          col.attributes &&
+                          col.attributes.filter(
+                            attr => attr.attribute_type.name === 'primary_key',
+                          ).length > 0,
+                      );
+                      setSelectPrimaryKey(
+                        <PrimaryKeySelect
+                          defaultValue={primaryKey.map(col => {
+                            return { value: col.name, label: col.name };
+                          })}
+                        />,
+                      );
                     }
                   };
                   fetchData().catch(console.error);
@@ -444,16 +474,9 @@ export function AddEditNodePage() {
                             value={node.query ? node.query : ''}
                           />
                         </div>
-                        <div className="PrimaryKeyInput NodeCreationInput">
-                          <ErrorMessage name="primary_key" component="span" />
-                          <label htmlFor="primaryKey">Primary Key</label>
-                          <Field
-                            type="text"
-                            name="primary_key"
-                            id="primaryKey"
-                            placeholder="Comma-separated list of PKs"
-                          />
-                        </div>
+                        {nodeType !== 'metric' && node.type !== 'metric'
+                          ? primaryKeyInput
+                          : ''}
                         {tagsInput}
                         <div className="NodeModeInput NodeCreationInput">
                           <ErrorMessage name="mode" component="span" />
