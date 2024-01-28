@@ -214,6 +214,11 @@ export function AddEditNodePage() {
     fields.forEach(field => {
       if (field === 'primary_key') {
         setFieldValue(field, primaryKey.join(', '));
+      } else if (field === 'tags') {
+        setFieldValue(
+          field,
+          data[field].map(tag => tag.name),
+        );
       } else {
         setFieldValue(field, data[field] || '', false);
       }
