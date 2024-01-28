@@ -93,7 +93,7 @@ describe('AddEditNodePage submission failed', () => {
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalled();
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
         'default.num_repair_orders',
-        [{ display_name: 'Purpose', name: 'purpose' }],
+        ['purpose'],
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toReturnWith({
         json: { message: 'Some tags were not found' },
