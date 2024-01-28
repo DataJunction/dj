@@ -5,7 +5,7 @@ Node related APIs.
 import logging
 import os
 from http import HTTPStatus
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
@@ -129,7 +129,8 @@ def validate_node(
         response.status_code = HTTPStatus.UNPROCESSABLE_ENTITY
     else:
         response.status_code = HTTPStatus.OK
-
+    print("DEPS", [dep.name for dep in set(node_validator.dependencies_map.keys())])
+    print("COLS", [col.name for col in node_validator.columns])
     return NodeValidation(
         message=f"Node `{data.name}` is {node_validator.status}.",
         status=node_validator.status,
@@ -1220,7 +1221,10 @@ def list_downstream_nodes(
     """
     List all nodes that are downstream from the given node, filterable by type.
     """
-    return get_downstream_nodes(session, name, node_type)  # type: ignore
+    return get_downstream_nodes(
+        session, name, node_type,  # type: ignore
+        include_cubes=False, include_deactivated=False,
+    )
 
 
 @router.get(
@@ -1272,17 +1276,20 @@ def list_node_dag(
 
 @router.get(
     "/nodes/{name}/dimensions/",
-    response_model=List[DimensionAttributeOutput],
+    response_model=List[Union[DimensionAttributeOutput, DAGNodeOutput]],
     name="List All Dimension Attributes",
 )
 def list_all_dimension_attributes(
-    name: str, *, session: Session = Depends(get_session)
-) -> List[DimensionAttributeOutput]:
+    name: str,
+    *,
+    session: Session = Depends(get_session),
+    with_attributes: bool = True,
+) -> List[Union[DimensionAttributeOutput, DAGNodeOutput]]:
     """
     List all available dimension attributes for the given node.
     """
     node = get_node_by_name(session, name)
-    return get_dimensions(session, node, with_attributes=True)
+    return get_dimensions(session, node, with_attributes=with_attributes)
 
 
 @router.get(

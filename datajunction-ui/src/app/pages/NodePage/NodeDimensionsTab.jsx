@@ -7,7 +7,7 @@ export default function NodeDimensionsTab({ node, djClient }) {
   useEffect(() => {
     const fetchData = async () => {
       if (node) {
-        const data = await djClient.nodeDimensions(node.name);
+        const data = await djClient.nodeDimensions(node.name, true);
         const grouped = Object.entries(
           data.reduce((group, dimension) => {
             group[dimension.node_name + dimension.path] =

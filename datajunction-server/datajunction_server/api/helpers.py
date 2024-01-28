@@ -337,6 +337,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
             else validated_node.query
         )
         query_ast = parse(formatted_query)  # type: ignore
+        print("query_ast.select.projection", str(query_ast.select.projection))
         (
             dependencies_map,
             missing_parents_map,
@@ -372,6 +373,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
         column_name = col.alias_or_name.name  # type: ignore
         existing_column = column_mapping.get(column_name)
         try:
+            print("column_name", column_name)
             column_type = str(col.type)  # type: ignore
             column = Column(
                 name=column_name,

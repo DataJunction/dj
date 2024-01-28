@@ -6,7 +6,7 @@
 import { ErrorMessage, Field, Form, Formik } from 'formik';
 
 import NamespaceHeader from '../../components/NamespaceHeader';
-import { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import 'styles/node-creation.scss';
 import AlertIcon from '../../icons/AlertIcon';
@@ -15,6 +15,8 @@ import { FullNameField } from './FullNameField';
 import { FormikSelect } from './FormikSelect';
 import { NodeQueryField } from './NodeQueryField';
 import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
+import { PrimaryKeySelect } from './PrimaryKeySelect';
+import { RequiredDimensionsSelect } from './RequiredDimensionsSelect';
 
 class Action {
   static Add = new Action('add');
@@ -36,6 +38,10 @@ export function AddEditNodePage() {
   const [tags, setTags] = useState([]);
   const [metricUnits, setMetricUnits] = useState([]);
   const [metricDirections, setMetricDirections] = useState([]);
+
+  // Node validation results (we parse the query and determine a node's
+  // parents, its columns, and its available dimensions
+  const [availableDimensions, setAvailableDimensions] = useState([]);
 
   const initialValues = {
     name: action === Action.Edit ? name : '',
@@ -98,7 +104,7 @@ export function AddEditNodePage() {
   );
 
   const primaryKeyToList = primaryKey => {
-    return primaryKey.split(',').map(columnName => columnName.trim());
+    return primaryKey.map(columnName => columnName.trim());
   };
 
   const createNode = async (values, setStatus) => {
@@ -213,7 +219,12 @@ export function AddEditNodePage() {
       .map(col => col.name);
     fields.forEach(field => {
       if (field === 'primary_key') {
-        setFieldValue(field, primaryKey.join(', '));
+        setFieldValue(field, primaryKey);
+      } else if (field === 'tags') {
+        setFieldValue(
+          field,
+          data[field].map(tag => tag.name),
+        );
       } else {
         setFieldValue(field, data[field] || '', false);
       }
@@ -292,6 +303,7 @@ export function AddEditNodePage() {
             >
               {function Render({ isSubmitting, status, setFieldValue }) {
                 const [node, setNode] = useState([]);
+                const [selectPrimaryKey, setSelectPrimaryKey] = useState(null);
                 const [selectTags, setSelectTags] = useState(null);
                 const [message, setMessage] = useState('');
 
@@ -312,6 +324,20 @@ export function AddEditNodePage() {
                           formikFieldName="tags"
                           placeholder="Choose Tags"
                         />
+                      )}
+                    </span>
+                  </div>
+                );
+
+                const primaryKeyInput = (
+                  <div className="CubeCreationInput">
+                    <ErrorMessage name="tags" component="span" />
+                    <label htmlFor="react-select-3-input">Primary Key</label>
+                    <span data-testid="select-tags">
+                      {action === Action.Edit ? (
+                        selectPrimaryKey
+                      ) : (
+                        <PrimaryKeySelect />
                       )}
                     </span>
                   </div>
@@ -358,7 +384,13 @@ export function AddEditNodePage() {
                   const fetchData = async () => {
                     if (action === Action.Edit) {
                       const data = await djClient.node(name);
-
+                      const primaryKey = data.columns.filter(
+                        col =>
+                          col.attributes &&
+                          col.attributes.filter(
+                            attr => attr.attribute_type.name === 'primary_key',
+                          ).length > 0,
+                      );
                       // Check if node exists
                       if (data.message !== undefined) {
                         setNode(null);
@@ -378,6 +410,14 @@ export function AddEditNodePage() {
                         return;
                       }
 
+                      if (data.type === 'metric' && data.parents.length === 1) {
+                        // const available = await djClient.nodeDimensions(
+                        //   data.parents[0].name,
+                        //   true,
+                        // );
+                        // setAvailableDimensions(available);
+                      }
+
                       // Update fields with existing data to prepare for edit
                       updateFieldsWithNodeData(data, setFieldValue);
                       setNode(data);
@@ -389,6 +429,13 @@ export function AddEditNodePage() {
                           placeholder="Choose Tags"
                           defaultValue={data.tags.map(t => {
                             return { value: t.name, label: t.display_name };
+                          })}
+                        />,
+                      );
+                      setSelectPrimaryKey(
+                        <PrimaryKeySelect
+                          defaultValue={primaryKey.map(col => {
+                            return { value: col.name, label: col.name };
                           })}
                         />,
                       );
@@ -439,16 +486,17 @@ export function AddEditNodePage() {
                             value={node.query ? node.query : ''}
                           />
                         </div>
-                        <div className="PrimaryKeyInput NodeCreationInput">
-                          <ErrorMessage name="primary_key" component="span" />
-                          <label htmlFor="primaryKey">Primary Key</label>
-                          <Field
-                            type="text"
-                            name="primary_key"
-                            id="primaryKey"
-                            placeholder="Comma-separated list of PKs"
+                        {nodeType !== 'metric' && node.type !== 'metric' ? (
+                          primaryKeyInput
+                        ) : (
+                          <RequiredDimensionsSelect
+                            defaultSelectOptions={availableDimensions.map(
+                              dim => {
+                                return { value: dim.name, label: dim.name };
+                              },
+                            )}
                           />
-                        </div>
+                        )}
                         {tagsInput}
                         <div className="NodeModeInput NodeCreationInput">
                           <ErrorMessage name="mode" component="span" />

@@ -564,7 +564,7 @@ class ColumnOutput(BaseModel):
 
     name: str
     display_name: Optional[str]
-    type: str
+    # type: str
     attributes: Optional[List[AttributeOutput]]
     dimension: Optional[NodeNameOutput]
     partition: Optional[PartitionOutput]
@@ -578,9 +578,9 @@ class ColumnOutput(BaseModel):
         orm_mode = True
         validate_assignment = True
 
-    _extract_type = validator("type", pre=True, allow_reuse=True)(
-        lambda raw: str(raw),  # pylint: disable=unnecessary-lambda
-    )
+    # _extract_type = validator("type", pre=True, allow_reuse=True)(
+    #     lambda raw: str(raw),  # pylint: disable=unnecessary-lambda
+    # )
 
 
 class SourceColumnOutput(BaseModel):
@@ -796,14 +796,14 @@ class DAGNodeRevisionOutput(BaseModel):
     name: str
     display_name: str
     version: str
-    status: NodeStatus
-    mode: NodeMode
-    catalog: Optional[CatalogInfo]
+    # status: NodeStatus
+    # mode: NodeMode
+    # catalog: Optional[CatalogInfo]
     schema_: Optional[str]
     table: Optional[str]
     description: str = ""
     columns: List[ColumnOutput]
-    updated_at: UTCDatetime
+    # updated_at: UTCDatetime
     parents: List[NodeNameOutput]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
@@ -819,7 +819,7 @@ class DAGNodeOutput(OutputModel):
     namespace: str
     current: DAGNodeRevisionOutput = PydanticField(flatten=True)
     created_at: UTCDatetime
-    tags: List[TagOutput] = []
+    # tags: List[TagOutput] = []
     current_version: str
 
     class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods

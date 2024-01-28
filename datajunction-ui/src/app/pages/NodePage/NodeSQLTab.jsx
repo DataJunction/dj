@@ -3,6 +3,7 @@ import Select from 'react-select';
 import DJClientContext from '../../providers/djclient';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
+import QueryBuilder from 'react-querybuilder';
 
 const NodeSQLTab = djNode => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -12,6 +13,27 @@ const NodeSQLTab = djNode => {
     dimensions: [],
     filters: [],
   });
+  // const [fields, setFields] = useState([]);
+  const [filters, setFilters] = useState({ combinator: 'and', rules: [] });
+  const validator = ruleType => !!ruleType.value;
+
+  const attributeToFormInput = dimension => {
+    const attribute = {
+      name: dimension.name,
+      label: `${dimension.name} (via ${dimension.path.join(' ▶ ')})`,
+      placeholder: `from ${dimension.path}`,
+      defaultOperator: '=',
+      validator,
+    };
+    if (dimension.type === 'bool') {
+      attribute.valueEditorType = 'checkbox';
+    }
+    if (dimension.type === 'timestamp') {
+      attribute.inputType = 'datetime-local';
+      attribute.defaultOperator = 'between';
+    }
+    return [dimension.name, attribute];
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -26,6 +48,11 @@ const NodeSQLTab = djNode => {
         label: dim.name + ` (${dim.type})`,
       }))
     : [''];
+
+  const uniqueFields = Object.fromEntries(
+    new Map(djNode.djNode.dimensions.map(dim => attributeToFormInput(dim))),
+  );
+  const fields = Object.keys(uniqueFields).map(f => uniqueFields[f]);
 
   const handleSubmit = event => {
     event.preventDefault();
@@ -50,19 +77,13 @@ const NodeSQLTab = djNode => {
           isClearable
           onChange={handleChange}
         />
-        {/*<h4>Filters</h4>*/}
-        {/*<Select*/}
-        {/*  name="filter_name"*/}
-        {/*  options={dimensionsList}*/}
-        {/*  className="filters_attribute"*/}
-        {/*/>*/}
-        {/*<Select*/}
-        {/*  name="filter_operator"*/}
-        {/*  options={options}*/}
-        {/*  className="filters_attribute"*/}
-        {/*/>*/}
-        {/*<textarea name="filter_value" className="filters_attribute" />*/}
 
+        <h4>Filter By</h4>
+        <QueryBuilder
+          fields={fields}
+          query={filters}
+          onQueryChange={q => setFilters(q)}
+        />
         <div
           style={{
             width: window.innerWidth * 0.8,

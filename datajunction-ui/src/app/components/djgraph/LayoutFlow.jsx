@@ -77,7 +77,13 @@ const LayoutFlow = (djNode, saveGraph) => {
   };
 
   useEffect(() => {
-    saveGraph(getLayoutedElements, setNodes, setEdges).catch(console.error);
+    const abortController = new AbortController();
+    saveGraph(getLayoutedElements, setNodes, setEdges, abortController).catch(
+      console.error,
+    );
+    return () => {
+      abortController.abort();
+    };
   }, [djNode]);
 
   const onConnect = useCallback(

@@ -68,6 +68,31 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  validateNode: async function (
+    nodeType,
+    name,
+    display_name,
+    description,
+    query,
+  ) {
+    const response = await fetch(`${DJ_URL}/nodes/validate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: name,
+        display_name: display_name,
+        description: description,
+        query: query,
+        type: nodeType,
+        mode: 'published',
+      }),
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
+
   createNode: async function (
     nodeType,
     name,
@@ -215,26 +240,29 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
 
-  upstreams: async function (name) {
+  upstreams: async function (name, abortController) {
     return await (
       await fetch(`${DJ_URL}/nodes/${name}/upstream/`, {
         credentials: 'include',
+        signal: abortController.signal,
       })
     ).json();
   },
 
-  downstreams: async function (name) {
+  downstreams: async function (name, abortController) {
     return await (
       await fetch(`${DJ_URL}/nodes/${name}/downstream/`, {
         credentials: 'include',
+        signal: abortController.signal,
       })
     ).json();
   },
 
-  node_dag: async function (name) {
+  node_dag: async function (name, abortController) {
     return await (
       await fetch(`${DJ_URL}/nodes/${name}/dag/`, {
         credentials: 'include',
+        signal: abortController.signal,
       })
     ).json();
   },
@@ -543,11 +571,19 @@ export const DataJunctionAPI = {
       })
     ).json();
   },
-  nodeDimensions: async function (nodeName) {
+  nodeDimensions: async function (
+    nodeName,
+    attributes = false,
+    abortController = null,
+  ) {
     return await (
-      await fetch(`${DJ_URL}/nodes/${nodeName}/dimensions`, {
-        credentials: 'include',
-      })
+      await fetch(
+        `${DJ_URL}/nodes/${nodeName}/dimensions?with_attributes=${attributes}`,
+        {
+          credentials: 'include',
+          signal: abortController !== null ? abortController.signal : null,
+        },
+      )
     ).json();
   },
   linkDimension: async function (nodeName, columnName, dimensionName) {

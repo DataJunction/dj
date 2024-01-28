@@ -5,7 +5,7 @@ import itertools
 from typing import Dict, List, Optional, Set, Union
 
 from sqlalchemy import and_, func, join, literal, or_, select
-from sqlalchemy.orm import Session, aliased, joinedload
+from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
@@ -30,7 +30,7 @@ def _node_output_options():
     """
     return [
         joinedload(Node.current).options(
-            joinedload(NodeRevision.columns).options(
+            selectinload(NodeRevision.columns).options(
                 joinedload(Column.attributes).joinedload(
                     ColumnAttribute.attribute_type,
                 ),
@@ -61,6 +61,7 @@ def get_downstream_nodes(
         select(
             NodeRelationship.parent_id,
             NodeRevision.node_id,
+            NodeRevision.type,
             literal(1).label("depth"),
         )
         .where(NodeRelationship.parent_id == node.id)
@@ -79,16 +80,20 @@ def get_downstream_nodes(
         select(
             dag.c.parent_id,
             NodeRevision.node_id,
+            NodeRevision.type,
             (dag.c.depth + 1).label("depth"),
         )
         .join(NodeRelationship, dag.c.node_id == NodeRelationship.parent_id)
         .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
         .join(Node, Node.id == NodeRevision.node_id)
+        .where(NodeRevision.type != NodeType.CUBE)
     )
+    # if node.type == NodeType.METRIC:
+
     if not include_cubes:
         next_layer = next_layer.where(NodeRevision.type != NodeType.CUBE)
 
-    paths = dag.union_all(next_layer)
+    paths = dag.union(next_layer)
 
     final_select = select(Node)
     if not include_deactivated:

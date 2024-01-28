@@ -95,8 +95,16 @@ const NodeLineage = djNode => {
       });
   };
 
-  const dagFetch = async (getLayoutedElements, setNodes, setEdges) => {
-    let related_nodes = await djClient.node_dag(djNode.djNode.name);
+  const dagFetch = async (
+    getLayoutedElements,
+    setNodes,
+    setEdges,
+    abortController,
+  ) => {
+    let related_nodes = await djClient.node_dag(
+      djNode.djNode.name,
+      abortController,
+    );
     var djNodes = [djNode.djNode];
     for (const iterable of [related_nodes]) {
       for (const item of iterable) {
