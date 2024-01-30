@@ -12,6 +12,9 @@ export default function Search() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
   const truncate = str => {
+    if (str === null) {
+      return '';
+    }
     return str.length > 100 ? str.substring(0, 90) + '...' : str;
   };
   useEffect(() => {
@@ -85,7 +88,7 @@ export default function Search() {
                 </span>
                 {item.display_name} (<b>{item.name}</b>){' '}
                 {item.description ? '- ' : ' '}
-                {truncate(item.description)}
+                {truncate(item.description || '')}
               </div>
             </a>
           );
