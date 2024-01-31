@@ -68,6 +68,31 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  validateNode: async function (
+    nodeType,
+    name,
+    display_name,
+    description,
+    query,
+  ) {
+    const response = await fetch(`${DJ_URL}/nodes/validate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: name,
+        display_name: display_name,
+        description: description,
+        query: query,
+        type: nodeType,
+        mode: 'published',
+      }),
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
+
   createNode: async function (
     nodeType,
     name,

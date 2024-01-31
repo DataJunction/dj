@@ -106,13 +106,51 @@ form {
     box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
       rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
   }
-  .SelectInput div,
-  .SelectInput div div {
-    border: none;
-  }
-
   .SelectInput div:first-child {
     background-color: #eee !important;
+    border: none;
+    color: #0c4128;
+  }
+  .MultiSelectInput {
+    background-color: #eee;
+    border-radius: 10px;
+    border-style: none;
+    border-color: transparent;
+    box-sizing: border-box;
+    padding: 0.5rem 0;
+    font-size: 110%;
+    box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
+      rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+  }
+  .MultiSelectInput div {
+    border: none;
+    background-color: #fff;
+  }
+  .MultiSelectInput div:last-child div {
+    border: none;
+    background-color: #efefef;
+  }
+  .MultiSelectInput div div {
+    border: none;
+    background-color: #efefef;
+  }
+
+  .MultiSelectInput div div div,
+  .MultiSelectInput div div div:last-child {
+    border: none;
+    background-color: #ffffff;
+    border-radius: 0.4rem;
+    padding: 0.2em;
+  }
+
+  .MultiSelectInput div div div:last-child {
+    background-color: #efefef;
+  }
+  .MultiSelectInput div div div div:last-child {
+    border: none;
+    background-color: #fff;
+  }
+  .SelectInput div:first-child {
     border: none;
     color: #0c4128;
   }
