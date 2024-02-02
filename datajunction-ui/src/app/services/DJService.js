@@ -60,6 +60,14 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  nodesWithType: async function (nodeType) {
+    return await (
+      await fetch(`${DJ_URL}/nodes/?node_type=${nodeType}`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
   nodeDetails: async () => {
     return await (
       await fetch(`${DJ_URL}/nodes/details/`, {
@@ -141,6 +149,7 @@ export const DataJunctionAPI = {
     primary_key,
     metric_direction,
     metric_unit,
+    required_dimensions,
   ) {
     try {
       const metricMetadata =
@@ -150,19 +159,27 @@ export const DataJunctionAPI = {
               unit: metric_unit,
             }
           : null;
+      const body = {
+        display_name: display_name,
+        description: description,
+        query: query,
+        mode: mode,
+      };
+      if (metricMetadata !== null) {
+        body.metric_metadata = metricMetadata;
+      }
+      if (primary_key) {
+        body.primary_key = primary_key;
+      }
+      if (required_dimensions) {
+        body.required_dimensions = required_dimensions;
+      }
       const response = await fetch(`${DJ_URL}/nodes/${name}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          display_name: display_name,
-          description: description,
-          query: query,
-          mode: mode,
-          primary_key: primary_key,
-          metric_metadata: metricMetadata,
-        }),
+        body: JSON.stringify(body),
         credentials: 'include',
       });
       return { status: response.status, json: await response.json() };

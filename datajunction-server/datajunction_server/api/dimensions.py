@@ -17,8 +17,8 @@ from datajunction_server.internal.access.authorization import (
     validate_access_requests,
 )
 from datajunction_server.models import access
-from datajunction_server.models.node import NodeRevisionOutput
-from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.node import NodeRevisionOutput, DAGNodeOutput, NodeMinimumDetail
+from datajunction_server.models.node_type import NodeType, NodeNameOutput
 from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
     get_nodes_with_dimension,
@@ -62,7 +62,7 @@ def find_nodes_with_dimension(
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
-) -> List[NodeRevisionOutput]:
+) -> List[NodeMinimumDetail]:
     """
     List all nodes that have the specified dimension
     """

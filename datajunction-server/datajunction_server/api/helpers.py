@@ -240,7 +240,7 @@ def find_bound_dimensions(
     invalid_required_dimensions = set()
     matched_bound_columns = []
     for col in validated_node.required_dimensions:
-        names = col.split(".")
+        names = col.name.split(".")
         parent_name, column_name = ".".join(names[:-1]), names[-1]
 
         found_parent_col = False

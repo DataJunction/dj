@@ -16,6 +16,9 @@ import { FormikSelect } from './FormikSelect';
 import { NodeQueryField } from './NodeQueryField';
 import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
 import { PrimaryKeySelect } from './PrimaryKeySelect';
+import { RequiredDimensionsSelect } from './RequiredDimensionsSelect';
+import { NodeSelect } from './NodeSelect';
+import { MetricQueryField } from './MetricQueryField';
 
 class Action {
   static Add = new Action('add');
@@ -37,6 +40,10 @@ export function AddEditNodePage() {
   const [tags, setTags] = useState([]);
   const [metricUnits, setMetricUnits] = useState([]);
   const [metricDirections, setMetricDirections] = useState([]);
+
+  // Node validation results (we parse the query and determine a node's
+  // parents, its columns, and its available dimensions
+  const [availableDimensions, setAvailableDimensions] = useState([]);
 
   const initialValues = {
     name: action === Action.Edit ? name : '',
@@ -135,15 +142,17 @@ export function AddEditNodePage() {
   };
 
   const patchNode = async (values, setStatus) => {
+    const query = `SELECT ${values.expression} FROM ${values.upstream_node}`;
     const { status, json } = await djClient.patchNode(
       values.name,
       values.display_name,
       values.description,
-      values.query,
+      query,
       values.mode,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
       values.metric_direction,
       values.metric_unit,
+      values.required_dimensions,
     );
     const tagsResponse = await djClient.tagsNode(
       values.name,
@@ -202,6 +211,9 @@ export function AddEditNodePage() {
       'primary_key',
       'mode',
       'tags',
+      'required_dimensions',
+      'expression',
+      'upstream_node',
     ];
     const primaryKey = data.columns
       .filter(
@@ -232,6 +244,9 @@ export function AddEditNodePage() {
         'metric_unit',
         data.metric_metadata.unit.name.toLowerCase(),
       );
+    }
+    if (data.upstream_node) {
+      setFieldValue('upstream_node', data.upstream_node);
     }
   };
 
@@ -299,6 +314,10 @@ export function AddEditNodePage() {
               {function Render({ isSubmitting, status, setFieldValue }) {
                 const [node, setNode] = useState([]);
                 const [selectPrimaryKey, setSelectPrimaryKey] = useState(null);
+                const [selectRequiredDimensions, setSelectRequiredDimensions] =
+                  useState(null);
+                const [selectUpstreamNode, setSelectUpstreamNode] =
+                  useState(null);
                 const [selectTags, setSelectTags] = useState(null);
                 const [message, setMessage] = useState('');
 
@@ -318,6 +337,7 @@ export function AddEditNodePage() {
                           selectOptions={tags}
                           formikFieldName="tags"
                           placeholder="Choose Tags"
+                          className="MultiSelectInput"
                         />
                       )}
                     </span>
@@ -335,6 +355,34 @@ export function AddEditNodePage() {
                         <PrimaryKeySelect />
                       )}
                     </span>
+                  </div>
+                );
+
+                const requiredDimensionsInput = (
+                  <div className="CubeCreationInput">
+                    <ErrorMessage name="primary_key" component="span" />
+                    <label htmlFor="react-select-3-input">
+                      Required Dimensions
+                    </label>
+                    <span data-testid="select-required-dimensions">
+                      {action === Action.Edit ? (
+                        selectRequiredDimensions
+                      ) : (
+                        <RequiredDimensionsSelect />
+                      )}
+                    </span>
+                  </div>
+                );
+
+                const upstreamNodeInput = (
+                  <div className="NodeCreationInput">
+                    <ErrorMessage name="mode" component="span" />
+                    <label htmlFor="Mode">Upstream Node *</label>
+                    {action === Action.Edit ? (
+                      selectUpstreamNode
+                    ) : (
+                      <NodeSelect />
+                    )}
                   </div>
                 );
 
@@ -379,6 +427,12 @@ export function AddEditNodePage() {
                   const fetchData = async () => {
                     if (action === Action.Edit) {
                       const data = await djClient.node(name);
+                      if (data.type === 'metric') {
+                        const metric = await djClient.metric(name);
+                        data.upstream_node = metric.upstream_node;
+                        data.expression = metric.expression;
+                        data.required_dimensions = metric.required_dimensions;
+                      }
 
                       // Check if node exists
                       if (data.message !== undefined) {
@@ -399,6 +453,14 @@ export function AddEditNodePage() {
                         return;
                       }
 
+                      if (data.type === 'metric' && data.parents.length === 1) {
+                        const available = await djClient.nodeDimensions(
+                          data.parents[0].name,
+                          true,
+                        );
+                        setAvailableDimensions(available);
+                      }
+
                       // Update fields with existing data to prepare for edit
                       updateFieldsWithNodeData(data, setFieldValue);
                       setNode(data);
@@ -406,6 +468,7 @@ export function AddEditNodePage() {
                         <FormikSelect
                           isMulti={true}
                           selectOptions={tags}
+                          className="MultiSelectInput"
                           formikFieldName="tags"
                           placeholder="Choose Tags"
                           defaultValue={data.tags.map(t => {
@@ -425,6 +488,21 @@ export function AddEditNodePage() {
                           defaultValue={primaryKey.map(col => {
                             return { value: col.name, label: col.name };
                           })}
+                        />,
+                      );
+                      setSelectRequiredDimensions(
+                        <RequiredDimensionsSelect
+                          defaultValue={primaryKey.map(col => {
+                            return { value: col.name, label: col.name };
+                          })}
+                        />,
+                      );
+                      setSelectUpstreamNode(
+                        <NodeSelect
+                          defaultValue={{
+                            value: data.upstream_node,
+                            label: data.upstream_node,
+                          }}
                         />,
                       );
                     }
@@ -463,21 +541,27 @@ export function AddEditNodePage() {
                             placeholder="Describe your node"
                           />
                         </div>
+                        <br />
+                        {upstreamNodeInput}
+                        <br />
+                        <br />
+                        <div className="QueryInput MetricQueryInput NodeCreationInput">
+                          <ErrorMessage name="query" component="span" />
+                          <label htmlFor="Query">Aggregate Expression *</label>
+                          <MetricQueryField
+                            djClient={djClient}
+                            value={node.expression ? node.expression : ''}
+                          />
+                        </div>
+                        <br />
                         {nodeType === 'metric' || node.type === 'metric'
                           ? metricMetadataInput
                           : ''}
-                        <div className="QueryInput NodeCreationInput">
-                          <ErrorMessage name="query" component="span" />
-                          <label htmlFor="Query">Query *</label>
-                          <NodeQueryField
-                            djClient={djClient}
-                            value={node.query ? node.query : ''}
-                          />
-                        </div>
                         {nodeType !== 'metric' && node.type !== 'metric'
                           ? primaryKeyInput
-                          : ''}
+                          : requiredDimensionsInput}
                         {tagsInput}
+
                         <div className="NodeModeInput NodeCreationInput">
                           <ErrorMessage name="mode" component="span" />
                           <label htmlFor="Mode">Mode</label>

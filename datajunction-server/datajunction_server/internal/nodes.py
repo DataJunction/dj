@@ -62,6 +62,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.sql.dag import get_shared_dimensions, get_dimensions
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -886,6 +887,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
     """
     Creates a new revision from an existing node revision.
     """
+    print("updateNode", data)
     metadata_changes = data is not None and data.metric_metadata
     minor_changes = (
         (data and data.description and old_revision.description != data.description)
@@ -915,7 +917,13 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         and data.primary_key
         and {col.name for col in old_revision.primary_key()} != set(data.primary_key)
     )
-    major_changes = query_changes or column_changes or pk_changes
+    required_dim_changes = (
+        data is not None
+        and data.required_dimensions
+        and {col.name for col in old_revision.required_dimensions} != set(data.required_dimensions)
+    )
+    print("required_dim_changes", required_dim_changes)
+    major_changes = query_changes or column_changes or pk_changes or required_dim_changes
 
     # If nothing has changed, do not create the new node revision
     if not minor_changes and not major_changes and not version_upgrade:
@@ -965,6 +973,13 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             if data and data.metric_metadata
             else old_revision.metric_metadata
         ),
+        # required_dimensions=(
+        #     old_revision.required_dimensions
+        #     if not data.required_dimensions
+        #     else [
+        #         Column(name=col) for col in data.required_dimensions
+        #     ]
+        # )
     )
 
     # Link the new revision to its parents if a new revision was created and update its status
@@ -1028,6 +1043,26 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
                     col.attributes.append(
                         ColumnAttribute(column=col, attribute_type=pk_attribute),
                     )
+
+        # Update the required dimensions if one was set in the input and the node is a metric
+        print("parent", parent_refs)
+        print("required_dims", node_validator.required_dimensions)
+        # new_revision.required_dimensions = node_validator.required_dimensions
+        if data is not None and data.required_dimensions and len(parent_refs) > 0:
+            print("data.required_dimensions", data.required_dimensions)
+            parent = parent_refs[0]
+            available_dimensions = get_dimensions(session, parent, with_attributes=True)
+            available_dim_attributes = {dim.name: dim for dim in available_dimensions}
+
+            print("available_dimensions", available_dimensions)
+            required_dimension_columns = []
+            for required_dim in data.required_dimensions:
+                required = available_dim_attributes.get(required_dim)
+                if not required:
+                    raise DJDoesNotExistException(f"Dimension attribute {required_dim} does not exist")
+                required_dimension_columns.append(Column(name=required_dim, type=required.type))
+            print("required_dimension_columns", required_dimension_columns)
+            new_revision.required_dimensions = required_dimension_columns
 
         # Set the node's validity status
         invalid_primary_key = (
