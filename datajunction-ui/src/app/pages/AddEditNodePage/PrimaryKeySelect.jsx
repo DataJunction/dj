@@ -1,7 +1,7 @@
 /**
  * Primary key select component
  */
-import { useFormikContext } from 'formik';
+import { ErrorMessage, useFormikContext } from 'formik';
 import { useContext, useMemo, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import { FormikSelect } from './FormikSelect';
@@ -42,14 +42,20 @@ export const PrimaryKeySelect = ({ defaultValue }) => {
   };
 
   return (
-    <FormikSelect
-      className="MultiSelectInput"
-      defaultValue={defaultValue}
-      selectOptions={selectableOptions}
-      formikFieldName="primary_key"
-      placeholder="Choose Primary Key"
-      onFocus={event => refreshColumns(event)}
-      isMulti={true}
-    />
+    <div className="CubeCreationInput">
+      <ErrorMessage name="primary_key" component="span" />
+      <label htmlFor="react-select-3-input">Primary Key</label>
+      <span data-testid="select-primary-key">
+        <FormikSelect
+          className="MultiSelectInput"
+          defaultValue={defaultValue}
+          selectOptions={selectableOptions}
+          formikFieldName="primary_key"
+          placeholder="Choose Primary Key"
+          onFocus={event => refreshColumns(event)}
+          isMulti={true}
+        />
+      </span>
+    </div>
   );
 };

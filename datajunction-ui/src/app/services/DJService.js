@@ -60,6 +60,14 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  nodesWithType: async function (nodeType) {
+    return await (
+      await fetch(`${DJ_URL}/nodes/?node_type=${nodeType}`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
   nodeDetails: async () => {
     return await (
       await fetch(`${DJ_URL}/nodes/details/`, {

@@ -52,6 +52,9 @@ export function NodePage() {
         const metric = await djClient.metric(name);
         data.dimensions = metric.dimensions;
         data.metric_metadata = metric.metric_metadata;
+        data.required_dimensions = metric.required_dimensions;
+        data.upstream_node = metric.upstream_node;
+        data.expression = metric.expression;
         setNode(data);
       }
       if (data.type === 'cube') {

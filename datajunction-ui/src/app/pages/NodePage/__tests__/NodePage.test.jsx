@@ -543,14 +543,12 @@ describe('<NodePage />', () => {
             'Status changed from valid to invalid Caused by a change in upstream default.repair_order_details',
           ),
         );
-      screen.debug();
     });
   });
 
   it('renders compiled sql correctly', async () => {
     const djClient = mockDJClient();
-    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
-    djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockTransformNode);
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
     djClient.DataJunctionAPI.compiledSql.mockReturnValue('select 1');
 
@@ -560,7 +558,7 @@ describe('<NodePage />', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders']}>
+      <MemoryRouter initialEntries={[`/nodes/${mocks.mockTransformNode.name}`]}>
         <Routes>
           <Route path="nodes/:name" element={element} />
         </Routes>
@@ -569,7 +567,7 @@ describe('<NodePage />', () => {
     await waitFor(() => {
       fireEvent.click(screen.getByRole('checkbox', { name: 'ToggleSwitch' }));
       expect(djClient.DataJunctionAPI.compiledSql).toHaveBeenCalledWith(
-        mocks.mockMetricNode.name,
+        mocks.mockTransformNode.name,
       );
     });
   });

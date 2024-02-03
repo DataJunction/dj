@@ -65,6 +65,18 @@ describe('DataJunctionAPI', () => {
     });
   });
 
+  it('calls nodesWithType correctly', async () => {
+    const nodeType = 'transform';
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.nodesWithType(nodeType);
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/?node_type=${nodeType}`,
+      {
+        credentials: 'include',
+      },
+    );
+  });
+
   it('calls createNode correctly', async () => {
     const sampleArgs = [
       'type',
@@ -262,6 +274,17 @@ describe('DataJunctionAPI', () => {
     fetch.mockResponseOnce(JSON.stringify({}));
     await DataJunctionAPI.metrics('');
     expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/metrics/`, {
+      credentials: 'include',
+    });
+  });
+
+  it('calls listMetricMetadata correctly', async () => {
+    const nodeType = 'transform';
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.listMetricMetadata();
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/metrics/metadata`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
     });
   });

@@ -9,6 +9,7 @@ form {
     padding: 1rem;
     font-family: Lato, 'sans-serif';
     font-size: 110%;
+    border-right: 16px solid transparent;
   }
 
   input {
@@ -98,7 +99,7 @@ form {
   .SelectInput {
     background-color: #eee;
     border-radius: 10px;
-    border-style: none;
+    border-style: none !important;
     border-color: transparent;
     box-sizing: border-box;
     padding: 0.5rem;
@@ -106,10 +107,18 @@ form {
     box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
       rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
   }
+  .SelectInput div {
+    border: none;
+    background: transparent;
+  }
   .SelectInput div:first-child {
     background-color: #eee !important;
     border: none;
     color: #0c4128;
+  }
+  .SelectInput div:last-child div {
+    border: none;
+    background-color: #efefef;
   }
   .MultiSelectInput {
     background-color: #eee;
@@ -129,6 +138,9 @@ form {
   .MultiSelectInput div:last-child div {
     border: none;
     background-color: #efefef;
+  }
+  .MultiSelectInput div:last-child input {
+    box-shadow: none;
   }
   .MultiSelectInput div div {
     border: none;
@@ -176,12 +188,14 @@ form {
   .QueryInput {
     width: 75%;
   }
+  .MetricQueryInput {
+    height: 200px;
+  }
 
   .NodeModeInput {
     select {
       background-color: #eeeeee;
       border-radius: 10px;
-      border-style: none;
       padding: 1rem;
       font-family: Lato, Sans;
       font-size: 110%;

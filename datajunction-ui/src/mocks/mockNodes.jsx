@@ -1,4 +1,63 @@
 export const mocks = {
+  metricMetadata: {
+    directions: ['higher_is_better', 'lower_is_better', 'neutral'],
+    units: [
+      { name: 'dollar', label: 'Dollar' },
+      { name: 'second', label: 'Second' },
+    ],
+  },
+  mockTransformNode: {
+    namespace: 'default',
+    node_revision_id: 15,
+    node_id: 15,
+    type: 'transform',
+    name: 'default.repair_order_transform',
+    display_name: 'Default: Repair Order Transform',
+    version: 'v1.0',
+    status: 'valid',
+    mode: 'published',
+    catalog: {
+      name: 'warehouse',
+      engines: [],
+    },
+    schema_: null,
+    table: null,
+    description: 'Repair order dimension',
+    query:
+      'SELECT repair_order_id, municipality_id, hard_hat_id, dispatcher_id FROM default.repair_orders',
+    availability: null,
+    columns: [
+      {
+        name: 'repair_order_id',
+        display_name: 'Repair Order Id',
+        type: 'int',
+        attributes: [],
+        dimension: null,
+        partition: null,
+      },
+      {
+        name: 'municipality_id',
+        display_name: 'Municipality Id',
+        type: 'string',
+        attributes: [],
+        dimension: null,
+        partition: null,
+      },
+    ],
+    updated_at: '2024-01-24T16:39:14.029366+00:00',
+    materializations: [],
+    parents: [
+      {
+        name: 'default.repair_orders',
+      },
+    ],
+    metric_metadata: null,
+    dimension_links: [],
+    created_at: '2024-01-24T16:39:14.028077+00:00',
+    tags: [],
+    current_version: 'v1.0',
+    missing_table: false,
+  },
   mockMetricNode: {
     namespace: 'default',
     node_revision_id: 23,
@@ -217,6 +276,9 @@ export const mocks = {
       },
       direction: 'neutral',
     },
+    upstream_node: 'default.repair_orders',
+    expression: 'count(repair_order_id)',
+    aggregate_expression: 'count(repair_order_id)',
   },
   attributes: [
     {
