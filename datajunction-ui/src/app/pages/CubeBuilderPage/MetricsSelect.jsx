@@ -38,7 +38,6 @@ export const MetricsSelect = ({ cube }) => {
 
       const metrics = await djClient.metrics();
       setMetrics(metrics.map(m => ({ value: m, label: m })));
-      console.log('metrics', metrics);
     };
     fetchData().catch(console.error);
   }, [djClient, djClient.metrics, cube]);

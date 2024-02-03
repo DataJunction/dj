@@ -9,13 +9,20 @@ import NamespaceHeader from '../../components/NamespaceHeader';
 import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import 'styles/node-creation.scss';
-import AlertIcon from '../../icons/AlertIcon';
 import { useParams, useNavigate } from 'react-router-dom';
 import { FullNameField } from './FullNameField';
-import { FormikSelect } from './FormikSelect';
-import { NodeQueryField } from './NodeQueryField';
-import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
+import { MetricQueryField } from './MetricQueryField';
+import { displayMessageAfterSubmit } from '../../../utils/form';
 import { PrimaryKeySelect } from './PrimaryKeySelect';
+import { NodeQueryField } from './NodeQueryField';
+import { MetricMetadataFields } from './MetricMetadataFields';
+import { UpstreamNodeField } from './UpstreamNodeField';
+import { TagsField } from './TagsField';
+import { NamespaceField } from './NamespaceField';
+import { AlertMessage } from './AlertMessage';
+import { DisplayNameField } from './DisplayNameField';
+import { DescriptionField } from './DescriptionField';
+import { NodeModeField } from './NodeModeField';
 
 class Action {
   static Add = new Action('add');
@@ -33,11 +40,6 @@ export function AddEditNodePage() {
   let { nodeType, initialNamespace, name } = useParams();
   const action = name !== undefined ? Action.Edit : Action.Add;
 
-  const [namespaces, setNamespaces] = useState([]);
-  const [tags, setTags] = useState([]);
-  const [metricUnits, setMetricUnits] = useState([]);
-  const [metricDirections, setMetricDirections] = useState([]);
-
   const initialValues = {
     name: action === Action.Edit ? name : '',
     namespace: action === Action.Add ? initialNamespace : '',
@@ -54,7 +56,7 @@ export function AddEditNodePage() {
     if (!values.name) {
       errors.name = 'Required';
     }
-    if (!values.query) {
+    if (values.type !== 'metric' && !values.query) {
       errors.query = 'Required';
     }
     return errors;
@@ -98,6 +100,10 @@ export function AddEditNodePage() {
     </>
   );
 
+  const isMetric = (nodeType, node) => {
+    return nodeType === 'metric' || node.type === 'metric';
+  };
+
   const primaryKeyToList = primaryKey => {
     return primaryKey.map(columnName => columnName.trim());
   };
@@ -108,7 +114,9 @@ export function AddEditNodePage() {
       values.name,
       values.display_name,
       values.description,
-      values.query,
+      values.type === 'metric'
+        ? `SELECT ${values.aggregate_expression} FROM ${values.upstream_node}`
+        : values.query,
       values.mode,
       values.namespace,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
@@ -139,7 +147,9 @@ export function AddEditNodePage() {
       values.name,
       values.display_name,
       values.description,
-      values.query,
+      values.type === 'metric'
+        ? `SELECT ${values.aggregate_expression} FROM ${values.upstream_node}`
+        : values.query,
       values.mode,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
       values.metric_direction,
@@ -165,22 +175,6 @@ export function AddEditNodePage() {
     }
   };
 
-  const namespaceInput = (
-    <div className="NamespaceInput">
-      <ErrorMessage name="namespace" component="span" />
-      <label htmlFor="react-select-3-input">Namespace *</label>
-      <FormikSelect
-        selectOptions={namespaces}
-        formikFieldName="namespace"
-        placeholder="Choose Namespace"
-        defaultValue={{
-          value: initialNamespace,
-          label: initialNamespace,
-        }}
-      />
-    </div>
-  );
-
   const fullNameInput = (
     <div className="FullNameInput NodeCreationInput">
       <ErrorMessage name="name" component="span" />
@@ -193,17 +187,19 @@ export function AddEditNodePage() {
     return new Set(['transform', 'metric', 'dimension']).has(nodeType);
   };
 
-  const updateFieldsWithNodeData = (data, setFieldValue) => {
-    const fields = [
-      'display_name',
-      'query',
-      'type',
-      'description',
-      'primary_key',
-      'mode',
-      'tags',
-    ];
-    const primaryKey = data.columns
+  const getExistingNodeData = async name => {
+    const data = await djClient.node(name);
+    if (data.type === 'metric') {
+      const metric = await djClient.metric(name);
+      data.upstream_node = metric.upstream_node;
+      data.expression = metric.expression;
+      data.required_dimensions = metric.required_dimensions;
+    }
+    return data;
+  };
+
+  const primaryKeyFromNode = node => {
+    return node.columns
       .filter(
         col =>
           col.attributes &&
@@ -212,6 +208,47 @@ export function AddEditNodePage() {
           ).length > 0,
       )
       .map(col => col.name);
+  };
+
+  const runValidityChecks = (data, setNode, setMessage) => {
+    // Check if node exists
+    if (data.message !== undefined) {
+      setNode(null);
+      setMessage(`Node ${name} does not exist!`);
+      return;
+    }
+
+    // Check if node type can be edited
+    if (!nodeCanBeEdited(data.type)) {
+      setNode(null);
+      if (data.type === 'cube') {
+        navigate(`/nodes/${data.name}/edit-cube`);
+      }
+      setMessage(`Node ${name} is of type ${data.type} and cannot be edited`);
+    }
+  };
+
+  const updateFieldsWithNodeData = (
+    data,
+    setFieldValue,
+    setNode,
+    setSelectTags,
+    setSelectPrimaryKey,
+    setSelectUpstreamNode,
+  ) => {
+    // Update fields with existing data to prepare for edit
+    const fields = [
+      'display_name',
+      'query',
+      'type',
+      'description',
+      'primary_key',
+      'mode',
+      'tags',
+      'expression',
+      'upstream_node',
+    ];
+    const primaryKey = primaryKeyFromNode(data);
     fields.forEach(field => {
       if (field === 'primary_key') {
         setFieldValue(field, primaryKey);
@@ -233,56 +270,39 @@ export function AddEditNodePage() {
         data.metric_metadata.unit.name.toLowerCase(),
       );
     }
-  };
+    if (data.expression) {
+      setFieldValue('aggregate_expression', data.expression);
+    }
+    if (data.upstream_node) {
+      setFieldValue('upstream_node', data.upstream_node);
+    }
+    setNode(data);
 
-  const alertMessage = message => {
-    return (
-      <div className="message alert">
-        <AlertIcon />
-        {message}
-      </div>
+    // For react-select fields, we have to explicitly set the entire
+    // field rather than just the values
+    setSelectTags(
+      <TagsField
+        defaultValue={data.tags.map(t => {
+          return { value: t.name, label: t.display_name };
+        })}
+      />,
+    );
+    setSelectPrimaryKey(
+      <PrimaryKeySelect
+        defaultValue={primaryKey.map(col => {
+          return { value: col, label: col };
+        })}
+      />,
+    );
+    setSelectUpstreamNode(
+      <UpstreamNodeField
+        defaultValue={{
+          value: data.upstream_node,
+          label: data.upstream_node,
+        }}
+      />,
     );
   };
-
-  // Get namespaces, only necessary when creating a node
-  useEffect(() => {
-    if (action === Action.Add) {
-      const fetchData = async () => {
-        const namespaces = await djClient.namespaces();
-        setNamespaces(
-          namespaces.map(m => ({
-            value: m['namespace'],
-            label: m['namespace'],
-          })),
-        );
-      };
-      fetchData().catch(console.error);
-    }
-  }, [action, djClient, djClient.metrics]);
-
-  // Get list of tags
-  useEffect(() => {
-    const fetchData = async () => {
-      const tags = await djClient.listTags();
-      setTags(
-        tags.map(tag => ({
-          value: tag.name,
-          label: tag.display_name,
-        })),
-      );
-    };
-    fetchData().catch(console.error);
-  }, [djClient, djClient.listTags]);
-
-  // Get metric metadata values
-  useEffect(() => {
-    const fetchData = async () => {
-      const metadata = await djClient.listMetricMetadata();
-      setMetricDirections(metadata.directions);
-      setMetricUnits(metadata.units);
-    };
-    fetchData().catch(console.error);
-  }, [djClient]);
 
   return (
     <div className="mid">
@@ -299,193 +319,83 @@ export function AddEditNodePage() {
               {function Render({ isSubmitting, status, setFieldValue }) {
                 const [node, setNode] = useState([]);
                 const [selectPrimaryKey, setSelectPrimaryKey] = useState(null);
+                const [selectUpstreamNode, setSelectUpstreamNode] =
+                  useState(null);
                 const [selectTags, setSelectTags] = useState(null);
                 const [message, setMessage] = useState('');
-
-                const tagsInput = (
-                  <div
-                    className="TagsInput"
-                    style={{ width: '25%', margin: '1rem 0 1rem 1.2rem' }}
-                  >
-                    <ErrorMessage name="tags" component="span" />
-                    <label htmlFor="react-select-3-input">Tags</label>
-                    <span data-testid="select-tags">
-                      {action === Action.Edit ? (
-                        selectTags
-                      ) : (
-                        <FormikSelect
-                          isMulti={true}
-                          selectOptions={tags}
-                          formikFieldName="tags"
-                          placeholder="Choose Tags"
-                        />
-                      )}
-                    </span>
-                  </div>
-                );
-
-                const primaryKeyInput = (
-                  <div className="CubeCreationInput">
-                    <ErrorMessage name="primary_key" component="span" />
-                    <label htmlFor="react-select-3-input">Primary Key</label>
-                    <span data-testid="select-primary-key">
-                      {action === Action.Edit ? (
-                        selectPrimaryKey
-                      ) : (
-                        <PrimaryKeySelect />
-                      )}
-                    </span>
-                  </div>
-                );
-
-                const metricMetadataInput = (
-                  <>
-                    <div
-                      className="MetricDirectionInput NodeCreationInput"
-                      style={{ width: '25%' }}
-                    >
-                      <ErrorMessage name="metric_direction" component="span" />
-                      <label htmlFor="MetricDirection">Metric Direction</label>
-                      <Field
-                        as="select"
-                        name="metric_direction"
-                        id="MetricDirection"
-                      >
-                        <option value=""></option>
-                        {metricDirections.map(direction => (
-                          <option value={direction}>
-                            {labelize(direction)}
-                          </option>
-                        ))}
-                      </Field>
-                    </div>
-                    <div
-                      className="MetricUnitInput NodeCreationInput"
-                      style={{ width: '25%' }}
-                    >
-                      <ErrorMessage name="metric_unit" component="span" />
-                      <label htmlFor="MetricUnit">Metric Unit</label>
-                      <Field as="select" name="metric_unit" id="MetricUnit">
-                        <option value=""></option>
-                        {metricUnits.map(unit => (
-                          <option value={unit.name}>{unit.label}</option>
-                        ))}
-                      </Field>
-                    </div>
-                  </>
-                );
 
                 useEffect(() => {
                   const fetchData = async () => {
                     if (action === Action.Edit) {
-                      const data = await djClient.node(name);
-
-                      // Check if node exists
-                      if (data.message !== undefined) {
-                        setNode(null);
-                        setMessage(`Node ${name} does not exist!`);
-                        return;
-                      }
-
-                      // Check if node type can be edited
-                      if (!nodeCanBeEdited(data.type)) {
-                        setNode(null);
-                        if (data.type === 'cube') {
-                          navigate(`/nodes/${data.name}/edit-cube`);
-                        }
-                        setMessage(
-                          `Node ${name} is of type ${data.type} and cannot be edited`,
-                        );
-                        return;
-                      }
-
-                      // Update fields with existing data to prepare for edit
-                      updateFieldsWithNodeData(data, setFieldValue);
-                      setNode(data);
-                      setSelectTags(
-                        <FormikSelect
-                          isMulti={true}
-                          selectOptions={tags}
-                          formikFieldName="tags"
-                          placeholder="Choose Tags"
-                          defaultValue={data.tags.map(t => {
-                            return { value: t.name, label: t.display_name };
-                          })}
-                        />,
-                      );
-                      const primaryKey = data.columns.filter(
-                        col =>
-                          col.attributes &&
-                          col.attributes.filter(
-                            attr => attr.attribute_type.name === 'primary_key',
-                          ).length > 0,
-                      );
-                      setSelectPrimaryKey(
-                        <PrimaryKeySelect
-                          defaultValue={primaryKey.map(col => {
-                            return { value: col.name, label: col.name };
-                          })}
-                        />,
+                      const data = await getExistingNodeData(name);
+                      runValidityChecks(data, setNode, setMessage);
+                      updateFieldsWithNodeData(
+                        data,
+                        setFieldValue,
+                        setNode,
+                        setSelectTags,
+                        setSelectPrimaryKey,
+                        setSelectUpstreamNode,
                       );
                     }
                   };
                   fetchData().catch(console.error);
-                }, [setFieldValue, tags]);
+                }, [setFieldValue]);
                 return (
                   <Form>
                     {displayMessageAfterSubmit(status)}
                     {action === Action.Edit && message ? (
-                      alertMessage(message)
+                      <AlertMessage message={message} />
                     ) : (
                       <>
-                        {action === Action.Add
-                          ? namespaceInput
-                          : staticFieldsInEdit(node)}
-                        <div className="DisplayNameInput NodeCreationInput">
-                          <ErrorMessage name="display_name" component="span" />
-                          <label htmlFor="displayName">Display Name *</label>
-                          <Field
-                            type="text"
-                            name="display_name"
-                            id="displayName"
-                            placeholder="Human readable display name"
-                          />
-                        </div>
+                        {action === Action.Add ? (
+                          <NamespaceField initialNamespace={initialNamespace} />
+                        ) : (
+                          staticFieldsInEdit(node)
+                        )}
+                        <DisplayNameField />
                         {action === Action.Add ? fullNameInput : ''}
-                        <div className="DescriptionInput NodeCreationInput">
-                          <ErrorMessage name="description" component="span" />
-                          <label htmlFor="Description">Description</label>
-                          <Field
-                            type="textarea"
-                            as="textarea"
-                            name="description"
-                            id="Description"
-                            placeholder="Describe your node"
+                        <DescriptionField />
+                        <br />
+                        {isMetric(nodeType, node) ? (
+                          action === Action.Edit ? (
+                            selectUpstreamNode
+                          ) : (
+                            <UpstreamNodeField />
+                          )
+                        ) : (
+                          ''
+                        )}
+                        <br />
+                        <br />
+                        {nodeType === 'metric' || node.type === 'metric' ? (
+                          <MetricQueryField
+                            djClient={djClient}
+                            value={node.expression ? node.expression : ''}
                           />
-                        </div>
-                        {nodeType === 'metric' || node.type === 'metric'
-                          ? metricMetadataInput
-                          : ''}
-                        <div className="QueryInput NodeCreationInput">
-                          <ErrorMessage name="query" component="span" />
-                          <label htmlFor="Query">Query *</label>
+                        ) : (
                           <NodeQueryField
                             djClient={djClient}
                             value={node.query ? node.query : ''}
                           />
-                        </div>
-                        {nodeType !== 'metric' && node.type !== 'metric'
-                          ? primaryKeyInput
-                          : ''}
-                        {tagsInput}
-                        <div className="NodeModeInput NodeCreationInput">
-                          <ErrorMessage name="mode" component="span" />
-                          <label htmlFor="Mode">Mode</label>
-                          <Field as="select" name="mode" id="Mode">
-                            <option value="draft">Draft</option>
-                            <option value="published">Published</option>
-                          </Field>
-                        </div>
+                        )}
+                        <br />
+                        {nodeType === 'metric' || node.type === 'metric' ? (
+                          <MetricMetadataFields />
+                        ) : (
+                          ''
+                        )}
+                        {nodeType !== 'metric' && node.type !== 'metric' ? (
+                          action === Action.Edit ? (
+                            selectPrimaryKey
+                          ) : (
+                            <PrimaryKeySelect />
+                          )
+                        ) : (
+                          ''
+                        )}
+                        {action === Action.Edit ? selectTags : <TagsField />}
+                        <NodeModeField />
 
                         <button type="submit" disabled={isSubmitting}>
                           {action === Action.Add ? 'Create' : 'Save'} {nodeType}

@@ -40,7 +40,6 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
     setSubmitting(false);
     const config = JSON.parse(values.config);
     config.lookback_window = values.lookback_window;
-    console.log('values', values);
     const response = await djClient.materialize(
       values.node,
       values.job_type,
