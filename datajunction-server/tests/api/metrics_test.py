@@ -37,6 +37,8 @@ def test_read_metrics(client_with_roads: TestClient) -> None:
             "name": "DOLLAR",
         },
     }
+    assert data["upstream_node"] == "default.repair_orders_fact"
+    assert data["expression"] == "count(repair_order_id)"
 
 
 def test_read_metric(session: Session, client: TestClient) -> None:
