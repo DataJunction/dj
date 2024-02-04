@@ -271,7 +271,7 @@ describe('<NodePage />', () => {
     },
   };
 
-  it('renders the NodeInfo tab correctly', async () => {
+  it('renders the NodeInfo tab correctly for a metric node', async () => {
     const djClient = mockDJClient();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
     djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
@@ -281,9 +281,9 @@ describe('<NodePage />', () => {
       </DJClientContext.Provider>
     );
     const { container } = render(
-      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders']}>
+      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders/info']}>
         <Routes>
-          <Route path="nodes/:name" element={element} />
+          <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );
@@ -292,7 +292,6 @@ describe('<NodePage />', () => {
       expect(djClient.DataJunctionAPI.node).toHaveBeenCalledWith(
         'default.num_repair_orders',
       );
-      userEvent.click(screen.getByRole('button', { name: 'Info' }));
 
       expect(
         screen.getByRole('dialog', { name: 'NodeName' }),
@@ -316,8 +315,8 @@ describe('<NodePage />', () => {
       );
 
       expect(
-        screen.getByRole('dialog', { name: 'PrimaryKey' }),
-      ).toHaveTextContent('repair_order_id, country');
+        screen.getByRole('dialog', { name: 'RequiredDimensions' }),
+      ).toHaveTextContent('');
 
       expect(
         screen.getByRole('dialog', { name: 'DisplayName' }),
@@ -411,14 +410,15 @@ describe('<NodePage />', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders']}>
+      <MemoryRouter
+        initialEntries={['/nodes/default.num_repair_orders/columns']}
+      >
         <Routes>
-          <Route path="nodes/:name" element={element} />
+          <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );
     await waitFor(() => {
-      fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
       expect(djClient.DataJunctionAPI.columns).toHaveBeenCalledWith(
         mocks.mockMetricNode,
       );
@@ -484,9 +484,11 @@ describe('<NodePage />', () => {
       </DJClientContext.Provider>
     );
     const { container } = render(
-      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders']}>
+      <MemoryRouter
+        initialEntries={['/nodes/default.num_repair_orders/history']}
+      >
         <Routes>
-          <Route path="nodes/:name" element={element} />
+          <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );
@@ -585,9 +587,11 @@ describe('<NodePage />', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders']}>
+      <MemoryRouter
+        initialEntries={['/nodes/default.num_repair_orders/materializations']}
+      >
         <Routes>
-          <Route path="nodes/:name" element={element} />
+          <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );
@@ -618,9 +622,11 @@ describe('<NodePage />', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders']}>
+      <MemoryRouter
+        initialEntries={['/nodes/default.num_repair_orders/materializations']}
+      >
         <Routes>
-          <Route path="nodes/:name" element={element} />
+          <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );
@@ -656,9 +662,9 @@ describe('<NodePage />', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders']}>
+      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders/sql']}>
         <Routes>
-          <Route path="nodes/:name" element={element} />
+          <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );
@@ -687,9 +693,11 @@ describe('<NodePage />', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders']}>
+      <MemoryRouter
+        initialEntries={['/nodes/default.num_repair_orders/lineage']}
+      >
         <Routes>
-          <Route path="nodes/:name" element={element} />
+          <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );
@@ -713,9 +721,9 @@ describe('<NodePage />', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders']}>
+      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders/graph']}>
         <Routes>
-          <Route path="nodes/:name" element={element} />
+          <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );
@@ -740,9 +748,9 @@ describe('<NodePage />', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/nodes/default.dispatcher']}>
+      <MemoryRouter initialEntries={['/nodes/default.dispatcher/linked']}>
         <Routes>
-          <Route path="nodes/:name" element={element} />
+          <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );

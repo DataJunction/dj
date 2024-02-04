@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useParams } from 'react-router-dom';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useMemo, useState } from 'react';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
 import Explorer from '../NamespacePage/Explorer';
@@ -47,7 +47,7 @@ export function NamespacePage() {
     return hierarchy;
   };
 
-  useEffect(() => {
+  useMemo(() => {
     const fetchData = async () => {
       const namespaces = await djClient.namespaces();
       const hierarchy = createNamespaceHierarchy(namespaces);
@@ -56,7 +56,7 @@ export function NamespacePage() {
     fetchData().catch(console.error);
   }, [djClient, djClient.namespaces]);
 
-  useEffect(() => {
+  useMemo(() => {
     const fetchData = async () => {
       if (namespace === undefined && namespaceHierarchy !== undefined) {
         namespace = namespaceHierarchy[0].namespace;

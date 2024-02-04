@@ -279,6 +279,7 @@ export const mocks = {
     upstream_node: 'default.repair_orders',
     expression: 'count(repair_order_id)',
     aggregate_expression: 'count(repair_order_id)',
+    required_dimensions: [],
   },
   attributes: [
     {
