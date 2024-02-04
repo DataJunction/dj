@@ -1041,6 +1041,7 @@ def test_sql_with_filters(  # pylint: disable=too-many-arguments
         params={"dimensions": dimensions, "filters": filters},
     )
     data = response.json()
+    print("QUERYYYY", data["sql"])
     assert compare_query_strings(data["sql"], sql)
     assert data["columns"] == columns
 

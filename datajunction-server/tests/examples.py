@@ -639,17 +639,27 @@ CROSS JOIN
     ),
     (
         (
-            "/nodes/default.repair_orders_fact/columns/municipality_id/"
-            "?dimension=default.municipality_dim"
+            "/nodes/default.repair_orders_fact/link"
         ),
-        {},
+        {
+            "dimension_node": "default.municipality_dim",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id"
+            ),
+        },
     ),
     (
         (
-            "/nodes/default.repair_orders_fact/columns/hard_hat_id/"
-            "?dimension=default.hard_hat"
+            "/nodes/default.repair_orders_fact/link"
         ),
-        {},
+        {
+            "dimension_node": "default.hard_hat",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id"
+            ),
+        },
     ),
     (
         (
