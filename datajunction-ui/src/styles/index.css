@@ -1106,3 +1106,9 @@ pre {
   padding: 5px;
   font-family: Consolas, serif;
 }
+
+.PrimaryKey {
+  margin-right: 10px;
+  font-size: 100%;
+  margin-bottom: 5px;
+}

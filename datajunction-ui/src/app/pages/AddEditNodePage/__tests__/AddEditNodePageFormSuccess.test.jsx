@@ -66,6 +66,7 @@ describe('AddEditNodePage submission succeeded', () => {
         null,
         undefined,
         undefined,
+        undefined,
       );
       expect(screen.getByText(/default.some_test_dim/)).toBeInTheDocument();
     });
@@ -133,6 +134,7 @@ describe('AddEditNodePage submission succeeded', () => {
           null,
           undefined,
           undefined,
+          undefined,
         );
         expect(
           screen.getByText(/default.some_test_metric/),
@@ -187,6 +189,7 @@ describe('AddEditNodePage submission succeeded', () => {
         'SELECT repair_order_id, municipality_id, hard_hat_id, dispatcher_id FROM default.repair_orders',
         'published',
         [],
+        undefined,
         undefined,
         undefined,
       );
@@ -248,6 +251,7 @@ describe('AddEditNodePage submission succeeded', () => {
         [],
         'neutral',
         'unitless',
+        undefined,
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(

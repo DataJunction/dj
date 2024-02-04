@@ -2,6 +2,7 @@
 Helper methods for namespaces endpoints.
 """
 import os
+import re
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -188,7 +189,11 @@ def validate_namespace(namespace: str):
     """
     parts = namespace.split(SEPARATOR)
     for part in parts:
-        if not part or (part and part[0].isdigit()) or part in RESERVED_NAMESPACE_NAMES:
+        if (
+            not part
+            or not re.match("^[a-zA-Z][a-zA-Z0-9_]*$", part)
+            or part in RESERVED_NAMESPACE_NAMES
+        ):
             raise DJInvalidInputException(
                 f"{namespace} is not a valid namespace. Namespace parts cannot start with numbers"
                 f", be empty, or use the reserved keyword [{', '.join(RESERVED_NAMESPACE_NAMES)}]",
