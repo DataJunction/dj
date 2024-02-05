@@ -6,7 +6,6 @@ import fetchMock from 'jest-fetch-mock';
 import { AddEditNodePage } from '../index.jsx';
 import { mocks } from '../../../../mocks/mockNodes';
 import DJClientContext from '../../../providers/djclient';
-import userEvent from '@testing-library/user-event';
 
 fetchMock.enableMocks();
 
@@ -52,7 +51,13 @@ export const initializeMockDJClient = () => {
       patchNode: jest.fn(),
       node: jest.fn(),
       tagsNode: jest.fn(),
-      listTags: jest.fn(),
+      listTags: jest.fn().mockReturnValue([]),
+      metric: jest.fn().mockReturnValue(mocks.mockMetricNode),
+      nodesWithType: jest
+        .fn()
+        .mockReturnValueOnce(['a'])
+        .mockReturnValueOnce(['b'])
+        .mockReturnValueOnce(['default.repair_orders']),
       listMetricMetadata: jest.fn().mockReturnValue({
         directions: ['higher_is_better', 'lower_is_better', 'neutral'],
         units: [
@@ -82,9 +87,31 @@ export const renderCreateNode = element => {
   );
 };
 
+export const renderCreateMetric = element => {
+  return render(
+    <MemoryRouter initialEntries={['/create/metric/default']}>
+      <Routes>
+        <Route path="create/:nodeType/:initialNamespace" element={element} />
+      </Routes>
+    </MemoryRouter>,
+  );
+};
+
 export const renderEditNode = element => {
   return render(
     <MemoryRouter initialEntries={['/nodes/default.num_repair_orders/edit']}>
+      <Routes>
+        <Route path="nodes/:name/edit" element={element} />
+      </Routes>
+    </MemoryRouter>,
+  );
+};
+
+export const renderEditTransformNode = element => {
+  return render(
+    <MemoryRouter
+      initialEntries={['/nodes/default.repair_order_transform/edit']}
+    >
       <Routes>
         <Route path="nodes/:name/edit" element={element} />
       </Routes>
@@ -135,12 +162,12 @@ describe('AddEditNodePage', () => {
       // The description should be populated
       expect(screen.getByText('Number of repair orders')).toBeInTheDocument();
 
-      // The query should be populated
-      expect(
-        screen.getByText(
-          'SELECT count(repair_order_id) default_DOT_num_repair_orders FROM default.repair_orders',
-        ),
-      ).toBeInTheDocument();
+      // The upstream node should be populated
+      expect(screen.getByText('default.repair_orders')).toBeInTheDocument();
+
+      // The aggregate expression should be populated
+      expect(screen.getByText('count')).toBeInTheDocument();
+      expect(screen.getByText('(repair_order_id)')).toBeInTheDocument();
     });
   });
 
