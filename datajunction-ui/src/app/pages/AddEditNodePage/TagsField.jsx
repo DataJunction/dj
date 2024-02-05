@@ -2,7 +2,7 @@
  * Tags select field
  */
 import { ErrorMessage } from 'formik';
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import { FormikSelect } from './FormikSelect';
 
@@ -12,7 +12,7 @@ export const TagsField = ({ defaultValue }) => {
   // All available tags
   const [tags, setTags] = useState([]);
 
-  useMemo(() => {
+  useEffect(() => {
     const fetchData = async () => {
       const tags = await djClient.listTags();
       setTags(

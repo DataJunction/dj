@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useParams } from 'react-router-dom';
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import Tab from '../../components/Tab';
 import NamespaceHeader from '../../components/NamespaceHeader';
 import NodeInfoTab from './NodeInfoTab';
@@ -47,7 +47,7 @@ export function NodePage() {
     ) : null;
   };
 
-  useMemo(() => {
+  useEffect(() => {
     const fetchData = async () => {
       const data = await djClient.node(name);
       data.createNodeClientCode = await djClient.clientCode(name);

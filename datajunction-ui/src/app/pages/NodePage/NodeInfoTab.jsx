@@ -1,4 +1,4 @@
-import { useState, useContext, useMemo } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
@@ -21,7 +21,7 @@ export default function NodeInfoTab({ node }) {
   ));
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
-  useMemo(() => {
+  useEffect(() => {
     const fetchData = async () => {
       if (checked === true) {
         const data = await djClient.compiledSql(node.name);
