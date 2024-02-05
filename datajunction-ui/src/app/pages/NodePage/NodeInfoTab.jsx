@@ -38,6 +38,26 @@ export default function NodeInfoTab({ node }) {
   function toggle(value) {
     return !value;
   }
+  const metricQueryDiv = node?.expression ? (
+    <div className="list-group-item d-flex">
+      <div className="gap-2 w-100 justify-content-between py-3">
+        <div style={{ marginBottom: '30px' }}>
+          <h6 className="mb-0 w-100">Upstream Node</h6>
+          <p>
+            <a href={`/nodes/${node?.upstream_node}`}>{node?.upstream_node}</a>
+          </p>
+        </div>
+        <div>
+          <h6 className="mb-0 w-100">Aggregate Expression</h6>
+          <SyntaxHighlighter language="sql" style={foundation}>
+            {node?.expression}
+          </SyntaxHighlighter>
+        </div>
+      </div>
+    </div>
+  ) : (
+    ''
+  );
   const queryDiv = node?.query ? (
     <div className="list-group-item d-flex">
       <div className="d-flex gap-2 w-100 justify-content-between py-3">
@@ -248,7 +268,8 @@ export default function NodeInfoTab({ node }) {
         </div>
       </div>
       {metricMetadataDiv}
-      {node?.type !== 'cube' ? queryDiv : ''}
+      {node?.type !== 'cube' && node?.type !== 'metric' ? queryDiv : ''}
+      {node?.type === 'metric' ? metricQueryDiv : ''}
       {cubeElementsDiv}
     </div>
   );

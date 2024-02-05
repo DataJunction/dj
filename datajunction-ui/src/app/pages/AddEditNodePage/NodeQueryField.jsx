@@ -3,7 +3,7 @@
  * (for node names and columns) and syntax highlighting.
  */
 import React from 'react';
-import { Field, useFormikContext } from 'formik';
+import { ErrorMessage, Field, useFormikContext } from 'formik';
 import CodeMirror from '@uiw/react-codemirror';
 import { langs } from '@uiw/codemirror-extensions-langs';
 
@@ -47,7 +47,9 @@ export const NodeQueryField = ({ djClient, value }) => {
   };
 
   return (
-    <>
+    <div className="QueryInput NodeCreationInput">
+      <ErrorMessage name="query" component="span" />
+      <label htmlFor="Query">Query *</label>
       <Field
         type="textarea"
         style={{ display: 'none' }}
@@ -84,6 +86,6 @@ export const NodeQueryField = ({ djClient, value }) => {
           }}
         />
       </div>
-    </>
+    </div>
   );
 };
