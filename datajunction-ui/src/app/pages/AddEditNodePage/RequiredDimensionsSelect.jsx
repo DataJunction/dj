@@ -2,7 +2,7 @@
  * Required dimensions select component
  */
 import { ErrorMessage, useFormikContext } from 'formik';
-import React, { useContext, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import { FormikSelect } from './FormikSelect';
 
@@ -19,7 +19,7 @@ export const RequiredDimensionsSelect = ({
   // Select options, i.e., the available dimensions
   const [selectOptions, setSelectOptions] = useState([]);
 
-  useMemo(() => {
+  useEffect(() => {
     const fetchData = async () => {
       if (values.upstream_node) {
         const data = await djClient.node(values.upstream_node);

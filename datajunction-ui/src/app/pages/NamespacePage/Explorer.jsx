@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import CollapsedIcon from '../../icons/CollapsedIcon';
 import ExpandedIcon from '../../icons/ExpandedIcon';
 
@@ -7,7 +7,7 @@ const Explorer = ({ item = [], current }) => {
   const [expand, setExpand] = useState(false);
   const [highlight, setHighlight] = useState(false);
 
-  useMemo(() => {
+  useEffect(() => {
     setItems(item);
     setHighlight(current);
     if (current === undefined || current?.startsWith(item.path)) {
