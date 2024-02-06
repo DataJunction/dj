@@ -915,7 +915,15 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         and data.primary_key
         and {col.name for col in old_revision.primary_key()} != set(data.primary_key)
     )
-    major_changes = query_changes or column_changes or pk_changes
+    required_dim_changes = (
+        data is not None
+        and data.required_dimensions
+        and {col.name for col in old_revision.required_dimensions}
+        != set(data.required_dimensions)
+    )
+    major_changes = (
+        query_changes or column_changes or pk_changes or required_dim_changes
+    )
 
     # If nothing has changed, do not create the new node revision
     if not minor_changes and not major_changes and not version_upgrade:
@@ -966,6 +974,8 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             else old_revision.metric_metadata
         ),
     )
+    if data.required_dimensions:  # type: ignore
+        new_revision.required_dimensions = data.required_dimensions  # type: ignore
 
     # Link the new revision to its parents if a new revision was created and update its status
     if new_revision.type != NodeType.SOURCE:
@@ -1028,6 +1038,10 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
                     col.attributes.append(
                         ColumnAttribute(column=col, attribute_type=pk_attribute),
                     )
+
+        # Update the required dimensions if one was set in the input and the node is a metric
+        if node_validator.required_dimensions and new_revision.type == NodeType.METRIC:
+            new_revision.required_dimensions = node_validator.required_dimensions
 
         # Set the node's validity status
         invalid_primary_key = (

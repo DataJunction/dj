@@ -233,30 +233,26 @@ def get_query(  # pylint: disable=too-many-arguments
 def find_bound_dimensions(
     validated_node: NodeRevision,
     dependencies_map: Dict[NodeRevision, List[ast.Table]],
-) -> Tuple[Set, List[Column]]:
+) -> Tuple[Set[str], List[Column]]:
     """
-    Finds the matched bound dimensions
+    Finds the matched required dimensions
     """
     invalid_required_dimensions = set()
     matched_bound_columns = []
+    required_dimensions_mapping = {}
     for col in validated_node.required_dimensions:
-        names = col.split(".")
-        parent_name, column_name = ".".join(names[:-1]), names[-1]
-
-        found_parent_col = False
+        column_name = col.name if isinstance(col, Column) else col
         for parent in dependencies_map.keys():
-            if found_parent_col:
-                break  # pragma: no cover
-            if (parent.name) != parent_name:
-                continue  # pragma: no cover
-            for parent_col in parent.columns:
-                if parent_col.name == column_name:
-                    found_parent_col = True
-                    matched_bound_columns.append(parent_col)
-                    break
-        if not found_parent_col:
-            invalid_required_dimensions.add(col)
-    return invalid_required_dimensions, matched_bound_columns
+            parent_columns = {
+                parent_col.name: parent_col for parent_col in parent.columns
+            }
+            required_dimensions_mapping[column_name] = parent_columns.get(column_name)
+    for column_name, required_column in required_dimensions_mapping.items():
+        if required_column is not None:
+            matched_bound_columns.append(required_column)
+        else:
+            invalid_required_dimensions.add(column_name)
+    return invalid_required_dimensions, matched_bound_columns  # type: ignore
 
 
 @dataclass
