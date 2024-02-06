@@ -11,8 +11,8 @@ export default function NodeHistory({ node, djClient }) {
     const fetchData = async () => {
       if (node) {
         const data = await djClient.history('node', node.name);
-        setHistory(data);
         const revisions = await djClient.revisions(node.name);
+        setHistory(data);
         setRevisions(revisions);
       }
     };

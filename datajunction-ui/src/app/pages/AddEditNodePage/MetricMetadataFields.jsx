@@ -2,7 +2,7 @@
  * Metric unit select component
  */
 import { ErrorMessage, Field } from 'formik';
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import { labelize } from '../../../utils/form';
 
@@ -14,7 +14,7 @@ export const MetricMetadataFields = () => {
   const [metricDirections, setMetricDirections] = useState([]);
 
   // Get metric metadata values
-  useMemo(() => {
+  useEffect(() => {
     const fetchData = async () => {
       const metadata = await djClient.listMetricMetadata();
       setMetricDirections(metadata.directions);

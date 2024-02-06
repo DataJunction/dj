@@ -100,7 +100,7 @@ exports[`<NodePage /> renders the NodeHistory tab correctly 1`] = `
 </table>
 `;
 
-exports[`<NodePage /> renders the NodeInfo tab correctly 1`] = `
+exports[`<NodePage /> renders the NodeInfo tab correctly for a metric node 1`] = `
 HTMLCollection [
   <code
     class="language-sql"

@@ -11,12 +11,13 @@ export const FullNameField = props => {
 
   useEffect(() => {
     // Set the value of the node's full name based on its namespace and display name
-    if (values.namespace && values.display_name) {
+    if (values.namespace || values.display_name) {
       setFieldValue(
         props.name,
         `${values.namespace}.${values.display_name
           .toLowerCase()
-          .replace(/ /g, '_')}` || '',
+          .replace(/ /g, '_')
+          .replace(/[^a-zA-Z0-9_]/g, '')}` || '',
       );
     }
   }, [setFieldValue, props.name, values]);

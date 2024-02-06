@@ -16,16 +16,22 @@ import NodeColumnLineage from './NodeLineageTab';
 import EditIcon from '../../icons/EditIcon';
 import AlertIcon from '../../icons/AlertIcon';
 import NodeDimensionsTab from './NodeDimensionsTab';
+import { useNavigate } from 'react-router-dom';
 
 export function NodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
+  const navigate = useNavigate();
+
+  const { name, tab } = useParams();
+
   const [state, setState] = useState({
-    selectedTab: 0,
+    selectedTab: tab || 'info',
   });
 
   const [node, setNode] = useState();
 
   const onClickTab = id => () => {
+    navigate(`/nodes/${name}/${id}`);
     setState({ selectedTab: id });
   };
 
@@ -41,13 +47,10 @@ export function NodePage() {
     ) : null;
   };
 
-  const { name } = useParams();
-
   useEffect(() => {
     const fetchData = async () => {
       const data = await djClient.node(name);
       data.createNodeClientCode = await djClient.clientCode(name);
-      setNode(data);
       if (data.type === 'metric') {
         const metric = await djClient.metric(name);
         data.dimensions = metric.dimensions;
@@ -55,13 +58,12 @@ export function NodePage() {
         data.required_dimensions = metric.required_dimensions;
         data.upstream_node = metric.upstream_node;
         data.expression = metric.expression;
-        setNode(data);
       }
       if (data.type === 'cube') {
         const cube = await djClient.cube(name);
         data.cube_elements = cube.cube_elements;
-        setNode(data);
       }
+      setNode(data);
     };
     fetchData().catch(console.error);
   }, [djClient, name]);
@@ -69,84 +71,82 @@ export function NodePage() {
   const tabsList = node => {
     return [
       {
-        id: 0,
+        id: 'info',
         name: 'Info',
         display: true,
       },
       {
-        id: 1,
+        id: 'columns',
         name: 'Columns',
         display: true,
       },
       {
-        id: 2,
+        id: 'graph',
         name: 'Graph',
         display: true,
       },
       {
-        id: 3,
+        id: 'history',
         name: 'History',
         display: true,
       },
       {
-        id: 4,
+        id: 'sql',
         name: 'SQL',
         display: node?.type !== 'dimension' && node?.type !== 'source',
       },
       {
-        id: 5,
+        id: 'materializations',
         name: 'Materializations',
         display: node?.type !== 'source',
       },
       {
-        id: 6,
+        id: 'linked',
         name: 'Linked Nodes',
         display: node?.type === 'dimension',
       },
       {
-        id: 7,
+        id: 'lineage',
         name: 'Lineage',
         display: node?.type === 'metric',
       },
       {
-        id: 8,
+        id: 'dimensions',
         name: 'Dimensions',
         display: node?.type !== 'cube',
       },
     ];
   };
-
-  //
-  //
   let tabToDisplay = null;
+
   switch (state.selectedTab) {
-    case 0:
+    case 'info':
       tabToDisplay =
         node && node.message === undefined ? <NodeInfoTab node={node} /> : '';
       break;
-    case 1:
+    case 'columns':
       tabToDisplay = <NodeColumnTab node={node} djClient={djClient} />;
       break;
-    case 2:
+    case 'graph':
       tabToDisplay = <NodeLineage djNode={node} djClient={djClient} />;
       break;
-    case 3:
+    case 'history':
       tabToDisplay = <NodeHistory node={node} djClient={djClient} />;
       break;
-    case 4:
+    case 'sql':
       tabToDisplay =
         node?.type === 'metric' ? <NodeSQLTab djNode={node} /> : <br />;
       break;
-    case 5:
+    case 'materializations':
       tabToDisplay = <NodeMaterializationTab node={node} djClient={djClient} />;
       break;
-    case 6:
+    case 'linked':
       tabToDisplay = <NodesWithDimension node={node} djClient={djClient} />;
       break;
-    case 7:
+    case 'lineage':
       tabToDisplay = <NodeColumnLineage djNode={node} djClient={djClient} />;
       break;
-    case 8:
+    case 'dimensions':
       tabToDisplay = <NodeDimensionsTab node={node} djClient={djClient} />;
       break;
     default: /* istanbul ignore next */

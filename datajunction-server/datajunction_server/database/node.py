@@ -492,13 +492,16 @@ class NodeRevision(
                 message="Cannot retrieve metrics for a non-cube node!",
             )
         ordering = {
-            col.name.replace("_DOT_", SEPARATOR): col.order for col in self.columns
+            col.name.replace("_DOT_", SEPARATOR): (col.order or idx)
+            for idx, col in enumerate(self.columns)
         }
         return sorted(
             [
                 node_revision.node  # type: ignore
                 for element, node_revision in self.cube_elements_with_nodes()
-                if node_revision and node_revision.type == NodeType.METRIC
+                if node_revision
+                and node_revision.node
+                and node_revision.type == NodeType.METRIC
             ],
             key=lambda x: ordering[x.name],
         )
@@ -515,21 +518,15 @@ class NodeRevision(
             col.name: col.dimension_column for col in self.columns
         }
         ordering = {
-            col.name + (col.dimension_column or ""): col.order for col in self.columns
+            (col.name + (col.dimension_column or "")).split("[")[0]: col.order or idx
+            for idx, col in enumerate(self.columns)
         }
         return sorted(
             [
                 node_revision.name
                 + SEPARATOR
                 + element.name
-                + (
-                    dimension_to_roles_mapping[
-                        node_revision.name + SEPARATOR + element.name
-                    ]
-                    if node_revision.name + SEPARATOR + element.name
-                    in dimension_to_roles_mapping
-                    else ""
-                )
+                + dimension_to_roles_mapping.get(element.name, "")
                 for element, node_revision in self.cube_elements_with_nodes()
                 if node_revision and node_revision.type != NodeType.METRIC
             ],

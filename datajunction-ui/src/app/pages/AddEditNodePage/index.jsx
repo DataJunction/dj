@@ -23,6 +23,7 @@ import { AlertMessage } from './AlertMessage';
 import { DisplayNameField } from './DisplayNameField';
 import { DescriptionField } from './DescriptionField';
 import { NodeModeField } from './NodeModeField';
+import { RequiredDimensionsSelect } from './RequiredDimensionsSelect';
 
 class Action {
   static Add = new Action('add');
@@ -100,10 +101,6 @@ export function AddEditNodePage() {
     </>
   );
 
-  const isMetric = (nodeType, node) => {
-    return nodeType === 'metric' || node.type === 'metric';
-  };
-
   const primaryKeyToList = primaryKey => {
     return primaryKey.map(columnName => columnName.trim());
   };
@@ -122,6 +119,7 @@ export function AddEditNodePage() {
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
       values.metric_direction,
       values.metric_unit,
+      values.required_dimensions,
     );
     if (status === 200 || status === 201) {
       if (values.tags) {
@@ -154,6 +152,7 @@ export function AddEditNodePage() {
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
       values.metric_direction,
       values.metric_unit,
+      values.required_dimensions,
     );
     const tagsResponse = await djClient.tagsNode(
       values.name,
@@ -235,6 +234,7 @@ export function AddEditNodePage() {
     setSelectTags,
     setSelectPrimaryKey,
     setSelectUpstreamNode,
+    setSelectRequiredDims,
   ) => {
     // Update fields with existing data to prepare for edit
     const fields = [
@@ -294,6 +294,13 @@ export function AddEditNodePage() {
         })}
       />,
     );
+    setSelectRequiredDims(
+      <RequiredDimensionsSelect
+        defaultValue={data.required_dimensions.map(dim => {
+          return { value: dim, label: dim };
+        })}
+      />,
+    );
     setSelectUpstreamNode(
       <UpstreamNodeField
         defaultValue={{
@@ -319,6 +326,8 @@ export function AddEditNodePage() {
               {function Render({ isSubmitting, status, setFieldValue }) {
                 const [node, setNode] = useState([]);
                 const [selectPrimaryKey, setSelectPrimaryKey] = useState(null);
+                const [selectRequiredDims, setSelectRequiredDims] =
+                  useState(null);
                 const [selectUpstreamNode, setSelectUpstreamNode] =
                   useState(null);
                 const [selectTags, setSelectTags] = useState(null);
@@ -336,6 +345,7 @@ export function AddEditNodePage() {
                         setSelectTags,
                         setSelectPrimaryKey,
                         setSelectUpstreamNode,
+                        setSelectRequiredDims,
                       );
                     }
                   };
@@ -357,7 +367,7 @@ export function AddEditNodePage() {
                         {action === Action.Add ? fullNameInput : ''}
                         <DescriptionField />
                         <br />
-                        {isMetric(nodeType, node) ? (
+                        {nodeType === 'metric' || node?.type === 'metric' ? (
                           action === Action.Edit ? (
                             selectUpstreamNode
                           ) : (
@@ -391,8 +401,10 @@ export function AddEditNodePage() {
                           ) : (
                             <PrimaryKeySelect />
                           )
+                        ) : action === Action.Edit ? (
+                          selectRequiredDims
                         ) : (
-                          ''
+                          <RequiredDimensionsSelect />
                         )}
                         {action === Action.Edit ? selectTags : <TagsField />}
                         <NodeModeField />

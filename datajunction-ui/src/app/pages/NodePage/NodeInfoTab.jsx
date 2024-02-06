@@ -20,6 +20,7 @@ export default function NodeInfoTab({ node }) {
     </div>
   ));
   const djClient = useContext(DJClientContext).DataJunctionAPI;
+
   useEffect(() => {
     const fetchData = async () => {
       if (checked === true) {
@@ -38,7 +39,7 @@ export default function NodeInfoTab({ node }) {
   function toggle(value) {
     return !value;
   }
-  const metricQueryDiv = node?.expression ? (
+  const metricQueryDiv = (
     <div className="list-group-item d-flex">
       <div className="gap-2 w-100 justify-content-between py-3">
         <div style={{ marginBottom: '30px' }}>
@@ -55,8 +56,6 @@ export default function NodeInfoTab({ node }) {
         </div>
       </div>
     </div>
-  ) : (
-    ''
   );
   const queryDiv = node?.query ? (
     <div className="list-group-item d-flex">
@@ -173,8 +172,39 @@ export default function NodeInfoTab({ node }) {
   ) : (
     <></>
   );
+
+  const primaryKeyOrRequiredDims = (
+    <div style={{ maxWidth: '25%' }}>
+      <h6 className="mb-0 w-100">
+        {node?.type !== 'metric' ? 'Primary Key' : 'Required Dimensions'}
+      </h6>
+      <p
+        className="mb-0 opacity-75"
+        role="dialog"
+        aria-hidden="false"
+        aria-label={
+          node?.type !== 'metric' ? 'PrimaryKey' : 'RequiredDimensions'
+        }
+      >
+        {node?.type !== 'metric'
+          ? node?.primary_key?.map(dim => (
+              <span className="rounded-pill badge bg-secondary-soft PrimaryKey">
+                <a href={`/nodes/${node?.name}`}>{dim}</a>
+              </span>
+            ))
+          : node?.required_dimensions?.map(dim => (
+              <span className="rounded-pill badge bg-secondary-soft PrimaryKey">
+                <a href={`/nodes/${node?.upstream_node}`}>{dim}</a>
+              </span>
+            ))}
+      </p>
+    </div>
+  );
   return (
-    <div className="list-group align-items-center justify-content-between flex-md-row gap-2">
+    <div
+      className="list-group align-items-center justify-content-between flex-md-row gap-2"
+      style={{ minWidth: '700px' }}
+    >
       <ListGroupItem label="Description" value={node?.description} />
       <div className="list-group-item d-flex">
         <div className="d-flex gap-2 w-100 justify-content-between py-3">
@@ -243,17 +273,7 @@ export default function NodeInfoTab({ node }) {
               {nodeTags}
             </p>
           </div>
-          <div>
-            <h6 className="mb-0 w-100">Primary Key</h6>
-            <p
-              className="mb-0 opacity-75"
-              role="dialog"
-              aria-hidden="false"
-              aria-label="PrimaryKey"
-            >
-              {node?.primary_key?.join(', ')}
-            </p>
-          </div>
+          {primaryKeyOrRequiredDims}
           <div>
             <h6 className="mb-0 w-100">Last Updated</h6>
             <p

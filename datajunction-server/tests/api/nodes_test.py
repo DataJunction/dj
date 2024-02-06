@@ -874,7 +874,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
                 "mode": "published",
                 "name": "default.num_messages_id",
-                "required_dimensions": ["default.messages.id"],
+                "required_dimensions": ["user_id"],
             },
         )
         assert response.ok
@@ -2198,14 +2198,21 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         response = client_with_roads.patch(
             "/nodes/default.total_repair_cost/",
-            json={"query": "SELECT count(price) FROM default.repair_order_details"},
+            json={
+                "query": "SELECT count(price) FROM default.repair_order_details",
+                "required_dimensions": ["repair_order_id"],
+            },
         )
         node_data = response.json()
         assert node_data["query"] == (
             "SELECT count(price) FROM default.repair_order_details"
         )
         response = client_with_roads.get("/nodes/default.total_repair_cost")
-        assert response.json()["version"] == "v2.0"
+        data = response.json()
+        assert data["version"] == "v2.0"
+        response = client_with_roads.get("/metrics/default.total_repair_cost")
+        data = response.json()
+        assert data["required_dimensions"] == ["repair_order_id"]
 
     def test_create_dimension_node_fails(
         self,

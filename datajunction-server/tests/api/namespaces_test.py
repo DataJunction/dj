@@ -599,6 +599,10 @@ def test_create_namespace(client_with_service_setup: TestClient):
         "1234",
         "aa..bb",
         "user.abc",
+        "[aff].mmm",
+        "aff._mmm",
+        "aff.mmm+",
+        "aff.123_mmm",
     ]
     for invalid_namespace in invalid_namespaces:
         response = client_with_service_setup.post(f"/namespaces/{invalid_namespace}")

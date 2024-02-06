@@ -58,6 +58,7 @@ export function App() {
                           key="edit-cube"
                           element={<CubeBuilderPage />}
                         />
+                        <Route path=":name/:tab" element={<NodePage />} />
                       </Route>
 
                       <Route path="/" element={<NamespacePage />} key="index" />

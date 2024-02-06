@@ -2,7 +2,7 @@
  * Upstream node select field
  */
 import { ErrorMessage } from 'formik';
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import { FormikSelect } from './FormikSelect';
 
@@ -12,7 +12,7 @@ export const UpstreamNodeField = ({ defaultValue }) => {
   // All available nodes
   const [availableNodes, setAvailableNodes] = useState([]);
 
-  useMemo(() => {
+  useEffect(() => {
     async function fetchData() {
       const sources = await djClient.nodesWithType('source');
       const transforms = await djClient.nodesWithType('transform');
