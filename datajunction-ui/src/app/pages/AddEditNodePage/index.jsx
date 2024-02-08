@@ -49,7 +49,7 @@ export function AddEditNodePage() {
     type: nodeType,
     description: '',
     primary_key: '',
-    mode: 'draft',
+    mode: 'published',
   };
 
   const validator = values => {

@@ -49,7 +49,7 @@ describe('AddEditNodePage submission failed', () => {
         'Some Test Metric',
         '',
         'SELECT * FROM test',
-        'draft',
+        'published',
         'default',
         null,
         undefined,
