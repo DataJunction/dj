@@ -305,7 +305,7 @@ describe('CubeBuilderPage', () => {
         '',
         '',
         '',
-        'draft',
+        'published',
         [
           'default.num_repair_orders',
           'default.avg_repair_price',
