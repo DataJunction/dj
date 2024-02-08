@@ -306,11 +306,6 @@ class NodeRevision(
         secondaryjoin="Node.id==NodeRelationship.parent_id",
     )
 
-    parent_links: Mapped[List[NodeRelationship]] = relationship(
-        primaryjoin="NodeRevision.id==NodeRelationship.child_id",
-        cascade="all, delete",
-    )
-
     missing_parents: Mapped[List[MissingParent]] = relationship(
         secondary="nodemissingparents",
         primaryjoin="NodeRevision.id==NodeMissingParents.referencing_node_id",

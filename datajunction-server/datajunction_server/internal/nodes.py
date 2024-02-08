@@ -19,6 +19,7 @@ from datajunction_server.api.helpers import (
     validate_cube,
     validate_node_data,
 )
+from datajunction_server.database import DimensionLink
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.history import ActivityType, EntityType, History
@@ -383,6 +384,95 @@ def save_node(
         current_user=current_user,
     )
     session.refresh(node.current)
+
+
+def copy_to_new_node(
+    session: Session,
+    node: Node,
+    new_name: str,
+    current_user: Optional[User] = None,
+) -> Node:
+    """
+    Copies the existing node to a new node with a new name.
+    """
+    old_revision = node.current
+    new_node = Node(
+        name=new_name,
+        type=node.type,
+        display_name=node.display_name,
+        namespace=".".join(new_name.split(".")[:-1]),
+        current_version=node.current_version,
+        created_at=node.created_at,
+        deactivated_at=node.deactivated_at,
+        tags=node.tags,
+        missing_table=node.missing_table,
+    )
+    new_revision = NodeRevision(
+        name=new_name,
+        display_name=old_revision.display_name,
+        type=old_revision.type,
+        description=old_revision.description,
+        query=old_revision.query,
+        mode=old_revision.mode,
+        version=old_revision.version,
+        node=new_node,
+        catalog=old_revision.catalog,
+        schema_=old_revision.schema_,
+        table=old_revision.table,
+        required_dimensions=[col.copy() for col in old_revision.required_dimensions],
+        metric_metadata=old_revision.metric_metadata,
+        cube_elements=list(old_revision.cube_elements),
+        status=old_revision.status,
+        parents=old_revision.parents,
+        missing_parents=[
+            MissingParent(name=missing_parent.name)
+            for missing_parent in old_revision.missing_parents
+        ],
+        columns=[col.copy() for col in old_revision.columns],
+        # TODO: availability and materializations are missing here  # pylint: disable=fixme
+        lineage=old_revision.lineage,
+    )
+    new_revision.dimension_links = [
+        DimensionLink(node_revision=new_revision, dimension_id=link.dimension_id)
+        for link in old_revision.dimension_links
+    ]
+
+    # Reset the version of the new node
+    new_revision.version = (
+        str(DEFAULT_DRAFT_VERSION)
+        if new_revision.mode == NodeMode.DRAFT
+        else str(DEFAULT_PUBLISHED_VERSION)
+    )
+    new_node.current_version = new_revision.version
+    session.add(new_revision)
+    session.add(new_node)
+
+    # Add a history event recording the copy
+    session.add(
+        History(
+            node=new_node.name,
+            entity_type=EntityType.NODE,
+            entity_name=new_node.name,
+            activity_type=ActivityType.CREATE,
+            user=current_user.username if current_user else None,
+            details={"copied_from": node.name},
+        ),
+    )
+    session.commit()
+
+    # If the new node makes any downstream nodes valid, propagate
+    newly_valid_nodes = resolve_downstream_references(
+        session=session,
+        node_revision=new_revision,
+    )
+    propagate_valid_status(
+        session=session,
+        valid_nodes=newly_valid_nodes,
+        catalog_id=node.current.catalog_id,  # pylint: disable=no-member
+        current_user=current_user,
+    )
+    session.refresh(node.current)
+    return node
 
 
 def update_any_node(
@@ -798,6 +888,8 @@ def copy_existing_node_revision(old_revision: NodeRevision):
         mode=old_revision.mode,
         materializations=old_revision.materializations,
         status=old_revision.status,
+        required_dimensions=old_revision.required_dimensions,
+        metric_metadata=old_revision.metric_metadata,
     )
 
 
