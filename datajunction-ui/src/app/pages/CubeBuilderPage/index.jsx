@@ -25,7 +25,7 @@ export function CubeBuilderPage() {
     namespace: action === Action.Add ? initialNamespace : '',
     display_name: '',
     description: '',
-    mode: 'draft',
+    mode: 'published',
     metrics: [],
     dimensions: [],
     filters: [],
