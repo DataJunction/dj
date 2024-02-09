@@ -586,14 +586,10 @@ class Expression(Node):
         """
         Determines whether an Expression is an aggregation or not
         """
-        return all(
-            [
-                child.is_aggregation()
-                for child in self.children
-                if isinstance(child, Expression)
-            ]
-            or [False],
-        )
+        for child in self.children:
+            if hasattr(child, "is_aggregation") and child.is_aggregation():
+                return True
+        return False
 
     def set_alias(self: TExpression, alias: "Name") -> Alias[TExpression]:
         return Alias(child=self).set_alias(alias)
@@ -1649,7 +1645,9 @@ class Function(Named, Operation):
         return function_registry[self.name.name.upper()]
 
     def is_aggregation(self) -> bool:
-        return self.function().is_aggregation
+        if self.function().is_aggregation:
+            return True
+        return super().is_aggregation()
 
     def is_runtime(self) -> bool:
         return self.function().is_runtime
@@ -1682,7 +1680,7 @@ class Value(Expression):
     """
 
     def is_aggregation(self) -> bool:
-        return True
+        return False
 
 
 @dataclass(eq=False)
