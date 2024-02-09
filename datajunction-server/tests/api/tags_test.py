@@ -330,6 +330,16 @@ class TestTags:
             },
         ]
 
+        # Check getting nodes for tag after deactivating a node
+        client_with_dbt.delete("/nodes/default.total_profit")
+        response = client_with_dbt.get(
+            "/tags/sales_report/nodes/",
+        )
+        assert response.status_code == 200
+        response_data = response.json()
+        assert len(response_data) == 1
+        assert response_data[0]["name"] == "default.items_sold_count"
+
         # Check finding nodes for tag
         response = client_with_dbt.get(
             "/tags/random_tag/nodes/",
