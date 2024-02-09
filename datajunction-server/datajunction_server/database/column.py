@@ -4,13 +4,13 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 from sqlalchemy import BigInteger, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.base import Base
 from datajunction_server.models.base import labelize
 from datajunction_server.models.column import ColumnTypeDecorator
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
-    from datajunction_server.database.attributetype import ColumnAttribute
     from datajunction_server.database.measure import Measure
     from datajunction_server.database.node import Node, NodeRevision
     from datajunction_server.database.partition import Partition
@@ -131,3 +131,22 @@ class Column(Base):  # type: ignore
         Full column name that includes the node it belongs to, i.e., default.hard_hat.first_name
         """
         return f"{self.node_revision().name}.{self.name}"  # type: ignore  # pragma: no cover
+
+    def copy(self) -> "Column":
+        """
+        Returns a full copy of the column
+        """
+        return Column(
+            order=self.order,
+            name=self.name,
+            display_name=self.display_name,
+            type=self.type,
+            dimension_id=self.dimension_id,
+            dimension_column=self.dimension_column,
+            attributes=[
+                ColumnAttribute(attribute_type_id=attr.attribute_type_id)
+                for attr in self.attributes
+            ],
+            measure_id=self.measure_id,
+            partition_id=self.partition_id,
+        )

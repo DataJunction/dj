@@ -49,6 +49,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.nodes import (
     _create_node_from_inactive,
+    copy_to_new_node,
     create_cube_node_revision,
     create_node_revision,
     get_column_level_lineage,
@@ -1402,3 +1403,43 @@ def set_column_partition(  # pylint: disable=too-many-locals
     session.commit()
     session.refresh(column)
     return column
+
+
+@router.post(
+    "/nodes/{node_name}/copy",
+    response_model=DAGNodeOutput,
+    name="Copy A Node",
+)
+def copy_node(
+    node_name: str,
+    *,
+    new_name: str,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+) -> DAGNodeOutput:
+    """
+    Copy this node to a new name.
+    """
+    # Check to make sure that the new node's namespace exists
+    new_node_namespace = ".".join(new_name.split(".")[:-1])
+    get_node_namespace(session, new_node_namespace, raise_if_not_exists=True)
+
+    # Check if there is already a node with the new name
+    existing_new_node = get_node_by_name(
+        session,
+        new_name,
+        raise_if_not_exists=False,
+        include_inactive=True,
+    )
+    if existing_new_node:
+        if existing_new_node.deactivated_at:
+            hard_delete_node(new_name, session, current_user)
+        else:
+            raise DJInvalidInputException(
+                f"A node with name {new_name} already exists.",
+            )
+
+    # Copy existing node to the new name
+    existing_node = get_node_by_name(session, node_name)
+    new_node = copy_to_new_node(session, existing_node, new_name, current_user)
+    return new_node
