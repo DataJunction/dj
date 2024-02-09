@@ -429,13 +429,13 @@ def copy_to_new_node(
             for missing_parent in old_revision.missing_parents
         ],
         columns=[col.copy() for col in old_revision.columns],
+        dimension_links=[
+            DimensionLink(dimension_id=link.dimension_id)
+            for link in old_revision.dimension_links
+        ],
         # TODO: availability and materializations are missing here  # pylint: disable=fixme
         lineage=old_revision.lineage,
     )
-    new_revision.dimension_links = [
-        DimensionLink(node_revision=new_revision, dimension_id=link.dimension_id)
-        for link in old_revision.dimension_links
-    ]
 
     # Reset the version of the new node
     new_revision.version = (

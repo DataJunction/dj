@@ -1432,13 +1432,12 @@ def copy_node(
         include_inactive=True,
     )
     if existing_new_node:
-        # TODO: support overwriting deactivated nodes  # pylint: disable=fixme
         if existing_new_node.deactivated_at:
+            hard_delete_node(new_name, session, current_user)
+        else:
             raise DJInvalidInputException(
-                f"A deactivated node with name {new_name} already exists. "
-                "To copy successfully, hard delete the deactivated node first.",
+                f"A node with name {new_name} already exists.",
             )
-        raise DJInvalidInputException(f"A node with name {new_name} already exists.")
 
     # Copy existing node to the new name
     existing_node = get_node_by_name(session, node_name)
