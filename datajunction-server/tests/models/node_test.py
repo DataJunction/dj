@@ -88,15 +88,25 @@ def test_extra_validation() -> None:
         type=node.type,
         node=node,
         version="1",
-        query="SELECT count(repair_order_id) + "
+        query="SELECT repair_order_id + "
         "repair_order_id AS Anum_repair_orders "
         "FROM repair_orders",
     )
     with pytest.raises(Exception) as excinfo:
         node_revision.extra_validation()
     assert str(excinfo.value) == (
-        "Metric A has an invalid query, should have a single aggregation"
+        "Metric A has an invalid query, should have an aggregate expression"
     )
+
+    node = Node(name="AA", type=NodeType.METRIC, current_version="1")
+    node_revision = NodeRevision(
+        name=node.name,
+        type=node.type,
+        node=node,
+        version="1",
+        query="SELECT ln(count(distinct repair_order_id)) FROM repair_orders",
+    )
+    node_revision.extra_validation()
 
     node = Node(name="A", type=NodeType.TRANSFORM, current_version="1")
     node_revision = NodeRevision(

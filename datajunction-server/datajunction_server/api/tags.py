@@ -171,8 +171,15 @@ def list_nodes_for_a_tag(
             http_status_code=404,
         )
     if not node_type:
-        return sorted([node.current for node in tag.nodes], key=lambda x: x.name)
+        return sorted(
+            [node.current for node in tag.nodes if not node.deactivated_at],
+            key=lambda x: x.name,
+        )
     return sorted(
-        [node.current for node in tag.nodes if node.type == node_type],
+        [
+            node.current
+            for node in tag.nodes
+            if node.type == node_type and not node.deactivated_at
+        ],
         key=lambda x: x.name,
     )
