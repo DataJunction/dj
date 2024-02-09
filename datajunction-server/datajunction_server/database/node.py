@@ -410,7 +410,7 @@ class NodeRevision(
             raise DJInvalidInputException(
                 http_status_code=HTTPStatus.BAD_REQUEST,
                 message=f"Metric {self.name} has an invalid query, "
-                "should have a single aggregation",
+                "should have an aggregate expression",
             )
 
     def extra_validation(self) -> None:
