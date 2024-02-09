@@ -5503,109 +5503,121 @@ ON s.state_region = r.us_region_id""",
     ]
 
 
-@pytest.fixture
-def repairs_cube_payload():
-    """Repairs cube creation payload"""
-    return {
-        "metrics": [
-            "default.num_repair_orders",
-            "default.avg_repair_price",
-            "default.total_repair_cost",
-        ],
-        "dimensions": [
-            "default.hard_hat.state",
-            "default.dispatcher.company_name",
-            "default.municipality_dim.local_region",
-        ],
-        "filters": ["default.hard_hat.state='AZ'"],
-        "description": "Cube of various metrics related to repairs",
-        "mode": "published",
-        "name": "default.repairs_cube",
-    }
+class TestCopyNode:
+    """Tests for the copy node API endpoint"""
 
+    @pytest.fixture
+    def repairs_cube_payload(self):
+        """Repairs cube creation payload"""
+        return {
+            "metrics": [
+                "default.num_repair_orders",
+                "default.avg_repair_price",
+                "default.total_repair_cost",
+            ],
+            "dimensions": [
+                "default.hard_hat.state",
+                "default.dispatcher.company_name",
+                "default.municipality_dim.local_region",
+            ],
+            "filters": ["default.hard_hat.state='AZ'"],
+            "description": "Cube of various metrics related to repairs",
+            "mode": "published",
+            "name": "default.repairs_cube",
+        }
 
-@pytest.fixture
-def metric_with_required_dim_payload():
-    """Metric with required dimension"""
-    return {
-        "description": "Average length of employment per manager",
-        "query": "SELECT avg(NOW() - hire_date) FROM default.hard_hats",
-        "mode": "published",
-        "name": "default.avg_length_of_employment_per_manager",
-        "required_dimensions": ["manager"],
-    }
+    @pytest.fixture
+    def metric_with_required_dim_payload(self):
+        """Metric with required dimension"""
+        return {
+            "description": "Average length of employment per manager",
+            "query": "SELECT avg(NOW() - hire_date) FROM default.hard_hats",
+            "mode": "published",
+            "name": "default.avg_length_of_employment_per_manager",
+            "required_dimensions": ["manager"],
+        }
 
+    def test_copy_node_failures(self, client_with_roads: TestClient):
+        """
+        Test reaching various failure states when copying nodes
+        """
+        response = client_with_roads.post(
+            "/nodes/default.repair_order/copy?new_name=default.contractor",
+        )
+        assert (
+            response.json()["message"]
+            == "A node with name default.contractor already exists."
+        )
 
-def test_copy_nodes(
-    client_with_roads: TestClient,
-    repairs_cube_payload,  # pylint: disable=redefined-outer-name
-    metric_with_required_dim_payload,  # pylint: disable=redefined-outer-name
-):
-    """
-    Test copying nodes
-    """
-    client_with_roads.post("/nodes/cube", json=repairs_cube_payload)
-    client_with_roads.post("/nodes/metric", json=metric_with_required_dim_payload)
+        response = client_with_roads.post(
+            "/nodes/default.repair_order/copy?new_name=default.blah.repair_order",
+        )
+        assert (
+            response.json()["message"]
+            == "node namespace `default.blah` does not exist."
+        )
 
-    # Test the error states when copying nodes
-    response = client_with_roads.post(
-        "/nodes/default.repair_order/copy?new_name=default.contractor",
-    )
-    assert (
-        response.json()["message"]
-        == "A node with name default.contractor already exists."
-    )
-    client_with_roads.delete("/nodes/default.contractor")
-    response = client_with_roads.post(
-        "/nodes/default.repair_order/copy?new_name=default.contractor",
-    )
-    assert (
-        response.json()["message"]
-        == "A deactivated node with name default.contractor already exists. "
-        "To copy successfully, hard delete the deactivated node first."
-    )
-
-    response = client_with_roads.post(
-        "/nodes/default.repair_order/copy?new_name=default.blah.repair_order",
-    )
-    assert response.json()["message"] == "node namespace `default.blah` does not exist."
-
-    # Copy all nodes to a node name with _copy appended
-    nodes = client_with_roads.get("/nodes").json()
-    for node in nodes:
-        client_with_roads.post(f"/nodes/{node}/copy?new_name={node}_copy")
-
-    # Check that each node was successfully copied by comparing against the original
-    for node in nodes:
-        original = client_with_roads.get(f"/nodes/{node}").json()
-        copied = client_with_roads.get(f"/nodes/{node}_copy").json()
+        # Test copying over deactivated node
+        client_with_roads.delete("/nodes/default.contractor")
+        client_with_roads.post(
+            "/nodes/default.repair_order/copy?new_name=default.contractor",
+        )
+        copied = client_with_roads.get("/nodes/default.contractor").json()
+        original = client_with_roads.get("/nodes/default.repair_order").json()
         for field in ["name", "node_id", "node_revision_id", "updated_at"]:
             copied[field] = mock.ANY
-        assert original == copied
+        assert copied == original
 
-        # Metrics contain additional metadata, so compare the /metrics endpoint as well
-        if original["type"] == "metric":
-            metric_orig = client_with_roads.get(f"/metrics/{node}").json()
-            metric_copied = client_with_roads.get(f"/metrics/{node}_copy").json()
-            for field in ["id", "name", "updated_at"]:
-                metric_copied[field] = mock.ANY
-            assert metric_orig == metric_copied
+    def test_copy_nodes(
+        self,
+        client_with_roads: TestClient,
+        repairs_cube_payload,  # pylint: disable=redefined-outer-name
+        metric_with_required_dim_payload,  # pylint: disable=redefined-outer-name
+    ):
+        """
+        Test copying all nodes in the roads database
+        """
+        client_with_roads.post("/nodes/cube", json=repairs_cube_payload)
+        client_with_roads.post("/nodes/metric", json=metric_with_required_dim_payload)
 
-        # Cubes contain additional metadata, so compare the /metrics endpoint as well
-        if original["type"] == "cube":
-            cube_orig = client_with_roads.get(f"/cubes/{node}").json()
-            cube_copied = client_with_roads.get(f"/cubes/{node}_copy").json()
+        # Copy all nodes to a node name with _copy appended
+        nodes = client_with_roads.get("/nodes").json()
+        for node in nodes:
+            client_with_roads.post(f"/nodes/{node}/copy?new_name={node}_copy")
+
+        # Check that each node was successfully copied by comparing against the original
+        for node in nodes:
+            original = client_with_roads.get(f"/nodes/{node}").json()
+            copied = client_with_roads.get(f"/nodes/{node}_copy").json()
             for field in ["name", "node_id", "node_revision_id", "updated_at"]:
-                cube_copied[field] = mock.ANY
-            assert cube_orig == cube_copied
+                copied[field] = mock.ANY
+            assert original == copied
 
-        # Check that the dimensions DAG for the node has been copied
-        original_dimensions = [
-            dim["name"]
-            for dim in client_with_roads.get(f"/nodes/{node}/dimensions").json()
-        ]
-        copied_dimensions = [
-            dim["name"].replace(f"{node}_copy", node)
-            for dim in client_with_roads.get(f"/nodes/{node}_copy/dimensions").json()
-        ]
-        assert original_dimensions == copied_dimensions
+            # Metrics contain additional metadata, so compare the /metrics endpoint as well
+            if original["type"] == "metric":
+                metric_orig = client_with_roads.get(f"/metrics/{node}").json()
+                metric_copied = client_with_roads.get(f"/metrics/{node}_copy").json()
+                for field in ["id", "name", "updated_at"]:
+                    metric_copied[field] = mock.ANY
+                assert metric_orig == metric_copied
+
+            # Cubes contain additional metadata, so compare the /metrics endpoint as well
+            if original["type"] == "cube":
+                cube_orig = client_with_roads.get(f"/cubes/{node}").json()
+                cube_copied = client_with_roads.get(f"/cubes/{node}_copy").json()
+                for field in ["name", "node_id", "node_revision_id", "updated_at"]:
+                    cube_copied[field] = mock.ANY
+                assert cube_orig == cube_copied
+
+            # Check that the dimensions DAG for the node has been copied
+            original_dimensions = [
+                dim["name"]
+                for dim in client_with_roads.get(f"/nodes/{node}/dimensions").json()
+            ]
+            copied_dimensions = [
+                dim["name"].replace(f"{node}_copy", node)
+                for dim in client_with_roads.get(
+                    f"/nodes/{node}_copy/dimensions",
+                ).json()
+            ]
+            assert original_dimensions == copied_dimensions
