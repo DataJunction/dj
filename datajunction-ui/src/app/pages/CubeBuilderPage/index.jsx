@@ -149,15 +149,13 @@ export function CubeBuilderPage() {
             useEffect(() => {
               const fetchData = async () => {
                 if (name) {
-                  const node = await djClient.node(name);
                   const cube = await djClient.cube(name);
-                  cube.tags = node.tags;
-                  setNode(cube);
                   updateFieldsWithNodeData(cube, setFieldValue);
+                  setNode(cube);
                 }
               };
               fetchData().catch(console.error);
-            }, [djClient, djClient.metrics, name]);
+            }, [setFieldValue]);
 
             return (
               <Form>
