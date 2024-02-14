@@ -65,7 +65,9 @@ def client_code_for_creating_node(
     # Cube-specific params
     cube_params = []
     if node.type == NodeType.CUBE:
-        ordering = {col.name: col.order for col in node.current.columns}
+        ordering = {
+            col.name: col.order or idx for idx, col in enumerate(node.current.columns)
+        }
         metrics_list = sorted(
             [
                 elem.node_revisions[-1].name

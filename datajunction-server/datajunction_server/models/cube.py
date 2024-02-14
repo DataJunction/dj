@@ -8,9 +8,15 @@ from pydantic import Field, root_validator
 from pydantic.main import BaseModel
 
 from datajunction_server.models.materialization import MaterializationConfigOutput
-from datajunction_server.models.node import AvailabilityStateBase, ColumnOutput
+from datajunction_server.models.node import (
+    AvailabilityStateBase,
+    ColumnOutput,
+    NodeMode,
+    NodeStatus,
+)
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionOutput
+from datajunction_server.models.tag import TagOutput
 from datajunction_server.typing import UTCDatetime
 
 
@@ -54,6 +60,8 @@ class CubeRevisionMetadata(BaseModel):
     name: str
     display_name: str
     version: str
+    status: NodeStatus
+    mode: NodeMode
     description: str = ""
     availability: Optional[AvailabilityStateBase] = None
     cube_elements: List[CubeElementMetadata]
@@ -61,6 +69,7 @@ class CubeRevisionMetadata(BaseModel):
     columns: List[ColumnOutput]
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]
+    tags: Optional[List[TagOutput]]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True
