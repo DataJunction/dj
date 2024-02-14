@@ -50,6 +50,8 @@ def test_read_cube(client_with_account_revenue: TestClient) -> None:
     assert data["type"] == "cube"
     assert data["name"] == "default.number_of_accounts_by_account_type"
     assert data["display_name"] == "Default: Number Of Accounts By Account Type"
+    assert data["mode"] == "published"
+    assert data["tags"] == []
 
     # Read the cube
     response = client_with_account_revenue.get(

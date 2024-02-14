@@ -1308,4 +1308,6 @@ def get_cube_revision_metadata(session: Session, name: str):
             http_status_code=404,
         )
     cube = result[0]
-    return CubeRevisionMetadata.from_orm(cube)
+    cube_metadata = CubeRevisionMetadata.from_orm(cube)
+    cube_metadata.tags = cube.node.tags
+    return cube_metadata
