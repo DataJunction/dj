@@ -87,33 +87,6 @@ def test_list_attributes(
             "name": "primary_key",
             "description": "Points to a column which is part of the primary key of the node",
         },
-        "expired_time": {
-            "namespace": "system",
-            "uniqueness_scope": ["node", "column_type"],
-            "allowed_node_types": ["dimension"],
-            "name": "expired_time",
-            "description": "Points to a column which represents the expired time of a row in "
-            "a dimension node. Used to facilitate proper joins with fact nodes "
-            "on event time.",
-        },
-        "effective_time": {
-            "namespace": "system",
-            "uniqueness_scope": ["node", "column_type"],
-            "allowed_node_types": ["dimension"],
-            "name": "effective_time",
-            "description": "Points to a column which represents the effective time of a row "
-            "in a dimension node. Used to facilitate proper joins with fact "
-            "nodes on event time.",
-        },
-        "event_time": {
-            "namespace": "system",
-            "uniqueness_scope": ["node", "column_type"],
-            "allowed_node_types": ["source", "transform"],
-            "name": "event_time",
-            "description": "Points to a column which represents the time of the event in a "
-            "given fact related node. Used to facilitate proper joins with "
-            "dimension node to match the desired effect.",
-        },
         "dimension": {
             "namespace": "system",
             "uniqueness_scope": [],
