@@ -3811,34 +3811,6 @@ class TestNodeColumnsAttributes:
             },
         ]
 
-        response = client_with_basic.post(
-            "/nodes/basic.dimension.users/columns/created_at/attributes/",
-            json=[
-                {
-                    "namespace": "system",
-                    "name": "effective_time",
-                },
-            ],
-        )
-        data = response.json()
-        assert data == [
-            {
-                "name": "created_at",
-                "type": "timestamp",
-                "display_name": "Created At",
-                "attributes": [
-                    {
-                        "attribute_type": {
-                            "name": "effective_time",
-                            "namespace": "system",
-                        },
-                    },
-                ],
-                "dimension": None,
-                "partition": None,
-            },
-        ]
-
         # Remove primary key attribute from column
         response = client_with_basic.post(
             "/nodes/basic.source.comments/columns/id/attributes",
@@ -3861,11 +3833,11 @@ class TestNodeColumnsAttributes:
         Test setting column attributes with different failure modes.
         """
         response = client_with_basic.post(
-            "/nodes/basic.source.comments/columns/event_timestamp/attributes/",
+            "/nodes/basic.dimension.users/columns/created_at/attributes/",
             json=[
                 {
-                    "name": "effective_time",
                     "namespace": "system",
+                    "name": "dimension",
                 },
             ],
         )
@@ -3873,7 +3845,7 @@ class TestNodeColumnsAttributes:
         assert response.status_code == 500
         assert (
             data["message"]
-            == "Attribute type `system.effective_time` not allowed on node type `source`!"
+            == "Attribute type `system.dimension` not allowed on node type `dimension`!"
         )
 
         client_with_basic.get(
@@ -3935,10 +3907,25 @@ class TestNodeColumnsAttributes:
             },
         ]
 
+        response = client_with_basic.post(
+            "/attributes/",
+            json={
+                "namespace": "example",
+                "name": "event_time",
+                "description": "Points to a column which represents the time of the event in a "
+                "given fact related node. Used to facilitate proper joins with dimension node "
+                "to match the desired effect.",
+                "allowed_node_types": ["source", "transform"],
+                "uniqueness_scope": ["node", "column_type"],
+            },
+        )
+        data = response.json()
+
         client_with_basic.post(
             "/nodes/basic.source.comments/columns/event_timestamp/attributes/",
             json=[
                 {
+                    "namespace": "example",
                     "name": "event_time",
                 },
             ],
@@ -3948,6 +3935,7 @@ class TestNodeColumnsAttributes:
             "/nodes/basic.source.comments/columns/post_processing_timestamp/attributes/",
             json=[
                 {
+                    "namespace": "example",
                     "name": "event_time",
                 },
             ],
