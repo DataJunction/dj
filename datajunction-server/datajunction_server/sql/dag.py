@@ -407,6 +407,7 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
 
     # Only include a given column it's an attribute on a dimension node or
     # if the column is tagged with the attribute type 'dimension'
+    dimension_attributes = session.execute(final_query).all()
     return sorted(
         [
             DimensionAttributeOutput(
@@ -418,7 +419,9 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
                 ),
                 type=str(column_type),
                 path=[
-                    path.replace("[", "").replace("]", "")
+                    (path.replace("[", "").replace("]", "")[:-1])
+                    if path.replace("[", "").replace("]", "").endswith(".")
+                    else path.replace("[", "").replace("]", "")
                     for path in join_path.split(",")[:-1]
                 ]
                 if join_path
@@ -431,9 +434,7 @@ def get_dimensions_dag(  # pylint: disable=too-many-locals
                 column_type,
                 attribute_types,
                 join_path,
-            ) in session.execute(
-                final_query,
-            ).all()
+            ) in dimension_attributes
             if (  # column has dimension attribute
                 join_path == ""
                 and attribute_types is not None
@@ -578,8 +579,27 @@ def get_nodes_with_dimension(
                 )
             )
             node_revisions = session.execute(statement).unique().scalars().all()
-            for node_rev in node_revisions:
-                to_process.append(node_rev.node)
+
+            statement = (
+                select(NodeRevision)
+                .select_from(DimensionLink)
+                .join(
+                    NodeRevision,
+                    onclause=(DimensionLink.node_revision_id == NodeRevision.id),
+                )
+                .join(
+                    Node,
+                    onclause=(
+                        (NodeRevision.node_id == Node.id)
+                        & (Node.current_version == NodeRevision.version)
+                    ),  # pylint: disable=superfluous-parens
+                )
+                .where(DimensionLink.dimension_id.in_([current_node.id]))
+            )
+            node_revisions2 = session.execute(statement).unique().scalars().all()
+            for node_rev in node_revisions + node_revisions2:
+                if node_rev.name not in processed:
+                    to_process.append(node_rev.node)
         else:
             # All other nodes are added to the result set
             final_set.add(current_node.current)

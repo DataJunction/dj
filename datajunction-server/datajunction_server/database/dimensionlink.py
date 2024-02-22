@@ -33,6 +33,7 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
         ForeignKey(
             "noderevision.id",
             name="fk_dimensionlink_node_revision_id_noderevision",
+            ondelete="CASCADE",
         ),
     )
     node_revision: Mapped[NodeRevision] = relationship(
@@ -41,7 +42,11 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
         back_populates="dimension_links",
     )
     dimension_id: Mapped[int] = mapped_column(
-        ForeignKey("node.id", name="fk_dimensionlink_dimension_id_node"),
+        ForeignKey(
+            "node.id",
+            name="fk_dimensionlink_dimension_id_node",
+            ondelete="CASCADE",
+        ),
     )
     dimension: Mapped[Node] = relationship(
         "Node",
@@ -72,3 +77,44 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
             if key in join_type:
                 return value
         return JoinType.LEFT  # pragma: no cover
+
+    def join_sql_ast(self):
+        """
+        The join query AST for this dimension link
+        """
+        # pylint: disable=import-outside-toplevel
+        from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+        return parse(
+            f"select 1 from {self.node_revision.name} "
+            f"{self.join_type} join {self.dimension.name} on {self.join_sql}",
+        )
+
+    def foreign_key_mapping(self):
+        """
+        Returns a mapping between the foreign keys on the node and the joined in
+        primary keys of the dimension.
+        """
+        # pylint: disable=import-outside-toplevel
+        from datajunction_server.sql.parsing.backends.antlr4 import ast
+
+        join_ast = self.join_sql_ast()
+
+        # Find equality comparions (i.e., fact.order_id = dim.order_id)
+        equality_comparisons = [
+            expr
+            for expr in join_ast.select.from_.relations[0]
+            .extensions[0]
+            .criteria.on.find_all(ast.BinaryOp)
+            if expr.op == ast.BinaryOpKind.Eq
+        ]
+        mapping = {}
+        for comp in equality_comparisons:
+            if isinstance(comp.left, ast.Column) and isinstance(comp.right, ast.Column):
+                node_left = comp.left.name.namespace.identifier()
+                node_right = comp.right.name.namespace.identifier()
+                if node_left == self.node_revision.name:
+                    mapping[comp.right] = comp.left
+                if node_right == self.node_revision.name:
+                    mapping[comp.left] = comp.right
+        return mapping
