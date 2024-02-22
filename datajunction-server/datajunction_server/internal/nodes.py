@@ -430,7 +430,13 @@ def copy_to_new_node(
         ],
         columns=[col.copy() for col in old_revision.columns],
         dimension_links=[
-            DimensionLink(dimension_id=link.dimension_id)
+            DimensionLink(
+                dimension_id=link.dimension_id,
+                join_sql=link.join_sql,
+                join_type=link.join_type,
+                join_cardinality=link.join_cardinality,
+                materialization_conf=link.materialization_conf,
+            )
             for link in old_revision.dimension_links
         ],
         # TODO: availability and materializations are missing here  # pylint: disable=fixme

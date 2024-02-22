@@ -913,10 +913,10 @@ class Column(Aliasable, Named, Expression):
 
         # If nothing was found in the initial AST, traverse through dimensions graph
         # to find another table in DJ that could be its origin
-        to_process = collections.deque(direct_tables)
+        to_process = collections.deque([(table, []) for table in direct_tables])
         processed = set()
         while to_process:
-            current_table = to_process.pop()
+            current_table, path = to_process.pop()
             if current_table in processed:
                 continue
             processed.add(current_table)
@@ -938,6 +938,7 @@ class Column(Aliasable, Named, Expression):
                         new_table = Table(
                             name=to_namespaced_name(dj_col.dimension.name),
                             _dj_node=dj_col.dimension.current,
+                            _path=path,
                         )
                         new_table._columns = [
                             Column(
@@ -947,7 +948,7 @@ class Column(Aliasable, Named, Expression):
                             )
                             for col in dj_col.dimension.current.columns
                         ]
-                        to_process.append(new_table)
+                        to_process.append((new_table, path))
                 for link in current_table.dj_node.dimension_links:
                     all_roles = []
                     if self.role:
@@ -955,8 +956,9 @@ class Column(Aliasable, Named, Expression):
                     if (not link.role and not all_roles) or (link.role in all_roles):
                         new_table = Table(
                             name=to_namespaced_name(link.dimension.name),
-                            _dj_node=link.dimension,
+                            _dj_node=link.dimension.current,
                             dimension_link=link,
+                            _path=path + [link],
                         )
                         new_table._columns = [
                             Column(
@@ -966,7 +968,7 @@ class Column(Aliasable, Named, Expression):
                             )
                             for col in link.dimension.current.columns
                         ]
-                        to_process.append(new_table)
+                        to_process.append((new_table, path + [link]))
         return found
 
     def compile(self, ctx: CompileContext):
@@ -1029,7 +1031,15 @@ class Column(Aliasable, Named, Expression):
             )
             ret = f"{self.name.quote_style}{name}{self.name.quote_style}"
             if table_name := self.table.alias_or_name:
-                ret = table_name.identifier() + "." + ret
+                ret = (
+                    (
+                        table_name
+                        if isinstance(table_name, str)
+                        else table_name.identifier()
+                    )
+                    + "."
+                    + ret
+                )
         else:
             ret = str(self.name)
         if self.parenthesized:
@@ -1252,6 +1262,7 @@ class Table(TableExpression, Named):
 
     _dj_node: Optional[DJNode] = field(repr=False, default=None)
     dimension_link: Optional[DimensionLink] = field(repr=False, default=None)
+    _path: Optional[List["Table"]] = field(repr=False, default=None)
 
     @property
     def dj_node(self) -> Optional[DJNode]:
@@ -2152,16 +2163,16 @@ class Join(Node):
     def __str__(self) -> str:
         parts = []
         if self.natural:
-            parts.append("NATURAL ")
+            parts.append("NATURAL")
         if self.join_type:
-            parts.append(f"{self.join_type} ")
-        parts.append("JOIN ")
+            parts.append(f"{str(self.join_type).upper().strip()}")
+        parts.append("JOIN")
         if self.lateral:
-            parts.append("LATERAL ")
+            parts.append("LATERAL")
         parts.append(str(self.right))
         if self.criteria:
-            parts.append(f" {self.criteria}")
-        return "".join(parts)
+            parts.append(f"{self.criteria}")
+        return " ".join(parts)
 
 
 @dataclass(eq=False)

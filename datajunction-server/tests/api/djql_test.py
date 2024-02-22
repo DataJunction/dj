@@ -140,7 +140,7 @@ def test_get_djsql_data_only_nested_metrics(
         default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
         default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay
      FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id)
-     AS default_DOT_repair_orders_fact LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
+     AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
         default_DOT_hard_hats.city,
         default_DOT_hard_hats.state,
         default_DOT_hard_hats.country
@@ -224,7 +224,7 @@ def test_get_djsql_data_only_multiple_metrics(
         default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
         default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay
      FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id)
-     AS default_DOT_repair_orders_fact LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
+     AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
         default_DOT_hard_hats.city,
         default_DOT_hard_hats.state,
         default_DOT_hard_hats.country

@@ -4,6 +4,7 @@ import pytest
 from requests import Response
 from starlette.testclient import TestClient
 
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from tests.conftest import post_and_raise_if_error
 from tests.examples import COMPLEX_DIMENSION_LINK, SERVICE_SETUP
 from tests.sql.utils import compare_query_strings
@@ -254,14 +255,11 @@ def test_link_complex_dimension_without_role(
         "&dimensions=default.users.registration_country",
     )
     query = response.json()["sql"]
-    assert compare_query_strings(
-        query,
-        # pylint: disable=line-too-long
-        """SELECT default_DOT_users.user_id default_DOT_events_DOT_user_id,
+    expected = """SELECT default_DOT_events.user_id default_DOT_users_DOT_user_id,
   default_DOT_events.event_start_date default_DOT_events_DOT_event_start_date,
   default_DOT_events.event_end_date default_DOT_events_DOT_event_end_date,
   default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
-  default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
+  default_DOT_events.event_start_date default_DOT_users_DOT_snapshot_date,
   default_DOT_users.registration_country default_DOT_users_DOT_registration_country
 FROM (
     SELECT default_DOT_events_table.user_id,
@@ -271,23 +269,21 @@ FROM (
     FROM examples.events AS default_DOT_events_table
   ) AS default_DOT_events
   LEFT JOIN (
-    SELECT default_DOT_users.user_id,
-      default_DOT_users.snapshot_date,
-      default_DOT_users.registration_country,
-      default_DOT_users.residence_country,
-      default_DOT_users.account_type
-    FROM examples.users AS default_DOT_users
-  ) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
-  AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date""",
-    )
+    SELECT default_DOT_users_table.user_id,
+      default_DOT_users_table.snapshot_date,
+      default_DOT_users_table.registration_country
+    FROM examples.users AS default_DOT_users_table
+  ) AS default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
+  AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date"""
+    assert str(parse(query)) == str(parse(expected))
 
     response = dimensions_link_client.get("/nodes/default.events/dimensions")
     assert [(attr["name"], attr["path"]) for attr in response.json()] == [
-        ("default.users.account_type", ["default.events."]),
-        ("default.users.registration_country", ["default.events."]),
-        ("default.users.residence_country", ["default.events."]),
-        ("default.users.snapshot_date", ["default.events."]),
-        ("default.users.user_id", ["default.events."]),
+        ("default.users.account_type", ["default.events"]),
+        ("default.users.registration_country", ["default.events"]),
+        ("default.users.residence_country", ["default.events"]),
+        ("default.users.snapshot_date", ["default.events"]),
+        ("default.users.user_id", ["default.events"]),
     ]
 
 
@@ -422,11 +418,8 @@ def test_link_complex_dimension_with_role(
         },
     )
     query = response.json()["sql"]
-    assert compare_query_strings(
-        query,
-        # pylint: disable=line-too-long
-        """SELECT SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs,
-  default_DOT_users.user_id default_DOT_users_DOT_user_id,
+    expected = """SELECT SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs,
+  default_DOT_events.user_id default_DOT_users_DOT_user_id,
   default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
   default_DOT_users.registration_country default_DOT_users_DOT_registration_country
 FROM (
@@ -437,13 +430,11 @@ FROM (
     FROM examples.events AS default_DOT_events_table
   ) AS default_DOT_events
   LEFT JOIN (
-    SELECT default_DOT_users.user_id,
-      default_DOT_users.snapshot_date,
-      default_DOT_users.registration_country,
-      default_DOT_users.residence_country,
-      default_DOT_users.account_type
-    FROM examples.users AS default_DOT_users
-  ) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
+    SELECT default_DOT_users_table.user_id,
+      default_DOT_users_table.snapshot_date,
+      default_DOT_users_table.registration_country
+    FROM examples.users AS default_DOT_users_table
+  ) AS default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
   AND default_DOT_events.event_start_date BETWEEN default_DOT_users.snapshot_date AND CAST(
     DATE_ADD(
       CAST(default_DOT_users.snapshot_date AS DATE),
@@ -451,10 +442,10 @@ FROM (
     ) AS INT
   )
 WHERE default_DOT_users.registration_country = 'NZ'
-GROUP BY default_DOT_users.user_id,
+GROUP BY default_DOT_events.user_id,
   default_DOT_users.snapshot_date,
-  default_DOT_users.registration_country""",
-    )
+  default_DOT_users.registration_country"""
+    assert str(parse(query)) == str(parse(expected))
 
     # Get SQL for the downstream metric grouped by the user dimension of role "user"
     response = dimensions_link_client.get(
@@ -463,11 +454,8 @@ GROUP BY default_DOT_users.user_id,
         "&dimensions=default.users.registration_country[user_direct]",
     )
     query = response.json()["sql"]
-    assert compare_query_strings(
-        query,
-        # pylint: disable=line-too-long
-        """SELECT SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs,
-  default_DOT_users.user_id default_DOT_users_DOT_user_id,
+    expected = """SELECT SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs,
+  default_DOT_events.user_id default_DOT_users_DOT_user_id,
   default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
   default_DOT_users.registration_country default_DOT_users_DOT_registration_country
 FROM (
@@ -478,18 +466,16 @@ FROM (
     FROM examples.events AS default_DOT_events_table
   ) AS default_DOT_events
   LEFT JOIN (
-    SELECT default_DOT_users.user_id,
-      default_DOT_users.snapshot_date,
-      default_DOT_users.registration_country,
-      default_DOT_users.residence_country,
-      default_DOT_users.account_type
-    FROM examples.users AS default_DOT_users
-  ) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
+    SELECT default_DOT_users_table.user_id,
+      default_DOT_users_table.snapshot_date,
+      default_DOT_users_table.registration_country
+    FROM examples.users AS default_DOT_users_table
+  ) AS default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
   AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
-GROUP BY default_DOT_users.user_id,
+GROUP BY default_DOT_events.user_id,
   default_DOT_users.snapshot_date,
-  default_DOT_users.registration_country""",
-    )
+  default_DOT_users.registration_country"""
+    assert str(parse(query)) == str(parse(expected))
 
     # Get SQL for the downstream metric grouped by the user's registration country and
     # filtered by the user's residence country
@@ -507,10 +493,7 @@ GROUP BY default_DOT_users.user_id,
         },
     )
     query = response.json()["sql"]
-    assert compare_query_strings(
-        query,
-        # pylint: disable=line-too-long
-        """SELECT  SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs,
+    expected = """SELECT  SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs,
     default_DOT_countries.name default_DOT_countries_DOT_name,
     default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
     default_DOT_users.registration_country default_DOT_users_DOT_registration_country
@@ -519,21 +502,18 @@ GROUP BY default_DOT_users.user_id,
     default_DOT_events_table.event_end_date,
     default_DOT_events_table.elapsed_secs
  FROM examples.events AS default_DOT_events_table)
- AS default_DOT_events INNER  JOIN (SELECT  default_DOT_countries.country_code,
-    default_DOT_countries.name,
-    default_DOT_countries.population
- FROM examples.countries AS default_DOT_countries
-) default_DOT_countries ON default.users.registration_country = default_DOT_countries.country_code
-LEFT  JOIN (SELECT  default_DOT_users.user_id,
-    default_DOT_users.snapshot_date,
-    default_DOT_users.registration_country,
-    default_DOT_users.residence_country,
-    default_DOT_users.account_type
- FROM examples.users AS default_DOT_users
-) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+ AS default_DOT_events LEFT JOIN (SELECT  default_DOT_users_table.user_id,
+    default_DOT_users_table.snapshot_date,
+    default_DOT_users_table.registration_country
+ FROM examples.users AS default_DOT_users_table)
+ AS default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+INNER JOIN (SELECT  default_DOT_countries_table.country_code,
+    default_DOT_countries_table.name
+ FROM examples.countries AS default_DOT_countries_table)
+ AS default_DOT_countries ON default_DOT_users.registration_country = default_DOT_countries.country_code
  WHERE  default_DOT_countries.name = 'NZ'
- GROUP BY  default_DOT_countries.name, default_DOT_users.snapshot_date, default_DOT_users.registration_country""",
-    )
+ GROUP BY  default_DOT_countries.name, default_DOT_users.snapshot_date, default_DOT_users.registration_country"""
+    assert str(parse(query)) == str(parse(expected))
 
 
 def test_remove_dimension_link(
@@ -616,36 +596,30 @@ def test_measures_sql_with_dimension_roles(
     }
     response = dimensions_link_client.get("/sql/measures", params=sql_params)
     query = response.json()["sql"]
-    assert compare_query_strings(
-        query,
-        """WITH
+    expected = """WITH
 default_DOT_events AS (SELECT  default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
     default_DOT_countries.name default_DOT_countries_DOT_name,
-    default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
+    default_DOT_events.event_start_date default_DOT_users_DOT_snapshot_date,
     default_DOT_users.registration_country default_DOT_users_DOT_registration_country
  FROM (SELECT  default_DOT_events_table.user_id,
     default_DOT_events_table.event_start_date,
     default_DOT_events_table.event_end_date,
     default_DOT_events_table.elapsed_secs
  FROM examples.events AS default_DOT_events_table)
- AS default_DOT_events INNER  JOIN (SELECT  default_DOT_countries.country_code,
-    default_DOT_countries.name,
-    default_DOT_countries.population
- FROM examples.countries AS default_DOT_countries
-) default_DOT_countries ON default.users.registration_country = default_DOT_countries.country_code
-LEFT  JOIN (SELECT  default_DOT_users.user_id,
-    default_DOT_users.snapshot_date,
-    default_DOT_users.registration_country,
-    default_DOT_users.residence_country,
-    default_DOT_users.account_type
- FROM examples.users AS default_DOT_users
-) default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id
-AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+ AS default_DOT_events LEFT JOIN (SELECT  default_DOT_users_table.user_id,
+    default_DOT_users_table.snapshot_date,
+    default_DOT_users_table.registration_country
+ FROM examples.users AS default_DOT_users_table)
+ AS default_DOT_users ON default_DOT_events.user_id = default_DOT_users.user_id AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+INNER JOIN (SELECT  default_DOT_countries_table.country_code,
+    default_DOT_countries_table.name
+ FROM examples.countries AS default_DOT_countries_table)
+ AS default_DOT_countries ON default_DOT_users.registration_country = default_DOT_countries.country_code
  WHERE  default_DOT_countries.name = 'UG'
 )
 SELECT  default_DOT_events.default_DOT_events_DOT_elapsed_secs,
     default_DOT_events.default_DOT_countries_DOT_name,
     default_DOT_events.default_DOT_users_DOT_snapshot_date,
     default_DOT_events.default_DOT_users_DOT_registration_country
- FROM default_DOT_events""",
-    )
+ FROM default_DOT_events"""
+    assert str(parse(query)) == str(parse(expected))

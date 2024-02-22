@@ -870,6 +870,26 @@ def remove_complex_dimension_link(  # pylint: disable=too-many-locals
     )
     removed = False
 
+    # Find cubes that are affected by this dimension link removal and update their statuses
+    affected_cubes = get_nodes_with_dimension(
+        session,
+        dimension_node,
+        [NodeType.CUBE],
+    )
+    if affected_cubes:
+        for cube in affected_cubes:
+            if cube.status != NodeStatus.INVALID:  # pragma: no cover
+                cube.status = NodeStatus.INVALID
+                session.add(cube)
+                session.add(
+                    status_change_history(
+                        node,
+                        NodeStatus.VALID,
+                        NodeStatus.INVALID,
+                        current_user=current_user,
+                    ),
+                )
+
     # Delete the dimension link if one exists
     for link in node.current.dimension_links:
         if (
@@ -887,6 +907,7 @@ def remove_complex_dimension_link(  # pylint: disable=too-many-locals
                 + "not found",
             },
         )
+
     session.add(
         History(
             entity_type=EntityType.LINK,

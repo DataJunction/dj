@@ -13,6 +13,7 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.naming import amenable_name
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 from ..sql.utils import compare_query_strings
 from .fixtures import BUILD_EXPECTATION_PARAMETERS
@@ -71,7 +72,7 @@ def test_build_metric_with_dimensions_aggs(request):
           basic_DOT_dimension_DOT_users.country,
           basic_DOT_dimension_DOT_users.gender
         FROM basic.source.comments AS basic_DOT_source_DOT_comments
-        LEFT OUTER JOIN (
+        LEFT JOIN (
           SELECT
             basic_DOT_source_DOT_users.id,
             basic_DOT_source_DOT_users.country,
@@ -81,7 +82,7 @@ def test_build_metric_with_dimensions_aggs(request):
          GROUP BY
            basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
     """
-    assert compare_query_strings(str(query), expected)
+    assert str(parse(str(query))) == str(parse(str(expected)))
 
 
 def test_build_metric_with_required_dimensions(request):
@@ -107,7 +108,7 @@ def test_build_metric_with_required_dimensions(request):
           basic_DOT_dimension_DOT_users.country,
           basic_DOT_dimension_DOT_users.gender
         FROM basic.source.comments AS basic_DOT_source_DOT_comments
-        LEFT OUTER JOIN (
+        LEFT JOIN (
           SELECT
             basic_DOT_source_DOT_users.id,
             basic_DOT_source_DOT_users.country,
@@ -117,7 +118,7 @@ def test_build_metric_with_required_dimensions(request):
          GROUP BY
            basic_DOT_source_DOT_comments.id, basic_DOT_source_DOT_comments.text, basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
     """
-    assert compare_query_strings(str(query), expected)
+    assert str(parse(str(query))) == str(parse(str(expected)))
 
 
 def test_raise_on_build_without_required_dimension_column(request):
@@ -226,7 +227,7 @@ def test_build_metric_with_dimensions_filters(request):
         COUNT(1) AS basic_DOT_num_comments,
         basic_DOT_dimension_DOT_users.age
     FROM basic.source.comments AS basic_DOT_source_DOT_comments
-    LEFT OUTER JOIN (
+    LEFT JOIN (
       SELECT
         basic_DOT_source_DOT_users.id,
         basic_DOT_source_DOT_users.age

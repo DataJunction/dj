@@ -186,7 +186,7 @@ def test_common_dimensions(
             "name": "default.dispatcher.company_name",
             "node_display_name": "Default: Dispatcher",
             "node_name": "default.dispatcher",
-            "path": ["default.repair_orders_fact.dispatcher_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -194,7 +194,7 @@ def test_common_dimensions(
             "name": "default.dispatcher.dispatcher_id",
             "node_display_name": "Default: Dispatcher",
             "node_name": "default.dispatcher",
-            "path": ["default.repair_orders_fact.dispatcher_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "int",
         },
         {
@@ -202,7 +202,7 @@ def test_common_dimensions(
             "name": "default.dispatcher.phone",
             "node_display_name": "Default: Dispatcher",
             "node_name": "default.dispatcher",
-            "path": ["default.repair_orders_fact.dispatcher_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -210,7 +210,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.address",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -218,7 +218,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.birth_date",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "timestamp",
         },
         {
@@ -226,7 +226,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.city",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -234,7 +234,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.contractor_id",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "int",
         },
         {
@@ -242,7 +242,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.country",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -250,7 +250,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.first_name",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -258,7 +258,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.hard_hat_id",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "int",
         },
         {
@@ -266,7 +266,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.hire_date",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "timestamp",
         },
         {
@@ -274,7 +274,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.last_name",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -282,7 +282,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.manager",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "int",
         },
         {
@@ -290,7 +290,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.postal_code",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -298,7 +298,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.state",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -306,7 +306,7 @@ def test_common_dimensions(
             "name": "default.hard_hat.title",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -314,7 +314,7 @@ def test_common_dimensions(
             "name": "default.municipality_dim.contact_name",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -322,7 +322,7 @@ def test_common_dimensions(
             "name": "default.municipality_dim.contact_title",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -330,7 +330,7 @@ def test_common_dimensions(
             "name": "default.municipality_dim.local_region",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -338,7 +338,7 @@ def test_common_dimensions(
             "name": "default.municipality_dim.municipality_id",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -346,7 +346,7 @@ def test_common_dimensions(
             "name": "default.municipality_dim.municipality_type_desc",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -354,7 +354,7 @@ def test_common_dimensions(
             "name": "default.municipality_dim.municipality_type_id",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -362,7 +362,7 @@ def test_common_dimensions(
             "name": "default.municipality_dim.state_id",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "int",
         },
         {
@@ -371,8 +371,8 @@ def test_common_dimensions(
             "node_display_name": "Default: Us State",
             "node_name": "default.us_state",
             "path": [
-                "default.repair_orders_fact.hard_hat_id",
-                "default.hard_hat.state",
+                "default.repair_orders_fact",
+                "default.hard_hat",
             ],
             "type": "int",
         },
@@ -382,8 +382,8 @@ def test_common_dimensions(
             "node_display_name": "Default: Us State",
             "node_name": "default.us_state",
             "path": [
-                "default.repair_orders_fact.hard_hat_id",
-                "default.hard_hat.state",
+                "default.repair_orders_fact",
+                "default.hard_hat",
             ],
             "type": "string",
         },
@@ -393,8 +393,8 @@ def test_common_dimensions(
             "node_display_name": "Default: Us State",
             "node_name": "default.us_state",
             "path": [
-                "default.repair_orders_fact.hard_hat_id",
-                "default.hard_hat.state",
+                "default.repair_orders_fact",
+                "default.hard_hat",
             ],
             "type": "int",
         },
@@ -404,8 +404,8 @@ def test_common_dimensions(
             "node_display_name": "Default: Us State",
             "node_name": "default.us_state",
             "path": [
-                "default.repair_orders_fact.hard_hat_id",
-                "default.hard_hat.state",
+                "default.repair_orders_fact",
+                "default.hard_hat",
             ],
             "type": "string",
         },
@@ -481,7 +481,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.dispatcher.company_name",
             "node_display_name": "Default: Dispatcher",
             "node_name": "default.dispatcher",
-            "path": ["default.repair_orders_fact.dispatcher_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -489,7 +489,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.dispatcher.dispatcher_id",
             "node_display_name": "Default: Dispatcher",
             "node_name": "default.dispatcher",
-            "path": ["default.repair_orders_fact.dispatcher_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "int",
         },
         {
@@ -497,7 +497,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.dispatcher.phone",
             "node_display_name": "Default: Dispatcher",
             "node_name": "default.dispatcher",
-            "path": ["default.repair_orders_fact.dispatcher_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -505,7 +505,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.address",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -513,7 +513,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.birth_date",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "timestamp",
         },
         {
@@ -521,7 +521,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.city",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -529,7 +529,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.contractor_id",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "int",
         },
         {
@@ -537,7 +537,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.country",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -545,7 +545,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.first_name",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -553,7 +553,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.hard_hat_id",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "int",
         },
         {
@@ -561,7 +561,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.hire_date",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "timestamp",
         },
         {
@@ -569,7 +569,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.last_name",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -577,7 +577,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.manager",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "int",
         },
         {
@@ -585,7 +585,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.postal_code",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -593,7 +593,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.state",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -601,7 +601,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.hard_hat.title",
             "node_display_name": "Default: Hard Hat",
             "node_name": "default.hard_hat",
-            "path": ["default.repair_orders_fact.hard_hat_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -609,7 +609,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.municipality_dim.contact_name",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -617,7 +617,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.municipality_dim.contact_title",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -625,7 +625,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.municipality_dim.local_region",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -633,7 +633,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.municipality_dim.municipality_id",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -641,7 +641,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.municipality_dim.municipality_type_desc",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -649,7 +649,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.municipality_dim.municipality_type_id",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "string",
         },
         {
@@ -657,7 +657,7 @@ def test_get_dimensions(client_with_roads: TestClient):
             "name": "default.municipality_dim.state_id",
             "node_display_name": "Default: Municipality Dim",
             "node_name": "default.municipality_dim",
-            "path": ["default.repair_orders_fact.municipality_id"],
+            "path": ["default.repair_orders_fact"],
             "type": "int",
         },
         {
@@ -666,8 +666,8 @@ def test_get_dimensions(client_with_roads: TestClient):
             "node_display_name": "Default: Us State",
             "node_name": "default.us_state",
             "path": [
-                "default.repair_orders_fact.hard_hat_id",
-                "default.hard_hat.state",
+                "default.repair_orders_fact",
+                "default.hard_hat",
             ],
             "type": "int",
         },
@@ -677,8 +677,8 @@ def test_get_dimensions(client_with_roads: TestClient):
             "node_display_name": "Default: Us State",
             "node_name": "default.us_state",
             "path": [
-                "default.repair_orders_fact.hard_hat_id",
-                "default.hard_hat.state",
+                "default.repair_orders_fact",
+                "default.hard_hat",
             ],
             "type": "string",
         },
@@ -688,8 +688,8 @@ def test_get_dimensions(client_with_roads: TestClient):
             "node_display_name": "Default: Us State",
             "node_name": "default.us_state",
             "path": [
-                "default.repair_orders_fact.hard_hat_id",
-                "default.hard_hat.state",
+                "default.repair_orders_fact",
+                "default.hard_hat",
             ],
             "type": "int",
         },
@@ -699,8 +699,8 @@ def test_get_dimensions(client_with_roads: TestClient):
             "node_display_name": "Default: Us State",
             "node_name": "default.us_state",
             "path": [
-                "default.repair_orders_fact.hard_hat_id",
-                "default.hard_hat.state",
+                "default.repair_orders_fact",
+                "default.hard_hat",
             ],
             "type": "string",
         },

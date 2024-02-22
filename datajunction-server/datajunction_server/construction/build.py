@@ -78,6 +78,9 @@ def _join_path(
             if col.dimension and col.dimension.type == NodeType.DIMENSION:
                 dimensions_to_columns[col.dimension.current].append(col)
 
+        for link in current_node.dimension_links:
+            dimensions_to_columns[link.dimension.current].append(link.join_sql)
+
         # Go through all potential dimensions and their join columns
         for joinable_dim, join_cols in dimensions_to_columns.items():
             next_join_path = {**path, **{(current_node, joinable_dim): join_cols}}
@@ -132,6 +135,87 @@ def _get_or_build_join_table(
     join_table.compile(CompileContext(session, DJException()))
     join_table.set_alias(right_alias)  # type: ignore
     return join_right
+
+
+def _build_joins_for_dimension_link(
+    session: Session,
+    dim_node: NodeRevision,
+    initial_nodes: Set[NodeRevision],
+    tables: DefaultDict[NodeRevision, List[ast.Table]],
+    build_criteria: Optional[BuildCriteria],
+    required_dimension_columns: List[ast.Column],
+    join_path: List,
+    initial_select,
+) -> List[ast.Join]:
+    """
+    Returns the join ASTs needed to bring in the dimension node from
+    the set of initial nodes.
+    """
+    join_asts = []
+    ctx = CompileContext(session, DJException())
+    for link in join_path:
+        join_query = link.join_sql_ast()
+        join_query.compile(ctx)
+        join_query.build(session, memoized_queries={})
+
+        # Assemble table on left of join
+        left_table = (
+            tables[link.node_revision][0].child  # type: ignore
+            if isinstance(tables[link.node_revision][0], ast.Alias)
+            else tables[link.node_revision][0]
+        )
+        for dim_col in required_dimension_columns:
+            res = left_table.add_ref_column(dim_col)
+
+        # Assemble table on right of join
+        join_right = _get_or_build_join_table(
+            session,
+            link.dimension.current,  # if isinstance(dim_node, NodeRevision) else dim_node.current,
+            build_criteria,
+        )
+        initial_nodes.add(link.dimension.current)
+        tables[link.dimension.current].append(join_right)  # type: ignore
+
+        # Optimize query by filtering down to only the necessary columns
+        selected_columns = {col.name.name for col in required_dimension_columns}
+        join_columns = {
+            join_col.name.name
+            for join_col in join_query.select.from_.relations[-1]
+            .extensions[0]
+            .criteria.on.find_all(ast.Column)
+        }
+
+        joinable_dim_columns = {
+            col.name.name
+            for dim_link in link.dimension.current.dimension_links
+            for col in dim_link.join_sql_ast()
+            .select.from_.relations[-1]
+            .extensions[0]
+            .criteria.on.find_all(ast.Column)
+        }
+        necessary_columns = selected_columns.union(join_columns).union(
+            joinable_dim_columns,
+        )
+        join_right.child.select.projection = [
+            col
+            for col in join_right.child.select.projection
+            if col.alias_or_name.name in necessary_columns
+        ]
+
+        # Replace the join right query
+        join_query.select.from_.relations[-1].extensions[  # type: ignore
+            0
+        ].right = join_right.child
+        for dim_col in required_dimension_columns:
+            res = join_right.child.add_ref_column(dim_col)
+        join_asts.append(
+            ast.Join(
+                str(link.join_type).upper(),
+                join_right,  # type: ignore
+                join_query.select.from_.relations[-1].extensions[0].criteria,
+            ),
+        )
+    return join_asts
 
 
 def _build_joins_for_dimension(
@@ -226,7 +310,7 @@ def _build_joins_for_dimension(
         if join_on:  # pragma: no cover
             asts.append(
                 ast.Join(
-                    "LEFT OUTER",
+                    "LEFT",
                     join_right,  # type: ignore
                     ast.JoinCriteria(
                         on=ast.BinaryOp.And(*join_on),  # pylint: disable=E1120
@@ -264,40 +348,30 @@ def join_tables_for_dimensions(
             for dim_col in required_dimension_columns
         }
         # if the dimension has a role (encoded in its subscript), remove the role
+        join_path = None
         for col in required_dimension_columns:
             if isinstance(col.parent, ast.Subscript):
                 col.parent.swap(col)  # pragma: no cover
+            if col.table.identifier() == dim_node.name and col.table._path:  # type: ignore
+                join_path = col.table._path  # type: ignore
 
+        links_mapping = {node.name: link for node, link in dimension_links.items()}
         # Join the source tables (if necessary) for these dimension columns
         # onto each select clause
         for select in selects_map:
+            join_asts = []
             if dim_node not in initial_nodes:  # need to join dimension
-                if dim_node in dimension_links and dimension_links[dim_node]:
-                    link = dimension_links[dim_node]
-                    primary_node = select.from_.relations[-1].primary.identifier()  # type: ignore
-                    join_query = parse(
-                        f"SELECT 1 FROM {primary_node} "
-                        f"{link.join_type.name} JOIN {link.dimension.name} ON {link.join_sql}",
-                    )
-                    join_query.compile(ctx)
-
-                    alias = select.from_.relations[-1].primary.alias_or_name  # type: ignore
-                    join_query.select.from_.relations[-1].primary.set_alias(alias)  # type: ignore
-
-                    # Assemble table on right of join
-                    join_query.build(session, memoized_queries={})
-                    join_right = _get_or_build_join_table(
+                if join_path:
+                    join_asts = _build_joins_for_dimension_link(
                         session,
-                        dim_node.current,
+                        dim_node,
+                        initial_nodes,
+                        tables,
                         build_criteria,
+                        required_dimension_columns,
+                        join_path,
+                        select,
                     )
-                    join_query.select.from_.relations[-1].extensions[  # type: ignore
-                        0
-                    ].right = join_right.child
-                    for dim_col in required_dimension_columns:
-                        join_right.child.add_ref_column(dim_col)
-
-                    join_asts = join_query.select.from_.relations[-1].extensions  # type: ignore
                 else:
                     join_asts = _build_joins_for_dimension(
                         session,
@@ -308,8 +382,9 @@ def join_tables_for_dimensions(
                         required_dimension_columns,
                     )
                 if join_asts and select.from_:
+                    existing_joins = set(select.from_.relations[-1].extensions)
                     select.from_.relations[-1].extensions.extend(  # pragma: no cover
-                        join_asts,
+                        [x for x in join_asts if x not in existing_joins],
                     )
 
 
@@ -354,14 +429,23 @@ def _build_tables_on_select(
 
                         # We can only push down the filter if all columns referenced by the filter
                         # are available as foreign key columns on the node
+                        fk_2 = {
+                            left.alias_or_name.name: right
+                            for link in node.dimension_links
+                            for left, right in link.foreign_key_mapping().items()
+                        }
                         if all(
                             col.alias_or_name.name in fk_column_mapping
+                            or col.alias_or_name.name in fk_2
                             for col in referenced_cols
                         ):
                             for col in referenced_cols:
-                                col.name = ast.Name(
-                                    name=fk_column_mapping[col.alias_or_name.name].name,
+                                ref_col_name = (
+                                    fk_column_mapping[col.alias_or_name.name].name
+                                    if col.alias_or_name.name in fk_column_mapping
+                                    else fk_2[col.alias_or_name.name].alias_or_name.name
                                 )
+                                col.name = ast.Name(name=ref_col_name)
                             filter_asts.append(
                                 temp_select.where,  # type:ignore
                             )
@@ -398,6 +482,14 @@ def _build_tables_on_select(
                 node_ast,
                 copy=False,
             )
+        for col in select.find_all(ast.Column):
+            if (
+                col._table
+                and isinstance(col._table, ast.Table)
+                and col._table.dj_node
+                and col._table.dj_node.name == node.node.name
+            ):
+                col._table = node_ast
 
 
 def dimension_columns_mapping(
@@ -406,16 +498,15 @@ def dimension_columns_mapping(
     """
     Extract all dimension nodes referenced by columns
     """
-    dimension_nodes_to_columns: Dict[NodeRevision, List[ast.Column]] = {}
+    dimension_nodes_to_columns: DefaultDict[
+        NodeRevision,
+        List[ast.Column],
+    ] = collections.defaultdict(list)
 
     for col in select.find_all(ast.Column):
         if isinstance(col.table, ast.Table):
             if node := col.table.dj_node:  # pragma: no cover
                 if node.type == NodeType.DIMENSION:
-                    dimension_nodes_to_columns[node] = dimension_nodes_to_columns.get(
-                        node,
-                        [],
-                    )
                     dimension_nodes_to_columns[node].append(col)
     return dimension_nodes_to_columns
 
@@ -506,6 +597,27 @@ def rename_dimension_primary_keys_to_foreign_keys(
             col.set_alias(
                 ast.Name(amenable_name(dimension_node.name + SEPARATOR + dimension_pk)),
             )
+    links = [
+        link
+        for link in current_node.dimension_links
+        if link.dimension.name == dimension_node.name
+    ]
+    if links:
+        link = links[0]
+        foreign_keys_map = {
+            k.identifier(): v.identifier()
+            for k, v in link.foreign_key_mapping().items()
+        }
+        original_col_identifier = col.identifier()
+        if col.identifier() in foreign_keys_map:
+            foreign_key = foreign_keys_map[col.identifier()]
+            col.name = ast.Name(
+                foreign_key.split(SEPARATOR)[-1],  # type: ignore
+                namespace=to_namespaced_name(current_node.name),
+            )
+            col.set_alias(
+                ast.Name(amenable_name(original_col_identifier)),
+            )
     return col
 
 
@@ -591,7 +703,6 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                             node,
                             col,
                         )
-
             filter_asts.append(
                 temp_select.where,  # type:ignore
             )
