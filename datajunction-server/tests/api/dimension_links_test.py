@@ -7,7 +7,6 @@ from starlette.testclient import TestClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from tests.conftest import post_and_raise_if_error
 from tests.examples import COMPLEX_DIMENSION_LINK, SERVICE_SETUP
-from tests.sql.utils import compare_query_strings
 
 
 @pytest.fixture
@@ -512,7 +511,10 @@ INNER JOIN (SELECT  default_DOT_countries_table.country_code,
  FROM examples.countries AS default_DOT_countries_table)
  AS default_DOT_countries ON default_DOT_users.registration_country = default_DOT_countries.country_code
  WHERE  default_DOT_countries.name = 'NZ'
- GROUP BY  default_DOT_countries.name, default_DOT_users.snapshot_date, default_DOT_users.registration_country"""
+ GROUP BY
+   default_DOT_countries.name,
+   default_DOT_users.snapshot_date,
+   default_DOT_users.registration_country"""
     assert str(parse(query)) == str(parse(expected))
 
 

@@ -580,7 +580,7 @@ def get_nodes_with_dimension(
             )
             node_revisions = session.execute(statement).unique().scalars().all()
 
-            statement = (
+            dim_link_statement = (
                 select(NodeRevision)
                 .select_from(DimensionLink)
                 .join(
@@ -596,9 +596,11 @@ def get_nodes_with_dimension(
                 )
                 .where(DimensionLink.dimension_id.in_([current_node.id]))
             )
-            node_revisions2 = session.execute(statement).unique().scalars().all()
-            for node_rev in node_revisions + node_revisions2:
-                if node_rev.name not in processed:
+            nodes_via_dimension_link = (
+                session.execute(dim_link_statement).unique().scalars().all()
+            )
+            for node_rev in node_revisions + nodes_via_dimension_link:
+                if node_rev.name not in processed:  # pragma: no cover
                     to_process.append(node_rev.node)
         else:
             # All other nodes are added to the result set

@@ -938,7 +938,7 @@ class Column(Aliasable, Named, Expression):
                         new_table = Table(
                             name=to_namespaced_name(dj_col.dimension.name),
                             _dj_node=dj_col.dimension.current,
-                            _path=path,
+                            path=path,
                         )
                         new_table._columns = [
                             Column(
@@ -958,7 +958,7 @@ class Column(Aliasable, Named, Expression):
                             name=to_namespaced_name(link.dimension.name),
                             _dj_node=link.dimension.current,
                             dimension_link=link,
-                            _path=path + [link],
+                            path=path + [link],
                         )
                         new_table._columns = [
                             Column(
@@ -1262,7 +1262,7 @@ class Table(TableExpression, Named):
 
     _dj_node: Optional[DJNode] = field(repr=False, default=None)
     dimension_link: Optional[DimensionLink] = field(repr=False, default=None)
-    _path: Optional[List["Table"]] = field(repr=False, default=None)
+    path: Optional[List["Table"]] = field(repr=False, default=None)
 
     @property
     def dj_node(self) -> Optional[DJNode]:

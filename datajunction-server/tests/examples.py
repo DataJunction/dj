@@ -1522,18 +1522,20 @@ EVENT = (  # type: ignore
         },
     ),
     (
-        (
-            "/nodes/default.event_source/columns/country/?"
-            "dimension=default.country_dim&dimension_column=country"
-        ),
-        {},
+        "/nodes/default.event_source/link",
+        {
+            "dimension_node": "default.country_dim",
+            "join_type": "left",
+            "join_on": ("default.event_source.country = default.country_dim.country"),
+        },
     ),
     (
-        (
-            "/nodes/default.long_events/columns/country/?"
-            "dimension=default.country_dim&dimension_column=country"
-        ),
-        {},
+        "/nodes/default.long_events/link",
+        {
+            "dimension_node": "default.country_dim",
+            "join_type": "left",
+            "join_on": ("default.long_events.country = default.country_dim.country"),
+        },
     ),
     (
         "/nodes/metric/",
@@ -2069,24 +2071,48 @@ DIMENSION_LINK = (  # type: ignore
         },
     ),
     (
-        "/nodes/default.user_dim/columns/birth_country/"
-        "?dimension=default.special_country_dim&dimension_column=country_code",
-        {},
+        "/nodes/default.user_dim/link",
+        {
+            "dimension_node": "default.special_country_dim",
+            "join_type": "left",
+            "join_on": (
+                "default.user_dim.birth_country = default.special_country_dim.country_code"
+            ),
+            "role": "birth_country",
+        },
     ),
     (
-        "/nodes/default.user_dim/columns/residence_country/"
-        "?dimension=default.special_country_dim&dimension_column=country_code",
-        {},
+        "/nodes/default.user_dim/link",
+        {
+            "dimension_node": "default.special_country_dim",
+            "join_type": "left",
+            "join_on": (
+                "default.user_dim.residence_country = default.special_country_dim.country_code"
+            ),
+            "role": "residence_country",
+        },
     ),
     (
-        "/nodes/default.special_country_dim/columns/formation_date/"
-        "?dimension=default.date_dim&dimension_column=dateint",
-        {},
+        "/nodes/default.special_country_dim/link",
+        {
+            "dimension_node": "default.date_dim",
+            "join_type": "left",
+            "join_on": (
+                "default.special_country_dim.formation_date = default.date_dim.dateint"
+            ),
+            "role": "formation_date",
+        },
     ),
     (
-        "/nodes/default.special_country_dim/columns/last_election_date/"
-        "?dimension=default.date_dim&dimension_column=dateint",
-        {},
+        "/nodes/default.special_country_dim/link",
+        {
+            "dimension_node": "default.date_dim",
+            "join_type": "left",
+            "join_on": (
+                "default.special_country_dim.last_election_date = default.date_dim.dateint"
+            ),
+            "role": "last_election_date",
+        },
     ),
 )
 
