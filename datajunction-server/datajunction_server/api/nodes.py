@@ -977,8 +977,8 @@ def delete_dimension_link(
         [NodeType.CUBE],
     )
     if affected_cubes:
-        for cube in affected_cubes:
-            if cube.status != NodeStatus.INVALID:  # pragma: no cover
+        for cube in affected_cubes:  # pragma: no cover
+            if cube.status != NodeStatus.INVALID:
                 cube.status = NodeStatus.INVALID
                 session.add(cube)
                 session.add(

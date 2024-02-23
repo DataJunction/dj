@@ -720,7 +720,7 @@ def test_get_multi_link_dimensions(
     assert response.json()["dimensions"] == [
         {
             "is_primary_key": True,
-            "name": "default.date_dim.dateint",
+            "name": "default.date_dim.dateint[birth_country->formation_date]",
             "node_display_name": "Default: Date Dim",
             "node_name": "default.date_dim",
             "path": [
@@ -731,7 +731,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": True,
-            "name": "default.date_dim.dateint",
+            "name": "default.date_dim.dateint[birth_country->last_election_date]",
             "node_display_name": "Default: Date Dim",
             "node_name": "default.date_dim",
             "path": [
@@ -742,7 +742,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": True,
-            "name": "default.date_dim.dateint",
+            "name": "default.date_dim.dateint[residence_country->formation_date]",
             "node_display_name": "Default: Date Dim",
             "node_name": "default.date_dim",
             "path": [
@@ -753,7 +753,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": True,
-            "name": "default.date_dim.dateint",
+            "name": "default.date_dim.dateint[residence_country->last_election_date]",
             "node_display_name": "Default: Date Dim",
             "node_name": "default.date_dim",
             "path": [
@@ -764,7 +764,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.date_dim.day",
+            "name": "default.date_dim.day[birth_country->formation_date]",
             "node_display_name": "Default: Date Dim",
             "node_name": "default.date_dim",
             "path": [
@@ -775,51 +775,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.date_dim.day",
-            "node_display_name": "Default: Date Dim",
-            "node_name": "default.date_dim",
-            "path": [
-                "default.user_dim.birth_country",
-                "default.special_country_dim.last_election_date",
-            ],
-            "type": "int",
-        },
-        {
-            "is_primary_key": False,
-            "name": "default.date_dim.day",
-            "node_display_name": "Default: Date Dim",
-            "node_name": "default.date_dim",
-            "path": [
-                "default.user_dim.residence_country",
-                "default.special_country_dim.formation_date",
-            ],
-            "type": "int",
-        },
-        {
-            "is_primary_key": False,
-            "name": "default.date_dim.day",
-            "node_display_name": "Default: Date Dim",
-            "node_name": "default.date_dim",
-            "path": [
-                "default.user_dim.residence_country",
-                "default.special_country_dim.last_election_date",
-            ],
-            "type": "int",
-        },
-        {
-            "is_primary_key": False,
-            "name": "default.date_dim.month",
-            "node_display_name": "Default: Date Dim",
-            "node_name": "default.date_dim",
-            "path": [
-                "default.user_dim.birth_country",
-                "default.special_country_dim.formation_date",
-            ],
-            "type": "int",
-        },
-        {
-            "is_primary_key": False,
-            "name": "default.date_dim.month",
+            "name": "default.date_dim.day[birth_country->last_election_date]",
             "node_display_name": "Default: Date Dim",
             "node_name": "default.date_dim",
             "path": [
@@ -830,7 +786,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.date_dim.month",
+            "name": "default.date_dim.day[residence_country->formation_date]",
             "node_display_name": "Default: Date Dim",
             "node_name": "default.date_dim",
             "path": [
@@ -841,7 +797,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.date_dim.month",
+            "name": "default.date_dim.day[residence_country->last_election_date]",
             "node_display_name": "Default: Date Dim",
             "node_name": "default.date_dim",
             "path": [
@@ -852,7 +808,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.date_dim.year",
+            "name": "default.date_dim.month[birth_country->formation_date]",
             "node_display_name": "Default: Date Dim",
             "node_name": "default.date_dim",
             "path": [
@@ -863,7 +819,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.date_dim.year",
+            "name": "default.date_dim.month[birth_country->last_election_date]",
             "node_display_name": "Default: Date Dim",
             "node_name": "default.date_dim",
             "path": [
@@ -874,7 +830,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.date_dim.year",
+            "name": "default.date_dim.month[residence_country->formation_date]",
             "node_display_name": "Default: Date Dim",
             "node_name": "default.date_dim",
             "path": [
@@ -885,7 +841,51 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.date_dim.year",
+            "name": "default.date_dim.month[residence_country->last_election_date]",
+            "node_display_name": "Default: Date Dim",
+            "node_name": "default.date_dim",
+            "path": [
+                "default.user_dim.residence_country",
+                "default.special_country_dim.last_election_date",
+            ],
+            "type": "int",
+        },
+        {
+            "is_primary_key": False,
+            "name": "default.date_dim.year[birth_country->formation_date]",
+            "node_display_name": "Default: Date Dim",
+            "node_name": "default.date_dim",
+            "path": [
+                "default.user_dim.birth_country",
+                "default.special_country_dim.formation_date",
+            ],
+            "type": "int",
+        },
+        {
+            "is_primary_key": False,
+            "name": "default.date_dim.year[birth_country->last_election_date]",
+            "node_display_name": "Default: Date Dim",
+            "node_name": "default.date_dim",
+            "path": [
+                "default.user_dim.birth_country",
+                "default.special_country_dim.last_election_date",
+            ],
+            "type": "int",
+        },
+        {
+            "is_primary_key": False,
+            "name": "default.date_dim.year[residence_country->formation_date]",
+            "node_display_name": "Default: Date Dim",
+            "node_name": "default.date_dim",
+            "path": [
+                "default.user_dim.residence_country",
+                "default.special_country_dim.formation_date",
+            ],
+            "type": "int",
+        },
+        {
+            "is_primary_key": False,
+            "name": "default.date_dim.year[residence_country->last_election_date]",
             "node_display_name": "Default: Date Dim",
             "node_name": "default.date_dim",
             "path": [
@@ -896,7 +896,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": True,
-            "name": "default.special_country_dim.country_code",
+            "name": "default.special_country_dim.country_code[birth_country]",
             "node_display_name": "Default: Special Country Dim",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.birth_country"],
@@ -904,7 +904,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": True,
-            "name": "default.special_country_dim.country_code",
+            "name": "default.special_country_dim.country_code[residence_country]",
             "node_display_name": "Default: Special Country Dim",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.residence_country"],
@@ -912,7 +912,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.special_country_dim.formation_date",
+            "name": "default.special_country_dim.formation_date[birth_country]",
             "node_display_name": "Default: Special Country Dim",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.birth_country"],
@@ -920,7 +920,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.special_country_dim.formation_date",
+            "name": "default.special_country_dim.formation_date[residence_country]",
             "node_display_name": "Default: Special Country Dim",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.residence_country"],
@@ -928,7 +928,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.special_country_dim.last_election_date",
+            "name": "default.special_country_dim.last_election_date[birth_country]",
             "node_display_name": "Default: Special Country Dim",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.birth_country"],
@@ -936,7 +936,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.special_country_dim.last_election_date",
+            "name": "default.special_country_dim.last_election_date[residence_country]",
             "node_display_name": "Default: Special Country Dim",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.residence_country"],
@@ -944,7 +944,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.special_country_dim.name",
+            "name": "default.special_country_dim.name[birth_country]",
             "node_display_name": "Default: Special Country Dim",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.birth_country"],
@@ -952,7 +952,7 @@ def test_get_multi_link_dimensions(
         },
         {
             "is_primary_key": False,
-            "name": "default.special_country_dim.name",
+            "name": "default.special_country_dim.name[residence_country]",
             "node_display_name": "Default: Special Country Dim",
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.residence_country"],

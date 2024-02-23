@@ -1,5 +1,5 @@
 """Dimension links table."""
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -7,6 +7,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.dimensionlink import JoinCardinality, JoinType
+
+if TYPE_CHECKING:
+    from datajunction_server.sql.parsing.backends.antlr4 import ast
 
 
 class DimensionLink(Base):  # pylint: disable=too-few-public-methods
@@ -78,7 +81,7 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
                 return value
         return JoinType.LEFT  # pragma: no cover
 
-    def join_sql_ast(self):
+    def join_sql_ast(self) -> "ast.Query":
         """
         The join query AST for this dimension link
         """
@@ -90,31 +93,39 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
             f"{self.join_type} join {self.dimension.name} on {self.join_sql}",
         )
 
-    def foreign_key_mapping(self):
+    def joins(self) -> "ast.Join":
         """
-        Returns a mapping between the foreign keys on the node and the joined in
-        primary keys of the dimension.
+        The join ASTs for this dimension link
+        """
+        join_sql = self.join_sql_ast()
+        return join_sql.select.from_.relations[-1].extensions  # type: ignore
+
+    def foreign_key_mapping(self) -> Dict["ast.Column", "ast.Column"]:
+        """
+        If the dimension link was configured with an equality operation on the
+        dimension's primary key columns to a set of foreign key columns, this method
+        returns a mapping between the foreign keys on the node and the primary keys of
+        the dimension based on the join SQL.
         """
         # pylint: disable=import-outside-toplevel
         from datajunction_server.sql.parsing.backends.antlr4 import ast
 
-        join_ast = self.join_sql_ast()
-
         # Find equality comparions (i.e., fact.order_id = dim.order_id)
         equality_comparisons = [
             expr
-            for expr in join_ast.select.from_.relations[0]
-            .extensions[0]
-            .criteria.on.find_all(ast.BinaryOp)
+            for expr in self.joins()[0].criteria.on.find_all(ast.BinaryOp)  # type: ignore
             if expr.op == ast.BinaryOpKind.Eq
         ]
         mapping = {}
         for comp in equality_comparisons:
-            if isinstance(comp.left, ast.Column) and isinstance(comp.right, ast.Column):
-                node_left = comp.left.name.namespace.identifier()
-                node_right = comp.right.name.namespace.identifier()
-                if node_left == self.node_revision.name:
+            if isinstance(comp.left, ast.Column) and isinstance(
+                comp.right,
+                ast.Column,
+            ):  # pragma: no cover
+                node_left = comp.left.name.namespace.identifier()  # type: ignore
+                node_right = comp.right.name.namespace.identifier()  # type: ignore
+                if node_left == self.node_revision.name:  # pragma: no cover
                     mapping[comp.right] = comp.left
-                if node_right == self.node_revision.name:
-                    mapping[comp.left] = comp.right
+                if node_right == self.node_revision.name:  # pragma: no cover
+                    mapping[comp.left] = comp.right  # pragma: no cover
         return mapping
