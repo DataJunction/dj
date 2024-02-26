@@ -61,7 +61,7 @@ export const DimensionsSelect = ({ cube }) => {
 
         // Set the selected cube dimensions if an existing cube is being edited
         if (cube) {
-          const currentSelectedDimensionsByGroup = selectedDimensionsByGroup;
+          const currentSelectedDimensionsByGroup = {};
           grouped.forEach(grouping => {
             const dimensionsInGroup = grouping[1];
             currentSelectedDimensionsByGroup[dimensionsInGroup[0].node_name] =
