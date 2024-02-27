@@ -1,5 +1,5 @@
 """Models for dimension links"""
-from typing import Optional
+from typing import Dict, Optional
 
 from pydantic import BaseModel
 
@@ -61,6 +61,7 @@ class LinkDimensionOutput(BaseModel):
     join_sql: str
     join_cardinality: Optional[JoinCardinality]
     role: Optional[str]
+    foreign_keys: Dict[str, str]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         orm_mode = True

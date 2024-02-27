@@ -2,6 +2,7 @@
 from typing import TYPE_CHECKING, Dict, Optional
 
 from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Integer
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
@@ -129,3 +130,14 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
                 if node_right == self.node_revision.name:  # pragma: no cover
                     mapping[comp.left] = comp.right  # pragma: no cover
         return mapping
+
+    @hybrid_property
+    def foreign_keys(self):
+        """
+        Returns a mapping from the foreign key column(s) on the origin node to
+        the primary key column(s) on the dimension node. The dict values are column names.
+        """
+        return {
+            right.identifier(): left.identifier()
+            for left, right in self.foreign_key_mapping().items()
+        }
