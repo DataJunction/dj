@@ -1,7 +1,7 @@
 """
 Models for attributes.
 """
-from typing import List
+from typing import List, Optional
 
 from pydantic.main import BaseModel
 
@@ -20,15 +20,6 @@ class AttributeTypeIdentifier(BaseModel):
     name: str
 
 
-class MutableAttributeTypeFields(AttributeTypeIdentifier):
-    """
-    Fields on attribute types that users can set.
-    """
-
-    description: str
-    allowed_node_types: List[NodeType]
-
-
 class UniquenessScope(StrEnum):
     """
     The scope at which this attribute needs to be unique.
@@ -38,15 +29,17 @@ class UniquenessScope(StrEnum):
     COLUMN_TYPE = "column_type"
 
 
-class RestrictedAttributeTypeFields(BaseModel):
+class MutableAttributeTypeFields(AttributeTypeIdentifier):
     """
-    Fields on attribute types that aren't configurable by users.
+    Fields on attribute types that users can set.
     """
 
-    uniqueness_scope: List[UniquenessScope] = []
+    description: str
+    allowed_node_types: List[NodeType]
+    uniqueness_scope: Optional[List[UniquenessScope]]
 
 
-class AttributeTypeBase(MutableAttributeTypeFields, RestrictedAttributeTypeFields):
+class AttributeTypeBase(MutableAttributeTypeFields):
     """Base attribute type."""
 
     id: int

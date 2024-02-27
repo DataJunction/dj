@@ -63,7 +63,7 @@ def add_attribute_type(
         name=data.name,
         description=data.description,
         allowed_node_types=data.allowed_node_types,
-        uniqueness_scope=[],
+        uniqueness_scope=data.uniqueness_scope if data.uniqueness_scope else [],
     )
     session.add(attribute_type)
     session.commit()
@@ -87,33 +87,6 @@ def default_attribute_types(session: Session = Depends(get_session)):
                 NodeType.TRANSFORM,
                 NodeType.DIMENSION,
             ],
-        ),
-        AttributeType(
-            namespace=RESERVED_ATTRIBUTE_NAMESPACE,
-            name="event_time",
-            description="Points to a column which represents the time of the event in a given "
-            "fact related node. Used to facilitate proper joins with dimension node "
-            "to match the desired effect.",
-            uniqueness_scope=["node", "column_type"],
-            allowed_node_types=[NodeType.SOURCE, NodeType.TRANSFORM],
-        ),
-        AttributeType(
-            namespace=RESERVED_ATTRIBUTE_NAMESPACE,
-            name="effective_time",
-            description="Points to a column which represents the effective time of a row in a "
-            "dimension node. Used to facilitate proper joins with fact nodes"
-            " on event time.",
-            uniqueness_scope=["node", "column_type"],
-            allowed_node_types=[NodeType.DIMENSION],
-        ),
-        AttributeType(
-            namespace=RESERVED_ATTRIBUTE_NAMESPACE,
-            name="expired_time",
-            description="Points to a column which represents the expired time of a row in a "
-            "dimension node. Used to facilitate proper joins with fact nodes "
-            "on event time.",
-            uniqueness_scope=["node", "column_type"],
-            allowed_node_types=[NodeType.DIMENSION],
         ),
         AttributeType(
             namespace=RESERVED_ATTRIBUTE_NAMESPACE,
