@@ -195,6 +195,10 @@ def test_link_complex_dimension_without_role(
             "join_sql": "default.events.user_id = default.users.user_id "
             "AND default.events.event_start_date = default.users.snapshot_date",
             "join_type": "left",
+            "foreign_keys": {
+                "default.events.event_start_date": "default.users.snapshot_date",
+                "default.events.user_id": "default.users.user_id",
+            },
             "role": None,
         },
     ]
@@ -215,6 +219,12 @@ def test_link_complex_dimension_without_role(
     assert response.json() == {
         "message": "The dimension link between default.events and "
         "default.users has been successfully updated.",
+    }
+
+    response = dimensions_link_client.get("/nodes/default.events")
+    assert response.json()["dimension_links"][0]["foreign_keys"] == {
+        "default.events.event_end_date": "default.users.snapshot_date",
+        "default.events.user_id": "default.users.user_id",
     }
 
     response = dimensions_link_client.get("/history?node=default.events")

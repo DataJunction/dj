@@ -77,9 +77,6 @@ def _join_path(
             if col.dimension and col.dimension.type == NodeType.DIMENSION:
                 dimensions_to_columns[col.dimension.current].append(col)
 
-        # for link in current_node.dimension_links:
-        #     dimensions_to_columns[link.dimension.current].append(link.join_sql)
-
         # Go through all potential dimensions and their join columns
         for joinable_dim, join_cols in dimensions_to_columns.items():
             next_join_path = {**path, **{(current_node, joinable_dim): join_cols}}
