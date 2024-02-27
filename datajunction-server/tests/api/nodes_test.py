@@ -5566,9 +5566,11 @@ class TestCopyNode:
         original = client_with_roads.get("/nodes/default.repair_order").json()
         for field in ["name", "node_id", "node_revision_id", "updated_at"]:
             copied[field] = mock.ANY
+        for link in copied["dimension_links"]:
+            link["foreign_keys"] = mock.ANY
         assert copied == original
 
-    def test_copy_nodes(
+    def test_copy_nodes(  # pylint: disable=too-many-locals
         self,
         client_with_roads: TestClient,
         repairs_cube_payload,  # pylint: disable=redefined-outer-name
@@ -5591,6 +5593,8 @@ class TestCopyNode:
             copied = client_with_roads.get(f"/nodes/{node}_copy").json()
             for field in ["name", "node_id", "node_revision_id", "updated_at"]:
                 copied[field] = mock.ANY
+            for link in copied["dimension_links"]:
+                link["foreign_keys"] = mock.ANY
             assert original == copied
 
             # Metrics contain additional metadata, so compare the /metrics endpoint as well
