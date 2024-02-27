@@ -69,7 +69,6 @@ export const MetricsSelect = ({ cube }) => {
           isMulti
           isClearable
           closeMenuOnSelect={false}
-          isDisabled={!!(values.metrics.length && values.dimensions.length)}
         />
       );
     }
