@@ -320,6 +320,10 @@ def test_link_complex_dimension_with_role(
             "AND default.events.event_start_date = default.users.snapshot_date",
             "join_type": "left",
             "role": "user_direct",
+            "foreign_keys": {
+                "default.events.event_start_date": "default.users.snapshot_date",
+                "default.events.user_id": "default.users.user_id",
+            },
         },
     ]
 
@@ -346,6 +350,10 @@ def test_link_complex_dimension_with_role(
             "default.events.event_start_date = default.users.snapshot_date",
             "join_type": "left",
             "role": "user_direct",
+            "foreign_keys": {
+                "default.events.event_start_date": "default.users.snapshot_date",
+                "default.events.user_id": "default.users.user_id",
+            },
         },
         {
             "dimension": {"name": "default.users"},
@@ -357,6 +365,7 @@ def test_link_complex_dimension_with_role(
             "INT)",
             "join_type": "left",
             "role": "user_windowed",
+            "foreign_keys": {"default.events.user_id": "default.users.user_id"},
         },
     ]
 
