@@ -99,9 +99,11 @@ def test_get_history_node(client_with_roads: TestClient):
             "node": "default.repair_order",
             "created_at": mock.ANY,
             "details": {
-                "column": "dispatcher_id",
                 "dimension": "default.dispatcher",
-                "dimension_column": "dispatcher_id",
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.repair_order.dispatcher_id = "
+                "default.dispatcher.dispatcher_id",
+                "role": None,
             },
             "entity_name": "default.repair_order",
             "entity_type": "link",
@@ -115,9 +117,11 @@ def test_get_history_node(client_with_roads: TestClient):
             "node": "default.repair_order",
             "created_at": mock.ANY,
             "details": {
-                "column": "hard_hat_id",
                 "dimension": "default.hard_hat",
-                "dimension_column": "hard_hat_id",
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.repair_order.hard_hat_id = "
+                "default.hard_hat.hard_hat_id",
+                "role": None,
             },
             "entity_name": "default.repair_order",
             "entity_type": "link",
@@ -131,9 +135,11 @@ def test_get_history_node(client_with_roads: TestClient):
             "node": "default.repair_order",
             "created_at": mock.ANY,
             "details": {
-                "column": "municipality_id",
                 "dimension": "default.municipality_dim",
-                "dimension_column": "municipality_id",
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.repair_order.municipality_id = "
+                "default.municipality_dim.municipality_id",
+                "role": None,
             },
             "entity_name": "default.repair_order",
             "entity_type": "link",

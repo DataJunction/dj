@@ -1532,7 +1532,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         new_columns = [
             {
                 "attributes": [],
-                "dimension": {"name": "default.repair_order"},
+                "dimension": None,
                 "display_name": "Repair Order Id",
                 "name": "repair_order_id",
                 "type": "int",
@@ -2862,7 +2862,7 @@ m0_default_DOT_num_repair_orders_partitioned AS (SELECT  default_DOT_hard_hat.la
         default_DOT_repair_orders.required_date
  FROM roads.repair_orders AS default_DOT_repair_orders
  WHERE  date_format(default_DOT_repair_orders.order_date, 'yyyyMMdd') = FORMATTED)
- AS default_DOT_repair_orders_partitioned LEFT OUTER JOIN
+ AS default_DOT_repair_orders_partitioned LEFT JOIN
  (SELECT  default_DOT_hard_hats.hard_hat_id,
         default_DOT_hard_hats.last_name,
         default_DOT_hard_hats.state
@@ -4394,7 +4394,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             },
             {
                 "attributes": [],
-                "dimension": {"name": "default.us_state"},
+                "dimension": None,
                 "display_name": "State",
                 "name": "state",
                 "type": "string",
@@ -5297,7 +5297,7 @@ def test_set_column_partition(client_with_roads: TestClient):
     )
     assert response.json() == {
         "attributes": [],
-        "dimension": {"name": "default.us_state"},
+        "dimension": None,
         "display_name": "State",
         "name": "state",
         "partition": {
@@ -5554,9 +5554,11 @@ class TestCopyNode:
         original = client_with_roads.get("/nodes/default.repair_order").json()
         for field in ["name", "node_id", "node_revision_id", "updated_at"]:
             copied[field] = mock.ANY
+        for link in copied["dimension_links"]:
+            link["foreign_keys"] = mock.ANY
         assert copied == original
 
-    def test_copy_nodes(
+    def test_copy_nodes(  # pylint: disable=too-many-locals
         self,
         client_with_roads: TestClient,
         repairs_cube_payload,  # pylint: disable=redefined-outer-name
@@ -5579,6 +5581,8 @@ class TestCopyNode:
             copied = client_with_roads.get(f"/nodes/{node}_copy").json()
             for field in ["name", "node_id", "node_revision_id", "updated_at"]:
                 copied[field] = mock.ANY
+            for link in copied["dimension_links"]:
+                link["foreign_keys"] = mock.ANY
             assert original == copied
 
             # Metrics contain additional metadata, so compare the /metrics endpoint as well
