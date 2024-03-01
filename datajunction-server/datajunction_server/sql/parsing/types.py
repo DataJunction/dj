@@ -937,4 +937,5 @@ PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
     "binary": BinaryType(),
     "none": NullType(),
     "null": NullType(),
+    "wildcard": WildcardType(),
 }
