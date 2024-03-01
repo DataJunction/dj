@@ -12,6 +12,8 @@ export default function NodeColumnTab({ node, djClient }) {
   const [attributes, setAttributes] = useState([]);
   const [dimensions, setDimensions] = useState([]);
   const [columns, setColumns] = useState([]);
+  const [links, setLinks] = useState([]);
+
   useEffect(() => {
     const fetchData = async () => {
       setColumns(await djClient.columns(node));
@@ -88,7 +90,13 @@ export default function NodeColumnTab({ node, djClient }) {
   };
 
   const columnList = columns => {
-    return columns.map(col => (
+    return columns.map(col => {
+      const dimensionLinks = (links.length > 0 ? links : node?.dimension_links).map(
+              link => [link.dimension.name, Object.entries(link.foreign_keys).filter(
+                entry => entry[0] === (node.name + '.' + col.name))]
+      ).filter(keys => keys[1].length >= 1);
+      const referencedDimensionNode = dimensionLinks.length > 0 ? dimensionLinks[0][0] : null;
+      return (
       <tr key={col.name}>
         <td
           className="text-start"
@@ -122,23 +130,19 @@ export default function NodeColumnTab({ node, djClient }) {
         </td>
         {node.type !== 'cube' ? (
           <td>
-            {col.dimension !== undefined && col.dimension !== null ? (
-              <>
-                <a href={`/nodes/${col.dimension.name}`}>
-                  {col.dimension.name}
-                </a>
-                <ClientCodePopover code={col.clientCode} />
-              </>
-            ) : (
-              ''
-            )}{' '}
+            {referencedDimensionNode !== null ?
+              <a href={`/nodes/${referencedDimensionNode}`}>
+                {referencedDimensionNode}
+              </a> : ''}
             <LinkDimensionPopover
               column={col}
+              referencedDimensionNode={referencedDimensionNode}
               node={node}
               options={dimensions}
               onSubmit={async () => {
                 const res = await djClient.node(node.name);
                 setColumns(res.columns);
+                setLinks(res.dimension_links);
               }}
             />
           </td>
@@ -173,7 +177,8 @@ export default function NodeColumnTab({ node, djClient }) {
           />
         </td>
       </tr>
-    ));
+    );
+    });
   };
 
   return (
