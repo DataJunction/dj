@@ -2529,7 +2529,7 @@ class Query(TableExpression, UnNamed):
         parts = [f"{with_}{self.select}\n"]
         query = "".join(parts)
         if self.parenthesized:
-            query = f"({query})"
+            query = f"({query.strip()})"
         if self.alias:
             as_ = " AS " if self.as_ else " "
             if is_cte:
