@@ -1,12 +1,16 @@
 """Dimension links table."""
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Integer
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.dimensionlink import JoinCardinality, JoinType
+
+if TYPE_CHECKING:
+    from datajunction_server.sql.parsing.backends.antlr4 import ast
 
 
 class DimensionLink(Base):  # pylint: disable=too-few-public-methods
@@ -33,6 +37,7 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
         ForeignKey(
             "noderevision.id",
             name="fk_dimensionlink_node_revision_id_noderevision",
+            ondelete="CASCADE",
         ),
     )
     node_revision: Mapped[NodeRevision] = relationship(
@@ -41,7 +46,11 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
         back_populates="dimension_links",
     )
     dimension_id: Mapped[int] = mapped_column(
-        ForeignKey("node.id", name="fk_dimensionlink_dimension_id_node"),
+        ForeignKey(
+            "node.id",
+            name="fk_dimensionlink_dimension_id_node",
+            ondelete="CASCADE",
+        ),
     )
     dimension: Mapped[Node] = relationship(
         "Node",
@@ -72,3 +81,63 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
             if key in join_type:
                 return value
         return JoinType.LEFT  # pragma: no cover
+
+    def join_sql_ast(self) -> "ast.Query":
+        """
+        The join query AST for this dimension link
+        """
+        # pylint: disable=import-outside-toplevel
+        from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+        return parse(
+            f"select 1 from {self.node_revision.name} "
+            f"{self.join_type} join {self.dimension.name} on {self.join_sql}",
+        )
+
+    def joins(self) -> "ast.Join":
+        """
+        The join ASTs for this dimension link
+        """
+        join_sql = self.join_sql_ast()
+        return join_sql.select.from_.relations[-1].extensions  # type: ignore
+
+    def foreign_key_mapping(self) -> Dict["ast.Column", "ast.Column"]:
+        """
+        If the dimension link was configured with an equality operation on the
+        dimension's primary key columns to a set of foreign key columns, this method
+        returns a mapping between the foreign keys on the node and the primary keys of
+        the dimension based on the join SQL.
+        """
+        # pylint: disable=import-outside-toplevel
+        from datajunction_server.sql.parsing.backends.antlr4 import ast
+
+        # Find equality comparions (i.e., fact.order_id = dim.order_id)
+        equality_comparisons = [
+            expr
+            for expr in self.joins()[0].criteria.on.find_all(ast.BinaryOp)  # type: ignore
+            if expr.op == ast.BinaryOpKind.Eq
+        ]
+        mapping = {}
+        for comp in equality_comparisons:
+            if isinstance(comp.left, ast.Column) and isinstance(
+                comp.right,
+                ast.Column,
+            ):  # pragma: no cover
+                node_left = comp.left.name.namespace.identifier()  # type: ignore
+                node_right = comp.right.name.namespace.identifier()  # type: ignore
+                if node_left == self.node_revision.name:  # pragma: no cover
+                    mapping[comp.right] = comp.left
+                if node_right == self.node_revision.name:  # pragma: no cover
+                    mapping[comp.left] = comp.right  # pragma: no cover
+        return mapping
+
+    @hybrid_property
+    def foreign_keys(self):
+        """
+        Returns a mapping from the foreign key column(s) on the origin node to
+        the primary key column(s) on the dimension node. The dict values are column names.
+        """
+        return {
+            right.identifier(): left.identifier()
+            for left, right in self.foreign_key_mapping().items()
+        }

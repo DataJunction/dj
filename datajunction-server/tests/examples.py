@@ -638,78 +638,112 @@ CROSS JOIN
         },
     ),
     (
-        (
-            "/nodes/default.repair_orders_fact/columns/municipality_id/"
-            "?dimension=default.municipality_dim"
-        ),
-        {},
+        ("/nodes/default.repair_orders_fact/link"),
+        {
+            "dimension_node": "default.municipality_dim",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id"
+            ),
+        },
     ),
     (
-        (
-            "/nodes/default.repair_orders_fact/columns/hard_hat_id/"
-            "?dimension=default.hard_hat"
-        ),
-        {},
+        "/nodes/default.repair_orders_fact/link",
+        {
+            "dimension_node": "default.hard_hat",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id"
+            ),
+        },
     ),
     (
-        (
-            "/nodes/default.repair_orders_fact/columns/dispatcher_id/"
-            "?dimension=default.dispatcher"
-        ),
-        {},
+        "/nodes/default.repair_orders_fact/link",
+        {
+            "dimension_node": "default.dispatcher",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_orders_fact.dispatcher_id = default.dispatcher.dispatcher_id"
+            ),
+        },
     ),
     (
-        (
-            "/nodes/default.repair_order_details/columns/repair_order_id/"
-            "?dimension=default.repair_order&dimension_column=repair_order_id"
-        ),
-        {},
+        "/nodes/default.repair_order_details/link",
+        {
+            "dimension_node": "default.repair_order",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_order_details.repair_order_id = default.repair_order.repair_order_id"
+            ),
+        },
     ),
     (
-        (
-            "/nodes/default.repair_type/columns/contractor_id/"
-            "?dimension=default.contractor&dimension_column=contractor_id"
-        ),
-        {},
+        "/nodes/default.repair_type/link",
+        {
+            "dimension_node": "default.contractor",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_type.contractor_id = default.contractor.contractor_id"
+            ),
+        },
     ),
     (
-        (
-            "/nodes/default.repair_orders/columns/repair_order_id/"
-            "?dimension=default.repair_order&dimension_column=repair_order_id"
-        ),
-        {},
+        "/nodes/default.repair_orders/link",
+        {
+            "dimension_node": "default.repair_order",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_orders.repair_order_id = default.repair_order.repair_order_id"
+            ),
+        },
     ),
     (
-        ("/nodes/default.hard_hat/columns/state/?dimension=default.us_state"),
-        {},
+        "/nodes/default.hard_hat/link",
+        {
+            "dimension_node": "default.us_state",
+            "join_type": "left",
+            "join_on": ("default.hard_hat.state = default.us_state.state_short"),
+        },
     ),
     (
-        (
-            "/nodes/default.repair_order_details/columns/repair_order_id/"
-            "?dimension=default.repair_order&dimension_column=repair_order_id"
-        ),
-        {},
+        "/nodes/default.repair_order_details/link",
+        {
+            "dimension_node": "default.repair_order",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_order_details.repair_order_id = default.repair_order.repair_order_id"
+            ),
+        },
     ),
     (
-        (
-            "/nodes/default.repair_order/columns/dispatcher_id/"
-            "?dimension=default.dispatcher&dimension_column=dispatcher_id"
-        ),
-        {},
+        "/nodes/default.repair_order/link",
+        {
+            "dimension_node": "default.dispatcher",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_order.dispatcher_id = default.dispatcher.dispatcher_id"
+            ),
+        },
     ),
     (
-        (
-            "/nodes/default.repair_order/columns/hard_hat_id/"
-            "?dimension=default.hard_hat&dimension_column=hard_hat_id"
-        ),
-        {},
+        "/nodes/default.repair_order/link",
+        {
+            "dimension_node": "default.hard_hat",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_order.hard_hat_id = default.hard_hat.hard_hat_id"
+            ),
+        },
     ),
     (
-        (
-            "/nodes/default.repair_order/columns/municipality_id/"
-            "?dimension=default.municipality_dim&dimension_column=municipality_id"
-        ),
-        {},
+        "/nodes/default.repair_order/link",
+        {
+            "dimension_node": "default.municipality_dim",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_order.municipality_id = default.municipality_dim.municipality_id"
+            ),
+        },
     ),
 )
 
@@ -1488,18 +1522,20 @@ EVENT = (  # type: ignore
         },
     ),
     (
-        (
-            "/nodes/default.event_source/columns/country/?"
-            "dimension=default.country_dim&dimension_column=country"
-        ),
-        {},
+        "/nodes/default.event_source/link",
+        {
+            "dimension_node": "default.country_dim",
+            "join_type": "left",
+            "join_on": ("default.event_source.country = default.country_dim.country"),
+        },
     ),
     (
-        (
-            "/nodes/default.long_events/columns/country/?"
-            "dimension=default.country_dim&dimension_column=country"
-        ),
-        {},
+        "/nodes/default.long_events/link",
+        {
+            "dimension_node": "default.country_dim",
+            "join_type": "left",
+            "join_on": ("default.long_events.country = default.country_dim.country"),
+        },
     ),
     (
         "/nodes/metric/",
@@ -2035,24 +2071,48 @@ DIMENSION_LINK = (  # type: ignore
         },
     ),
     (
-        "/nodes/default.user_dim/columns/birth_country/"
-        "?dimension=default.special_country_dim&dimension_column=country_code",
-        {},
+        "/nodes/default.user_dim/link",
+        {
+            "dimension_node": "default.special_country_dim",
+            "join_type": "left",
+            "join_on": (
+                "default.user_dim.birth_country = default.special_country_dim.country_code"
+            ),
+            "role": "birth_country",
+        },
     ),
     (
-        "/nodes/default.user_dim/columns/residence_country/"
-        "?dimension=default.special_country_dim&dimension_column=country_code",
-        {},
+        "/nodes/default.user_dim/link",
+        {
+            "dimension_node": "default.special_country_dim",
+            "join_type": "left",
+            "join_on": (
+                "default.user_dim.residence_country = default.special_country_dim.country_code"
+            ),
+            "role": "residence_country",
+        },
     ),
     (
-        "/nodes/default.special_country_dim/columns/formation_date/"
-        "?dimension=default.date_dim&dimension_column=dateint",
-        {},
+        "/nodes/default.special_country_dim/link",
+        {
+            "dimension_node": "default.date_dim",
+            "join_type": "left",
+            "join_on": (
+                "default.special_country_dim.formation_date = default.date_dim.dateint"
+            ),
+            "role": "formation_date",
+        },
     ),
     (
-        "/nodes/default.special_country_dim/columns/last_election_date/"
-        "?dimension=default.date_dim&dimension_column=dateint",
-        {},
+        "/nodes/default.special_country_dim/link",
+        {
+            "dimension_node": "default.date_dim",
+            "join_type": "left",
+            "join_on": (
+                "default.special_country_dim.last_election_date = default.date_dim.dateint"
+            ),
+            "role": "last_election_date",
+        },
     ),
 )
 
