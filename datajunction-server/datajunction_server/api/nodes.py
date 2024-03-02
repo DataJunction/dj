@@ -664,7 +664,7 @@ def link_dimension(
     )
     primary_key_columns = dimension_node.current.primary_key()
     if len(primary_key_columns) > 1:
-        raise DJActionNotAllowedException(
+        raise DJActionNotAllowedException(  # pragma: no cover
             "Cannot use this endpoint to link a dimension with a compound primary key.",
         )
 
@@ -687,7 +687,7 @@ def link_dimension(
         join_type=JoinType.LEFT,
         join_on=f"{name}.{column} = {dimension_node.name}.{primary_key_columns[0].name}",
     )
-    is_update = upsert_complex_dimension_link(
+    activity_type = upsert_complex_dimension_link(
         session,
         name,
         link_input,
@@ -700,7 +700,7 @@ def link_dimension(
                 f"Dimension node {dimension} has been successfully "
                 f"linked to node {name} using column {column}."
             )
-            if not is_update
+            if activity_type == ActivityType.CREATE
             else (
                 f"The dimension link between {name} and {dimension} "
                 "has been successfully updated."
@@ -720,7 +720,7 @@ def add_complex_dimension_link(  # pylint: disable=too-many-locals
     Links a source, dimension, or transform node to a dimension with a custom join query.
     If a link already exists, updates the link definition.
     """
-    is_update = upsert_complex_dimension_link(
+    activity_type = upsert_complex_dimension_link(
         session,
         node_name,
         link_input,
@@ -733,7 +733,7 @@ def add_complex_dimension_link(  # pylint: disable=too-many-locals
                 f"Dimension node {link_input.dimension_node} has been successfully "
                 f"linked to node {node_name}."
             )
-            if not is_update
+            if activity_type == ActivityType.CREATE
             else (
                 f"The dimension link between {node_name} and {link_input.dimension_node} "
                 "has been successfully updated."
@@ -775,7 +775,7 @@ def delete_dimension_link(
     )
 
 
-@router.post("/nodes/{name}/migrate", status_code=201)  # pragma: no cover
+@router.post("/nodes/{name}/migrate_dim_link", status_code=201)  # pragma: no cover
 def migrate_dimension_link(  # pragma: no cover
     name: str,
     session: Session = Depends(get_session),
@@ -802,7 +802,7 @@ def migrate_dimension_link(  # pragma: no cover
                     join_type=JoinType.LEFT,
                     join_on=(
                         f"{name}.{column.name} = "
-                        f"{dimension_node.name}.{primary_key_columns[0].name}",
+                        f"{dimension_node.name}.{primary_key_columns[0].name}"
                     ),
                 )
                 upsert_complex_dimension_link(

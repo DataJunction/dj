@@ -24,11 +24,19 @@ export function Root() {
       <div className="container d-flex align-items-center justify-content-between">
         <div className="header">
           <div className="logo">
-            <a href={'/'} style={{textTransform: 'none', textDecoration: 'none', color: '#000'}}>
+            <a
+              href={'/'}
+              style={{
+                textTransform: 'none',
+                textDecoration: 'none',
+                color: '#000',
+              }}
+            >
               <h2>
-              <DJLogo />
-              Data<b>Junction</b>
-            </h2></a>
+                <DJLogo />
+                Data<b>Junction</b>
+              </h2>
+            </a>
           </div>
           <Search />
           <div className="menu">

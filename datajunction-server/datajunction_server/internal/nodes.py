@@ -1332,7 +1332,7 @@ def upsert_complex_dimension_link(
     node_name: str,
     link_input: LinkDimensionInput,
     current_user: Optional[User] = None,
-) -> bool:
+) -> ActivityType:
     """
     Create or update a node-level dimension link.
 
@@ -1401,11 +1401,11 @@ def upsert_complex_dimension_link(
         for link in node.current.dimension_links
         if link.dimension_id == dimension_node.id and link.role == link_input.role
     ]
-    is_update = False
+    activity_type = ActivityType.CREATE
 
     if existing_link:
         # Update the existing dimension link
-        is_update = True
+        activity_type = ActivityType.UPDATE
         dimension_link = existing_link[0]
         dimension_link.join_sql = link_input.join_on
         dimension_link.join_type = DimensionLink.parse_join_type(
@@ -1430,7 +1430,7 @@ def upsert_complex_dimension_link(
             entity_type=EntityType.LINK,
             entity_name=node.name,
             node=node.name,
-            activity_type=ActivityType.CREATE if not is_update else ActivityType.UPDATE,
+            activity_type=activity_type,
             details={
                 "dimension": dimension_node.name,
                 "join_sql": link_input.join_on,
@@ -1442,7 +1442,7 @@ def upsert_complex_dimension_link(
     )
     session.commit()
     session.refresh(node)
-    return is_update
+    return activity_type
 
 
 def remove_dimension_link(
