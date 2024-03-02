@@ -875,14 +875,19 @@ class Column(Aliasable, Named, Expression):
                 # it should be sourced from the immediate table
                 not namespace
                 or namespace == table.alias_or_name.identifier(False)
-            ) or (
-                # This column may be a struct, meaning it'll have an optional namespace,
-                # a column name, and a subscript
-                table.column_mapping.get(namespace)
-                or (table.column_mapping.get(column_name) and is_struct)
             ):
                 if table.add_ref_column(self, ctx):
                     found.append(table)
+
+        # This column may be a struct, meaning it'll have an optional namespace,
+        # a column name, and a subscript
+        if not found:
+            for table in direct_tables:
+                if table.column_mapping.get(namespace) or (
+                    table.column_mapping.get(column_name) and is_struct
+                ):
+                    if table.add_ref_column(self, ctx):
+                        found.append(table)
 
         if found:
             return found

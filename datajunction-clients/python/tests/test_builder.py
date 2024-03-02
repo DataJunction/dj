@@ -498,8 +498,8 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             "contractor_id",
         )
         assert result["message"] == (
-            "Dimension node foo.bar.contractor has been successfully linked to "
-            "column contractor_id on node foo.bar.repair_type"
+            "The dimension link between foo.bar.repair_type and foo.bar.contractor "
+            "has been successfully updated."
         )
 
         # Unlink the dimension
@@ -509,8 +509,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             "contractor_id",
         )
         assert result["message"] == (
-            "The dimension link on the node foo.bar.repair_type's contractor_id to "
-            "foo.bar.contractor has been successfully removed."
+            "Dimension link foo.bar.contractor to node foo.bar.repair_type has been removed."
         )
 
     def test_link_complex_dimension(self, client):
@@ -598,8 +597,8 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             "node_display_name": "Foo: Bar: Dispatcher",
             "is_primary_key": False,
             "path": [
-                "foo.bar.repair_order_details.repair_order_id",
-                "foo.bar.repair_order.dispatcher_id",
+                "foo.bar.repair_order_details",
+                "foo.bar.repair_order",
             ],
         } in result
 
