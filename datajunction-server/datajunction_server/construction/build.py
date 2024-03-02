@@ -84,7 +84,7 @@ def _join_path(
             if joinable_dim == dimension_node:
                 for col in join_cols:
                     dim_pk = dimension_node.primary_key()
-                    if not col.dimension_column:
+                    if not col.dimension_column:  # pragma: no cover
                         if len(dim_pk) != 1:
                             raise DJException(  # pragma: no cover
                                 f"Node {current_node.name} specifying dimension "

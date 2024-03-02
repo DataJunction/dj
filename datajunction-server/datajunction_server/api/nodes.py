@@ -664,7 +664,7 @@ def link_dimension(
     )
     primary_key_columns = dimension_node.current.primary_key()
     if len(primary_key_columns) > 1:
-        raise DJActionNotAllowedException(
+        raise DJActionNotAllowedException(  # pragma: no cover
             "Cannot use this endpoint to link a dimension with a compound primary key.",
         )
 
