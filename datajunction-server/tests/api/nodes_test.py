@@ -389,12 +389,23 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = client_with_roads.get("/nodes/default.hard_hats/")
         assert {
             "attributes": [],
-            "dimension": {"name": "default.title"},
+            "dimension": None,
             "display_name": "Title",
             "name": "title",
             "type": "string",
             "partition": None,
         } in response.json()["columns"]
+
+        assert response.json()["dimension_links"] == [
+            {
+                "dimension": {"name": "default.title"},
+                "foreign_keys": {"default.hard_hats.title": "default.title.title"},
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.hard_hats.title = default.title.title",
+                "join_type": "left",
+                "role": None,
+            },
+        ]
 
     def test_deleting_node(
         self,

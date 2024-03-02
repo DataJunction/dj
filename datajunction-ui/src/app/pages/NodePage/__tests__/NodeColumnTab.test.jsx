@@ -98,6 +98,10 @@ describe('<NodeColumnTab />', () => {
           'default.contractor.contractor_id = default.repair_orders.contractor_id',
         join_cardinality: 'one_to_one',
         role: 'contractor',
+        foreign_keys: {
+          'default.repair_orders.contractor_id':
+            'default.contractor.contractor_id',
+        },
       },
     ],
   };
