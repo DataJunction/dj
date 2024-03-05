@@ -8,6 +8,7 @@ import { displayMessageAfterSubmit } from '../../../utils/form';
 
 export default function LinkDimensionPopover({
   column,
+  referencedDimensionNode,
   node,
   options,
   onSubmit,
@@ -28,15 +29,15 @@ export default function LinkDimensionPopover({
     };
   }, [setPopoverAnchor]);
 
-  const columnDimension = column.dimension;
+  const columnDimension = referencedDimensionNode;
 
   const handleSubmit = async (
     { node, column, dimension },
     { setSubmitting, setStatus },
   ) => {
     setSubmitting(false);
-    if (columnDimension?.name && dimension === 'Remove') {
-      await unlinkDimension(node, column, columnDimension?.name, setStatus);
+    if (referencedDimensionNode && dimension === 'Remove') {
+      await unlinkDimension(node, column, referencedDimensionNode, setStatus);
     } else {
       await linkDimension(node, column, dimension, setStatus);
     }
@@ -93,7 +94,7 @@ export default function LinkDimensionPopover({
             column: column.name,
             node: node.name,
             dimension: '',
-            currentDimension: column.dimension?.name,
+            currentDimension: referencedDimensionNode,
           }}
           onSubmit={handleSubmit}
         >
@@ -110,10 +111,10 @@ export default function LinkDimensionPopover({
                     placeholder="Select dimension to link"
                     className=""
                     defaultValue={
-                      column.dimension
+                      referencedDimensionNode
                         ? {
-                            value: column.dimension.name,
-                            label: column.dimension.name,
+                            value: referencedDimensionNode,
+                            label: referencedDimensionNode,
                           }
                         : ''
                     }

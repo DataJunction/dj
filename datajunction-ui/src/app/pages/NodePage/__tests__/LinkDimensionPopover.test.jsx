@@ -42,6 +42,7 @@ describe('<LinkDimensionPopover />', () => {
       <DJClientContext.Provider value={mockDjClient}>
         <LinkDimensionPopover
           column={column}
+          referencedDimensionNode={'default.dimension1'}
           node={node}
           options={options}
           onSubmit={onSubmitMock}
@@ -94,7 +95,6 @@ describe('<LinkDimensionPopover />', () => {
     };
     const node = { name: 'default.node1' };
     const options = [
-      { value: 'Remove', label: '[Remove dimension link]' },
       { value: 'default.dimension1', label: 'Dimension 1' },
       { value: 'default.dimension2', label: 'Dimension 2' },
     ];
@@ -117,6 +117,7 @@ describe('<LinkDimensionPopover />', () => {
       <DJClientContext.Provider value={mockDjClient}>
         <LinkDimensionPopover
           column={column}
+          referencedDimensionNode={'default.dimension1'}
           node={node}
           options={options}
           onSubmit={onSubmitMock}
@@ -148,7 +149,7 @@ describe('<LinkDimensionPopover />', () => {
 
     // Click on the 'Remove' option and save
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getByText('[Remove dimension link]'));
+    fireEvent.click(screen.getByText('[Remove Dimension]'));
     fireEvent.click(getByText('Save'));
     getByText('Save').click();
 

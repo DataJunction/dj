@@ -498,8 +498,11 @@ class Project(BaseModel):
                     for dimension in node["dimensions"]
                 ]
             if node.get("dimension_links"):
-                for _, dim in node["dimension_links"].items():
-                    dim["dimension"] = inject_prefixes(dim["dimension"], namespace)
+                for _, dim in node["dimension_links"].items():  # pragma: no cover
+                    dim["dimension"] = inject_prefixes(
+                        dim["dimension"],
+                        namespace,
+                    )  # pragma: no cover
             with open(
                 node_definition_dir / Path(node.pop("filename")),
                 "w",

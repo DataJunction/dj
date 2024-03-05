@@ -389,12 +389,23 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = client_with_roads.get("/nodes/default.hard_hats/")
         assert {
             "attributes": [],
-            "dimension": {"name": "default.title"},
+            "dimension": None,
             "display_name": "Title",
             "name": "title",
             "type": "string",
             "partition": None,
         } in response.json()["columns"]
+
+        assert response.json()["dimension_links"] == [
+            {
+                "dimension": {"name": "default.title"},
+                "foreign_keys": {"default.hard_hats.title": "default.title.title"},
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.hard_hats.title = default.title.title",
+                "join_type": "left",
+                "role": None,
+            },
+        ]
 
     def test_deleting_node(
         self,
@@ -935,7 +946,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.age",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "int",
             },
             {
@@ -943,7 +954,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.country",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "string",
             },
             {
@@ -951,7 +962,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.created_at",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "timestamp",
             },
             {
@@ -959,7 +970,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.full_name",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "string",
             },
             {
@@ -967,7 +978,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.gender",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "string",
             },
             {
@@ -975,7 +986,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.id",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "int",
             },
             {
@@ -983,7 +994,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.post_processing_timestamp",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "timestamp",
             },
             {
@@ -991,7 +1002,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.preferred_language",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "string",
             },
             {
@@ -999,7 +1010,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.secret_number",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "float",
             },
         ]
@@ -1042,7 +1053,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.age",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "int",
             },
             {
@@ -1050,7 +1061,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.country",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "string",
             },
             {
@@ -1058,7 +1069,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.created_at",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "timestamp",
             },
             {
@@ -1066,7 +1077,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.full_name",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "string",
             },
             {
@@ -1074,7 +1085,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.gender",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "string",
             },
             {
@@ -1082,7 +1093,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.id",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "int",
             },
             {
@@ -1090,7 +1101,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.post_processing_timestamp",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "timestamp",
             },
             {
@@ -1098,7 +1109,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.preferred_language",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "string",
             },
             {
@@ -1106,7 +1117,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.us_users.secret_number",
                 "node_display_name": "Default: Us Users",
                 "node_name": "default.us_users",
-                "path": ["default.messages.user_id"],
+                "path": ["default.messages"],
                 "type": "float",
             },
         ]
@@ -3295,7 +3306,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             "default_DOT_hard_hats.state, default_DOT_hard_hats.postal_code, "
             "default_DOT_hard_hats.country, default_DOT_hard_hats.manager, "
             "default_DOT_hard_hats.contractor_id FROM roads.hard_hats AS "
-            "default_DOT_hard_hats ) AS default_DOT_hard_hat WHERE birth_date = "
+            "default_DOT_hard_hats) AS default_DOT_hard_hat WHERE birth_date = "
             "CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd') AS "
             "TIMESTAMP)"
         )
@@ -4264,14 +4275,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert data == {
             "message": (
                 "Dimension node default.payment_type has been successfully "
-                "linked to column payment_type on node default.revenue"
+                "linked to node default.revenue using column payment_type."
             ),
         }
         response = custom_client.get("/nodes/default.revenue")
         data = response.json()
         assert [
             col["dimension"]["name"] for col in data["columns"] if col["dimension"]
-        ] == ["default.payment_type"]
+        ] == []
 
         # Check that after deleting the dimension link, none of the columns have links
         response = custom_client.delete(
@@ -4280,8 +4291,8 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data == {
             "message": (
-                "The dimension link on the node default.revenue's payment_type to "
-                "default.payment_type has been successfully removed."
+                "Dimension link default.payment_type to node default.revenue has "
+                "been removed."
             ),
         }
         response = custom_client.get("/nodes/default.revenue")
@@ -4298,10 +4309,9 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "/nodes/default.revenue/columns/payment_type/?dimension=default.payment_type",
         )
         data = response.json()
-        assert response.status_code == 304
+        assert response.status_code == 404
         assert data == {
-            "message": "No change was made to payment_type on node default.revenue as the"
-            " specified dimension link to default.payment_type on None was not found.",
+            "message": "Dimension link to node default.payment_type not found",
         }
         # Check history again, no change
         response = custom_client.get("/history?node=default.revenue")
@@ -4340,7 +4350,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
         assert data["message"] == (
-            "Cannot add dimension to column, because catalogs do not match: default, public"
+            "Cannot link dimension to node, because catalogs do not match: default, public"
         )
 
     def test_update_node_with_dimension_links(self, client_with_roads: TestClient):
