@@ -6,9 +6,11 @@ from http import HTTPStatus
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import BackgroundTasks
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from datajunction_server.api.catalogs import UNKNOWN_CATALOG_ID
 from datajunction_server.api.helpers import (
     activate_node,
     get_attribute_type,
@@ -19,9 +21,9 @@ from datajunction_server.api.helpers import (
     validate_cube,
     validate_node_data,
 )
-from datajunction_server.database import DimensionLink
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
@@ -31,6 +33,7 @@ from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJDoesNotExistException,
     DJException,
+    DJInvalidInputException,
     DJNodeNotFound,
 )
 from datajunction_server.internal.materializations import (
@@ -44,6 +47,10 @@ from datajunction_server.models.attribute import (
 )
 from datajunction_server.models.base import labelize
 from datajunction_server.models.cube import CubeRevisionMetadata
+from datajunction_server.models.dimensionlink import (
+    LinkDimensionIdentifier,
+    LinkDimensionInput,
+)
 from datajunction_server.models.history import status_change_history
 from datajunction_server.models.materialization import (
     MaterializationConfigOutput,
@@ -63,6 +70,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.sql.dag import get_nodes_with_dimension
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -1317,3 +1325,213 @@ def get_cube_revision_metadata(session: Session, name: str):
     cube_metadata = CubeRevisionMetadata.from_orm(cube)
     cube_metadata.tags = cube.node.tags
     return cube_metadata
+
+
+def upsert_complex_dimension_link(
+    session: Session,
+    node_name: str,
+    link_input: LinkDimensionInput,
+    current_user: Optional[User] = None,
+) -> ActivityType:
+    """
+    Create or update a node-level dimension link.
+
+    A dimension link is uniquely identified by the origin node, the dimension node being linked,
+    and the role, if any. If an existing dimension link identified by those fields already exists,
+    we'll update that dimension link. If no dimension link exists, we'll create a new one.
+    """
+    node = get_node_by_name(session=session, name=node_name)
+    if node.type not in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):
+        raise DJInvalidInputException(
+            message=f"Cannot link dimension to a node of type {node.type}. "
+            "Must be a source, dimension, or transform node.",
+        )
+
+    # Find the dimension node and check that the catalogs match
+    dimension_node = get_node_by_name(
+        session=session,
+        name=link_input.dimension_node,
+        node_type=NodeType.DIMENSION,
+    )
+    if (
+        dimension_node.current.catalog_id != UNKNOWN_CATALOG_ID
+        and dimension_node.current.catalog is not None
+        and node.current.catalog.name != dimension_node.current.catalog.name
+    ):
+        raise DJException(  # pragma: no cover
+            message=(
+                "Cannot link dimension to node, because catalogs do not match: "
+                f"{node.current.catalog.name}, {dimension_node.current.catalog.name}"
+            ),
+        )
+
+    # Parse the join query and do some basic verification of its validity
+    join_query = parse(
+        f"SELECT 1 FROM {node_name} "
+        f"{link_input.join_type} JOIN {link_input.dimension_node} "
+        f"ON {link_input.join_on}",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    join_query.compile(ctx)
+    join_relation = join_query.select.from_.relations[0].extensions[0]  # type: ignore
+
+    # Verify that the query references both the node and the dimension being joined
+    expected_references = {node_name, link_input.dimension_node}
+    references = {
+        table.name.namespace.identifier()  # type: ignore
+        for table in join_relation.criteria.on.find_all(ast.Column)  # type: ignore
+    }
+    if expected_references.difference(references):
+        raise DJInvalidInputException(
+            f"The join SQL provided does not reference both the origin node {node_name} and the "
+            f"dimension node {link_input.dimension_node} that it's being joined to.",
+        )
+
+    # Verify that the columns in the ON clause exist on both nodes
+    if ctx.exception.errors:
+        raise DJException(
+            message=f"Join query {link_input.join_on} is not valid",
+            errors=ctx.exception.errors,
+        )
+
+    # Find an existing dimension link if there is already one defined for this node
+    existing_link = [
+        link
+        for link in node.current.dimension_links
+        if link.dimension_id == dimension_node.id and link.role == link_input.role
+    ]
+    activity_type = ActivityType.CREATE
+
+    if existing_link:
+        # Update the existing dimension link
+        activity_type = ActivityType.UPDATE
+        dimension_link = existing_link[0]
+        dimension_link.join_sql = link_input.join_on
+        dimension_link.join_type = DimensionLink.parse_join_type(
+            join_relation.join_type,
+        )
+        dimension_link.join_cardinality = link_input.join_cardinality
+    else:
+        # If there is no existing link, create new dimension link object
+        dimension_link = DimensionLink(
+            node_revision_id=node.current.id,
+            dimension_id=dimension_node.id,
+            join_sql=link_input.join_on,
+            join_type=DimensionLink.parse_join_type(join_relation.join_type),
+            join_cardinality=link_input.join_cardinality,
+            role=link_input.role,
+        )
+
+    # Add/update the dimension link in the database
+    session.add(dimension_link)
+    session.add(
+        History(
+            entity_type=EntityType.LINK,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=activity_type,
+            details={
+                "dimension": dimension_node.name,
+                "join_sql": link_input.join_on,
+                "join_cardinality": link_input.join_cardinality,
+                "role": link_input.role,
+            },
+            user=current_user.username if current_user else None,
+        ),
+    )
+    session.commit()
+    session.refresh(node)
+    return activity_type
+
+
+def remove_dimension_link(
+    session: Session,
+    node_name: str,
+    link_identifier: LinkDimensionIdentifier,
+    current_user: Optional[User] = None,
+):
+    """
+    Removes the dimension link identified by the origin node, the dimension node, and its role.
+    """
+    node = get_node_by_name(session=session, name=node_name)
+
+    # Find the dimension node
+    dimension_node = get_node_by_name(
+        session=session,
+        name=link_identifier.dimension_node,
+        node_type=NodeType.DIMENSION,
+    )
+    removed = False
+
+    # Find cubes that are affected by this dimension link removal and update their statuses
+    affected_cubes = (
+        get_nodes_with_dimension(
+            session,
+            dimension_node,
+            [NodeType.CUBE],
+        )
+        or []
+    )
+    for cube in affected_cubes:
+        if cube.status != NodeStatus.INVALID:  # pragma: no cover
+            cube.status = NodeStatus.INVALID
+            session.add(cube)
+            session.add(
+                status_change_history(
+                    node,
+                    NodeStatus.VALID,
+                    NodeStatus.INVALID,
+                    current_user=current_user,
+                ),
+            )
+
+    # Delete the dimension link if one exists
+    for link in node.current.dimension_links:
+        if (
+            link.dimension_id == dimension_node.id  # pragma: no cover
+            and link.role == link_identifier.role  # pragma: no cover
+        ):
+            removed = True
+            session.delete(link)
+    if not removed:
+        return JSONResponse(
+            status_code=HTTPStatus.NOT_FOUND,
+            content={
+                "message": f"Dimension link to node {link_identifier.dimension_node} "
+                + (f"with role {link_identifier.role} " if link_identifier.role else "")
+                + "not found",
+            },
+        )
+
+    session.add(
+        History(
+            entity_type=EntityType.LINK,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.DELETE,
+            details={
+                "dimension": dimension_node.name,
+                "role": link_identifier.role,
+            },
+            user=current_user.username if current_user else None,
+        ),
+    )
+    session.commit()
+    session.refresh(node)
+    return JSONResponse(
+        status_code=201,
+        content={
+            "message": (
+                f"Dimension link {link_identifier.dimension_node} "
+                + (f"(role {link_identifier.role}) " if link_identifier.role else "")
+                + f"to node {node_name} has been removed."
+            )
+            if removed
+            else (
+                f"Dimension link {link_identifier.dimension_node} "
+                + (f"(role {link_identifier.role}) " if link_identifier.role else "")
+                + f"to node {node_name} does not exist!"
+            ),
+        },
+    )

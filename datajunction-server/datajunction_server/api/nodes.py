@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.operators import is_
 from starlette.requests import Request
 
-from datajunction_server.api.catalogs import UNKNOWN_CATALOG_ID
 from datajunction_server.api.helpers import (
     activate_node,
     deactivate_node,
@@ -32,12 +31,12 @@ from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.constants import NODE_LIST_MAX
 from datajunction_server.database.column import Column
-from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
+    DJActionNotAllowedException,
     DJDoesNotExistException,
     DJException,
     DJInvalidInputException,
@@ -54,18 +53,20 @@ from datajunction_server.internal.nodes import (
     create_node_revision,
     get_column_level_lineage,
     get_node_column,
+    remove_dimension_link,
     save_column_level_lineage,
     save_node,
     set_node_column_attributes,
     update_any_node,
+    upsert_complex_dimension_link,
 )
 from datajunction_server.models import access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.dimensionlink import (
+    JoinType,
     LinkDimensionIdentifier,
     LinkDimensionInput,
 )
-from datajunction_server.models.history import status_change_history
 from datajunction_server.models.node import (
     ColumnOutput,
     CreateCubeNode,
@@ -93,10 +94,8 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_dimensions,
     get_downstream_nodes,
-    get_nodes_with_dimension,
     get_upstream_nodes,
 )
-from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import (
     Version,
@@ -650,7 +649,7 @@ def link_dimension(
     name: str,
     column: str,
     dimension: str,
-    dimension_column: Optional[str] = None,
+    dimension_column: Optional[str] = None,  # pylint: disable=unused-argument
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
@@ -663,16 +662,10 @@ def link_dimension(
         name=dimension,
         node_type=NodeType.DIMENSION,
     )
-    if (
-        dimension_node.current.catalog_id != UNKNOWN_CATALOG_ID
-        and dimension_node.current.catalog is not None
-        and node.current.catalog.name != dimension_node.current.catalog.name
-    ):
-        raise DJException(
-            message=(
-                "Cannot add dimension to column, because catalogs do not match: "
-                f"{node.current.catalog.name}, {dimension_node.current.catalog.name}"
-            ),
+    primary_key_columns = dimension_node.current.primary_key()
+    if len(primary_key_columns) > 1:
+        raise DJActionNotAllowedException(  # pragma: no cover
+            "Cannot use this endpoint to link a dimension with a compound primary key.",
         )
 
     target_column = get_column(node.current, column)
@@ -689,33 +682,28 @@ def link_dimension(
                 " These column types are incompatible and the dimension cannot be linked",
             )
 
-    target_column.dimension = dimension_node
-    target_column.dimension_id = dimension_node.id
-    target_column.dimension_column = dimension_column
-
-    session.add(node)
-    session.add(
-        History(
-            entity_type=EntityType.LINK,
-            entity_name=node.name,
-            node=node.name,
-            activity_type=ActivityType.CREATE,
-            details={
-                "column": target_column.name,
-                "dimension": dimension_node.name,
-                "dimension_column": dimension_column or "",
-            },
-            user=current_user.username if current_user else None,
-        ),
+    link_input = LinkDimensionInput(
+        dimension_node=dimension,
+        join_type=JoinType.LEFT,
+        join_on=f"{name}.{column} = {dimension_node.name}.{primary_key_columns[0].name}",
     )
-    session.commit()
-    session.refresh(node)
+    activity_type = upsert_complex_dimension_link(
+        session,
+        name,
+        link_input,
+        current_user,
+    )
     return JSONResponse(
         status_code=201,
         content={
             "message": (
                 f"Dimension node {dimension} has been successfully "
-                f"linked to column {column} on node {name}"
+                f"linked to node {name} using column {column}."
+            )
+            if activity_type == ActivityType.CREATE
+            else (
+                f"The dimension link between {name} and {dimension} "
+                "has been successfully updated."
             ),
         },
     )
@@ -732,118 +720,22 @@ def add_complex_dimension_link(  # pylint: disable=too-many-locals
     Links a source, dimension, or transform node to a dimension with a custom join query.
     If a link already exists, updates the link definition.
     """
-    node = get_node_by_name(session=session, name=node_name)
-    if node.type not in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):
-        raise DJInvalidInputException(
-            message=f"Cannot link dimension to a node of type {node.type}. "
-            "Must be a source, dimension, or transform node.",
-        )
-
-    # Find the dimension node and check that the catalogs match
-    dimension_node = get_node_by_name(
-        session=session,
-        name=link_input.dimension_node,
-        node_type=NodeType.DIMENSION,
+    activity_type = upsert_complex_dimension_link(
+        session,
+        node_name,
+        link_input,
+        current_user,
     )
-    if (
-        dimension_node.current.catalog_id != UNKNOWN_CATALOG_ID
-        and dimension_node.current.catalog is not None
-        and node.current.catalog.name != dimension_node.current.catalog.name
-    ):
-        raise DJException(  # pragma: no cover
-            message=(
-                "Cannot link dimension to node, because catalogs do not match: "
-                f"{node.current.catalog.name}, {dimension_node.current.catalog.name}"
-            ),
-        )
-
-    # Parse the join query and do some basic verification of its validity
-    join_query = parse(
-        f"SELECT 1 FROM {node_name} "
-        f"{link_input.join_type} JOIN {link_input.dimension_node} "
-        f"ON {link_input.join_on}",
-    )
-    exc = DJException()
-    ctx = ast.CompileContext(session=session, exception=exc)
-    join_query.compile(ctx)
-    join_relation = join_query.select.from_.relations[0].extensions[0]  # type: ignore
-
-    # Verify that the query references both the node and the dimension being joined
-    expected_references = {node_name, link_input.dimension_node}
-    references = {
-        table.name.namespace.identifier()  # type: ignore
-        for table in join_relation.criteria.on.find_all(ast.Column)  # type: ignore
-    }
-    if expected_references.difference(references):
-        raise DJInvalidInputException(
-            f"The join SQL provided does not reference both the origin node {node_name} and the "
-            f"dimension node {link_input.dimension_node} that it's being joined to.",
-        )
-
-    # Verify that the columns in the ON clause exist on both nodes
-    if ctx.exception.errors:
-        raise DJException(
-            message=f"Join query {link_input.join_on} is not valid",
-            errors=ctx.exception.errors,
-        )
-
-    # Find an existing dimension link if there is already one defined for this node
-    existing_link = [
-        link
-        for link in node.current.dimension_links
-        if link.dimension_id == dimension_node.id and link.role == link_input.role
-    ]
-    is_update = False
-
-    if existing_link:
-        # Update the existing dimension link
-        is_update = True
-        dimension_link = existing_link[0]
-        dimension_link.join_sql = link_input.join_on
-        dimension_link.join_type = DimensionLink.parse_join_type(
-            join_relation.join_type,
-        )
-        dimension_link.join_cardinality = link_input.join_cardinality
-    else:
-        # If there is no existing link, create new dimension link object
-        dimension_link = DimensionLink(
-            node_revision_id=node.current.id,
-            dimension_id=dimension_node.id,
-            join_sql=link_input.join_on,
-            join_type=DimensionLink.parse_join_type(join_relation.join_type),
-            join_cardinality=link_input.join_cardinality,
-            role=link_input.role,
-        )
-
-    # Add/update the dimension link in the database
-    session.add(dimension_link)
-    session.add(
-        History(
-            entity_type=EntityType.LINK,
-            entity_name=node.name,
-            node=node.name,
-            activity_type=ActivityType.CREATE if not is_update else ActivityType.UPDATE,
-            details={
-                "dimension": dimension_node.name,
-                "join_sql": link_input.join_on,
-                "join_cardinality": link_input.join_cardinality,
-                "role": link_input.role,
-            },
-            user=current_user.username if current_user else None,
-        ),
-    )
-    session.commit()
-    session.refresh(node)
     return JSONResponse(
         status_code=201,
         content={
             "message": (
-                f"Dimension node {dimension_node.name} has been successfully "
+                f"Dimension node {link_input.dimension_node} has been successfully "
                 f"linked to node {node_name}."
             )
-            if not is_update
+            if activity_type == ActivityType.CREATE
             else (
-                f"The dimension link between {node_name} and {dimension_node.name} "
+                f"The dimension link between {node_name} and {link_input.dimension_node} "
                 "has been successfully updated."
             ),
         },
@@ -860,164 +752,85 @@ def remove_complex_dimension_link(  # pylint: disable=too-many-locals
     """
     Removes a complex dimension link based on the dimension node and its role (if any).
     """
-    node = get_node_by_name(session=session, name=node_name)
-
-    # Find the dimension node
-    dimension_node = get_node_by_name(
-        session=session,
-        name=link_identifier.dimension_node,
-        node_type=NodeType.DIMENSION,
-    )
-    removed = False
-
-    # Find cubes that are affected by this dimension link removal and update their statuses
-    affected_cubes = get_nodes_with_dimension(
-        session,
-        dimension_node,
-        [NodeType.CUBE],
-    )
-    if affected_cubes:
-        for cube in affected_cubes:
-            if cube.status != NodeStatus.INVALID:  # pragma: no cover
-                cube.status = NodeStatus.INVALID
-                session.add(cube)
-                session.add(
-                    status_change_history(
-                        node,
-                        NodeStatus.VALID,
-                        NodeStatus.INVALID,
-                        current_user=current_user,
-                    ),
-                )
-
-    # Delete the dimension link if one exists
-    for link in node.current.dimension_links:
-        if (
-            link.dimension_id == dimension_node.id  # pragma: no cover
-            and link.role == link_identifier.role  # pragma: no cover
-        ):
-            removed = True
-            session.delete(link)
-    if not removed:
-        return JSONResponse(
-            status_code=HTTPStatus.NOT_FOUND,
-            content={
-                "message": f"Dimension link to node {link_identifier.dimension_node} "
-                + (f"with role {link_identifier.role} " if link_identifier.role else "")
-                + "not found",
-            },
-        )
-
-    session.add(
-        History(
-            entity_type=EntityType.LINK,
-            entity_name=node.name,
-            node=node.name,
-            activity_type=ActivityType.DELETE,
-            details={
-                "dimension": dimension_node.name,
-                "role": link_identifier.role,
-            },
-            user=current_user.username if current_user else None,
-        ),
-    )
-    session.commit()
-    session.refresh(node)
-    return JSONResponse(
-        status_code=201,
-        content={
-            "message": (
-                f"Dimension link {dimension_node.name} "
-                + (f"(role {link_identifier.role}) " if link_identifier.role else "")
-                + f"to node {node_name} has been removed."
-            )
-            if removed
-            else (
-                f"Dimension link {dimension_node.name} "
-                + (f"(role {link_identifier.role}) " if link_identifier.role else "")
-                + f"to node {node_name} does not exist!"
-            ),
-        },
-    )
+    return remove_dimension_link(session, node_name, link_identifier, current_user)
 
 
 @router.delete("/nodes/{name}/columns/{column}/", status_code=201)
 def delete_dimension_link(
     name: str,
-    column: str,
+    column: str,  # pylint: disable=unused-argument
     dimension: str,
-    dimension_column: Optional[str] = None,
+    dimension_column: Optional[str] = None,  # pylint: disable=unused-argument
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Remove the link between a node column and a dimension node
     """
-    node = get_node_by_name(session=session, name=name)
-    target_column = get_column(node.current, column)
-    if (not target_column.dimension or target_column.dimension.name != dimension) and (
-        not target_column.dimension_column
-        or target_column.dimension_column != dimension_column
-    ):
-        return JSONResponse(
-            status_code=304,
-            content={
-                "message": (
-                    f"No change was made to {column} on node {name} as the "
-                    f"specified dimension link to {dimension} on "
-                    f"{dimension_column} was not found."
-                ),
-            },
-        )
-
-    # Find cubes that are affected by this dimension link removal and update their statuses
-    affected_cubes = get_nodes_with_dimension(
+    return remove_dimension_link(
         session,
-        target_column.dimension,
-        [NodeType.CUBE],
+        name,
+        LinkDimensionIdentifier(dimension_node=dimension, role=None),
+        current_user,
     )
-    if affected_cubes:
-        for cube in affected_cubes:  # pragma: no cover
-            if cube.status != NodeStatus.INVALID:
-                cube.status = NodeStatus.INVALID
-                session.add(cube)
-                session.add(
-                    status_change_history(
-                        node,
-                        NodeStatus.VALID,
-                        NodeStatus.INVALID,
-                        current_user=current_user,
+
+
+@router.post("/nodes/{name}/migrate_dim_link", status_code=201)  # pragma: no cover
+def migrate_dimension_link(  # pragma: no cover
+    name: str,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+) -> JSONResponse:
+    """
+    Migrate dimension link from column-level to node-level
+    """
+    node = get_node_by_name(session=session, name=name)
+    migrated, errors = [], []
+    _logger.info("Migrating dimension links for %s", name)
+    for column in node.current.columns:
+        if column.dimension:
+            try:
+                _logger.info(
+                    "Started migration for column %s, dimension %s",
+                    column.name,
+                    column.dimension.name,
+                )
+                dimension_node = column.dimension
+                primary_key_columns = dimension_node.current.primary_key()
+                link_input = LinkDimensionInput(
+                    dimension_node=dimension_node.name,
+                    join_type=JoinType.LEFT,
+                    join_on=(
+                        f"{name}.{column.name} = "
+                        f"{dimension_node.name}.{primary_key_columns[0].name}"
                     ),
                 )
-
-    target_column.dimension = None  # type: ignore
-    target_column.dimension_id = None
-    target_column.dimension_column = None
-    session.add(node)
-    session.add(
-        History(
-            entity_type=EntityType.LINK,
-            entity_name=node.name,
-            node=node.name,
-            activity_type=ActivityType.DELETE,
-            details={
-                "column": column,
-                "dimension": dimension,
-                "dimension_column": dimension_column or "",
-            },
-            user=current_user.username if current_user else None,
-        ),
-    )
-    session.commit()
-    session.refresh(node)
+                upsert_complex_dimension_link(
+                    session,
+                    name,
+                    link_input,
+                    current_user,
+                )
+                column.dimension = None  # type: ignore
+                column.dimension_id = None
+                column.dimension_column = None
+                session.add(node)
+                session.commit()
+                session.refresh(node)
+                _logger.info(
+                    "Finished migration for column %s, dimension %s",
+                    column.name,
+                    dimension_node.name,
+                )
+                migrated.append((column.name, dimension_node.name))
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                errors.append((column.name, dimension_node.name, str(e)))
 
     return JSONResponse(
         status_code=201,
         content={
-            "message": (
-                f"The dimension link on the node {name}'s {column} to "
-                f"{dimension} has been successfully removed."
-            ),
+            "finished": migrated,
+            "errors": errors,
         },
     )
 

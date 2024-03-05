@@ -1803,7 +1803,7 @@ LATERAL_VIEW = (  # type: ignore
             "description": "Mural paint colors",
             "mode": "published",
             "name": "basic.paint_colors_trino",
-            "primary_key": ["color_id", "color_name"],
+            "primary_key": ["color_id"],
         },
     ),
     (
@@ -1825,7 +1825,7 @@ LATERAL_VIEW = (  # type: ignore
             "description": "Mural paint colors",
             "mode": "published",
             "name": "basic.paint_colors_spark",
-            "primary_key": ["color_id", "color_name"],
+            "primary_key": ["color_id"],
         },
     ),
     (
