@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.base import Base
 from datajunction_server.models.materialization import (
-    DruidCubeConfig,
+    DruidMeasuresCubeConfig,
     GenericMaterializationConfig,
     MaterializationStrategy,
 )
@@ -60,7 +60,7 @@ class Materialization(Base):  # pylint: disable=too-few-public-methods
 
     # Arbitrary config relevant to the materialization job
     config: Mapped[
-        Union[GenericMaterializationConfig, DruidCubeConfig]
+        Union[GenericMaterializationConfig, DruidMeasuresCubeConfig]
     ] = mapped_column(
         JSON,
         default={},

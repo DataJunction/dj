@@ -761,7 +761,7 @@ SELECT  default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_repair
     assert str(parse(data["materializations"][0]["config"]["query"])) == str(
         parse(expected_materialization_query),
     )
-    assert data["materializations"][0]["job"] == "DruidCubeMaterializationJob"
+    assert data["materializations"][0]["job"] == "DruidMeasuresCubeMaterializationJob"
     assert (
         data["materializations"][0]["config"]["measures"] == repair_orders_cube_measures
     )
@@ -865,7 +865,7 @@ def test_druid_cube_agg_materialization(
     repairs_cube_with_materialization = client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
-            "job": "druid_agg_cube",
+            "job": "druid_metrics_cube",
             "strategy": "incremental_time",
             "config": {
                 "spark": {},
@@ -875,7 +875,7 @@ def test_druid_cube_agg_materialization(
     )
     assert repairs_cube_with_materialization.json() == {
         "message": "Successfully updated materialization config named "
-        "`druid_agg_cube__incremental_time__default.hard_hat.hire_date` "
+        "`druid_metrics_cube__incremental_time__default.hard_hat.hire_date` "
         "for node `default.repairs_cube`",
         "urls": [["http://fake.url/job"]],
     }
@@ -885,7 +885,7 @@ def test_druid_cube_agg_materialization(
     ][0][0]
     assert (
         called_kwargs.name
-        == "druid_agg_cube__incremental_time__default.hard_hat.hire_date"
+        == "druid_metrics_cube__incremental_time__default.hard_hat.hire_date"
     )
     assert called_kwargs.node_name == "default.repairs_cube"
     assert called_kwargs.node_type == "cube"
@@ -1088,7 +1088,7 @@ def test_druid_cube_agg_materialization(
     druid_materialization = [
         materialization
         for materialization in materializations
-        if materialization["job"] == "DruidAggCubeMaterializationJob"
+        if materialization["job"] == "DruidMetricsCubeMaterializationJob"
     ][0]
     assert set(druid_materialization["config"]["dimensions"]) == {
         "default_DOT_hard_hat_DOT_country",
@@ -1362,7 +1362,7 @@ def test_add_materialization_config_to_cube(
     druid_materialization = [
         materialization
         for materialization in materializations
-        if materialization["job"] == "DruidCubeMaterializationJob"
+        if materialization["job"] == "DruidMeasuresCubeMaterializationJob"
     ][0]
     assert set(druid_materialization["config"]["dimensions"]) == {
         "default_DOT_dispatcher_DOT_company_name",
@@ -1899,7 +1899,7 @@ def test_updating_cube_with_existing_materialization(
         "default.roads.hard_hats",
     }
     assert data["materializations"][0]["strategy"] == "incremental_time"
-    assert data["materializations"][0]["job"] == "DruidCubeMaterializationJob"
+    assert data["materializations"][0]["job"] == "DruidMeasuresCubeMaterializationJob"
     assert (
         data["materializations"][0]["name"]
         == "druid_cube__incremental_time__default.hard_hat.hire_date"

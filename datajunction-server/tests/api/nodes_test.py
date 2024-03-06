@@ -2543,7 +2543,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["message"] == (
             "Materialization job type `SOMETHING` not found. Available job "
-            "types: ['SPARK_SQL', 'DRUID_CUBE', 'DRUID_AGG_CUBE']"
+            "types: ['SPARK_SQL', 'DRUID_MEASURES_CUBE', 'DRUID_METRICS_CUBE']"
         )
 
     def test_node_with_struct(self, client_with_roads: TestClient):

@@ -5,11 +5,13 @@ __all__ = [
     "MaterializationJob",
     "SparkSqlMaterializationJob",
     "DefaultCubeMaterialization",
-    "DruidCubeMaterializationJob",
+    "DruidMeasuresCubeMaterializationJob",
+    "DruidMetricsCubeMaterializationJob",
 ]
 from datajunction_server.materialization.jobs.cube_materialization import (
     DefaultCubeMaterialization,
-    DruidCubeMaterializationJob,
+    DruidMeasuresCubeMaterializationJob,
+    DruidMetricsCubeMaterializationJob,
 )
 from datajunction_server.materialization.jobs.materialization_job import (
     MaterializationJob,

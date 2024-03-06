@@ -277,7 +277,7 @@ class DruidCubeConfigInput(GenericCubeConfigInput):
     druid: Optional[DruidConf]
 
 
-class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
+class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
     """
     Specific cube materialization implementation with Spark and Druid ingestion and
     optional prefix and/or suffix to include with the materialized entity's name.
@@ -358,7 +358,9 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         return druid_spec
 
 
-class DruidAggCubeConfig(DruidCubeConfig):  # pylint: disable=too-many-ancestors
+class DruidMetricsCubeConfig(
+    DruidMeasuresCubeConfig,
+):  # pylint: disable=too-many-ancestors
     """
     Specific cube materialization implementation with Spark and Druid ingestion and
     optional prefix and/or suffix to include with the materialized entity's name.
@@ -409,9 +411,9 @@ class MaterializationJobTypeEnum(enum.Enum):
         job_class="SparkSqlMaterializationJob",
     )
 
-    DRUID_CUBE = MaterializationJobType(
-        name="druid_cube",
-        label="Druid Cube (Measures)",
+    DRUID_MEASURES_CUBE = MaterializationJobType(
+        name="druid_measures_cube",
+        label="Druid Measures Cube (Pre-Agg Cube)",
         description=(
             "Used to materialize a cube's measures to Druid for low-latency access to a set of "
             "metrics and dimensions. While the logical cube definition is at the level of metrics "
@@ -419,19 +421,19 @@ class MaterializationJobTypeEnum(enum.Enum):
             " with rollup configured on the measures where appropriate."
         ),
         allowed_node_types=[NodeType.CUBE],
-        job_class="DruidCubeMaterializationJob",
+        job_class="DruidMeasuresCubeMaterializationJob",
     )
 
-    DRUID_AGG_CUBE = MaterializationJobType(
-        name="druid_agg_cube",
-        label="Druid Cube (Aggregates)",
+    DRUID_METRICS_CUBE = MaterializationJobType(
+        name="druid_metrics_cube",
+        label="Druid Metrics Cube (Post-Agg Cube)",
         description=(
             "Used to materialize a cube of metrics and dimensions to Druid for low-latency access."
             " The materialized cube is at the metric level, meaning that all metrics will be "
             "aggregated to the level of the cube's dimensions."
         ),
         allowed_node_types=[NodeType.CUBE],
-        job_class="DruidAggCubeMaterializationJob",
+        job_class="DruidMetricsCubeMaterializationJob",
     )
 
     @classmethod
