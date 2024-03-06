@@ -1174,7 +1174,8 @@ def test_add_materialization_config_to_cube(
         for call_ in query_service_client.materialize.call_args_list  # type: ignore
     ][0][0]
     assert (
-        called_kwargs.name == "druid_measures_cube__incremental_time__default.hard_hat.hire_date"
+        called_kwargs.name
+        == "druid_measures_cube__incremental_time__default.hard_hat.hire_date"
     )
     assert called_kwargs.node_name == "default.repairs_cube"
     assert called_kwargs.node_type == "cube"
@@ -1914,7 +1915,8 @@ def test_updating_cube_with_existing_materialization(
             "activity_type": "update",
             "created_at": mock.ANY,
             "details": {
-                "materialization": "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
+                "materialization": "druid_measures_cube__incremental_time__"
+                "default.hard_hat.hire_date",
                 "node": "default.repairs_cube",
             },
             "entity_name": "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
