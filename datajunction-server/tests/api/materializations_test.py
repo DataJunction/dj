@@ -28,9 +28,9 @@ def test_materialization_info(client: TestClient) -> None:
                 "materialized Druid cube will contain "
                 "measures and dimensions, with rollup "
                 "configured on the measures where appropriate.",
-                "job_class": "DruidCubeMaterializationJob",
-                "label": "Druid Cube (Measures)",
-                "name": "druid_cube",
+                "job_class": "DruidMeasuresCubeMaterializationJob",
+                "label": "Druid Measures Cube (Pre-Agg Cube)",
+                "name": "druid_measures_cube",
             },
             {
                 "allowed_node_types": ["cube"],
@@ -39,9 +39,9 @@ def test_materialization_info(client: TestClient) -> None:
                 "The materialized cube is at the metric level, "
                 "meaning that all metrics will be aggregated to "
                 "the level of the cube's dimensions.",
-                "job_class": "DruidAggCubeMaterializationJob",
-                "label": "Druid Cube (Aggregates)",
-                "name": "druid_agg_cube",
+                "job_class": "DruidMetricsCubeMaterializationJob",
+                "label": "Druid Metrics Cube (Post-Agg Cube)",
+                "name": "druid_metrics_cube",
             },
         ],
         "strategies": [

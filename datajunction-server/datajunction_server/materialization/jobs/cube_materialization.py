@@ -9,9 +9,9 @@ from datajunction_server.materialization.jobs.materialization_job import (
 )
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
-    DruidAggCubeConfig,
-    DruidCubeConfig,
     DruidMaterializationInput,
+    DruidMeasuresCubeConfig,
+    DruidMetricsCubeConfig,
     MaterializationInfo,
 )
 from datajunction_server.naming import amenable_name
@@ -91,21 +91,21 @@ class DruidMaterializationJob(MaterializationJob):
         )
 
 
-class DruidAggCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
+class DruidMetricsCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
     """
     Druid materialization (aggregations aka metrics) for a cube node.
     """
 
-    config_class = DruidAggCubeConfig  # type: ignore
+    config_class = DruidMetricsCubeConfig  # type: ignore
 
 
-class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
+class DruidMeasuresCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
     """
     Druid materialization (measures) for a cube node.
     """
 
     dialect = Dialect.DRUID
-    config_class = DruidCubeConfig  # type: ignore
+    config_class = DruidMeasuresCubeConfig  # type: ignore
 
 
 def build_materialization_query(
