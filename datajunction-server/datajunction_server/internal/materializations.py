@@ -95,7 +95,10 @@ def build_cube_materialization_config(
     """
     Builds the materialization config for a cube.
 
-    We build a measures query where we ingest the referenced measures for all
+    If the job type is DRUID_AGG_CUBE, we build an aggregation query with all metric aggregations
+    and ingest this agg table to Druid.
+
+    Alternatively, we build a measures query where we ingest the referenced measures for all
     selected metrics at the level of dimensions provided. This query is used to create
     an intermediate table for ingestion into an OLAP database like Druid.
 
@@ -104,11 +107,13 @@ def build_cube_materialization_config(
     based on the materialized measures table.
     """
     try:
+        # Druid Aggregated Cube
         if upsert.job == MaterializationJobTypeEnum.DRUID_AGG_CUBE:
             metrics_query, _, _ = build_sql_for_multiple_metrics(
                 session=session,
                 metrics=[node.name for node in current_revision.cube_metrics()],
                 dimensions=current_revision.cube_dimensions(),
+                use_materialized=False,
             )
             generic_config = DruidAggCubeConfig(
                 node_name=current_revision.name,
@@ -116,7 +121,7 @@ def build_cube_materialization_config(
                 dimensions=[
                     col.name
                     for col in metrics_query.columns  # type: ignore # pylint: disable=not-an-iterable
-                    if col.semantic_type == SemanticType.DIMENSION
+                    if col.semantic_type != SemanticType.METRIC
                 ],
                 metrics=[
                     col
@@ -128,6 +133,8 @@ def build_cube_materialization_config(
                 columns=metrics_query.columns,
             )
             return generic_config
+
+        # Druid Measures Cube
         measures_query = get_measures_query(
             session=session,
             metrics=[node.name for node in current_revision.cube_metrics()],

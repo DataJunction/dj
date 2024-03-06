@@ -21,16 +21,27 @@ def test_materialization_info(client: TestClient) -> None:
             },
             {
                 "allowed_node_types": ["cube"],
-                "description": "Used to materialize a cube to Druid for "
+                "description": "Used to materialize a cube's measures to Druid for "
                 "low-latency access to a set of metrics and "
                 "dimensions. While the logical cube definition "
-                "is at the level of metrics and dimensions, a "
-                "materialized Druid cube will reference "
+                "is at the level of metrics and dimensions, this "
+                "materialized Druid cube will contain "
                 "measures and dimensions, with rollup "
                 "configured on the measures where appropriate.",
                 "job_class": "DruidCubeMaterializationJob",
-                "label": "Druid Cube",
+                "label": "Druid Cube (Measures)",
                 "name": "druid_cube",
+            },
+            {
+                "allowed_node_types": ["cube"],
+                "description": "Used to materialize a cube of metrics and "
+                "dimensions to Druid for low-latency access. "
+                "The materialized cube is at the metric level, "
+                "meaning that all metrics will be aggregated to "
+                "the level of the cube's dimensions.",
+                "job_class": "DruidAggCubeMaterializationJob",
+                "label": "Druid Cube (Aggregates)",
+                "name": "druid_agg_cube",
             },
         ],
         "strategies": [

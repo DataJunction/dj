@@ -752,6 +752,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     access_control: Optional[access.AccessControlStore] = None,
+    use_materialized: bool = True,
 ) -> Tuple[TranslatedSQL, Engine, Catalog]:
     """
     Build SQL for multiple metrics. Used by both /sql and /data endpoints
@@ -797,7 +798,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
 
     validate_orderby(orderby, metrics, dimensions)
 
-    if cube and cube.materializations and cube.availability:
+    if cube and cube.materializations and cube.availability and use_materialized:
         if access_control:  # pragma: no cover
             access_control.add_request_by_node(cube)
             access_control.state = access.AccessControlState.INDIRECT
@@ -1138,7 +1139,7 @@ def revalidate_node(
                 require_dimensions=True,
             )
             current_node_revision.status = NodeStatus.VALID
-        except DJException:
+        except DJException:  # pragma: no cover
             current_node_revision.status = NodeStatus.INVALID
         session.add(current_node_revision)
         session.commit()
