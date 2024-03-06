@@ -73,6 +73,7 @@ describe('<NodeLineage />', () => {
       parents: [],
       created_at: '2023-08-21T16:48:52.970554+00:00',
       tags: [],
+      dimension_links: [],
     },
     {
       namespace: 'default',
@@ -98,6 +99,7 @@ describe('<NodeLineage />', () => {
       query:
         '\n            SELECT\n              dateint,\n              month,\n              year,\n              day\n            FROM default.date\n        ',
       availability: null,
+      dimension_links: [],
       columns: [
         {
           name: 'dateint',
@@ -165,6 +167,7 @@ describe('<NodeLineage />', () => {
       query:
         '\n            SELECT\n            hard_hat_id,\n            last_name,\n            first_name,\n            title,\n            birth_date,\n            hire_date,\n            address,\n            city,\n            state,\n            postal_code,\n            country,\n            manager,\n            contractor_id\n            FROM default.hard_hats\n        ',
       availability: null,
+      dimension_links: [],
       columns: [
         {
           name: 'hard_hat_id',
@@ -292,6 +295,7 @@ describe('<NodeLineage />', () => {
       query:
         'SELECT  avg(price) default_DOT_avg_repair_price \n FROM default.repair_order_details\n\n',
       availability: null,
+      dimension_links: [],
       columns: [
         {
           name: 'default_DOT_avg_repair_price',

@@ -68,7 +68,7 @@ export function DJNode({ id, data }) {
             {data.type === 'source' ? data.table : data.display_name}
           </a>
           <Collapse
-            collapsed={data.is_current ? false : true}
+            collapsed={data.is_current && data.type != 'metric' ? false : true}
             text={data.type !== 'metric' ? 'columns' : 'dimensions'}
             data={data}
           />
