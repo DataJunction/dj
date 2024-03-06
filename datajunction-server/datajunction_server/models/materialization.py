@@ -35,8 +35,6 @@ DRUID_AGG_MAPPING = {
     ("int", "count"): "longSum",
     ("double", "count"): "longSum",
     ("float", "count"): "longSum",
-    # ("string", "sum"): "count",
-    # ("string", "count"): "count",
 }
 
 

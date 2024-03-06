@@ -41,7 +41,7 @@ class DefaultCubeMaterialization(
 
 class DruidMaterializationJob(MaterializationJob):
     """
-    Generic Druid materialization job, irrespective of measures or metrics load.
+    Generic Druid materialization job, irrespective of measures or aggregation load.
     """
 
     config_class = None
@@ -55,7 +55,7 @@ class DruidMaterializationJob(MaterializationJob):
         Use the query service to kick off the materialization setup.
         """
         if not self.config_class:
-            raise DJInvalidInputException(
+            raise DJInvalidInputException(  # pragma: no cover
                 "The materialization job config class must be defined!",
             )
         cube_config = self.config_class.parse_obj(materialization.config)
