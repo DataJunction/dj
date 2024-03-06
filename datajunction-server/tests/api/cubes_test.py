@@ -777,7 +777,7 @@ def test_add_materialization_cube_failures(
     response = client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
-            "job": "druid_cube",
+            "job": "druid_measures_cube",
             "strategy": "full",
             "config": {},
             "schedule": "@daily",
@@ -793,7 +793,7 @@ def test_add_materialization_cube_failures(
     response = client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
-            "job": "druid_cube",
+            "job": "druid_measures_cube",
             "strategy": "full",
             "config": {
                 "spark": {},
@@ -804,7 +804,7 @@ def test_add_materialization_cube_failures(
     assert (
         response.json()["message"]
         == "Successfully updated materialization config named "
-        "`druid_cube__full__default.hard_hat.hire_date` "
+        "`druid_measures_cube__full__default.hard_hat.hire_date` "
         "for node `default.repairs_cube`"
     )
     args, _ = query_service_client.materialize.call_args_list[0]  # type: ignore
@@ -817,7 +817,7 @@ def test_add_materialization_cube_failures(
     response = client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
-            "job": "druid_cube",
+            "job": "druid_measures_cube",
             "strategy": "full",
             "config": {
                 "druid": {"a": "b"},
@@ -828,7 +828,7 @@ def test_add_materialization_cube_failures(
     )
     assert response.json()["message"] == (
         "The same materialization config with name "
-        "`druid_cube__full__default.hard_hat.hire_date` already exists for node "
+        "`druid_measures_cube__full__default.hard_hat.hire_date` already exists for node "
         "`default.repairs_cube` so no update was performed."
     )
 
@@ -844,7 +844,7 @@ def repairs_cube_with_materialization(
     return client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
-            "job": "druid_cube",
+            "job": "druid_measures_cube",
             "strategy": "incremental_time",
             "config": {
                 "spark": {},
@@ -1165,7 +1165,7 @@ def test_add_materialization_config_to_cube(
     """
     assert repairs_cube_with_materialization.json() == {
         "message": "Successfully updated materialization config named "
-        "`druid_cube__incremental_time__default.hard_hat.hire_date` "
+        "`druid_measures_cube__incremental_time__default.hard_hat.hire_date` "
         "for node `default.repairs_cube`",
         "urls": [["http://fake.url/job"]],
     }
@@ -1174,7 +1174,7 @@ def test_add_materialization_config_to_cube(
         for call_ in query_service_client.materialize.call_args_list  # type: ignore
     ][0][0]
     assert (
-        called_kwargs.name == "druid_cube__incremental_time__default.hard_hat.hire_date"
+        called_kwargs.name == "druid_measures_cube__incremental_time__default.hard_hat.hire_date"
     )
     assert called_kwargs.node_name == "default.repairs_cube"
     assert called_kwargs.node_type == "cube"
@@ -1777,7 +1777,7 @@ def test_updating_cube_with_existing_materialization(
     response = client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization",
         json={
-            "job": "druid_cube",
+            "job": "druid_measures_cube",
             "strategy": "incremental_time",
             "config": {"spark": {"spark.executor.memory": "6g"}},
             "schedule": "@daily",
@@ -1786,7 +1786,7 @@ def test_updating_cube_with_existing_materialization(
     data = response.json()
     assert data == {
         "message": "Successfully updated materialization config named "
-        "`druid_cube__incremental_time__default.hard_hat.hire_date` for node "
+        "`druid_measures_cube__incremental_time__default.hard_hat.hire_date` for node "
         "`default.repairs_cube`",
         "urls": [["http://fake.url/job"]],
     }
@@ -1815,7 +1815,7 @@ def test_updating_cube_with_existing_materialization(
     )
     assert (
         last_call_args["name"]
-        == "druid_cube__incremental_time__default.hard_hat.hire_date"
+        == "druid_measures_cube__incremental_time__default.hard_hat.hire_date"
     )
     assert last_call_args["node_name"] == "default.repairs_cube"
     assert last_call_args["node_version"] == "v2.0"
@@ -1902,7 +1902,7 @@ def test_updating_cube_with_existing_materialization(
     assert data["materializations"][0]["job"] == "DruidMeasuresCubeMaterializationJob"
     assert (
         data["materializations"][0]["name"]
-        == "druid_cube__incremental_time__default.hard_hat.hire_date"
+        == "druid_measures_cube__incremental_time__default.hard_hat.hire_date"
     )
     assert data["materializations"][0]["schedule"] == "@daily"
 
@@ -1914,10 +1914,10 @@ def test_updating_cube_with_existing_materialization(
             "activity_type": "update",
             "created_at": mock.ANY,
             "details": {
-                "materialization": "druid_cube__incremental_time__default.hard_hat.hire_date",
+                "materialization": "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
                 "node": "default.repairs_cube",
             },
-            "entity_name": "druid_cube__incremental_time__default.hard_hat.hire_date",
+            "entity_name": "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
             "entity_type": "materialization",
             "id": mock.ANY,
             "node": "default.repairs_cube",
@@ -1941,7 +1941,7 @@ def test_updating_cube_with_existing_materialization(
             "activity_type": "update",
             "created_at": mock.ANY,
             "details": {},
-            "entity_name": "druid_cube__incremental_time__default.hard_hat.hire_date",
+            "entity_name": "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
             "entity_type": "materialization",
             "id": mock.ANY,
             "node": "default.repairs_cube",
