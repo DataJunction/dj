@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple, Union
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from datajunction_server.api.helpers import build_sql_for_multiple_metrics
 from datajunction_server.construction.build import build_node, get_measures_query
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
@@ -13,9 +14,11 @@ from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.materialization import (
+    DruidAggCubeConfig,
     DruidCubeConfig,
     GenericMaterializationConfig,
     MaterializationInfo,
+    MaterializationJobTypeEnum,
     Measure,
     MetricMeasures,
     UpsertMaterialization,
@@ -46,7 +49,6 @@ def rewrite_metrics_expressions(
     measures_to_output_columns_lookup = {
         column.semantic_entity: column.name
         for column in measures_query.columns  # type: ignore # pylint: disable=not-an-iterable
-        if column.semantic_type == SemanticType.MEASURE
     }
     for metric in current_revision.cube_metrics():
         measures_for_metric = []
@@ -101,19 +103,43 @@ def build_cube_materialization_config(
     in the query map to each selected metric and how to rewrite each metric expression
     based on the materialized measures table.
     """
-    measures_query = get_measures_query(
-        session=session,
-        metrics=[node.name for node in current_revision.cube_metrics()],
-        dimensions=current_revision.cube_dimensions(),
-        filters=[],
-        validate_access=validate_access,
-    )
-    metrics_expressions = rewrite_metrics_expressions(
-        session,
-        current_revision,
-        measures_query,
-    )
     try:
+        if upsert.job == MaterializationJobTypeEnum.DRUID_AGG_CUBE:
+            metrics_query, _, _ = build_sql_for_multiple_metrics(
+                session=session,
+                metrics=[node.name for node in current_revision.cube_metrics()],
+                dimensions=current_revision.cube_dimensions(),
+            )
+            generic_config = DruidAggCubeConfig(
+                node_name=current_revision.name,
+                query=metrics_query.sql,
+                dimensions=[
+                    col.name
+                    for col in metrics_query.columns  # type: ignore # pylint: disable=not-an-iterable
+                    if col.semantic_type == SemanticType.DIMENSION
+                ],
+                metrics=[
+                    col
+                    for col in metrics_query.columns  # type: ignore # pylint: disable=not-an-iterable
+                    if col.semantic_type == SemanticType.METRIC
+                ],
+                spark=upsert.config.spark,
+                upstream_tables=metrics_query.upstream_tables,
+                columns=metrics_query.columns,
+            )
+            return generic_config
+        measures_query = get_measures_query(
+            session=session,
+            metrics=[node.name for node in current_revision.cube_metrics()],
+            dimensions=current_revision.cube_dimensions(),
+            filters=[],
+            validate_access=validate_access,
+        )
+        metrics_expressions = rewrite_metrics_expressions(
+            session,
+            current_revision,
+            measures_query,
+        )
         generic_config = DruidCubeConfig(
             node_name=current_revision.name,
             query=measures_query.sql,

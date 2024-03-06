@@ -241,7 +241,7 @@ table {
 }
 tr {
   display: table-row;
-  vertical-align: inherit;
+  vertical-align: top;
   border-color: inherit;
 }
 .card-table {
@@ -339,7 +339,7 @@ tr {
 .table thead th,
 td,
 tbody th {
-  vertical-align: middle;
+  vertical-align: top;
   text-align: left;
 }
 .table [data-sort],
@@ -371,6 +371,7 @@ tbody th {
   border-bottom: 0;
   padding: 1rem;
   max-width: 25rem;
+  vertical-align: top;
 }
 .card-inner-table td,
 .card-inner-table th {

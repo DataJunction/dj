@@ -87,7 +87,7 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
         <Formik
           initialValues={{
             node: node?.name,
-            job_type: 'spark_sql',
+            job_type: node?.type === 'cube' ? 'druid_cube' : 'spark_sql',
             strategy: 'full',
             config: '{"spark": {"spark.executor.memory": "6g"}}',
             schedule: '@daily',
@@ -104,11 +104,9 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                   <label htmlFor="job_type">Job Type</label>
                   <Field as="select" name="job_type">
                     <>
-                      {jobs?.map(job => (
-                        <option key={job.name} value={job.name}>
-                          {job.label}
-                        </option>
-                      ))}
+                      <option key={'druid_cube'} value={'druid_cube'}>Druid Measures Cube</option>
+                      <option key={'druid_agg_cube'} value={'druid_agg_cube'}>Druid Agg Cube</option>
+                      <option key={'spark_sql'} value={'spark_sql'}>Iceberg Table</option>
                     </>
                   </Field>
                 </span>
@@ -124,9 +122,15 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                   <label htmlFor="strategy">Strategy</label>
                   <Field as="select" name="strategy">
                     <>
-                      {options.strategies?.map(strategy => (
-                        <option value={strategy.name}>{strategy.label}</option>
-                      ))}
+                      {/*{options.strategies?.map(strategy => (*/}
+                      {/*  <option value={strategy.name}>{strategy.label}</option>*/}
+                      {/*))}*/}
+                      <option key={'full'} value={'full'}>
+                        Full
+                      </option>
+                      <option key={'incremental_time'} value={'incremental_time'}>
+                        Incremental Time
+                      </option>
                     </>
                   </Field>
                 </span>
