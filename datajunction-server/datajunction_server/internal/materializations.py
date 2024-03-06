@@ -30,6 +30,7 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.types import TimestampType
 from datajunction_server.utils import SEPARATOR
 
 MAX_COLUMN_NAME_LENGTH = 128
@@ -141,6 +142,7 @@ def build_cube_materialization_config(
             dimensions=current_revision.cube_dimensions(),
             filters=[],
             validate_access=validate_access,
+            cast_timestamp_to_ms=True,
         )
         metrics_expressions = rewrite_metrics_expressions(
             session,
@@ -213,6 +215,9 @@ def create_new_materialization(
     """
     generic_config = None
     temporal_partition = current_revision.temporal_partition_columns()
+    timestamp_columns = [
+        col for col in current_revision.columns if col.type == TimestampType()
+    ]
     if current_revision.type in (
         NodeType.DIMENSION,
         NodeType.TRANSFORM,
@@ -224,7 +229,7 @@ def create_new_materialization(
         )
 
     if current_revision.type == NodeType.CUBE:
-        if not temporal_partition:
+        if not temporal_partition and not timestamp_columns:
             raise DJInvalidInputException(
                 "The cube materialization cannot be configured if there is no "
                 "temporal partition specified on the cube. Please make sure at "
