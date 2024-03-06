@@ -88,7 +88,7 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
         <Formik
           initialValues={{
             node: node?.name,
-            job_type: node?.type === 'cube' ? 'druid_cube' : 'spark_sql',
+            job_type: node?.type === 'cube' ? 'druid_metrics_cube' : 'spark_sql',
             strategy: 'full',
             schedule: '@daily',
             lookback_window: '1 DAY',

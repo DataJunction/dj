@@ -27,7 +27,12 @@ from datajunction_server.naming import LOOKUP_CHARS, amenable_name, from_amenabl
 from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
-from datajunction_server.sql.parsing.types import ColumnType
+from datajunction_server.sql.parsing.types import (
+    ColumnType,
+    DoubleType,
+    LongType,
+    TimestampType,
+)
 from datajunction_server.utils import SEPARATOR
 
 _logger = logging.getLogger(__name__)
@@ -731,7 +736,14 @@ def _get_node_table(
         if node.table:
             name = ast.Name(
                 node.table,
-                namespace=ast.Name(node.schema_) if node.schema_ else None,
+                namespace=ast.Name(
+                    node.schema_,
+                    namespace=ast.Name(node.catalog.name)
+                    if node.schema_ == "iceberg"
+                    else None,
+                )
+                if node.schema_
+                else None,
             )
         else:
             name = to_namespaced_name(node.name)
@@ -1426,6 +1438,7 @@ def get_measures_query(
     engine_version: Optional[str] = None,
     current_user: Optional[User] = None,
     validate_access: access.ValidateAccessFn = None,
+    cast_timestamp_to_ms: bool = False,
 ) -> TranslatedSQL:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.
@@ -1599,7 +1612,22 @@ def get_measures_query(
         else columns[0]
         for col_name, columns in dimension_grouping.items()
     ]
-    combined_ast.select.projection.extend(dimension_columns)
+    for col in dimension_columns:
+        if col.type == TimestampType() and cast_timestamp_to_ms:  # type: ignore
+            col = (
+                ast.Cast(
+                    expression=ast.BinaryOp(
+                        op=ast.BinaryOpKind.Multiply,
+                        left=ast.Cast(data_type=DoubleType(), expression=col),  # type: ignore
+                        right=ast.Number(1000),
+                    ),
+                    data_type=LongType(),
+                )
+                .set_alias(col.alias_or_name)  # type: ignore
+                .set_semantic_entity(col.semantic_entity)  # type: ignore
+                .set_semantic_type(SemanticType.TIMESTAMP)
+            )
+        combined_ast.select.projection.append(col)
 
     # Assemble column metadata
     columns_metadata = []
@@ -1611,6 +1639,7 @@ def get_measures_query(
     dependencies, _ = combined_ast.extract_dependencies(
         CompileContext(session, DJException()),
     )
+    print("combined_ast", combined_ast)
     return TranslatedSQL(
         sql=str(combined_ast),
         columns=columns_metadata,
