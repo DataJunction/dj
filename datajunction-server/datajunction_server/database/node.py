@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import sqlalchemy as sa
 from pydantic import Extra
 from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.availabilitystate import AvailabilityState
@@ -528,6 +529,20 @@ class NodeRevision(
             ],
             key=lambda x: ordering[x],
         )
+
+    @hybrid_property
+    def cube_node_metrics(self) -> List[str]:
+        """
+        Cube node's metrics
+        """
+        return [metric.name for metric in self.cube_metrics()]
+
+    @hybrid_property
+    def cube_node_dimensions(self) -> List[str]:
+        """
+        Cube node's dimension attributes
+        """
+        return self.cube_dimensions()
 
     def temporal_partition_columns(self) -> List[Column]:
         """

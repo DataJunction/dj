@@ -3,11 +3,13 @@ Cube materialization jobs
 """
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.materialization.jobs.materialization_job import (
     MaterializationJob,
 )
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
+    DruidAggCubeConfig,
     DruidCubeConfig,
     DruidMaterializationInput,
     MaterializationInfo,
@@ -37,12 +39,12 @@ class DefaultCubeMaterialization(
         return  # pragma: no cover
 
 
-class DruidCubeMaterializationJob(MaterializationJob):
+class DruidMaterializationJob(MaterializationJob):
     """
-    Druid materialization for a cube node.
+    Generic Druid materialization job, irrespective of measures or metrics load.
     """
 
-    dialect = Dialect.DRUID
+    config_class = None
 
     def schedule(
         self,
@@ -52,11 +54,15 @@ class DruidCubeMaterializationJob(MaterializationJob):
         """
         Use the query service to kick off the materialization setup.
         """
-        cube_config = DruidCubeConfig.parse_obj(materialization.config)
+        if not self.config_class:
+            raise DJInvalidInputException(
+                "The materialization job config class must be defined!",
+            )
+        cube_config = self.config_class.parse_obj(materialization.config)
         druid_spec = cube_config.build_druid_spec(
             materialization.node_revision,
         )
-        measures_temporal_partition = cube_config.temporal_partition(
+        temporal_partition = cube_config.temporal_partition(
             materialization.node_revision,
         )
         categorical_partitions = cube_config.categorical_partitions(
@@ -77,14 +83,29 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 spark_conf=cube_config.spark.__root__ if cube_config.spark else {},
                 druid_spec=druid_spec,
                 upstream_tables=cube_config.upstream_tables or [],
-                # Cube materialization involves creating an intermediate dataset,
-                # which will have measures columns for all metrics in the cube
                 columns=cube_config.columns,
-                partitions=measures_temporal_partition + categorical_partitions,
+                partitions=temporal_partition + categorical_partitions,
                 job=materialization.job,
                 strategy=materialization.strategy,
             ),
         )
+
+
+class DruidAggCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
+    """
+    Druid materialization (aggregations aka metrics) for a cube node.
+    """
+
+    config_class = DruidAggCubeConfig  # type: ignore
+
+
+class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
+    """
+    Druid materialization (measures) for a cube node.
+    """
+
+    dialect = Dialect.DRUID
+    config_class = DruidCubeConfig  # type: ignore
 
 
 def build_materialization_query(
@@ -94,7 +115,9 @@ def build_materialization_query(
     """
     Build materialization query (based on configured temporal partitions).
     """
-    cube_materialization_query_ast = parse(base_cube_query)
+    cube_materialization_query_ast = parse(
+        base_cube_query.replace("${dj_logical_timestamp}", "DJ_LOGICAL_TIMESTAMP()"),
+    )
     temporal_partitions = node_revision.temporal_partition_columns()
     temporal_partition_col = [
         col
