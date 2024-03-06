@@ -3,6 +3,7 @@ import * as React from 'react';
 import DJClientContext from '../../providers/djclient';
 import { ErrorMessage, Field, Form, Formik } from 'formik';
 import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
+import {ConfigField} from "./MaterializationConfigField";
 
 export default function AddMaterializationPopover({ node, onSubmit }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -38,7 +39,8 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
     { setSubmitting, setStatus },
   ) => {
     setSubmitting(false);
-    const config = JSON.parse(values.config);
+    const config = {};
+    config.spark = values.spark_config;
     config.lookback_window = values.lookback_window;
     const response = await djClient.materialize(
       values.node,
@@ -48,13 +50,12 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
       config,
     );
     if (response.status === 200 || response.status === 201) {
-      setStatus({ success: 'Saved!' });
+      setStatus({ success: response.json.message });
     } else {
       setStatus({
         failure: `${response.json.message}`,
       });
     }
-    onSubmit();
     // window.location.reload();
   };
 
@@ -89,9 +90,12 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
             node: node?.name,
             job_type: node?.type === 'cube' ? 'druid_cube' : 'spark_sql',
             strategy: 'full',
-            config: '{"spark": {"spark.executor.memory": "6g"}}',
             schedule: '@daily',
             lookback_window: '1 DAY',
+            spark_config: {
+                "spark.executor.memory": "16g",
+                "spark.memory.fraction": "0.3"
+            },
           }}
           onSubmit={configureMaterialization}
         >
@@ -104,8 +108,8 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                   <label htmlFor="job_type">Job Type</label>
                   <Field as="select" name="job_type">
                     <>
-                      <option key={'druid_cube'} value={'druid_cube'}>Druid Measures Cube</option>
-                      <option key={'druid_agg_cube'} value={'druid_agg_cube'}>Druid Agg Cube</option>
+                      <option key={'druid_cube'} value={'druid_cube'}>Druid Cube (Measures)</option>
+                      <option key={'druid_agg_cube'} value={'druid_agg_cube'}>Druid Cube (Aggregates)</option>
                       <option key={'spark_sql'} value={'spark_sql'}>Iceberg Table</option>
                     </>
                   </Field>
@@ -122,9 +126,6 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                   <label htmlFor="strategy">Strategy</label>
                   <Field as="select" name="strategy">
                     <>
-                      {/*{options.strategies?.map(strategy => (*/}
-                      {/*  <option value={strategy.name}>{strategy.label}</option>*/}
-                      {/*))}*/}
                       <option key={'full'} value={'full'}>
                         Full
                       </option>
@@ -158,17 +159,10 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                   />
                 </div>
                 <br />
-                <div className="DescriptionInput">
-                  <ErrorMessage name="description" component="span" />
-                  <label htmlFor="Config">Config</label>
-                  <Field
-                    type="textarea"
-                    as="textarea"
-                    name="config"
-                    id="Config"
-                    placeholder="Optional engine-specific configuration (i.e., Spark conf etc)"
-                  />
-                </div>
+                <ConfigField value={{
+                    "spark.executor.memory": "16g",
+                    "spark.memory.fraction": "0.3"
+                }}/>
                 <button
                   className="add_node"
                   type="submit"
