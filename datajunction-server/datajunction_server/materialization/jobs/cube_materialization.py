@@ -13,6 +13,7 @@ from datajunction_server.models.materialization import (
     DruidMeasuresCubeConfig,
     DruidMetricsCubeConfig,
     MaterializationInfo,
+    MaterializationStrategy,
 )
 from datajunction_server.naming import amenable_name
 from datajunction_server.service_clients import QueryServiceClient
@@ -70,6 +71,7 @@ class DruidMaterializationJob(MaterializationJob):
         )
         final_query = build_materialization_query(
             cube_config.query,
+            materialization,
             materialization.node_revision,
         )
         return query_service_client.materialize(
@@ -110,6 +112,7 @@ class DruidMeasuresCubeMaterializationJob(DruidMaterializationJob, Materializati
 
 def build_materialization_query(
     base_cube_query: str,
+    materialization: Materialization,
     node_revision: NodeRevision,
 ) -> ast.Query:
     """
@@ -118,29 +121,29 @@ def build_materialization_query(
     cube_materialization_query_ast = parse(
         base_cube_query.replace("${dj_logical_timestamp}", "DJ_LOGICAL_TIMESTAMP()"),
     )
-    temporal_partitions = node_revision.temporal_partition_columns()
-    temporal_partition_col = [
-        col
-        for col in cube_materialization_query_ast.select.projection
-        if col.alias_or_name.name == amenable_name(temporal_partitions[0].name)  # type: ignore
-    ]
-
     final_query = ast.Query(
         select=ast.Select(
             projection=[
                 ast.Column(name=ast.Name(col.alias_or_name.name))  # type: ignore
                 for col in cube_materialization_query_ast.select.projection
             ],
-            where=ast.BinaryOp(
-                left=ast.Column(
-                    name=ast.Name(temporal_partition_col[0].alias_or_name.name),  # type: ignore
-                ),
-                right=temporal_partitions[0].partition.temporal_expression(),
-                op=ast.BinaryOpKind.Eq,
-            ),
         ),
         ctes=cube_materialization_query_ast.ctes,
     )
+    if materialization.strategy == MaterializationStrategy.INCREMENTAL_TIME:
+        temporal_partitions = node_revision.temporal_partition_columns()
+        temporal_partition_col = [
+            col
+            for col in cube_materialization_query_ast.select.projection
+            if col.alias_or_name.name == amenable_name(temporal_partitions[0].name)  # type: ignore
+        ]
+        final_query.where = ast.BinaryOp(
+            left=ast.Column(
+                name=ast.Name(temporal_partition_col[0].alias_or_name.name),  # type: ignore
+            ),
+            right=temporal_partitions[0].partition.temporal_expression(),
+            op=ast.BinaryOpKind.Eq,
+        )
     combiner_cte = ast.Query(select=cube_materialization_query_ast.select).set_alias(
         ast.Name("combiner_query"),
     )

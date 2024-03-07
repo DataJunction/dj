@@ -731,7 +731,14 @@ def _get_node_table(
         if node.table:
             name = ast.Name(
                 node.table,
-                namespace=ast.Name(node.schema_) if node.schema_ else None,
+                namespace=ast.Name(
+                    node.schema_,
+                    namespace=ast.Name(node.catalog.name)
+                    if node.schema_ == "iceberg"
+                    else None,
+                )
+                if node.schema_
+                else None,
             )
         else:
             name = to_namespaced_name(node.name)
