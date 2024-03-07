@@ -805,6 +805,7 @@ class DAGNodeRevisionOutput(BaseModel):
     columns: List[ColumnOutput]
     updated_at: UTCDatetime
     parents: List[NodeNameOutput]
+    dimension_links: List[LinkDimensionOutput]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True

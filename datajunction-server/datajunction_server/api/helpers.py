@@ -752,6 +752,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     access_control: Optional[access.AccessControlStore] = None,
+    use_materialized: bool = True,
 ) -> Tuple[TranslatedSQL, Engine, Catalog]:
     """
     Build SQL for multiple metrics. Used by both /sql and /data endpoints
@@ -797,7 +798,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
 
     validate_orderby(orderby, metrics, dimensions)
 
-    if cube and cube.materializations and cube.availability:
+    if cube and cube.materializations and cube.availability and use_materialized:
         if access_control:  # pragma: no cover
             access_control.add_request_by_node(cube)
             access_control.state = access.AccessControlState.INDIRECT
@@ -863,6 +864,11 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
             sql=str(query_ast),
             columns=columns,
             dialect=engine.dialect if engine else None,
+            upstream_tables=[
+                f"{leading_metric_node.current.catalog.name}.{tbl.identifier()}"
+                for tbl in query_ast.find_all(ast.Table)
+                if tbl.dj_node and tbl.dj_node.type == NodeType.SOURCE
+            ],
         ),
         engine,
         leading_metric_node.current.catalog,
@@ -1121,6 +1127,23 @@ def revalidate_node(
             session.commit()
             session.refresh(current_node_revision)
         return NodeStatus.VALID
+
+    if current_node_revision.type == NodeType.CUBE:
+        cube_metrics = [metric.name for metric in current_node_revision.cube_metrics()]
+        cube_dimensions = current_node_revision.cube_dimensions()
+        try:
+            validate_cube(
+                session,
+                metric_names=cube_metrics,
+                dimension_names=cube_dimensions,
+                require_dimensions=True,
+            )
+            current_node_revision.status = NodeStatus.VALID
+        except DJException:  # pragma: no cover
+            current_node_revision.status = NodeStatus.INVALID
+        session.add(current_node_revision)
+        session.commit()
+        return current_node_revision.status
     previous_status = current_node_revision.status
     node_validator = validate_node_data(current_node_revision, session)
     current_node_revision.status = node_validator.status

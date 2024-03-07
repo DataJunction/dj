@@ -17,6 +17,9 @@ describe('<AddMaterializationPopover />', () => {
     const onSubmitMock = jest.fn();
     mockDjClient.DataJunctionAPI.materialize.mockReturnValue({
       status: 201,
+      json: {
+        message: 'Saved!',
+      },
     });
     mockDjClient.DataJunctionAPI.materializationInfo.mockReturnValue({
       status: 200,

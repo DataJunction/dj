@@ -257,6 +257,7 @@ class GenericCubeConfigInput(GenericMaterializationConfigInput):
 
     dimensions: Optional[List[str]]
     measures: Optional[Dict[str, MetricMeasures]]
+    metrics: Optional[List[ColumnMetadata]]
 
 
 class GenericCubeConfig(GenericCubeConfigInput, GenericMaterializationConfig):
@@ -276,7 +277,7 @@ class DruidCubeConfigInput(GenericCubeConfigInput):
     druid: Optional[DruidConf]
 
 
-class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
+class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
     """
     Specific cube materialization implementation with Spark and Druid ingestion and
     optional prefix and/or suffix to include with the materialized entity's name.
@@ -286,6 +287,12 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         """
         Returns the Druid metrics spec for ingestion
         """
+        self.dimensions += [  # type: ignore  # pylint: disable=no-member
+            measure.field_name
+            for measure_group in self.measures.values()  # type: ignore
+            for measure in measure_group.measures
+            if (measure.type.lower(), measure.agg.lower()) not in DRUID_AGG_MAPPING
+        ]
         return {
             measure.name: {
                 "fieldName": measure.field_name,
@@ -294,6 +301,7 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
             }
             for measure_group in self.measures.values()  # type: ignore
             for measure in measure_group.measures
+            if (measure.type.lower(), measure.agg.lower()) in DRUID_AGG_MAPPING
         }
 
     def build_druid_spec(self, node_revision: "NodeRevision"):
@@ -322,7 +330,9 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
                 "parser": {
                     "parseSpec": {
                         "format": "parquet",
-                        "dimensionsSpec": {"dimensions": self.dimensions},
+                        "dimensionsSpec": {
+                            "dimensions": self.dimensions,  # pylint: disable=no-member
+                        },
                         "timestampSpec": {
                             "column": output_temporal_partition_column,
                             "format": user_defined_temporal_partition.partition.format,
@@ -346,6 +356,29 @@ class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
             },
         }
         return druid_spec
+
+
+class DruidMetricsCubeConfig(
+    DruidMeasuresCubeConfig,
+):  # pylint: disable=too-many-ancestors
+    """
+    Specific cube materialization implementation with Spark and Druid ingestion and
+    optional prefix and/or suffix to include with the materialized entity's name.
+    """
+
+    def metrics_spec(self) -> Dict:
+        """
+        Returns the Druid metrics spec for ingestion
+        """
+        return {
+            metric.name: {
+                "fieldName": metric.name,
+                "name": metric.name,
+                "type": DRUID_AGG_MAPPING[(metric.type.lower(), "sum")],
+            }
+            for metric in self.metrics  # type: ignore
+            if (metric.type.lower(), "sum") in DRUID_AGG_MAPPING
+        }
 
 
 class MaterializationJobType(BaseModel):
@@ -378,17 +411,29 @@ class MaterializationJobTypeEnum(enum.Enum):
         job_class="SparkSqlMaterializationJob",
     )
 
-    DRUID_CUBE = MaterializationJobType(
-        name="druid_cube",
-        label="Druid Cube",
+    DRUID_MEASURES_CUBE = MaterializationJobType(
+        name="druid_measures_cube",
+        label="Druid Measures Cube (Pre-Agg Cube)",
         description=(
-            "Used to materialize a cube to Druid for low-latency access to a set of metrics "
-            "and dimensions. While the logical cube definition is at the level of metrics "
-            "and dimensions, a materialized Druid cube will reference measures and dimensions,"
+            "Used to materialize a cube's measures to Druid for low-latency access to a set of "
+            "metrics and dimensions. While the logical cube definition is at the level of metrics "
+            "and dimensions, this materialized Druid cube will contain measures and dimensions,"
             " with rollup configured on the measures where appropriate."
         ),
         allowed_node_types=[NodeType.CUBE],
-        job_class="DruidCubeMaterializationJob",
+        job_class="DruidMeasuresCubeMaterializationJob",
+    )
+
+    DRUID_METRICS_CUBE = MaterializationJobType(
+        name="druid_metrics_cube",
+        label="Druid Metrics Cube (Post-Agg Cube)",
+        description=(
+            "Used to materialize a cube of metrics and dimensions to Druid for low-latency access."
+            " The materialized cube is at the metric level, meaning that all metrics will be "
+            "aggregated to the level of the cube's dimensions."
+        ),
+        allowed_node_types=[NodeType.CUBE],
+        job_class="DruidMetricsCubeMaterializationJob",
     )
 
     @classmethod

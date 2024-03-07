@@ -1079,6 +1079,16 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             if data and data.metric_metadata
             else old_revision.metric_metadata
         ),
+        dimension_links=[
+            DimensionLink(
+                dimension_id=link.dimension_id,
+                join_sql=link.join_sql,
+                join_type=link.join_type,
+                join_cardinality=link.join_cardinality,
+                materialization_conf=link.materialization_conf,
+            )
+            for link in old_revision.dimension_links
+        ],
     )
     if data.required_dimensions:  # type: ignore
         new_revision.required_dimensions = data.required_dimensions  # type: ignore

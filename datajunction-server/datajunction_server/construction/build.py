@@ -1181,9 +1181,10 @@ def build_metric_nodes(
     for col in all_dimension_columns:
         dimension_grouping.setdefault(col.identifier(), []).append(col)
     dimension_columns = [
-        ast.Function(name=ast.Name("COALESCE"), args=list(columns)).set_alias(
-            ast.Name(col_name),
-        )
+        ast.Function(name=ast.Name("COALESCE"), args=list(columns))
+        .set_alias(ast.Name(col_name))
+        .set_semantic_entity(columns[0].semantic_entity)
+        .set_semantic_type(columns[0].semantic_type)
         if len(columns) > 1
         else columns[0]
         for col_name, columns in dimension_grouping.items()
