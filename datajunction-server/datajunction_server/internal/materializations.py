@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple, Union
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from datajunction_server.api.helpers import build_sql_for_multiple_metrics
 from datajunction_server.construction.build import build_node, get_measures_query
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
@@ -13,9 +14,11 @@ from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.materialization import (
-    DruidCubeConfig,
+    DruidMeasuresCubeConfig,
+    DruidMetricsCubeConfig,
     GenericMaterializationConfig,
     MaterializationInfo,
+    MaterializationJobTypeEnum,
     Measure,
     MetricMeasures,
     UpsertMaterialization,
@@ -46,7 +49,6 @@ def rewrite_metrics_expressions(
     measures_to_output_columns_lookup = {
         column.semantic_entity: column.name
         for column in measures_query.columns  # type: ignore # pylint: disable=not-an-iterable
-        if column.semantic_type == SemanticType.MEASURE
     }
     for metric in current_revision.cube_metrics():
         measures_for_metric = []
@@ -87,13 +89,16 @@ def rewrite_metrics_expressions(
 def build_cube_materialization_config(
     session: Session,
     current_revision: NodeRevision,
-    upsert: UpsertMaterialization,
+    upsert_input: UpsertMaterialization,
     validate_access: access.ValidateAccessFn,
-) -> DruidCubeConfig:
+) -> DruidMeasuresCubeConfig:
     """
     Builds the materialization config for a cube.
 
-    We build a measures query where we ingest the referenced measures for all
+    If the job type is DRUID_METRICS_CUBE, we build an aggregation query with all metric
+    aggregations and ingest this aggregated table to Druid.
+
+    Alternatively, we build a measures query where we ingest the referenced measures for all
     selected metrics at the level of dimensions provided. This query is used to create
     an intermediate table for ingestion into an OLAP database like Druid.
 
@@ -101,20 +106,48 @@ def build_cube_materialization_config(
     in the query map to each selected metric and how to rewrite each metric expression
     based on the materialized measures table.
     """
-    measures_query = get_measures_query(
-        session=session,
-        metrics=[node.name for node in current_revision.cube_metrics()],
-        dimensions=current_revision.cube_dimensions(),
-        filters=[],
-        validate_access=validate_access,
-    )
-    metrics_expressions = rewrite_metrics_expressions(
-        session,
-        current_revision,
-        measures_query,
-    )
     try:
-        generic_config = DruidCubeConfig(
+        # Druid Metrics Cube (Post-Agg)
+        if upsert_input.job == MaterializationJobTypeEnum.DRUID_METRICS_CUBE:
+            metrics_query, _, _ = build_sql_for_multiple_metrics(
+                session=session,
+                metrics=[node.name for node in current_revision.cube_metrics()],
+                dimensions=current_revision.cube_dimensions(),
+                use_materialized=False,
+            )
+            generic_config = DruidMetricsCubeConfig(
+                node_name=current_revision.name,
+                query=metrics_query.sql,
+                dimensions=[
+                    col.name
+                    for col in metrics_query.columns  # type: ignore # pylint: disable=not-an-iterable
+                    if col.semantic_type != SemanticType.METRIC
+                ],
+                metrics=[
+                    col
+                    for col in metrics_query.columns  # type: ignore # pylint: disable=not-an-iterable
+                    if col.semantic_type == SemanticType.METRIC
+                ],
+                spark=upsert_input.config.spark,
+                upstream_tables=metrics_query.upstream_tables,
+                columns=metrics_query.columns,
+            )
+            return generic_config
+
+        # Druid Measures Cube (Pre-Agg)
+        measures_query = get_measures_query(
+            session=session,
+            metrics=[node.name for node in current_revision.cube_metrics()],
+            dimensions=current_revision.cube_dimensions(),
+            filters=[],
+            validate_access=validate_access,
+        )
+        metrics_expressions = rewrite_metrics_expressions(
+            session,
+            current_revision,
+            measures_query,
+        )
+        generic_config = DruidMeasuresCubeConfig(
             node_name=current_revision.name,
             query=measures_query.sql,
             dimensions=[
@@ -123,7 +156,7 @@ def build_cube_materialization_config(
                 if col.semantic_type == SemanticType.DIMENSION
             ],
             measures=metrics_expressions,
-            spark=upsert.config.spark,
+            spark=upsert_input.config.spark,
             upstream_tables=measures_query.upstream_tables,
             columns=measures_query.columns,
         )
@@ -132,9 +165,9 @@ def build_cube_materialization_config(
         raise DJInvalidInputException(  # pragma: no cover
             message=(
                 "No change has been made to the materialization config for "
-                f"node `{current_revision.name}` and job `{upsert.job.name}` as"
+                f"node `{current_revision.name}` and job `{upsert_input.job.name}` as"
                 " the config does not have valid configuration for "
-                f"engine `{upsert.job.name}`."
+                f"engine `{upsert_input.job.name}`."
             ),
         ) from exc
 

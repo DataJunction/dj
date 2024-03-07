@@ -65,6 +65,8 @@ class CubeRevisionMetadata(BaseModel):
     description: str = ""
     availability: Optional[AvailabilityStateBase] = None
     cube_elements: List[CubeElementMetadata]
+    cube_node_metrics: List[str]
+    cube_node_dimensions: List[str]
     query: Optional[str]
     columns: List[ColumnOutput]
     updated_at: UTCDatetime

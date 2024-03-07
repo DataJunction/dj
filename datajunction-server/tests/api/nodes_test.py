@@ -2543,7 +2543,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["message"] == (
             "Materialization job type `SOMETHING` not found. Available job "
-            "types: ['SPARK_SQL', 'DRUID_CUBE']"
+            "types: ['SPARK_SQL', 'DRUID_MEASURES_CUBE', 'DRUID_METRICS_CUBE']"
         )
 
     def test_node_with_struct(self, client_with_roads: TestClient):
@@ -4626,6 +4626,25 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         """
         Test revalidating all example nodes and confirm that they are set to valid
         """
+        client_with_roads.post(
+            "/nodes/cube/",
+            json={
+                "metrics": [
+                    "default.num_repair_orders",
+                    "default.avg_repair_price",
+                    "default.total_repair_cost",
+                ],
+                "dimensions": [
+                    "default.hard_hat.hire_date",
+                    "default.hard_hat.state",
+                    "default.dispatcher.company_name",
+                ],
+                "filters": [],
+                "description": "Cube of various metrics related to repairs",
+                "mode": "published",
+                "name": "default.repairs_cube",
+            },
+        )
         for node in client_with_roads.get("/nodes/").json():
             status = client_with_roads.post(
                 f"/nodes/{node}/validate/",
