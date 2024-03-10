@@ -15,8 +15,11 @@ const NodeLineage = djNode => {
         col.attributes.some(attr => attr.attribute_type.name === 'primary_key'),
       )
       .map(col => col.name);
-    const dimensionLinkForeignKeys = node.dimension_links ? node.dimension_links
-      .flatMap(link => Object.keys(link.foreign_keys).map(key => key.split('.').slice(-1))) : [];
+    const dimensionLinkForeignKeys = node.dimension_links
+      ? node.dimension_links.flatMap(link =>
+          Object.keys(link.foreign_keys).map(key => key.split('.').slice(-1)),
+        )
+      : [];
     const column_names = node.columns
       .map(col => {
         return {
@@ -51,11 +54,19 @@ const NodeLineage = djNode => {
   };
 
   const dimensionEdges = node => {
-    return node.dimension_links === undefined ? [] : node.dimension_links
-      .flatMap(link => {
-        return Object.keys(link.foreign_keys).map(fk => {
+    return node.dimension_links === undefined
+      ? []
+      : node.dimension_links.flatMap(link => {
+          return Object.keys(link.foreign_keys).map(fk => {
             return {
-              id: link.dimension.name + '->' + node.name + '=' + link.foreign_keys[fk] + '->' + fk,
+              id:
+                link.dimension.name +
+                '->' +
+                node.name +
+                '=' +
+                link.foreign_keys[fk] +
+                '->' +
+                fk,
               source: link.dimension.name,
               sourceHandle: link.foreign_keys[fk],
               target: node.name,
@@ -72,9 +83,8 @@ const NodeLineage = djNode => {
                 stroke: '#b0b9c2',
               },
             };
-          }
-        )
-      });
+          });
+        });
   };
 
   const parentEdges = node => {
