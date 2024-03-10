@@ -134,8 +134,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
       <div className="table-vertical">
         <div>
           <h2>Materializations</h2>
-          {node ?
-          <AddMaterializationPopover node={node} /> : <></>}
+          {node ? <AddMaterializationPopover node={node} /> : <></>}
           {materializations.length > 0 ? (
             <table
               className="card-inner-table table"
