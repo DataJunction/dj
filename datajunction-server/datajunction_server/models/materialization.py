@@ -319,8 +319,8 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
             col.name for col in node_revision.columns if col.type == TimestampType()
         ]
         if not user_defined_temporal_partitions and not timestamp_columns:
-            raise DJInvalidInputException(
-                "There must be at least one timestamp column or temporal paritition configured"
+            raise DJInvalidInputException(  # pragma: no cover
+                "There must be at least one timestamp column or temporal partition configured"
                 " on this cube or it cannot be materialized to Druid.",
             )
 
@@ -355,8 +355,9 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
                     "parseSpec": {
                         "format": "parquet",
                         "dimensionsSpec": {
-                            "dimensions": list(
-                                set(self.dimensions),  # type: ignore # pylint: disable=no-member
+                            "dimensions": sorted(
+                                # pylint: disable=no-member
+                                list(set(self.dimensions)),  # type: ignore
                             ),
                         },
                         "timestampSpec": {

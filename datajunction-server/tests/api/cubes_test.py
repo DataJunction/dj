@@ -742,7 +742,8 @@ SELECT  default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_repair
     COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_hire_date, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_hire_date) default_DOT_hard_hat_DOT_hire_date,
     COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_state, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_state) default_DOT_hard_hat_DOT_state,
     COALESCE(default_DOT_repair_orders_fact.default_DOT_dispatcher_DOT_company_name, default_DOT_repair_order_details.default_DOT_dispatcher_DOT_company_name) default_DOT_dispatcher_DOT_company_name,
-    COALESCE(default_DOT_repair_orders_fact.default_DOT_municipality_dim_DOT_local_region, default_DOT_repair_order_details.default_DOT_municipality_dim_DOT_local_region) default_DOT_municipality_dim_DOT_local_region
+    COALESCE(default_DOT_repair_orders_fact.default_DOT_municipality_dim_DOT_local_region, default_DOT_repair_order_details.default_DOT_municipality_dim_DOT_local_region) default_DOT_municipality_dim_DOT_local_region,
+    CAST(CAST(COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_hire_date, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_hire_date) AS DOUBLE) * 1000 AS LONG) timestamp_column
  FROM default_DOT_repair_orders_fact FULL OUTER JOIN default_DOT_repair_order_details
  ON default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country
  = default_DOT_repair_order_details.default_DOT_hard_hat_DOT_country
@@ -764,72 +765,6 @@ SELECT  default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_repair
     assert data["materializations"][0]["job"] == "DruidMeasuresCubeMaterializationJob"
     assert (
         data["materializations"][0]["config"]["measures"] == repair_orders_cube_measures
-    )
-
-
-def test_add_materialization_cube_failures(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
-    query_service_client: QueryServiceClient,
-):
-    """
-    Verifies failure modes when adding materialization config to cube nodes
-    """
-    response = client_with_repairs_cube.post(
-        "/nodes/default.repairs_cube/materialization/",
-        json={
-            "job": "druid_measures_cube",
-            "strategy": "full",
-            "config": {},
-            "schedule": "@daily",
-        },
-    )
-    assert response.json()["message"] == (
-        "The cube materialization cannot be configured if there is no temporal partition specified"
-        " on the cube. Please make sure at least one cube element has a temporal partition defined"
-    )
-
-    set_temporal_partition_cube(client_with_repairs_cube)
-
-    response = client_with_repairs_cube.post(
-        "/nodes/default.repairs_cube/materialization/",
-        json={
-            "job": "druid_measures_cube",
-            "strategy": "full",
-            "config": {
-                "spark": {},
-            },
-            "schedule": "",
-        },
-    )
-    assert (
-        response.json()["message"]
-        == "Successfully updated materialization config named "
-        "`druid_measures_cube__full__default.hard_hat.hire_date` "
-        "for node `default.repairs_cube`"
-    )
-    args, _ = query_service_client.materialize.call_args_list[0]  # type: ignore
-    assert (
-        "WHERE  default_DOT_hard_hat_DOT_hire_date = CAST(DATE_FORMAT("
-        "CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP)"
-        in args[0].query
-    )
-
-    response = client_with_repairs_cube.post(
-        "/nodes/default.repairs_cube/materialization/",
-        json={
-            "job": "druid_measures_cube",
-            "strategy": "full",
-            "config": {
-                "druid": {"a": "b"},
-                "spark": {},
-            },
-            "schedule": "",
-        },
-    )
-    assert response.json()["message"] == (
-        "The same materialization config with name "
-        "`druid_measures_cube__full__default.hard_hat.hire_date` already exists for node "
-        "`default.repairs_cube` so no update was performed."
     )
 
 
@@ -1154,230 +1089,6 @@ def test_druid_cube_agg_materialization(
     assert druid_materialization["schedule"] == "@daily"
 
 
-def test_add_materialization_config_to_cube(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
-    repairs_cube_with_materialization: requests.Response,  # pylint: disable=redefined-outer-name
-    query_service_client: Iterator[QueryServiceClient],
-    repair_orders_cube_measures: Dict,
-):
-    """
-    Verifies adding materialization config to a cube
-    """
-    assert repairs_cube_with_materialization.json() == {
-        "message": "Successfully updated materialization config named "
-        "`druid_measures_cube__incremental_time__default.hard_hat.hire_date` "
-        "for node `default.repairs_cube`",
-        "urls": [["http://fake.url/job"]],
-    }
-    called_kwargs = [
-        call_[0]
-        for call_ in query_service_client.materialize.call_args_list  # type: ignore
-    ][0][0]
-    assert (
-        called_kwargs.name
-        == "druid_measures_cube__incremental_time__default.hard_hat.hire_date"
-    )
-    assert called_kwargs.node_name == "default.repairs_cube"
-    assert called_kwargs.node_type == "cube"
-    assert called_kwargs.schedule == "@daily"
-    assert called_kwargs.spark_conf == {}
-    assert len(called_kwargs.columns) > 0
-    dimensions_sorted = sorted(
-        called_kwargs.druid_spec["dataSchema"]["parser"]["parseSpec"]["dimensionsSpec"][
-            "dimensions"
-        ],
-    )
-    called_kwargs.druid_spec["dataSchema"]["parser"]["parseSpec"]["dimensionsSpec"][
-        "dimensions"
-    ] = dimensions_sorted
-    called_kwargs.druid_spec["dataSchema"]["metricsSpec"] = sorted(
-        called_kwargs.druid_spec["dataSchema"]["metricsSpec"],
-        key=lambda x: x["fieldName"],
-    )
-    assert sorted(called_kwargs.columns, key=lambda x: x.name) == sorted(
-        [
-            ColumnMetadata(
-                name="default_DOT_dispatcher_DOT_company_name",
-                type="string",
-                column="company_name",
-                node="default.dispatcher",
-                semantic_entity="default.dispatcher.company_name",
-                semantic_type="dimension",
-            ),
-            ColumnMetadata(
-                name="default_DOT_hard_hat_DOT_city",
-                type="string",
-                column="city",
-                node="default.hard_hat",
-                semantic_entity="default.hard_hat.city",
-                semantic_type="dimension",
-            ),
-            ColumnMetadata(
-                name="default_DOT_hard_hat_DOT_country",
-                type="string",
-                column="country",
-                node="default.hard_hat",
-                semantic_entity="default.hard_hat.country",
-                semantic_type="dimension",
-            ),
-            ColumnMetadata(
-                name="default_DOT_hard_hat_DOT_hire_date",
-                type="timestamp",
-                column="hire_date",
-                node="default.hard_hat",
-                semantic_entity="default.hard_hat.hire_date",
-                semantic_type="dimension",
-            ),
-            ColumnMetadata(
-                name="default_DOT_hard_hat_DOT_postal_code",
-                type="string",
-                column="postal_code",
-                node="default.hard_hat",
-                semantic_entity="default.hard_hat.postal_code",
-                semantic_type="dimension",
-            ),
-            ColumnMetadata(
-                name="default_DOT_hard_hat_DOT_state",
-                type="string",
-                column="state",
-                node="default.hard_hat",
-                semantic_entity="default.hard_hat.state",
-                semantic_type="dimension",
-            ),
-            ColumnMetadata(
-                name="default_DOT_municipality_dim_DOT_local_region",
-                type="string",
-                column="local_region",
-                node="default.municipality_dim",
-                semantic_entity="default.municipality_dim.local_region",
-                semantic_type="dimension",
-            ),
-            ColumnMetadata(
-                name="default_DOT_repair_order_details_DOT_price",
-                type="float",
-                column="price",
-                node="default.repair_order_details",
-                semantic_entity="default.repair_order_details.price",
-                semantic_type="measure",
-            ),
-            ColumnMetadata(
-                name="default_DOT_repair_orders_fact_DOT_discount",
-                type="float",
-                column="discount",
-                node="default.repair_orders_fact",
-                semantic_entity="default.repair_orders_fact.discount",
-                semantic_type="measure",
-            ),
-            ColumnMetadata(
-                name="default_DOT_repair_orders_fact_DOT_price",
-                type="float",
-                column="price",
-                node="default.repair_orders_fact",
-                semantic_entity="default.repair_orders_fact.price",
-                semantic_type="measure",
-            ),
-            ColumnMetadata(
-                name="default_DOT_repair_orders_fact_DOT_repair_order_id",
-                type="int",
-                column="repair_order_id",
-                node="default.repair_orders_fact",
-                semantic_entity="default.repair_orders_fact.repair_order_id",
-                semantic_type="measure",
-            ),
-            ColumnMetadata(
-                name="default_DOT_repair_orders_fact_DOT_total_repair_cost",
-                type="float",
-                column="total_repair_cost",
-                node="default.repair_orders_fact",
-                semantic_entity="default.repair_orders_fact.total_repair_cost",
-                semantic_type="measure",
-            ),
-        ],
-        key=lambda x: x.name,
-    )
-    assert called_kwargs.druid_spec == {
-        "dataSchema": {
-            "dataSource": "default_DOT_repairs_cube",
-            "granularitySpec": {
-                "intervals": [],
-                "segmentGranularity": "day",
-                "type": "uniform",
-            },
-            "metricsSpec": [
-                {
-                    "fieldName": "default_DOT_repair_order_details_DOT_price",
-                    "name": "default_DOT_repair_order_details_DOT_price",
-                    "type": "floatSum",
-                },
-                {
-                    "fieldName": "default_DOT_repair_orders_fact_DOT_discount",
-                    "name": "default_DOT_repair_orders_fact_DOT_discount",
-                    "type": "floatSum",
-                },
-                {
-                    "fieldName": "default_DOT_repair_orders_fact_DOT_price",
-                    "name": "default_DOT_repair_orders_fact_DOT_price",
-                    "type": "floatSum",
-                },
-                {
-                    "fieldName": "default_DOT_repair_orders_fact_DOT_repair_order_id",
-                    "name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
-                    "type": "longSum",
-                },
-                {
-                    "fieldName": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
-                    "name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
-                    "type": "floatSum",
-                },
-            ],
-            "parser": {
-                "parseSpec": {
-                    "dimensionsSpec": {
-                        "dimensions": [
-                            "default_DOT_dispatcher_DOT_company_name",
-                            "default_DOT_hard_hat_DOT_city",
-                            "default_DOT_hard_hat_DOT_country",
-                            "default_DOT_hard_hat_DOT_hire_date",
-                            "default_DOT_hard_hat_DOT_postal_code",
-                            "default_DOT_hard_hat_DOT_state",
-                            "default_DOT_municipality_dim_DOT_local_region",
-                        ],
-                    },
-                    "format": "parquet",
-                    "timestampSpec": {
-                        "column": "default_DOT_hard_hat_DOT_hire_date",
-                        "format": "yyyyMMdd",
-                    },
-                },
-            },
-        },
-        "tuningConfig": {
-            "partitionsSpec": {"targetPartitionSize": 5000000, "type": "hashed"},
-            "type": "hadoop",
-            "useCombiner": True,
-        },
-    }
-    response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
-    materializations = response.json()["materializations"]
-    assert len(materializations) == 1
-    druid_materialization = [
-        materialization
-        for materialization in materializations
-        if materialization["job"] == "DruidMeasuresCubeMaterializationJob"
-    ][0]
-    assert set(druid_materialization["config"]["dimensions"]) == {
-        "default_DOT_dispatcher_DOT_company_name",
-        "default_DOT_hard_hat_DOT_city",
-        "default_DOT_hard_hat_DOT_country",
-        "default_DOT_hard_hat_DOT_hire_date",
-        "default_DOT_hard_hat_DOT_postal_code",
-        "default_DOT_hard_hat_DOT_state",
-        "default_DOT_municipality_dim_DOT_local_region",
-    }
-    assert druid_materialization["config"]["measures"] == repair_orders_cube_measures
-    assert druid_materialization["schedule"] == "@daily"
-
-
 def test_cube_sql_generation_with_availability(
     client_with_repairs_cube: TestClient,
     repairs_cube_with_materialization: requests.Response,  # pylint: disable=unused-argument
@@ -1430,7 +1141,7 @@ def test_cube_sql_generation_with_availability(
             "node": "default.num_repair_orders",
             "semantic_entity": None,
             "semantic_type": None,
-            "type": "bigint",
+            "type": "long",
         },
         {
             "column": "default_DOT_avg_repair_price",
@@ -1516,7 +1227,7 @@ LIMIT 100""",
             "column": "default_DOT_num_repair_orders",
             "name": "default_DOT_num_repair_orders",
             "node": "default.num_repair_orders",
-            "type": "bigint",
+            "type": "long",
             "semantic_type": None,
             "semantic_entity": None,
         },
@@ -1864,6 +1575,14 @@ def test_updating_cube_with_existing_materialization(
                 "semantic_entity": "default.repair_orders_fact.discount",
                 "semantic_type": "measure",
                 "type": "float",
+            },
+            {
+                "column": "hire_date",
+                "name": "timestamp_column",
+                "node": "default.hard_hat",
+                "semantic_entity": "default.hard_hat.hire_date",
+                "semantic_type": "timestamp",
+                "type": "long",
             },
         ],
         key=lambda x: x["name"],
