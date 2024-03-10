@@ -103,10 +103,10 @@ def add_availability_state(
     # Merge the new availability state with the current availability state if one exists
     old_availability = node_revision.availability
     if (
-        node_revision.availability
-        and node_revision.availability.catalog == node.current.catalog.name
-        and node_revision.availability.schema_ == data.schema_
-        and node_revision.availability.table == data.table
+        old_availability
+        and old_availability.catalog == data.catalog
+        and old_availability.schema_ == data.schema_
+        and old_availability.table == data.table
     ):
         data.merge(node_revision.availability)
 
