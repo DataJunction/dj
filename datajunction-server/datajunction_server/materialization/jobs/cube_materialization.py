@@ -137,7 +137,7 @@ def build_materialization_query(
             for col in cube_materialization_query_ast.select.projection
             if col.alias_or_name.name == amenable_name(temporal_partitions[0].name)  # type: ignore
         ]
-        final_query.where = ast.BinaryOp(
+        final_query.select.where = ast.BinaryOp(
             left=ast.Column(
                 name=ast.Name(temporal_partition_col[0].alias_or_name.name),  # type: ignore
             ),

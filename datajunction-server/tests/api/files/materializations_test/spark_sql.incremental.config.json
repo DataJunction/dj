@@ -1,0 +1,126 @@
+[
+   {
+      "backfills":[
+
+      ],
+      "config":{
+         "columns":[
+            {
+               "column": null,
+               "name":"hard_hat_id",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"int"
+            },
+            {
+               "column": null,
+               "name":"last_name",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"string"
+            },
+            {
+               "column": null,
+               "name":"first_name",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"string"
+            },
+            {
+               "column": null,
+               "name":"title",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"string"
+            },
+            {
+               "column": null,
+               "name":"birth_date",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"timestamp"
+            },
+            {
+               "column": null,
+               "name":"hire_date",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"timestamp"
+            },
+            {
+               "column": null,
+               "name":"address",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"string"
+            },
+            {
+               "column": null,
+               "name":"city",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"string"
+            },
+            {
+               "column": null,
+               "name":"state",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"string"
+            },
+            {
+               "column": null,
+               "name":"postal_code",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"string"
+            },
+            {
+               "column": null,
+               "name":"country",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"string"
+            },
+            {
+               "column": null,
+               "name":"manager",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"int"
+            },
+            {
+               "column": null,
+               "name":"contractor_id",
+               "node": null,
+               "semantic_entity": null,
+               "semantic_type": null,
+               "type":"int"
+            }
+         ],
+         "lookback_window": null,
+         "spark":{
+
+         },
+         "upstream_tables":[
+            "default.roads.hard_hats"
+         ]
+      },
+      "job":"SparkSqlMaterializationJob",
+      "name":"spark_sql__incremental_time__birth_date",
+      "schedule":"0 * * * *",
+      "strategy":"incremental_time"
+   }
+]

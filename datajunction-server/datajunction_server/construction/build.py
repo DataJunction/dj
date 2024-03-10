@@ -1612,22 +1612,28 @@ def get_measures_query(
         else columns[0]
         for col_name, columns in dimension_grouping.items()
     ]
+    combined_ast.select.projection.extend(dimension_columns)
     for col in dimension_columns:
         if col.type == TimestampType() and cast_timestamp_to_ms:  # type: ignore
             col = (
                 ast.Cast(
                     expression=ast.BinaryOp(
                         op=ast.BinaryOpKind.Multiply,
-                        left=ast.Cast(data_type=DoubleType(), expression=col),  # type: ignore
+                        left=ast.Cast(
+                            data_type=DoubleType(),
+                            expression=col.copy().child
+                            if isinstance(col, ast.Alias)
+                            else col,
+                        ),  # type: ignore
                         right=ast.Number(1000),
                     ),
                     data_type=LongType(),
                 )
-                .set_alias(col.alias_or_name)  # type: ignore
+                .set_alias(ast.Name("timestamp_column"))  # type: ignore
                 .set_semantic_entity(col.semantic_entity)  # type: ignore
                 .set_semantic_type(SemanticType.TIMESTAMP)
             )
-        combined_ast.select.projection.append(col)
+            combined_ast.select.projection.append(col)
 
     # Assemble column metadata
     columns_metadata = []
@@ -1639,7 +1645,6 @@ def get_measures_query(
     dependencies, _ = combined_ast.extract_dependencies(
         CompileContext(session, DJException()),
     )
-    print("combined_ast", combined_ast)
     return TranslatedSQL(
         sql=str(combined_ast),
         columns=columns_metadata,
