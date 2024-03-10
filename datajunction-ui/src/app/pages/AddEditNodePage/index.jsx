@@ -24,6 +24,7 @@ import { DisplayNameField } from './DisplayNameField';
 import { DescriptionField } from './DescriptionField';
 import { NodeModeField } from './NodeModeField';
 import { RequiredDimensionsSelect } from './RequiredDimensionsSelect';
+import LoadingIcon from '../../icons/LoadingIcon';
 
 class Action {
   static Add = new Action('add');
@@ -63,19 +64,18 @@ export function AddEditNodePage() {
     return errors;
   };
 
-  const handleSubmit = (values, { setSubmitting, setStatus }) => {
+  const handleSubmit = async (values, { setSubmitting, setStatus }) => {
     if (action === Action.Add) {
-      setTimeout(() => {
-        createNode(values, setStatus);
+      await createNode(values, setStatus).then(_ => {
+        window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
         setSubmitting(false);
-      }, 400);
+      });
     } else {
-      setTimeout(() => {
-        patchNode(values, setStatus);
+      await patchNode(values, setStatus).then(_ => {
+        window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
         setSubmitting(false);
-      }, 400);
+      });
     }
-    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
   };
 
   const pageTitle =
@@ -169,7 +169,7 @@ export function AddEditNodePage() {
       });
     } else {
       setStatus({
-        failure: `${json.message}, ${tagsResponse.json.message}`,
+        failure: `${json.message}`,
       });
     }
   };
@@ -410,7 +410,12 @@ export function AddEditNodePage() {
                         <NodeModeField />
 
                         <button type="submit" disabled={isSubmitting}>
-                          {action === Action.Add ? 'Create' : 'Save'} {nodeType}
+                          {isSubmitting ? (
+                            <LoadingIcon />
+                          ) : (
+                            (action === Action.Add ? 'Create ' : 'Save ') +
+                            (nodeType ? nodeType : '')
+                          )}
                         </button>
                       </>
                     )}
