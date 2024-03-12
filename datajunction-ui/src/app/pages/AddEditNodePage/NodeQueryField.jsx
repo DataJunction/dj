@@ -68,6 +68,9 @@ export const NodeQueryField = ({ djClient, value }) => {
             }),
           ]}
           value={value}
+          placeholder={
+            'SELECT\n\tprimary_key,\n\tmeasure1,\n\tmeasure2,\n\tforeign_key_for_dimension1,\n\tforeign_key_for_dimension2\nFROM source.source_node\nWHERE ...'
+          }
           options={{
             theme: 'default',
             lineNumbers: true,
