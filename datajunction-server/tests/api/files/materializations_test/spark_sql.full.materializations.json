@@ -1,0 +1,132 @@
+{
+   "name":"spark_sql__full",
+   "config":{
+      "spark":{
+
+      },
+      "lookback_window": null,
+      "query":"SELECT  default_DOT_hard_hat.hard_hat_id,\n\tdefault_DOT_hard_hat.last_name,\n\tdefault_DOT_hard_hat.first_name,\n\tdefault_DOT_hard_hat.title,\n\tdefault_DOT_hard_hat.birth_date,\n\tdefault_DOT_hard_hat.hire_date,\n\tdefault_DOT_hard_hat.address,\n\tdefault_DOT_hard_hat.city,\n\tdefault_DOT_hard_hat.state,\n\tdefault_DOT_hard_hat.postal_code,\n\tdefault_DOT_hard_hat.country,\n\tdefault_DOT_hard_hat.manager,\n\tdefault_DOT_hard_hat.contractor_id \n FROM (SELECT  default_DOT_hard_hats.hard_hat_id,\n\tdefault_DOT_hard_hats.last_name,\n\tdefault_DOT_hard_hats.first_name,\n\tdefault_DOT_hard_hats.title,\n\tdefault_DOT_hard_hats.birth_date,\n\tdefault_DOT_hard_hats.hire_date,\n\tdefault_DOT_hard_hats.address,\n\tdefault_DOT_hard_hats.city,\n\tdefault_DOT_hard_hats.state,\n\tdefault_DOT_hard_hats.postal_code,\n\tdefault_DOT_hard_hats.country,\n\tdefault_DOT_hard_hats.manager,\n\tdefault_DOT_hard_hats.contractor_id \n FROM roads.hard_hats AS default_DOT_hard_hats)\n AS default_DOT_hard_hat\n\n",
+      "columns":[
+         {
+            "name":"hard_hat_id",
+            "type":"int",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         },
+         {
+            "name":"last_name",
+            "type":"string",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         },
+         {
+            "name":"first_name",
+            "type":"string",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         },
+         {
+            "name":"title",
+            "type":"string",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         },
+         {
+            "name":"birth_date",
+            "type":"timestamp",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         },
+         {
+            "name":"hire_date",
+            "type":"timestamp",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         },
+         {
+            "name":"address",
+            "type":"string",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         },
+         {
+            "name":"city",
+            "type":"string",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         },
+         {
+            "name":"state",
+            "type":"string",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         },
+         {
+            "name":"postal_code",
+            "type":"string",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         },
+         {
+            "name":"country",
+            "type":"string",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         },
+         {
+            "name":"manager",
+            "type":"int",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         },
+         {
+            "name":"contractor_id",
+            "type":"int",
+            "column": null,
+            "node": null,
+            "semantic_entity": null,
+            "semantic_type": null
+         }
+      ],
+      "upstream_tables":[
+         "default.roads.hard_hats"
+      ]
+   },
+   "schedule":"0 * * * *",
+   "job":"SparkSqlMaterializationJob",
+   "backfills":[
+
+   ],
+   "strategy":"full",
+   "output_tables":[
+      "common.a",
+      "common.b"
+   ],
+   "urls":[
+      "http://fake.url/job"
+   ]
+}

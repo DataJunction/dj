@@ -575,8 +575,7 @@ CROSS JOIN
         "/nodes/metric/",
         {
             "description": "Total repair cost",
-            "query": "SELECT sum(repair_orders_fact.total_repair_cost) "
-            "FROM default.repair_orders_fact repair_orders_fact",
+            "query": "SELECT sum(total_repair_cost) FROM default.repair_orders_fact",
             "mode": "published",
             "name": "default.total_repair_cost",
         },
