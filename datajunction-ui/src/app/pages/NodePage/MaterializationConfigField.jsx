@@ -11,7 +11,7 @@ export const ConfigField = ({ djClient, value }) => {
   const jsonExt = langs.json();
 
   const updateFormik = val => {
-    formik.setFieldValue('spark_config', val);
+    formik.setFieldValue('spark_config', JSON.parse(val));
   };
 
   return (

@@ -977,8 +977,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_temporal_partition": ["2023", "01", "25"],
-                "min_temporal_partition": ["2022", "01", "01"],
+                "max_temporal_partition": [20230125],
+                "min_temporal_partition": [20220101],
             },
         )
         data = response.json()
@@ -992,7 +992,6 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
 
     def test_merging_in_a_higher_max_partition(
         self,
-        session: Session,
         client_with_account_revenue: TestClient,
     ) -> None:
         """
@@ -1004,9 +1003,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "catalog": "default",
                 "schema_": "accounting",
                 "table": "large_pmts",
-                "valid_through_ts": 20230101,
-                "max_temporal_partition": ["2023", "01", "01"],
-                "min_temporal_partition": ["2022", "01", "01"],
+                "valid_through_ts": 1709827200000,
+                "temporal_partitions": ["payment_id"],
+                "max_temporal_partition": [20230101],
+                "min_temporal_partition": [20220101],
             },
         )
         response = client_with_account_revenue.post(
@@ -1015,16 +1015,13 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "catalog": "default",
                 "schema_": "accounting",
                 "table": "large_pmts",
-                "valid_through_ts": 20230102,
+                "valid_through_ts": 1710097200000,
+                "temporal_partitions": ["payment_id"],
                 "max_temporal_partition": [
-                    "2023",
-                    "01",
-                    "02",
+                    20230102,
                 ],  # should be used since it's a higher max_temporal_partition
                 "min_temporal_partition": [
-                    "2023",
-                    "01",
-                    "02",
+                    20230102,
                 ],  # should be ignored since it's a higher min_temporal_partition
             },
         )
@@ -1033,23 +1030,19 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data == {"message": "Availability state successfully posted"}
 
-        statement = select(Node).where(
-            Node.name == "default.large_revenue_payments_only",
-        )
-        large_revenue_payments_only = session.execute(statement).scalar_one()
-        node_dict = AvailabilityStateBase.from_orm(
-            large_revenue_payments_only.current.availability,
-        ).dict()
-        assert node_dict == {
-            "valid_through_ts": 20230102,
+        large_revenue_payments_only = client_with_account_revenue.get(
+            "/nodes/default.large_revenue_payments_only",
+        ).json()
+        assert large_revenue_payments_only["availability"] == {
+            "valid_through_ts": 1710097200000,
             "catalog": "default",
-            "min_temporal_partition": ["2022", "01", "01"],
+            "min_temporal_partition": ["20220101"],
             "table": "large_pmts",
-            "max_temporal_partition": ["2023", "01", "02"],
+            "max_temporal_partition": ["20230102"],
             "schema_": "accounting",
             "partitions": [],
             "categorical_partitions": [],
-            "temporal_partitions": [],
+            "temporal_partitions": ["payment_id"],
             "url": None,
         }
 

@@ -60,3 +60,4 @@ class SemanticType(StrEnum):
     MEASURE = "measure"
     METRIC = "metric"
     DIMENSION = "dimension"
+    TIMESTAMP = "timestamp"
