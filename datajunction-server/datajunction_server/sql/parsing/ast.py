@@ -1216,7 +1216,11 @@ class TableExpression(Aliasable, Expression):
                 # For struct types we can additionally check if there's a column that matches
                 # the search column's namespace and if there's a nested field that matches the
                 # search column's name
-                if col._type and isinstance(col.type, StructType):
+                if (
+                    hasattr(col, "_type")
+                    and col._type
+                    and isinstance(col.type, StructType)
+                ) or (not hasattr(col, "_type") and isinstance(col.type, StructType)):
                     # struct column name
                     column_namespace = ".".join(
                         [name.name for name in column.namespace],
@@ -2605,3 +2609,16 @@ class Query(TableExpression, UnNamed):
             access_control,
         )
         self.select.add_aliases_to_unnamed_columns()
+
+
+@dataclass(eq=False)
+class Parameter(Expression):
+    """
+    Sets up parameters
+    """
+
+    name: Name
+    colon: str = ":"
+
+    def __str__(self) -> str:
+        return f"{self.colon}{self.name.identifier()}"
