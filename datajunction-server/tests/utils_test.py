@@ -7,6 +7,7 @@ import logging
 import pytest
 from pytest_mock import MockerFixture
 from sqlalchemy.engine.url import make_url
+from testcontainers.postgres import PostgresContainer
 from yarl import URL
 
 from datajunction_server.config import Settings
@@ -82,13 +83,22 @@ def test_get_issue_url() -> None:
     )
 
 
-def test_get_engine(mocker: MockerFixture, settings: Settings) -> None:
+def test_get_engine(
+    mocker: MockerFixture,
+    settings: Settings,
+    postgres_container: PostgresContainer,
+) -> None:
     """
     Test ``get_engine``.
     """
+    connection_url = postgres_container.get_connection_url()
+    settings.index = connection_url
     mocker.patch("datajunction_server.utils.get_settings", return_value=settings)
     engine = get_engine()
-    assert engine.url == make_url("sqlite://")
+    assert engine.url == make_url(connection_url)
+    assert engine.pool.size() == settings.db_pool_size
+    assert engine.pool.timeout() == settings.db_pool_timeout
+    assert engine.pool.overflow() == -settings.db_max_overflow
 
 
 def test_get_query_service_client(mocker: MockerFixture, settings: Settings) -> None:

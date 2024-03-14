@@ -62,6 +62,12 @@ def get_engine() -> Engine:
     engine = create_engine(
         settings.index,
         pool_pre_ping=True,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=settings.db_pool_timeout,
+        connect_args={
+            "connect_timeout": settings.db_connect_timeout,
+        },
     )
 
     return engine
