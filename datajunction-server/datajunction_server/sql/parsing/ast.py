@@ -2609,16 +2609,3 @@ class Query(TableExpression, UnNamed):
             access_control,
         )
         self.select.add_aliases_to_unnamed_columns()
-
-
-@dataclass(eq=False)
-class Parameter(Expression):
-    """
-    Sets up parameters
-    """
-
-    name: Name
-    colon: str = ":"
-
-    def __str__(self) -> str:
-        return f"{self.colon}{self.name.identifier()}"
