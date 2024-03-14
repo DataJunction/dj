@@ -91,6 +91,12 @@ class Settings(
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire = 60
 
+    # SQLAlchemy engine config
+    db_pool_size = 20
+    db_max_overflow = 20
+    db_pool_timeout = 10
+    db_connect_timeout = 5
+
     @property
     def celery(self) -> Celery:
         """
