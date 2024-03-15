@@ -42,7 +42,7 @@ def get_github_user(access_token: str) -> Optional[User]:  # pragma: no cover
     ).json()
     if "message" in user_data and user_data["message"] == "Bad credentials":
         return None
-    session = next(get_session())
+    session = next(get_session())  # type: ignore  # pylint: disable=no-value-for-parameter
     existing_user: Optional[User] = None
     try:
         existing_user = session.execute(
