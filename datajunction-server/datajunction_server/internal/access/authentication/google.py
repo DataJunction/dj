@@ -71,7 +71,7 @@ def get_google_user(token: str) -> User:
         headers=headers,
         timeout=10,
     )
-    if not response.ok:
+    if response.status_code in (200, 201):
         raise DJException(
             http_status_code=HTTPStatus.FORBIDDEN,
             message=f"Error retrieving Google user: {response.text}",

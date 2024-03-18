@@ -97,6 +97,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         """
 
         mock_request = mocker.patch("requests.Session.request")
+        mock_request.return_value = MagicMock(status_code=200, text="Unknown")
         query_service_client = QueryServiceClient(uri=self.endpoint)
         query_service_client.get_columns_for_table("hive", "test", "pies")
         mock_request.assert_called_with(
@@ -121,7 +122,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
 
         # failed request with unknown reason
         mock_request = mocker.patch("requests.Session.request")
-        mock_request.return_value = MagicMock(ok=False)
+        mock_request.return_value = MagicMock(status_code=400, text="Unknown")
         query_service_client = QueryServiceClient(uri=self.endpoint)
         with pytest.raises(DJQueryServiceClientException) as exc_info:
             query_service_client.get_columns_for_table("hive", "test", "pies")
@@ -129,7 +130,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
 
         # failed request with table not found
         mock_request = mocker.patch("requests.Session.request")
-        mock_request.return_value = MagicMock(ok=False, status_code=404)
+        mock_request.return_value = MagicMock(status_code=404, text="Table not found")
         with pytest.raises(DJDoesNotExistException) as exc_info:
             query_service_client.get_columns_for_table("hive", "test", "pies")
         assert "Table not found" in str(exc_info.value)
@@ -137,7 +138,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         # no columns returned
         mock_request = mocker.patch("requests.Session.request")
         mock_request.return_value = MagicMock(
-            ok=True,
+            status_code=200,
             json=MagicMock(return_value={"columns": []}),
         )
         with pytest.raises(DJQueryServiceClientException) as exc_info:
@@ -150,7 +151,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         """
 
         mock_response = MagicMock()
-        mock_response.ok = True
+        mock_response.status_code = 200
         mock_response.json.return_value = {
             "catalog_name": "public",
             "engine_name": "postgres",
@@ -338,7 +339,8 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         Test handling an error response from the query service client
         """
         mock_response = MagicMock()
-        mock_response.ok = False
+        mock_response.status_code = 400
+        mock_response.json.return_value = {"message": "Errors"}
 
         mocker.patch(
             "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
@@ -460,7 +462,6 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         """
         mock_response = MagicMock()
         mock_response.status_code = 500
-        mock_response.ok = False
         mock_response.json.return_value = {"message": "An error has occurred"}
 
         mocker.patch(

@@ -31,7 +31,7 @@ def client_code_for_creating_node(
     node = get_node_by_name(session, node_name)
 
     # Generic user-configurable node creation params
-    params = NodeOutput.from_orm(node).current.dict(
+    params = NodeOutput.from_orm(node).dict(
         exclude={
             "id",
             "version",
@@ -50,6 +50,11 @@ def client_code_for_creating_node(
             "metric_metadata",
             "query" if node.type == NodeType.CUBE else "",
             "dimension_links",
+            "created_at",
+            "current_version",
+            "missing_table",
+            "namespace",
+            "tags",
         },
         exclude_none=True,
     )

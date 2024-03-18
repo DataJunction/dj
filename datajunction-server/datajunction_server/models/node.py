@@ -5,12 +5,11 @@ Model for nodes.
 import enum
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from pydantic import BaseModel, Extra
-from pydantic import Field as PydanticField
-from pydantic import root_validator, validator
+from pydantic import BaseModel, Extra, root_validator, validator
 from pydantic.fields import Field
+from pydantic.utils import GetterDict
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum
 from typing_extensions import TypedDict
@@ -706,24 +705,29 @@ class UpdateNode(
 #
 
 
-class OutputModel(BaseModel):
+class GenericNodeOutputModel(BaseModel):
     """
-    An output model with the ability to flatten fields. When fields are created with
-    `Field(flatten=True)`, the field's values will be automatically flattened into the
-    parent output model.
+    A generic node output model that flattens the current node revision info
+    into the top-level fields on the output model.
     """
 
-    def _iter(self, *args, to_dict: bool = False, **kwargs):
-        for dict_key, value in super()._iter(to_dict, *args, **kwargs):
-            if to_dict and self.__fields__[dict_key].field_info.extra.get(
-                "flatten",
-                False,
-            ):
-                assert isinstance(value, dict)
-                for key, val in value.items():
-                    yield key, val
-            else:
-                yield dict_key, value
+    @root_validator(pre=True)
+    def flatten_current(  # pylint: disable=no-self-argument
+        cls,
+        values: GetterDict,
+    ) -> Union[GetterDict, Dict[str, Any]]:
+        """
+        Flatten the current node revision into top-level fields.
+        """
+        current = values.get("current")
+        if current is None:
+            return values
+        current_dict = NodeRevisionOutput.from_orm(current).dict()
+        final_dict = dict(values.items())
+        for k, v in current_dict.items():
+            final_dict[k] = v
+        final_dict["node_revision_id"] = final_dict["id"]
+        return final_dict
 
 
 class TableOutput(BaseModel):
@@ -743,7 +747,7 @@ class NodeRevisionOutput(BaseModel):
     Output for a node revision with information about columns and if it is a metric.
     """
 
-    id: int = Field(alias="node_revision_id")
+    id: int
     node_id: int
     type: NodeType
     name: str
@@ -765,17 +769,35 @@ class NodeRevisionOutput(BaseModel):
     dimension_links: Optional[List[LinkDimensionOutput]]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
-        allow_population_by_field_name = True
         orm_mode = True
 
 
-class NodeOutput(OutputModel):
+class NodeOutput(GenericNodeOutputModel):
     """
     Output for a node that shows the current revision.
     """
 
     namespace: str
-    current: NodeRevisionOutput = PydanticField(flatten=True)
+    id: int = Field(alias="node_revision_id")
+    node_id: int
+    type: NodeType
+    name: str
+    display_name: str
+    version: str
+    status: NodeStatus
+    mode: NodeMode
+    catalog: Optional[CatalogInfo]
+    schema_: Optional[str]
+    table: Optional[str]
+    description: str = ""
+    query: Optional[str] = None
+    availability: Optional[AvailabilityStateBase] = None
+    columns: List[ColumnOutput]
+    updated_at: UTCDatetime
+    materializations: List[MaterializationConfigOutput]
+    parents: List[NodeNameOutput]
+    metric_metadata: Optional[MetricMetadataOutput] = None
+    dimension_links: Optional[List[LinkDimensionOutput]]
     created_at: UTCDatetime
     tags: List[TagOutput] = []
     current_version: str
@@ -812,13 +834,28 @@ class DAGNodeRevisionOutput(BaseModel):
         orm_mode = True
 
 
-class DAGNodeOutput(OutputModel):
+class DAGNodeOutput(GenericNodeOutputModel):
     """
     Output for a node in another node's DAG
     """
 
     namespace: str
-    current: DAGNodeRevisionOutput = PydanticField(flatten=True)
+    id: int = Field(alias="node_revision_id")
+    node_id: int
+    type: NodeType
+    name: str
+    display_name: str
+    version: str
+    status: NodeStatus
+    mode: NodeMode
+    catalog: Optional[CatalogInfo]
+    schema_: Optional[str]
+    table: Optional[str]
+    description: str = ""
+    columns: List[ColumnOutput]
+    updated_at: UTCDatetime
+    parents: List[NodeNameOutput]
+    dimension_links: List[LinkDimensionOutput]
     created_at: UTCDatetime
     tags: List[TagOutput] = []
     current_version: str
@@ -855,7 +892,7 @@ class LineageColumn(BaseModel):
 LineageColumn.update_forward_refs()
 
 
-class NamespaceOutput(OutputModel):
+class NamespaceOutput(BaseModel):
     """
     Output for a namespace that includes the number of nodes
     """

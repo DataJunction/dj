@@ -53,25 +53,25 @@ def test_list_all_measures(
     Test ``GET /measures/``.
     """
     response = client_with_roads.get("/measures/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == []
 
     client_with_roads.post("/measures/", json=completed_repairs_measure)
 
     response = client_with_roads.get("/measures/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == ["completed_repairs"]
 
     response = client_with_roads.get("/measures/?prefix=comp")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == ["completed_repairs"]
 
     response = client_with_roads.get("/measures/?prefix=xyz")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == []
 
     response = client_with_roads.get("/measures/completed_repairs")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == {
         "additive": "non-additive",
         "columns": [
@@ -87,7 +87,7 @@ def test_list_all_measures(
     }
 
     response = client_with_roads.get("/measures/random_measure")
-    assert not response.ok
+    assert response.status_code >= 400
     assert (
         response.json()["message"]
         == "Measure with name `random_measure` does not exist"
@@ -104,7 +104,7 @@ def test_create_measure(
     """
     # Successful measure creation
     response = client_with_roads.post("/measures/", json=completed_repairs_measure)
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == {
         "additive": "non-additive",
         "columns": [
@@ -121,12 +121,12 @@ def test_create_measure(
 
     # Creating the same measure again will fail
     response = client_with_roads.post("/measures/", json=completed_repairs_measure)
-    assert not response.ok
+    assert response.status_code >= 400
     assert response.json()["message"] == "Measure `completed_repairs` already exists!"
 
     # Failed measure creation
     response = client_with_roads.post("/measures/", json=failed_measure)
-    assert not response.ok
+    assert response.status_code >= 400
     assert response.json()["message"] == (
         "Column `completed_repairs` does not exist on node `default.national_level_agg`"
     )
@@ -150,7 +150,7 @@ def test_edit_measure(
             "description": "random description",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == {
         "additive": "additive",
         "columns": [
@@ -172,7 +172,7 @@ def test_edit_measure(
             "columns": [],
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == {
         "additive": "non-additive",
         "columns": [],
@@ -196,7 +196,7 @@ def test_edit_measure(
             ],
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == {
         "additive": "non-additive",
         "columns": [
@@ -232,7 +232,7 @@ def test_edit_measure(
             ],
         },
     )
-    assert not response.ok
+    assert response.status_code >= 400
     assert response.json()["message"] == (
         "Column `non_existent_column` does not exist on node `default.national_level_agg`"
     )
