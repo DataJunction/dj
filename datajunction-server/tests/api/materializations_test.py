@@ -42,7 +42,7 @@ def client_with_repairs_cube(
         "/nodes/default.repair_orders_fact/columns/order_date/attributes/",
         json=[{"name": "dimension"}],
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
     response = custom_client.post(
         "/nodes/cube/",
         json={
@@ -84,7 +84,7 @@ def set_temporal_column(
                 "format": "yyyyMMdd",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
 
     return _set_temporal_column
 
@@ -293,7 +293,7 @@ def test_druid_measures_cube_full(
             "materialization_name": "druid_measures_cube__full",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
 
     # [success] When there is a column on the cube with a temporal partition label:
     set_temporal_column("default.repairs_cube", "default.repair_orders_fact.order_date")
@@ -341,7 +341,7 @@ def test_druid_measures_cube_full(
             "name": "default.bad_repairs_cube",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
     response = client_with_repairs_cube.post(
         "/nodes/default.bad_repairs_cube/materialization/",
         json={
@@ -421,7 +421,7 @@ def test_druid_measures_cube_incremental(
             "schedule": "@daily",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json()["message"] == (
         "Successfully updated materialization config named "
         "`druid_measures_cube__incremental_time__default.repair_orders_fact.order_date` "
@@ -471,7 +471,7 @@ ON repair_orders.repair_order_id = repair_order_details.repair_order_id
 WHERE repair_orders.order_date = DJ_LOGICAL_TIMESTAMP()""",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
     response = client_with_repairs_cube.get("/nodes/default.repair_orders_fact")
 
     # Delete previous
@@ -482,7 +482,7 @@ WHERE repair_orders.order_date = DJ_LOGICAL_TIMESTAMP()""",
             "repair_orders_fact.order_date",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
     response = client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
@@ -492,7 +492,7 @@ WHERE repair_orders.order_date = DJ_LOGICAL_TIMESTAMP()""",
             "schedule": "@daily",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
     args, _ = query_service_client.materialize.call_args_list[1]  # type: ignore
     assert str(
         parse(
@@ -552,7 +552,7 @@ def test_druid_metrics_cube_incremental(
             "schedule": "@daily",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json()["message"] == (
         "Successfully updated materialization config named "
         "`druid_metrics_cube__incremental_time__default.repair_orders_fact.order_date` "
@@ -628,7 +628,7 @@ def test_spark_sql_full(
             "format": "yyyyMMdd",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
 
     response = client_with_repairs_cube.post(
         "/nodes/default.hard_hat/columns/country/partition",
@@ -636,7 +636,7 @@ def test_spark_sql_full(
             "type_": "categorical",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
 
     # Setting the materialization config should succeed and it should reschedule
     # the materialization with the temporal partition
@@ -817,7 +817,7 @@ def test_spark_sql_incremental(
             "DATE_FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd')",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
 
     # The materialization query contains a filter on the time partition column
     # to the DJ_LOGICAL_TIMESTAMP

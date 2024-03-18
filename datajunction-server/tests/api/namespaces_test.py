@@ -12,7 +12,7 @@ def test_list_all_namespaces(client_with_examples: TestClient) -> None:
     Test ``GET /namespaces/``.
     """
     response = client_with_examples.get("/namespaces/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == [
         {"namespace": "basic", "num_nodes": 8},
         {"namespace": "basic.dimension", "num_nodes": 2},
@@ -51,7 +51,7 @@ def test_list_all_namespaces_access_limited(client_with_examples: TestClient) ->
 
     response = client_with_examples.get("/namespaces/")
 
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == [
         {"namespace": "dbt.dimension", "num_nodes": 1},
         {"namespace": "dbt.source", "num_nodes": 0},
@@ -112,7 +112,7 @@ def test_list_all_namespaces_deny_all(client_with_examples: TestClient) -> None:
 
     response = client_with_examples.get("/namespaces/")
 
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == []
 
 
@@ -121,14 +121,14 @@ def test_list_nodes_by_namespace(client_with_basic: TestClient) -> None:
     Test ``GET /namespaces/{namespace}/``.
     """
     response = client_with_basic.get("/namespaces/basic.source/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "basic.source.users",
         "basic.source.comments",
     }
 
     response = client_with_basic.get("/namespaces/basic/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "basic.source.users",
         "basic.dimension.users",
@@ -140,14 +140,14 @@ def test_list_nodes_by_namespace(client_with_basic: TestClient) -> None:
     }
 
     response = client_with_basic.get("/namespaces/basic/?type_=dimension")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "basic.dimension.users",
         "basic.dimension.countries",
     }
 
     response = client_with_basic.get("/namespaces/basic/?type_=source")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "basic.source.comments",
         "basic.source.users",
@@ -182,7 +182,7 @@ def test_deactivate_namespaces(client_with_namespaced_roads: TestClient) -> None
 
     # Check that the namespace is no longer listed
     response = client_with_namespaced_roads.get("/namespaces/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert "foo.bar" not in {n["namespace"] for n in response.json()}
 
     response = client_with_namespaced_roads.delete("/namespaces/foo.bar/?cascade=false")
@@ -196,12 +196,12 @@ def test_deactivate_namespaces(client_with_namespaced_roads: TestClient) -> None
 
     # Check that the namespace is back
     response = client_with_namespaced_roads.get("/namespaces/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert "foo.bar" in {n["namespace"] for n in response.json()}
 
     # Check that nodes in the namespace remain deactivated
     response = client_with_namespaced_roads.get("/namespaces/foo.bar/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == []
 
     # Restore with cascade=true should also restore all the nodes
@@ -232,7 +232,7 @@ def test_deactivate_namespaces(client_with_namespaced_roads: TestClient) -> None
 
     # Check that nodes in the namespace are restored
     response = client_with_namespaced_roads.get("/namespaces/foo.bar/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "foo.bar.repair_orders",
         "foo.bar.repair_order_details",
@@ -629,7 +629,7 @@ def test_export_namespaces(client_with_examples: TestClient):
             "mode": "published",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
     response = client_with_examples.get(
         "/namespaces/default/export/",
     )

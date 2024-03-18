@@ -37,12 +37,13 @@ class CubeElementMetadata(BaseModel):
         Extracts the type as a string
         """
         values = dict(values)
-        values["node_name"] = values["node_revisions"][0].name
-        values["type"] = (
-            values["node_revisions"][0].type
-            if values["node_revisions"][0].type == NodeType.METRIC
-            else NodeType.DIMENSION
-        )
+        if "node_revisions" in values:
+            values["node_name"] = values["node_revisions"][0].name
+            values["type"] = (
+                values["node_revisions"][0].type
+                if values["node_revisions"][0].type == NodeType.METRIC
+                else NodeType.DIMENSION
+            )
         return values
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
