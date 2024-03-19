@@ -196,7 +196,7 @@ def test_raise_on_cube_with_multiple_catalogs(
             "name": "default.multicatalog",
         },
     )
-    assert not response.ok
+    assert response.status_code >= 400
     data = response.json()
     assert "Metrics and dimensions cannot be from multiple catalogs" in data["message"]
 
@@ -1288,7 +1288,8 @@ def test_unlink_node_column_dimension(
     """
     When a node column link to a dimension is removed, the cube should be invalidated
     """
-    response = client_with_repairs_cube.delete(
+    response = client_with_repairs_cube.request(
+        "DELETE",
         "/nodes/default.repair_order/link/",
         json={
             "dimension_node": "default.hard_hat",
@@ -1312,7 +1313,7 @@ def test_changing_node_upstream_from_cube(
     Verify changing nodes upstream from a cube
     """
     # Verify effects on cube after deactivating a node upstream from the cube
-    client_with_repairs_cube.delete("/nodes/default.repair_orders/")
+    client_with_repairs_cube.request("DELETE", "/nodes/default.repair_orders/")
     response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
     data = response.json()
     assert data["status"] == "invalid"
@@ -1478,7 +1479,7 @@ def test_updating_cube_with_existing_materialization(
     """
     Verify updating a cube with existing materialization
     """
-    assert repairs_cube_with_materialization.ok
+    assert repairs_cube_with_materialization.json()
 
     # Make sure that the cube already has an additional materialization configured
     response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")

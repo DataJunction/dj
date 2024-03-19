@@ -99,7 +99,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             if engine
             else {},
         )
-        if not response.ok:
+        if response.status_code not in (200, 201):
             if response.status_code == HTTPStatus.NOT_FOUND:
                 raise DJDoesNotExistException(
                     message=f"Table not found: {response.text}",
@@ -129,7 +129,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             json=query_create.dict(),
         )
         response_data = response.json()
-        if not response.ok:
+        if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
                 message=f"Error response from query service: {response_data['message']}",
             )
@@ -144,7 +144,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         Get a previously submitted query
         """
         response = self.requests_session.get(f"/queries/{query_id}/")
-        if not response.ok:
+        if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
                 message=f"Error response from query service: {response.text}",
             )
@@ -167,7 +167,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             "/materialization/",
             json=materialization_input.dict(),
         )
-        if not response.ok:  # pragma: no cover
+        if response.status_code not in (200, 201):  # pragma: no cover
             return MaterializationInfo(urls=[], output_tables=[])
         result = response.json()
         return MaterializationInfo(**result)
@@ -187,7 +187,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
                 "materialization_name": materialization_name,
             },
         )
-        if not response.ok:  # pragma: no cover
+        if response.status_code not in (200, 201):  # pragma: no cover
             return MaterializationInfo(urls=[], output_tables=[])
         result = response.json()
         return MaterializationInfo(**result)
@@ -205,7 +205,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             f"/materialization/{node_name}/{node_version}/{materialization_name}/",
             timeout=3,
         )
-        if not response.ok:
+        if response.status_code not in (200, 201):
             return MaterializationInfo(output_tables=[], urls=[])
         return MaterializationInfo(**response.json())
 
@@ -221,6 +221,6 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             json=backfill.dict(),
             timeout=20,
         )
-        if not response.ok:
+        if response.status_code not in (200, 201):
             return MaterializationInfo(output_tables=[], urls=[])  # pragma: no cover
         return MaterializationInfo(**response.json())

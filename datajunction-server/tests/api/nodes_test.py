@@ -135,7 +135,7 @@ def test_get_nodes_with_details(client_with_examples: TestClient):
     Test getting all nodes with some details
     """
     response = client_with_examples.get("/nodes/details/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     data = response.json()
     assert {d["name"] for d in data} == {
         "default.country_dim",
@@ -383,7 +383,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "/nodes/default.hard_hats/columns/title/"
             "?dimension=default.title&dimension_column=title",
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client_with_roads.get("/nodes/default.hard_hats/")
         assert {
             "attributes": [],
@@ -417,7 +417,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         # Check that then retrieving the node returns an error
         response = client_with_basic.get("/nodes/basic.source.users/")
-        assert not response.ok
+        assert response.status_code >= 400
         assert response.json() == {
             "message": "A node with name `basic.source.users` does not exist.",
             "errors": [],
@@ -471,7 +471,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "table": "dim_users",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
 
         # The deletion action should be recorded in the node's history
         response = client_with_basic.get("/history?node=basic.source.users")
@@ -535,9 +535,9 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         Test deleting a source that's upstream from a metric
         """
         response = client.post("/catalogs/", json={"name": "warehouse"})
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post("/namespaces/default/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post(
             "/nodes/source/",
             json={
@@ -560,7 +560,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "table": "users",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post(
             "/nodes/metric/",
             json={
@@ -570,10 +570,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.num_users",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         # Delete the source node
         response = client.delete("/nodes/default.users/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         # The downstream metric should have an invalid status
         assert (
             client.get("/nodes/default.num_users/").json()["status"]
@@ -594,10 +594,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Restore the source node
         response = client.post("/nodes/default.users/restore/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         # Retrieving the restored node should work
         response = client.get("/nodes/default.users/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         # The downstream metric should have been changed to valid
         response = client.get("/nodes/default.num_users/")
         assert response.json()["status"] == NodeStatus.VALID
@@ -628,9 +628,9 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         Test deleting a transform that's upstream from a metric
         """
         response = client.post("/catalogs/", json={"name": "warehouse"})
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post("/namespaces/default/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post(
             "/nodes/source/",
             json={
@@ -653,7 +653,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "table": "users",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post(
             "/nodes/transform/",
             json={
@@ -676,7 +676,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "mode": "published",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post(
             "/nodes/metric/",
             json={
@@ -686,7 +686,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.num_us_users",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         # Create an invalid draft downstream node
         # so we can test that it stays invalid
         # when the upstream node is restored
@@ -699,13 +699,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.invalid_metric",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.get("/nodes/default.invalid_metric/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         assert response.json()["status"] == NodeStatus.INVALID
         # Delete the transform node
         response = client.delete("/nodes/default.us_users/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         # Retrieving the deleted node should respond that the node doesn't exist
         assert client.get("/nodes/default.us_users/").json()["message"] == (
             "A node with name `default.us_users` does not exist."
@@ -743,10 +743,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Restore the transform node
         response = client.post("/nodes/default.us_users/restore/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         # Retrieving the restored node should work
         response = client.get("/nodes/default.us_users/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         # Check history of the restored node
         response = client.get("/history?node=default.us_users")
         history = response.json()
@@ -795,9 +795,9 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         Test deleting a dimension that's linked to columns on other nodes
         """
         response = client.post("/catalogs/", json={"name": "warehouse"})
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post("/namespaces/default/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post(
             "/nodes/source/",
             json={
@@ -820,7 +820,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "table": "users",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post(
             "/nodes/dimension/",
             json={
@@ -844,7 +844,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "mode": "published",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post(
             "/nodes/source/",
             json={
@@ -862,7 +862,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "table": "messages",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         # Create a metric on the source node
         response = client.post(
             "/nodes/metric/",
@@ -873,7 +873,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "default.num_messages",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
 
         # Create a metric on the source node w/ bound dimensions
         response = client.post(
@@ -886,7 +886,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "required_dimensions": ["user_id"],
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
 
         # Create a metric w/ bound dimensions that to not exist
         with pytest.raises(Exception) as exc:
@@ -934,10 +934,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "/nodes/default.messages/columns/user_id/"
             "?dimension=default.us_users&dimension_column=id",
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         # The dimension's attributes should now be available to the metric
         response = client.get("/metrics/default.num_messages/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         assert response.json()["dimensions"] == [
             {
                 "is_primary_key": False,
@@ -1024,27 +1024,27 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Delete the dimension node
         response = client.delete("/nodes/default.us_users/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         # Retrieving the deleted node should respond that the node doesn't exist
         assert client.get("/nodes/default.us_users/").json()["message"] == (
             "A node with name `default.us_users` does not exist."
         )
         # The deleted dimension's attributes should no longer be available to the metric
         response = client.get("/metrics/default.num_messages/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         assert [] == response.json()["dimensions"]
         # The metric should still be VALID
         response = client.get("/nodes/default.num_messages/")
         assert response.json()["status"] == NodeStatus.VALID
         # Restore the dimension node
         response = client.post("/nodes/default.us_users/restore/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         # Retrieving the restored node should work
         response = client.get("/nodes/default.us_users/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         # The dimension's attributes should now once again show for the linked metric
         response = client.get("/metrics/default.num_messages/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         assert response.json()["dimensions"] == [
             {
                 "is_primary_key": False,
@@ -1131,9 +1131,9 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         Test raising when restoring an already active node
         """
         response = client.post("/catalogs/", json={"name": "warehouse"})
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post("/namespaces/default/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post(
             "/nodes/source/",
             json={
@@ -1156,9 +1156,9 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "table": "users",
             },
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         response = client.post("/nodes/default.users/restore/")
-        assert not response.ok
+        assert response.status_code == 400
         assert response.json() == {
             "message": "Cannot restore `default.users`, node already active.",
             "errors": [],
@@ -1182,7 +1182,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Hard delete the node
         response = client_with_roads.delete(f"/nodes/{node_name}/hard/")
-        assert response.ok
+        assert response.status_code in (200, 201)
 
         # Check that all revisions (and their relations) for the node have been deleted
         nodes = (
@@ -1297,7 +1297,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         """
         # Hard deleting a node causes downstream nodes to become invalid
         response = client_with_roads.delete("/nodes/default.repair_orders/hard/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         data = response.json()
         data["impact"] = sorted(data["impact"], key=lambda x: x["name"])
         assert data == {
@@ -1363,7 +1363,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Hard deleting a dimension creates broken links
         response = client_with_roads.delete("/nodes/default.repair_order/hard/")
-        assert response.ok
+        assert response.status_code in (200, 201)
         assert response.json() == {
             "impact": [
                 {
@@ -1434,7 +1434,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = client_with_roads.delete(
             "/nodes/default.regional_repair_efficiency/hard/",
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         assert response.json() == {
             "message": "The node `default.regional_repair_efficiency` has been completely removed.",
             "impact": [],
@@ -1444,7 +1444,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = client_with_roads.delete(
             "/nodes/default.avg_repair_order_discounts/hard/",
         )
-        assert response.ok
+        assert response.status_code in (200, 201)
         assert response.json() == {
             "message": "The node `default.avg_repair_order_discounts` has been completely removed.",
             "impact": [],
@@ -1865,7 +1865,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "mode": "published",
             },
         )
-        assert not response.ok
+        assert response.status_code >= 400
         assert response.json() == {
             "detail": [
                 {
@@ -4627,7 +4627,7 @@ def test_list_dimension_attributes(client_with_roads: TestClient) -> None:
     Test that listing dimension attributes for any node works.
     """
     response = client_with_roads.get("/nodes/default.regional_level_agg/dimensions/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert response.json() == [
         {
             "is_primary_key": True,

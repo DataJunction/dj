@@ -543,15 +543,15 @@ class TestDataForNode:
         Test streaming query status for multiple metrics and dimensions
         """
         custom_client = client_with_query_service_example_loader(["ROADS"])
-        response = custom_client.get(
+        with custom_client.stream(
+            "GET",
             "/stream?metrics=default.num_repair_orders&metrics="
             "default.avg_repair_price&dimensions=default.dispatcher.company_name&limit=10",
             headers={
                 "Accept": "text/event-stream",
             },
-            stream=True,
-        )
-        assert response.status_code == 200
+        ) as response:
+            assert response.status_code == 200
 
     def test_get_data_for_query_id(
         self,

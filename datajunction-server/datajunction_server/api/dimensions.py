@@ -56,7 +56,7 @@ def list_dimensions(
 def find_nodes_with_dimension(
     name: str,
     *,
-    node_type: Annotated[Union[List[NodeType], None], Query()] = Query(None),
+    node_type: Annotated[Union[List[NodeType], None], Query()] = None,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
@@ -87,8 +87,8 @@ def find_nodes_with_dimension(
 
 @router.get("/dimensions/common/", response_model=List[NodeRevisionOutput])
 def find_nodes_with_common_dimensions(
-    dimension: Annotated[Union[List[str], None], Query()] = Query(None),
-    node_type: Annotated[Union[List[NodeType], None], Query()] = Query(None),
+    dimension: Annotated[Union[List[str], None], Query()] = None,
+    node_type: Annotated[Union[List[NodeType], None], Query()] = None,
     *,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),

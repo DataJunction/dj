@@ -2,50 +2,59 @@
 # Please do not edit it manually.
 
 accept-types==0.4.1
-alembic==1.11.2
+aiohttp==3.9.0; python_version >= "3.11"
+aiosignal==1.3.1; python_version >= "3.11"
+alembic==1.13.1
 amqp==5.1.1
 antlr4-python3-runtime==4.12.0
 anyio==3.7.1
 asciidag==0.2.0
 asgiref==3.7.2
-async-timeout==4.0.3
-bcrypt==4.0.1
-billiard==4.1.0
-cachelib==0.10.2
-cachetools==5.3.1
-celery==5.3.1
+astunparse==1.6.3; python_version < "3.9"
+async-timeout==4.0.3; python_full_version <= "3.11.2"
+attrs==23.1.0; python_version >= "3.11"
+backports-zoneinfo==0.2.1; python_version < "3.9"
+bcrypt==4.1.2
+billiard==4.2.0
+cachelib==0.12.0
+cachetools==5.3.3
+celery==5.3.6
 certifi==2023.7.22
-cffi==1.15.1
+cffi==1.15.1; platform_python_implementation != "PyPy"
 charset-normalizer==3.2.0
 click==8.1.6
 click-didyoumean==0.3.0
 click-plugins==1.1.1
 click-repl==0.3.0
-cryptography==41.0.3
+colorama==0.4.6; sys_platform == "win32" or platform_system == "Windows"
+cryptography==42.0.5
 deprecated==1.2.14
 ecdsa==0.18.0
-exceptiongroup==1.1.3
-fastapi==0.79.1
+exceptiongroup==1.1.3; python_version < "3.11"
+fastapi==0.110.0
 fastapi-cache2==0.2.1
+frozenlist==1.4.0; python_version >= "3.11"
 google-api-core==2.12.0
-google-api-python-client==2.101.0
+google-api-python-client==2.122.0
 google-auth==2.23.2
-google-auth-httplib2==0.1.1
-google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.0
 googleapis-common-protos==1.60.0
 graphql-core==3.2.3
+greenlet==2.0.2; platform_machine == "win32" or platform_machine == "WIN32" or platform_machine == "AMD64" or platform_machine == "amd64" or platform_machine == "x86_64" or platform_machine == "ppc64le" or platform_machine == "aarch64"
 h11==0.14.0
 httplib2==0.22.0
 httptools==0.6.0
 idna==3.4
 importlib-metadata==6.8.0
-kombu==5.3.1
-line-profiler==4.0.3
+importlib-resources==6.0.1; python_version < "3.9"
+kombu==5.3.5
+line-profiler==4.1.2
 Mako==1.2.4
 markdown-it-py==3.0.0
 MarkupSafe==2.1.3
 mdurl==0.1.2
-msgpack==1.0.5
+msgpack==1.0.8
 multidict==6.0.4
 oauthlib==3.2.2
 opentelemetry-api==1.19.0
@@ -58,45 +67,46 @@ passlib==1.7.4
 pendulum==2.1.2
 prompt-toolkit==3.0.39
 protobuf==4.24.3
-psycopg==3.1.16
+psycopg==3.1.18
 pyasn1==0.5.0
 pyasn1-modules==0.3.0
-pycparser==2.21
-pydantic==1.10.13
+pycparser==2.21; platform_python_implementation != "PyPy"
+pydantic==1.10.14
 pygments==2.16.1
-pyparsing==3.1.1
+pyparsing==3.1.1; python_version > "3.0"
 python-dateutil==2.8.2
 python-dotenv==0.21.1
 python-jose==3.3.0
-python-multipart==0.0.6
+python-multipart==0.0.9
 pytzdata==2020.1
 pyyaml==6.0.1
 redis==4.6.0
 requests==2.29.0
 requests-oauthlib==1.3.1
-rich==13.5.2
+rich==13.7.1
 rsa==4.9
 setuptools==68.1.0
 six==1.16.0
 sniffio==1.3.0
-sqlalchemy==2.0.23
+sqlalchemy==2.0.28
 SQLAlchemy-Utils==0.41.1
-sqlglot==18.0.1
+sqlglot==22.5.0
 sqlparse==0.4.4
-sse-starlette==1.6.5
-starlette==0.19.1
-strawberry-graphql==0.204.0
-types-cachetools==5.3.0.6
-typing-extensions==4.7.1
+sse-starlette==2.0.0
+starlette==0.36.3
+strawberry-graphql==0.220.0
+types-cachetools==5.3.0.7
+typing-extensions==4.10.0
 tzdata==2023.3
 uritemplate==4.1.1
 urllib3==1.26.16
-uvicorn==0.23.2
-uvloop==0.17.0
-vine==5.0.0
+uvicorn==0.28.0
+uvloop==0.17.0; (sys_platform != "cygwin" and sys_platform != "win32") and platform_python_implementation != "PyPy"
+vine==5.1.0
 watchfiles==0.19.0
 wcwidth==0.2.6
 websockets==11.0.3
+wheel==0.41.1; python_version < "3.9"
 wrapt==1.15.0
-yarl==1.9.2
+yarl==1.9.4
 zipp==3.16.2
