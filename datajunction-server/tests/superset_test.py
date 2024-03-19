@@ -31,20 +31,18 @@ def test_get_metrics(mocker: MockerFixture, requests_mock: Mocker) -> None:
         engine.connect().connection.base_url = URL(
             "https://localhost:8000/0",
         )
-    inspector = mocker.MagicMock()
-
-    requests_mock.get(
-        "https://localhost:8000/0/metrics",
-        json=["core.num_comments"],
-    )
-
-    assert DJEngineSpec.get_metrics(database, inspector, "some-table", "main") == [
-        {
-            "metric_name": "core.num_comments",
-            "expression": '"core.num_comments"',
-            "description": "",
-        },
-    ]
+        requests_mock.get(
+            "https://localhost:8000/0/metrics/",
+            json=["core.num_comments"],
+        )
+        inspector = mocker.MagicMock()
+        assert DJEngineSpec.get_metrics(database, inspector, "some-table", "main") == [
+            {
+                "metric_name": "core.num_comments",
+                "expression": '"core.num_comments"',
+                "description": "",
+            },
+        ]
 
 
 def test_get_view_names(mocker: MockerFixture) -> None:

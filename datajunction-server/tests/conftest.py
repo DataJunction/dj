@@ -276,7 +276,7 @@ def post_and_raise_if_error(client: TestClient, endpoint: str, json: dict):
     Post the payload to the client and raise if there's an error
     """
     response = client.post(endpoint, json=json)
-    if not response.ok:
+    if response.status_code >= 400:
         raise HTTPException(response.text)
 
 

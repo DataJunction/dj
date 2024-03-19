@@ -12,21 +12,21 @@ def test_api_router_trailing_slashes(
     trailing slashes and those with trailing slashes to right place.
     """
     response = client_with_basic.get("/attributes/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert len(response.json()) > 0
 
     response = client_with_basic.get("/attributes")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert len(response.json()) > 0
 
     response = client_with_basic.get("/namespaces/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert len(response.json()) > 0
 
     response = client_with_basic.get("/namespaces")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert len(response.json()) > 0
 
     response = client_with_basic.get("/namespaces/basic?type_=source")
-    assert response.ok
+    assert response.status_code in (200, 201)
     assert len(response.json()) > 0

@@ -414,7 +414,7 @@ def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient)
     """
     client.post("/namespaces/default/")
     response = client.post("/catalogs/", json={"name": "default"})
-    assert response.ok
+    assert response.status_code in (200, 201)
     response = client.post(
         "/nodes/source/",
         json={
@@ -429,7 +429,7 @@ def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient)
             "table": "a",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
     response = client.post(
         "/nodes/transform/",
         json={
@@ -439,7 +439,7 @@ def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient)
             "name": "default.foo_array_example",
         },
     )
-    assert response.ok
+    assert response.status_code in (200, 201)
 
     query = parse(
         """

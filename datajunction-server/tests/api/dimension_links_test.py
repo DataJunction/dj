@@ -546,7 +546,8 @@ def test_remove_dimension_link(
     Test removing complex dimension links
     """
     link_events_to_users_with_role_direct()
-    response = dimensions_link_client.delete(
+    response = dimensions_link_client.request(
+        "DELETE",
         "/nodes/default.events/link",
         json={
             "dimension_node": "default.users",
@@ -559,7 +560,8 @@ def test_remove_dimension_link(
     }
 
     # Deleting again should not work
-    response = dimensions_link_client.delete(
+    response = dimensions_link_client.request(
+        "DELETE",
         "/nodes/default.events/link",
         json={
             "dimension_node": "default.users",
@@ -571,7 +573,8 @@ def test_remove_dimension_link(
     }
 
     link_events_to_users_without_role()
-    response = dimensions_link_client.delete(
+    response = dimensions_link_client.request(
+        "DELETE",
         "/nodes/default.events/link",
         json={
             "dimension_node": "default.users",
@@ -583,7 +586,8 @@ def test_remove_dimension_link(
     }
 
     # Deleting again should not work
-    response = dimensions_link_client.delete(
+    response = dimensions_link_client.request(
+        "DELETE",
         "/nodes/default.events/link",
         json={
             "dimension_node": "default.users",

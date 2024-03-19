@@ -32,7 +32,7 @@ def test_get_history_entity(client_with_roads: TestClient):
     Test getting history for an entity
     """
     response = client_with_roads.get("/history/node/default.repair_orders/")
-    assert response.ok
+    assert response.status_code in (200, 201)
     history = response.json()
     assert len(history) == 1
     entity = history[0]
@@ -58,7 +58,7 @@ def test_get_history_node(client_with_roads: TestClient):
     """
 
     response = client_with_roads.get("/history?node=default.repair_order")
-    assert response.ok
+    assert response.status_code in (200, 201)
     history = response.json()
     assert len(history) == 5
     assert history == [
@@ -157,7 +157,7 @@ def test_get_history_namespace(client_with_service_setup: TestClient):
     """
 
     response = client_with_service_setup.get("/history/namespace/default")
-    assert response.ok
+    assert response.status_code in (200, 201)
     history = response.json()
     assert len(history) == 1
     assert history == [
