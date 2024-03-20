@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.background import BackgroundTasks
 from starlette.requests import Request
 from yarl import URL
 
@@ -59,7 +60,7 @@ def get_engine() -> Engine:
     Create the metadata engine.
     """
     settings = get_settings()
-    engine = create_engine(
+    return create_engine(
         settings.index,
         pool_pre_ping=True,
         pool_size=settings.db_pool_size,
@@ -70,20 +71,40 @@ def get_engine() -> Engine:
         },
     )
 
-    return engine
+
+engine = get_engine()
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def get_session() -> Iterator[Session]:
+class SessionManager:
+    """
+    Session context manager.
+    """
+
+    def __init__(self, session_maker: sessionmaker):
+        self.session: Session = session_maker()
+
+    def __enter__(self):
+        return self.session
+
+    def __exit__(self, exception_type, exception_value, traceback):
+        self.session.close()
+
+
+def close_session(session: Session):
+    """
+    Handles session closing
+    """
+    session.close()  # pragma: no cover
+
+
+def get_session(background_tasks: BackgroundTasks) -> Iterator[Session]:
     """
     Direct SQLAlchemy session.
     """
-    engine = get_engine()
-    session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    session = session_local()
-    try:
+    with SessionManager(SessionLocal) as session:  # pragma: no cover
+        background_tasks.add_task(close_session, session)
         yield session
-    finally:
-        session.close()
 
 
 def get_query_service_client() -> Optional[QueryServiceClient]:

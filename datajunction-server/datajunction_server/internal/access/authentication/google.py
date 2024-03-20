@@ -82,7 +82,7 @@ def get_google_user(token: str) -> User:
             http_status_code=HTTPStatus.FORBIDDEN,
             message=f"Error retrieving Google user: {response.text}",
         )
-    session = next(get_session())
+    session = next(get_session())  # type: ignore  # pylint: disable=no-value-for-parameter
     existing_user = session.execute(
         select(User).where(User.email == user_data["login"]),
     ).scalar()
