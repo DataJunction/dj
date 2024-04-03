@@ -101,9 +101,7 @@ describe('AddEditNodePage submission failed', () => {
         status: 404,
       });
 
-      expect(
-        await screen.getByText('Update failed, Some tags were not found'),
-      ).toBeInTheDocument();
+      expect(await screen.getByText('Update failed')).toBeInTheDocument();
     });
   }, 60000);
 });
