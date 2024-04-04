@@ -617,9 +617,9 @@ export const DataJunctionAPI = {
   addComplexDimensionLink: async function (
     nodeName,
     dimensionNode,
-    joinType = 'left',
     joinOn,
-    joinCardinality = 'many_to_one',
+    joinType = null,
+    joinCardinality = null,
     role = null,
   ) {
     const response = await fetch(`${DJ_URL}/nodes/${nodeName}/link`, {
