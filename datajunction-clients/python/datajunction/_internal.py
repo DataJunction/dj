@@ -288,24 +288,6 @@ class DJClient:
         """
         return self._session.patch(f"/nodes/{node_name}/", json=update_input.dict())
 
-    def _update_tag(self, tag_name: str, update_input: models.UpdateNode):
-        """
-        Call tag update API with attributes to update.
-        """
-        return self._session.patch(
-            f"/tags/{tag_name}/",
-            json=update_input.dict(exclude_none=True),
-        )
-
-    def _update_node_tags(self, node_name: str, tags: Optional[List[str]]):
-        """
-        Update tags on a node
-        """
-        return self._session.post(
-            f"/nodes/{node_name}/tags/",
-            params={"tag_names": tags} if tags else None,
-        )
-
     def _publish_node(self, node_name: str, update_input: models.UpdateNode):
         """
         Retrieves a node.
@@ -543,6 +525,27 @@ class DJClient:
         response = self._session.get(f"/namespaces/{namespace}/export/")
         return response.json()
 
+    #
+    # Methods for Tags
+    #
+    def _update_tag(self, tag_name: str, update_input: models.UpdateNode):
+        """
+        Call tag update API with attributes to update.
+        """
+        return self._session.patch(
+            f"/tags/{tag_name}/",
+            json=update_input.dict(exclude_none=True),
+        )
+
+    def _update_node_tags(self, node_name: str, tags: Optional[List[str]]):
+        """
+        Update tags on a node
+        """
+        return self._session.post(
+            f"/nodes/{node_name}/tags/",
+            params={"tag_names": tags} if tags else None,
+        )
+
     def _get_tag(self, tag_name: str):
         """
         Retrieves a tag.
@@ -570,6 +573,22 @@ class DJClient:
             json=tag.dict(exclude_none=True),
         )
         return response
+
+    def _list_nodes_with_tag(
+        self,
+        tag_name: str,
+        node_type: Optional[models.NodeType] = None,
+    ):
+        """
+        Retrieves all nodes with a given tag.
+        """
+        response = self._session.get(
+            f"/tags/{tag_name}/nodes"
+            + (f"?node_type={node_type.value}" if node_type else ""),
+        )
+        if response.status_code == 404:
+            return []
+        return [n["name"] for n in response.json()]
 
 
 class ClientEntity(BaseModel):

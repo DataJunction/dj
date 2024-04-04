@@ -909,3 +909,53 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         node.save()
         repull_node = client.source("default.repair_orders")
         assert repull_node.tags == [tag]
+
+    def test_list_nodes_with_tags(self, client):
+        """
+        Test that we can list nodes with tags.
+        """
+        # create some tags
+        tag_foo = client.create_tag(
+            name="foo",
+            description="Foo",
+            tag_type="test",
+            tag_metadata={"foo": "bar"},
+        )
+        tag_bar = client.create_tag(
+            name="bar",
+            description="Bar",
+            tag_type="test",
+            tag_metadata={"foo": "bar"},
+        )
+
+        # tag some nodes
+        node_one = client.source("default.repair_orders")
+        node_one.tags.append(tag_foo)
+        node_one.tags.append(tag_bar)
+        node_one.save()
+
+        node_two = client.metric("default.num_repair_orders")
+        node_two.tags.append(tag_foo)
+        node_two.save()
+
+        node_three = client.dimension("default.repair_order")
+        node_three.tags.append(tag_foo)
+        node_three.tags.append(tag_bar)
+        node_three.save()
+
+        # list nodes with tags
+        nodes_with_foo = client.list_nodes_with_tags(tag_names=["foo"])
+        nodes_with_foo_and_bar = client.list_nodes_with_tags(tag_names=["bar", "foo"])
+
+        # evaluate
+        assert client.list_nodes_with_tags(tag_names=["does-not-exist"]) == []
+        assert set(nodes_with_foo) == set(
+            [
+                "default.repair_order",
+                "default.repair_orders",
+                "default.num_repair_orders",
+            ],
+        )
+        assert set(nodes_with_foo_and_bar) == set(
+            ["default.repair_orders", "default.repair_order"],
+        )
