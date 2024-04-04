@@ -115,6 +115,7 @@ List of all available DJ client methods:
   - list_sources( namespace: Optional[str])
   - list_transforms( namespace: Optional[str])
   - list_nodes( namespace: Optional[str], type_: Optional[NodeType])
+  - list_nodes_with_tags( tag_names: List[str], node_type: Optional[NodeType])
 
   - list_catalogs()
   - list_engines()
@@ -217,6 +218,15 @@ repair_orders = djbuilder.source("default.repair_orders")
 repair_orders.tags.append(djbuilder.tag("deprecated"))
 repair_orders.save()
 ```
+
+And to list the node names with a specific tag (or set of tags):
+
+```python
+djbuilder.list_nodes_with_tags(tag_names=["deprecated"])  # works with DJClient() as well
+
+["default.repair_orders"]
+```
+
 
 ### Nodes
 
