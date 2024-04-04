@@ -656,6 +656,46 @@ describe('DataJunctionAPI', () => {
     );
   });
 
+  it('calls add and remove complex dimension link correctly', async () => {
+    const nodeName = 'default.transform1';
+    const dimensionNode = 'default.dimension1';
+    const joinOn = 'blah';
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.removeComplexDimensionLink(nodeName, dimensionNode);
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/nodes/${nodeName}/link`, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        dimensionNode: dimensionNode,
+        role: null,
+      }),
+      method: 'DELETE',
+    });
+
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.addComplexDimensionLink(
+      nodeName,
+      dimensionNode,
+      joinOn,
+    );
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/nodes/${nodeName}/link`, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        dimensionNode: dimensionNode,
+        joinType: null,
+        joinOn: joinOn,
+        joinCardinality: null,
+        role: null,
+      }),
+      method: 'POST',
+    });
+  });
+
   it('calls deactivate correctly', async () => {
     const nodeName = 'default.transform1';
     fetch.mockResponseOnce(JSON.stringify({}));

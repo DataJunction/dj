@@ -613,6 +613,51 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
+
+  addComplexDimensionLink: async function (
+    nodeName,
+    dimensionNode,
+    joinOn,
+    joinType = null,
+    joinCardinality = null,
+    role = null,
+  ) {
+    const response = await fetch(`${DJ_URL}/nodes/${nodeName}/link`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        dimensionNode: dimensionNode,
+        joinType: joinType,
+        joinOn: joinOn,
+        joinCardinality: joinCardinality,
+        role: role,
+      }),
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
+
+  removeComplexDimensionLink: async function (
+    nodeName,
+    dimensionNode,
+    role = null,
+  ) {
+    const response = await fetch(`${DJ_URL}/nodes/${nodeName}/link`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        dimensionNode: dimensionNode,
+        role: role,
+      }),
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
+
   deactivate: async function (nodeName) {
     const response = await fetch(`${DJ_URL}/nodes/${nodeName}`, {
       method: 'DELETE',
