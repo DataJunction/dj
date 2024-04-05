@@ -1,13 +1,13 @@
 """DataJunction main client module."""
 
 import time
-from typing import List, Optional, Union
+from typing import List, Optional, Set, Union
 from urllib.parse import urlencode
 
 from alive_progress import alive_bar
 
 from datajunction import _internal, models
-from datajunction.exceptions import DJClientException
+from datajunction.exceptions import DJClientException, DJTagDoesNotExist
 from datajunction.nodes import Cube, Dimension, Metric, Source, Transform
 from datajunction.tags import Tag
 
@@ -273,7 +273,9 @@ class DJClient(_internal.DJClient):
             for engine in json_response
         ]
 
-    # Read nodes
+    #
+    # Nodes
+    #
     def source(self, node_name: str) -> Source:
         """
         Retrieves a source node with that name if one exists.
@@ -357,6 +359,35 @@ class DJClient(_internal.DJClient):
             dimensions=dimensions,
             dj_client=self,
         )
+
+    #
+    # Tags
+    #
+    def list_nodes_with_tags(
+        self,
+        tag_names: List[str],
+        node_type: Optional[models.NodeType] = None,
+        skip_missing: bool = False,
+    ) -> List[str]:
+        """
+        Find all nodes with given tags. The nodes must have all the tags.
+        """
+        node_names: Set[str] = set()
+        for tag_name in tag_names:
+            try:
+                node_names_with_tag = self._list_nodes_with_tag(
+                    tag_name,
+                    node_type=node_type,
+                )
+            except DJTagDoesNotExist as exc:
+                if skip_missing:
+                    continue
+                raise exc
+            if not node_names:
+                node_names = set(node_names_with_tag)
+            else:
+                node_names = node_names.intersection(node_names_with_tag)
+        return list(node_names)
 
     def tag(self, tag_name: str) -> "Tag":  # pragma: no cover
         """

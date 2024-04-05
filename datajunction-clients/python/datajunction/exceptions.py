@@ -24,6 +24,16 @@ class DJTagAlreadyExists(DJClientException):
         super().__init__(self.message, *args)
 
 
+class DJTagDoesNotExist(DJClientException):
+    """
+    Raised when a referenced tag does not exist.
+    """
+
+    def __init__(self, tag_name: str, *args) -> None:
+        self.message = f"Tag `{tag_name}` does not exist."
+        super().__init__(self.message, *args)
+
+
 class DJNodeAlreadyExists(DJClientException):
     """
     Raised when a node to be created already exists.
@@ -42,4 +52,14 @@ class DJDeploymentFailure(DJClientException):
     def __init__(self, project_name: str, errors: List[dict], *args) -> None:
         self.errors = errors
         self.message = f"Some failures while deploying project `{project_name}`"
+        super().__init__(self.message, *args)
+
+
+class DJTableAlreadyRegistered(DJClientException):
+    """
+    Raised when a table is already regsistered in DJ.
+    """
+
+    def __init__(self, catalog: str, schema: str, table: str, *args) -> None:
+        self.message = f"Table `{catalog}.{schema}.{table}` is already registered."
         super().__init__(self.message, *args)
