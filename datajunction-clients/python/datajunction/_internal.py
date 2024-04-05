@@ -26,6 +26,7 @@ from datajunction.exceptions import (
     DJClientException,
     DJNodeAlreadyExists,
     DJTagAlreadyExists,
+    DJTagDoesNotExist,
 )
 
 if TYPE_CHECKING:
@@ -171,6 +172,33 @@ class DJClient:
             self._session = requests_session
         self._timeout = timeout
 
+    #
+    # Authentication
+    #
+    def create_user(self, email: str, username: str, password: str):
+        """
+        Create basic user.
+        """
+        response = self._session.post(
+            "/basic/user/",
+            data={"email": email, "username": username, "password": password},
+        )
+        return response.json()
+
+    def basic_login(
+        self,
+        username: str,
+        password: str,
+    ):
+        """
+        Login with basic authentication.
+        """
+        response = self._session.post(
+            "/basic/login/",
+            data={"username": username, "password": password},
+        )
+        return response.json()
+
     @staticmethod
     def _primary_key_from_columns(columns) -> List[str]:
         """
@@ -287,24 +315,6 @@ class DJClient:
         Call node update API with attributes to update.
         """
         return self._session.patch(f"/nodes/{node_name}/", json=update_input.dict())
-
-    def _update_tag(self, tag_name: str, update_input: models.UpdateNode):
-        """
-        Call tag update API with attributes to update.
-        """
-        return self._session.patch(
-            f"/tags/{tag_name}/",
-            json=update_input.dict(exclude_none=True),
-        )
-
-    def _update_node_tags(self, node_name: str, tags: Optional[List[str]]):
-        """
-        Update tags on a node
-        """
-        return self._session.post(
-            f"/nodes/{node_name}/tags/",
-            params={"tag_names": tags} if tags else None,
-        )
 
     def _publish_node(self, node_name: str, update_input: models.UpdateNode):
         """
@@ -543,6 +553,27 @@ class DJClient:
         response = self._session.get(f"/namespaces/{namespace}/export/")
         return response.json()
 
+    #
+    # Methods for Tags
+    #
+    def _update_tag(self, tag_name: str, update_input: models.UpdateNode):
+        """
+        Call tag update API with attributes to update.
+        """
+        return self._session.patch(
+            f"/tags/{tag_name}/",
+            json=update_input.dict(exclude_none=True),
+        )
+
+    def _update_node_tags(self, node_name: str, tags: Optional[List[str]]):
+        """
+        Update tags on a node
+        """
+        return self._session.post(
+            f"/nodes/{node_name}/tags/",
+            params={"tag_names": tags} if tags else None,
+        )
+
     def _get_tag(self, tag_name: str):
         """
         Retrieves a tag.
@@ -570,6 +601,22 @@ class DJClient:
             json=tag.dict(exclude_none=True),
         )
         return response
+
+    def _list_nodes_with_tag(
+        self,
+        tag_name: str,
+        node_type: Optional[models.NodeType] = None,
+    ):
+        """
+        Retrieves all nodes with a given tag.
+        """
+        response = self._session.get(
+            f"/tags/{tag_name}/nodes"
+            + (f"?node_type={node_type.value}" if node_type else ""),
+        )
+        if response.status_code == 404:
+            raise DJTagDoesNotExist(tag_name)
+        return [n["name"] for n in response.json()]
 
 
 class ClientEntity(BaseModel):
