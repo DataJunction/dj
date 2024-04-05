@@ -24,6 +24,16 @@ class DJTagAlreadyExists(DJClientException):
         super().__init__(self.message, *args)
 
 
+class DJTagDoesNotExist(DJClientException):
+    """
+    Raised when a referenced tag does not exist.
+    """
+
+    def __init__(self, tag_name: str, *args) -> None:
+        self.message = f"Tag `{tag_name}` does not exist."
+        super().__init__(self.message, *args)
+
+
 class DJNodeAlreadyExists(DJClientException):
     """
     Raised when a node to be created already exists.

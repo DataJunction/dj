@@ -26,6 +26,7 @@ from datajunction.exceptions import (
     DJClientException,
     DJNodeAlreadyExists,
     DJTagAlreadyExists,
+    DJTagDoesNotExist,
 )
 
 if TYPE_CHECKING:
@@ -170,6 +171,33 @@ class DJClient:
         else:  # pragma: no cover
             self._session = requests_session
         self._timeout = timeout
+
+    #
+    # Authentication
+    #
+    def create_user(self, email: str, username: str, password: str):
+        """
+        Create basic user.
+        """
+        response = self._session.post(
+            "/basic/user/",
+            data={"email": email, "username": username, "password": password},
+        )
+        return response.json()
+
+    def basic_login(
+        self,
+        username: str,
+        password: str,
+    ):
+        """
+        Login with basic authentication.
+        """
+        response = self._session.post(
+            "/basic/login/",
+            data={"username": username, "password": password},
+        )
+        return response.json()
 
     @staticmethod
     def _primary_key_from_columns(columns) -> List[str]:
@@ -587,7 +615,7 @@ class DJClient:
             + (f"?node_type={node_type.value}" if node_type else ""),
         )
         if response.status_code == 404:
-            return []
+            raise DJTagDoesNotExist(tag_name)
         return [n["name"] for n in response.json()]
 
 

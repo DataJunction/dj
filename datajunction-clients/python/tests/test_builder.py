@@ -961,7 +961,12 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         nodes_with_foo_and_bar = client.list_nodes_with_tags(tag_names=["bar", "foo"])
 
         # evaluate
-        assert client.list_nodes_with_tags(tag_names=["does-not-exist"]) == []
+        with pytest.raises(DJClientException):
+            client.list_nodes_with_tags(tag_names=["does-not-exist"])
+        assert (
+            client.list_nodes_with_tags(tag_names=["does-not-exist"], skip_missing=True)
+            == []
+        )
         assert set(nodes_with_foo) == set(
             [
                 "default.repair_order",
