@@ -1,7 +1,7 @@
 """DataJunction main client module."""
 
 import time
-from typing import List, Optional, Union
+from typing import List, Optional, Set, Union
 from urllib.parse import urlencode
 
 from alive_progress import alive_bar
@@ -371,7 +371,7 @@ class DJClient(_internal.DJClient):
         """
         Find all nodes with given tags. The nodes must have all the tags.
         """
-        node_names: set[str] = set()
+        node_names: Set[str] = set()
         for tag_name in tag_names:
             node_names_with_tag = self._list_nodes_with_tag(
                 tag_name,
