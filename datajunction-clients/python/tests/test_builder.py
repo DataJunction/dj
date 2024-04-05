@@ -1,11 +1,15 @@
 """Tests DJ client"""
+from unittest.mock import MagicMock
+
 import pytest
+from requests.exceptions import HTTPError
 
 from datajunction import DJBuilder
 from datajunction.exceptions import (
     DJClientException,
     DJNamespaceAlreadyExists,
     DJNodeAlreadyExists,
+    DJTableAlreadyRegistered,
     DJTagAlreadyExists,
 )
 from datajunction.models import (
@@ -19,7 +23,7 @@ from datajunction.models import (
 )
 
 
-class TestDJBuilder:  # pylint: disable=too-many-public-methods
+class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-access
     """
     Tests for DJ client/builder functionality.
     """
@@ -260,6 +264,15 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             "source.default.store.comments"
             in client.namespace("source.default.store").sources()
         )
+        # and that errors are handled properly
+        client._session.post = MagicMock(
+            side_effect=HTTPError("409 Client Error: Conflict"),
+        )
+        with pytest.raises(DJTableAlreadyRegistered):
+            client.register_table(catalog="default", schema="store", table="comments")
+        client._session.post = MagicMock(side_effect=Exception("Boom!"))
+        with pytest.raises(DJClientException):
+            client.register_table(catalog="default", schema="store", table="comments")
 
     def test_create_and_update_node(self, client):  # pylint: disable=unused-argument
         """

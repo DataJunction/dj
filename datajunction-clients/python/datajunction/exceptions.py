@@ -43,3 +43,13 @@ class DJDeploymentFailure(DJClientException):
         self.errors = errors
         self.message = f"Some failures while deploying project `{project_name}`"
         super().__init__(self.message, *args)
+
+
+class DJTableAlreadyRegistered(DJClientException):
+    """
+    Raised when a table is already regsistered in DJ.
+    """
+
+    def __init__(self, catalog: str, schema: str, table: str, *args) -> None:
+        self.message = f"Table `{catalog}.{schema}.{table}` is already registered."
+        super().__init__(self.message, *args)
