@@ -2729,6 +2729,30 @@ def test_regexp_like(session: Session):
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
+def test_replace(session: Session):
+    """
+    Test `replace`
+    """
+    # two arguments
+    query = parse(
+        "SELECT replace('%SystemDrive%\\Users\\John', '%SystemDrive%\\Users.*')",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    # three arguments
+    query = parse(
+        "SELECT replace('%SystemDrive%\\Users\\John', '%SystemDrive%\\Users.*', 'C:\\Users\\John')",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
 def test_row_number(session: Session):
     """
     Test `row_number`
