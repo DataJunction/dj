@@ -4,7 +4,7 @@ Tests for compiling nodes
 
 # pylint: disable=too-many-lines
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJException
@@ -13,7 +13,8 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
-def test_get_table_node_is_none(construction_session: Session):
+@pytest.mark.asyncio
+async def test_get_table_node_is_none(construction_session: AsyncSession):
     """
     Test a nonexistent table node with compound exception ignore
     """
@@ -23,12 +24,13 @@ def test_get_table_node_is_none(construction_session: Session):
         session=construction_session,
         exception=DJException(),
     )
-    query.compile(ctx)
+    await query.compile(ctx)
 
     assert "No node `purchases`" in str(ctx.exception.errors)
 
 
-def test_missing_references(construction_session: Session):
+@pytest.mark.asyncio
+async def test_missing_references(construction_session: AsyncSession):
     """
     Test getting dependencies from a query that has dangling references
     """
@@ -38,11 +40,14 @@ def test_missing_references(construction_session: Session):
         session=construction_session,
         exception=exception,
     )
-    _, missing_references = query.extract_dependencies(context)
+    _, missing_references = await query.extract_dependencies(context)
     assert missing_references
 
 
-def test_catching_dangling_refs_in_extract_dependencies(construction_session: Session):
+@pytest.mark.asyncio
+async def test_catching_dangling_refs_in_extract_dependencies(
+    construction_session: AsyncSession,
+):
     """
     Test getting dependencies from a query that has dangling references when set not to raise
     """
@@ -52,11 +57,12 @@ def test_catching_dangling_refs_in_extract_dependencies(construction_session: Se
         session=construction_session,
         exception=exception,
     )
-    _, danglers = query.extract_dependencies(context)
+    _, danglers = await query.extract_dependencies(context)
     assert "does_not_exist" in danglers
 
 
-def test_raising_on_extract_from_node_with_no_query():
+@pytest.mark.asyncio
+async def test_raising_on_extract_from_node_with_no_query():
     """
     Test parsing an empty query fails
     """
@@ -65,7 +71,10 @@ def test_raising_on_extract_from_node_with_no_query():
     assert "Empty query provided!" in str(exc_info.value)
 
 
-def test_raise_on_unnamed_subquery_in_implicit_join(construction_session: Session):
+@pytest.mark.asyncio
+async def test_raise_on_unnamed_subquery_in_implicit_join(
+    construction_session: AsyncSession,
+):
     """
     Test raising on an unnamed subquery in an implicit join
     """
@@ -78,7 +87,7 @@ def test_raise_on_unnamed_subquery_in_implicit_join(construction_session: Sessio
         session=construction_session,
         exception=DJException(),
     )
-    query.extract_dependencies(context)
+    await query.extract_dependencies(context)
     assert (
         "Column `country` found in multiple tables. Consider using fully qualified name."
         in str(
@@ -87,7 +96,8 @@ def test_raise_on_unnamed_subquery_in_implicit_join(construction_session: Sessio
     )
 
 
-def test_raise_on_ambiguous_column(construction_session: Session):
+@pytest.mark.asyncio
+async def test_raise_on_ambiguous_column(construction_session: AsyncSession):
     """
     Test raising on ambiguous column
     """
@@ -99,7 +109,7 @@ def test_raise_on_ambiguous_column(construction_session: Session):
         session=construction_session,
         exception=DJException(),
     )
-    query.compile(context)
+    await query.compile(context)
     assert (
         "Column `country` found in multiple tables. Consider using fully qualified name."
         in str(
@@ -108,7 +118,8 @@ def test_raise_on_ambiguous_column(construction_session: Session):
     )
 
 
-def test_compile_node(construction_session: Session):
+@pytest.mark.asyncio
+async def test_compile_node(construction_session: AsyncSession):
     """
     Test compiling a node
     """
@@ -120,10 +131,11 @@ def test_compile_node(construction_session: Session):
     )
     query_ast = parse(node_a_rev.query)
     ctx = CompileContext(session=construction_session, exception=DJException())
-    query_ast.compile(ctx)
+    await query_ast.compile(ctx)
 
 
-def test_raise_on_compile_node_with_no_query(construction_session: Session):
+@pytest.mark.asyncio
+async def test_raise_on_compile_node_with_no_query(construction_session: AsyncSession):
     """
     Test raising when compiling a node that has no query
     """
@@ -133,12 +145,15 @@ def test_raise_on_compile_node_with_no_query(construction_session: Session):
     with pytest.raises(DJException) as exc_info:
         query_ast = parse(node_a_rev.query)
         ctx = CompileContext(session=construction_session, exception=DJException())
-        query_ast.compile(ctx)
+        await query_ast.compile(ctx)
 
     assert "Empty query provided" in str(exc_info.value)
 
 
-def test_raise_on_unjoinable_automatic_dimension_groupby(construction_session: Session):
+@pytest.mark.asyncio
+async def test_raise_on_unjoinable_automatic_dimension_groupby(
+    construction_session: AsyncSession,
+):
     """
     Test raising where a dimension node is automatically detected but unjoinable
     """
@@ -154,7 +169,7 @@ def test_raise_on_unjoinable_automatic_dimension_groupby(construction_session: S
 
     query_ast = parse(node_a_rev.query)
     ctx = CompileContext(session=construction_session, exception=DJException())
-    query_ast.compile(ctx)
+    await query_ast.compile(ctx)
 
     assert (
         "Column `basic.dimension.countries.country` does not exist on any valid table."
@@ -164,7 +179,8 @@ def test_raise_on_unjoinable_automatic_dimension_groupby(construction_session: S
     )
 
 
-def test_raise_on_having_without_a_groupby(construction_session: Session):
+@pytest.mark.asyncio
+async def test_raise_on_having_without_a_groupby(construction_session: AsyncSession):
     """
     Test raising when using a having without a groupby
     """
@@ -179,12 +195,13 @@ def test_raise_on_having_without_a_groupby(construction_session: Session):
 
     query_ast = parse(node_a_rev.query)
     ctx = CompileContext(session=construction_session, exception=DJException())
-    query_ast.compile(ctx)
+    await query_ast.compile(ctx)
 
     assert "HAVING without a GROUP BY is not allowed" in str(ctx.exception.errors)
 
 
-def test_having(construction_session: Session):
+@pytest.mark.asyncio
+async def test_having(construction_session: AsyncSession):
     """
     Test using having
     """
@@ -200,4 +217,4 @@ def test_having(construction_session: Session):
     )
     query_ast = parse(node_a_rev.query)
     ctx = CompileContext(session=construction_session, exception=DJException())
-    query_ast.compile(ctx)
+    await query_ast.compile(ctx)

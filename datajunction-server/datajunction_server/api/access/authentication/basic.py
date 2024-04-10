@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Form
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.database.user import OAuthProvider, User
@@ -24,20 +24,17 @@ router = APIRouter(tags=["Basic OAuth2"])
 
 
 @router.post("/basic/user/")
-def create_a_user(
+async def create_a_user(
     email: str = Form(),
     username: str = Form(),
     password: str = Form(),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> JSONResponse:
     """
     Create a new user
     """
-    if (
-        session.execute(select(User).where(User.username == username))
-        .scalars()
-        .one_or_none()
-    ):
+    user_result = await session.execute(select(User).where(User.username == username))
+    if user_result.scalar_one_or_none():
         raise DJException(
             http_status_code=HTTPStatus.CONFLICT,
             errors=[
@@ -54,8 +51,8 @@ def create_a_user(
         oauth_provider=OAuthProvider.BASIC,
     )
     session.add(new_user)
-    session.commit()
-    session.refresh(new_user)
+    await session.commit()
+    await session.refresh(new_user)
     return JSONResponse(
         content={"message": "User successfully created"},
         status_code=HTTPStatus.CREATED,
@@ -63,14 +60,14 @@ def create_a_user(
 
 
 @router.post("/basic/login/")
-def login(
+async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ):
     """
     Get a JWT token and set it as an HTTP only cookie
     """
-    user = validate_user_password(
+    user = await validate_user_password(
         username=form_data.username,
         password=form_data.password,
         session=session,

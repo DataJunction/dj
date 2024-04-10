@@ -1,21 +1,22 @@
 """Dimension linking related tests."""
 
 import pytest
+import pytest_asyncio
+from httpx import AsyncClient
 from requests import Response
-from starlette.testclient import TestClient
 
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from tests.conftest import post_and_raise_if_error
 from tests.examples import COMPLEX_DIMENSION_LINK, SERVICE_SETUP
 
 
-@pytest.fixture
-def dimensions_link_client(client: TestClient) -> TestClient:
+@pytest_asyncio.fixture
+async def dimensions_link_client(client: AsyncClient) -> AsyncClient:
     """
     Add dimension link examples to the roads test client.
     """
     for endpoint, json in SERVICE_SETUP + COMPLEX_DIMENSION_LINK:
-        post_and_raise_if_error(  # type: ignore
+        await post_and_raise_if_error(  # type: ignore
             client=client,
             endpoint=endpoint,
             json=json,  # type: ignore
@@ -23,13 +24,14 @@ def dimensions_link_client(client: TestClient) -> TestClient:
     return client
 
 
-def test_link_dimension_with_errors(
-    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_link_dimension_with_errors(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
 ):
     """
     Test linking dimensions with errors
     """
-    response = dimensions_link_client.post(
+    response = await dimensions_link_client.post(
         "/nodes/default.elapsed_secs/link",
         json={
             "dimension_node": "default.users",
@@ -41,7 +43,7 @@ def test_link_dimension_with_errors(
         "Cannot link dimension to a node of type metric. Must be a source, "
         "dimension, or transform node."
     )
-    response = dimensions_link_client.post(
+    response = await dimensions_link_client.post(
         "/nodes/default.events/link",
         json={
             "dimension_node": "default.users",
@@ -54,7 +56,7 @@ def test_link_dimension_with_errors(
         "and the dimension node default.users that it's being joined to."
     )
 
-    response = dimensions_link_client.post(
+    response = await dimensions_link_client.post(
         "/nodes/default.events/link",
         json={
             "dimension_node": "default.users",
@@ -70,14 +72,14 @@ def test_link_dimension_with_errors(
 
 @pytest.fixture
 def link_events_to_users_without_role(
-    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
 ):
     """
     Link events with the users dimension without a role
     """
 
-    def _link_events_to_users_without_role() -> Response:
-        response = dimensions_link_client.post(
+    async def _link_events_to_users_without_role() -> Response:
+        response = await dimensions_link_client.post(
             "/nodes/default.events/link",
             json={
                 "dimension_node": "default.users",
@@ -96,7 +98,7 @@ def link_events_to_users_without_role(
 
 @pytest.fixture
 def link_events_to_users_with_role_direct(
-    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
 ):
     """
     Link events with the users dimension with the role "user_direct",
@@ -104,8 +106,8 @@ def link_events_to_users_with_role_direct(
     event's start date
     """
 
-    def _link_events_to_users_with_role_direct() -> Response:
-        response = dimensions_link_client.post(
+    async def _link_events_to_users_with_role_direct() -> Response:
+        response = await dimensions_link_client.post(
             "/nodes/default.events/link",
             json={
                 "dimension_node": "default.users",
@@ -125,15 +127,15 @@ def link_events_to_users_with_role_direct(
 
 @pytest.fixture
 def link_events_to_users_with_role_windowed(
-    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
 ):
     """
     Link events with the users dimension with the role "user_windowed",
     indicating windowed join between events and the user dimension
     """
 
-    def _link_events_to_users_with_role_windowed() -> Response:
-        response = dimensions_link_client.post(
+    async def _link_events_to_users_with_role_windowed() -> Response:
+        response = await dimensions_link_client.post(
             "/nodes/default.events/link",
             json={
                 "dimension_node": "default.users",
@@ -152,14 +154,14 @@ def link_events_to_users_with_role_windowed(
 
 @pytest.fixture
 def link_users_to_countries_with_role_registration(
-    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
 ):
     """
     Link users to the countries dimension with role "registration_country".
     """
 
-    def _link_users_to_countries_with_role_registration() -> Response:
-        response = dimensions_link_client.post(
+    async def _link_users_to_countries_with_role_registration() -> Response:
+        response = await dimensions_link_client.post(
             "/nodes/default.users/link",
             json={
                 "dimension_node": "default.countries",
@@ -174,20 +176,21 @@ def link_users_to_countries_with_role_registration(
     return _link_users_to_countries_with_role_registration
 
 
-def test_link_complex_dimension_without_role(
-    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name,
+@pytest.mark.asyncio
+async def test_link_complex_dimension_without_role(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name,
     link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
 ):
     """
     Test linking complex dimension without role
     """
-    response = link_events_to_users_without_role()
+    response = await link_events_to_users_without_role()
     assert response.json() == {
         "message": "Dimension node default.users has been successfully "
         "linked to node default.events.",
     }
 
-    response = dimensions_link_client.get("/nodes/default.events")
+    response = await dimensions_link_client.get("/nodes/default.events")
     assert response.json()["dimension_links"] == [
         {
             "dimension": {"name": "default.users"},
@@ -204,7 +207,7 @@ def test_link_complex_dimension_without_role(
     ]
 
     # Update dimension link
-    response = dimensions_link_client.post(
+    response = await dimensions_link_client.post(
         "/nodes/default.events/link",
         json={
             "dimension_node": "default.users",
@@ -221,13 +224,13 @@ def test_link_complex_dimension_without_role(
         "default.users has been successfully updated.",
     }
 
-    response = dimensions_link_client.get("/nodes/default.events")
+    response = await dimensions_link_client.get("/nodes/default.events")
     assert response.json()["dimension_links"][0]["foreign_keys"] == {
         "default.events.event_end_date": "default.users.snapshot_date",
         "default.events.user_id": "default.users.user_id",
     }
 
-    response = dimensions_link_client.get("/history?node=default.events")
+    response = await dimensions_link_client.get("/history?node=default.events")
     assert [
         (entry["activity_type"], entry["details"])
         for entry in response.json()
@@ -256,9 +259,9 @@ def test_link_complex_dimension_without_role(
     ]
 
     # Switch back to original join definition
-    link_events_to_users_without_role()
+    await link_events_to_users_without_role()
 
-    response = dimensions_link_client.get(
+    response = await dimensions_link_client.get(
         "/sql/default.events?dimensions=default.users.user_id"
         "&dimensions=default.users.snapshot_date"
         "&dimensions=default.users.registration_country",
@@ -286,7 +289,7 @@ FROM (
   AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date"""
     assert str(parse(query)) == str(parse(expected))
 
-    response = dimensions_link_client.get("/nodes/default.events/dimensions")
+    response = await dimensions_link_client.get("/nodes/default.events/dimensions")
     assert [(attr["name"], attr["path"]) for attr in response.json()] == [
         ("default.users.account_type", ["default.events"]),
         ("default.users.registration_country", ["default.events"]),
@@ -296,8 +299,9 @@ FROM (
     ]
 
 
-def test_link_complex_dimension_with_role(
-    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_link_complex_dimension_with_role(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
     link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
     link_events_to_users_with_role_windowed,  # pylint: disable=redefined-outer-name
     link_users_to_countries_with_role_registration,  # pylint: disable=redefined-outer-name
@@ -305,13 +309,13 @@ def test_link_complex_dimension_with_role(
     """
     Testing linking complex dimension with roles.
     """
-    response = link_events_to_users_with_role_direct()
+    response = await link_events_to_users_with_role_direct()
     assert response.json() == {
         "message": "Dimension node default.users has been successfully "
         "linked to node default.events.",
     }
 
-    response = dimensions_link_client.get("/nodes/default.events")
+    response = await dimensions_link_client.get("/nodes/default.events")
     assert response.json()["dimension_links"] == [
         {
             "dimension": {"name": "default.users"},
@@ -328,20 +332,20 @@ def test_link_complex_dimension_with_role(
     ]
 
     # Add a dimension link with different role
-    response = link_events_to_users_with_role_windowed()
+    response = await link_events_to_users_with_role_windowed()
     assert response.json() == {
         "message": "Dimension node default.users has been successfully linked to node "
         "default.events.",
     }
 
     # Add a dimension link on users for registration country
-    response = link_users_to_countries_with_role_registration()
+    response = await link_users_to_countries_with_role_registration()
     assert response.json() == {
         "message": "Dimension node default.countries has been successfully linked to node "
         "default.users.",
     }
 
-    response = dimensions_link_client.get("/nodes/default.events")
+    response = await dimensions_link_client.get("/nodes/default.events")
     assert response.json()["dimension_links"] == [
         {
             "dimension": {"name": "default.users"},
@@ -370,7 +374,9 @@ def test_link_complex_dimension_with_role(
     ]
 
     # Verify that the dimensions on the downstream metric have roles specified
-    response = dimensions_link_client.get("/nodes/default.elapsed_secs/dimensions")
+    response = await dimensions_link_client.get(
+        "/nodes/default.elapsed_secs/dimensions",
+    )
     assert [(attr["name"], attr["path"]) for attr in response.json()] == [
         (
             "default.countries.country_code[user_direct->registration_country]",
@@ -424,7 +430,7 @@ def test_link_complex_dimension_with_role(
     ]
 
     # Get SQL for the downstream metric grouped by the user dimension of role "user_windowed"
-    response = dimensions_link_client.get(
+    response = await dimensions_link_client.get(
         "/sql/default.elapsed_secs",
         params={
             "dimensions": [
@@ -466,7 +472,7 @@ GROUP BY default_DOT_events.user_id,
     assert str(parse(query)) == str(parse(expected))
 
     # Get SQL for the downstream metric grouped by the user dimension of role "user"
-    response = dimensions_link_client.get(
+    response = await dimensions_link_client.get(
         "/sql/default.elapsed_secs?dimensions=default.users.user_id[user_direct]"
         "&dimensions=default.users.snapshot_date[user_direct]"
         "&dimensions=default.users.registration_country[user_direct]",
@@ -497,7 +503,7 @@ GROUP BY default_DOT_events.user_id,
 
     # Get SQL for the downstream metric grouped by the user's registration country and
     # filtered by the user's residence country
-    response = dimensions_link_client.get(
+    response = await dimensions_link_client.get(
         "/sql/default.elapsed_secs?",
         params={
             "dimensions": [
@@ -537,16 +543,23 @@ INNER JOIN (SELECT  default_DOT_countries_table.country_code,
     assert str(parse(query)) == str(parse(expected))
 
 
-def test_remove_dimension_link(
-    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_remove_dimension_link(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
     link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
     link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
 ):
     """
     Test removing complex dimension links
     """
-    link_events_to_users_with_role_direct()
-    response = dimensions_link_client.request(
+    response = await link_events_to_users_with_role_direct()
+    assert response.json() == {
+        "message": "Dimension node default.users has been successfully linked to node "
+        "default.events.",
+    }
+    response = await dimensions_link_client.get("/nodes/default.events")
+    # assert response.json()["dimension_links"] == []
+    response = await dimensions_link_client.request(
         "DELETE",
         "/nodes/default.events/link",
         json={
@@ -559,8 +572,10 @@ def test_remove_dimension_link(
         "default.events has been removed.",
     }
 
+    response = await dimensions_link_client.get("/nodes/default.events")
+    assert response.json()["dimension_links"] == []
     # Deleting again should not work
-    response = dimensions_link_client.request(
+    response = await dimensions_link_client.request(
         "DELETE",
         "/nodes/default.events/link",
         json={
@@ -572,8 +587,8 @@ def test_remove_dimension_link(
         "message": "Dimension link to node default.users with role user_direct not found",
     }
 
-    link_events_to_users_without_role()
-    response = dimensions_link_client.request(
+    await link_events_to_users_without_role()
+    response = await dimensions_link_client.request(
         "DELETE",
         "/nodes/default.events/link",
         json={
@@ -586,7 +601,7 @@ def test_remove_dimension_link(
     }
 
     # Deleting again should not work
-    response = dimensions_link_client.request(
+    response = await dimensions_link_client.request(
         "DELETE",
         "/nodes/default.events/link",
         json={
@@ -598,8 +613,9 @@ def test_remove_dimension_link(
     }
 
 
-def test_measures_sql_with_dimension_roles(
-    dimensions_link_client: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_measures_sql_with_dimension_roles(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
     link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
     link_events_to_users_with_role_windowed,  # pylint: disable=redefined-outer-name
     link_users_to_countries_with_role_registration,  # pylint: disable=redefined-outer-name
@@ -607,9 +623,9 @@ def test_measures_sql_with_dimension_roles(
     """
     Test measures SQL with dimension roles
     """
-    link_events_to_users_with_role_direct()
-    link_events_to_users_with_role_windowed()
-    link_users_to_countries_with_role_registration()
+    await link_events_to_users_with_role_direct()
+    await link_events_to_users_with_role_windowed()
+    await link_users_to_countries_with_role_registration()
     sql_params = {
         "metrics": ["default.elapsed_secs"],
         "dimensions": [
@@ -619,7 +635,7 @@ def test_measures_sql_with_dimension_roles(
         ],
         "filters": ["default.countries.name[user_direct->registration_country] = 'UG'"],
     }
-    response = dimensions_link_client.get("/sql/measures", params=sql_params)
+    response = await dimensions_link_client.get("/sql/measures", params=sql_params)
     query = response.json()["sql"]
     expected = """WITH
 default_DOT_events AS (SELECT  default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,

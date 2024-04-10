@@ -3,7 +3,8 @@ Tests for the history endpoint
 """
 from unittest import mock
 
-from fastapi.testclient import TestClient
+import pytest
+from httpx import AsyncClient
 
 from datajunction_server.database.history import ActivityType, EntityType, History
 
@@ -27,11 +28,12 @@ def test_history_hash():
     assert hash(foo1) == hash(foo2)
 
 
-def test_get_history_entity(client_with_roads: TestClient):
+@pytest.mark.asyncio
+async def test_get_history_entity(client_with_roads: AsyncClient):
     """
     Test getting history for an entity
     """
-    response = client_with_roads.get("/history/node/default.repair_orders/")
+    response = await client_with_roads.get("/history/node/default.repair_orders/")
     assert response.status_code in (200, 201)
     history = response.json()
     assert len(history) == 1
@@ -52,12 +54,13 @@ def test_get_history_entity(client_with_roads: TestClient):
     ]
 
 
-def test_get_history_node(client_with_roads: TestClient):
+@pytest.mark.asyncio
+async def test_get_history_node(client_with_roads: AsyncClient):
     """
     Test getting history for a node
     """
 
-    response = client_with_roads.get("/history?node=default.repair_order")
+    response = await client_with_roads.get("/history?node=default.repair_order")
     assert response.status_code in (200, 201)
     history = response.json()
     assert len(history) == 5
@@ -151,12 +154,13 @@ def test_get_history_node(client_with_roads: TestClient):
     ]
 
 
-def test_get_history_namespace(client_with_service_setup: TestClient):
+@pytest.mark.asyncio
+async def test_get_history_namespace(client_with_service_setup: AsyncClient):
     """
     Test getting history for a node context
     """
 
-    response = client_with_service_setup.get("/history/namespace/default")
+    response = await client_with_service_setup.get("/history/namespace/default")
     assert response.status_code in (200, 201)
     history = response.json()
     assert len(history) == 1

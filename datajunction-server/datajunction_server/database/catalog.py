@@ -33,6 +33,7 @@ class Catalog(Base):
         secondary="catalogengines",
         primaryjoin="Catalog.id==CatalogEngines.catalog_id",
         secondaryjoin="Engine.id==CatalogEngines.engine_id",
+        lazy="selectin",
     )
     node_revisions: Mapped[List["NodeRevision"]] = relationship(
         back_populates="catalog",

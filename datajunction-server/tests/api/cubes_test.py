@@ -6,8 +6,9 @@ from typing import Callable, Dict, Iterator, List, Optional
 from unittest import mock
 
 import pytest
+import pytest_asyncio
 import requests
-from fastapi.testclient import TestClient
+from httpx import AsyncClient
 
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
@@ -15,11 +16,11 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from tests.sql.utils import compare_query_strings
 
 
-def set_temporal_partition_cube(client: TestClient):
+async def set_temporal_partition_cube(client: AsyncClient):
     """
     Sets the temporal partition column for a cube
     """
-    return client.post(
+    return await client.post(
         "/nodes/default.repairs_cube/columns/default.hard_hat.hire_date/partition",
         json={
             "type_": "temporal",
@@ -29,12 +30,13 @@ def set_temporal_partition_cube(client: TestClient):
     )
 
 
-def test_read_cube(client_with_account_revenue: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_read_cube(client_with_account_revenue: AsyncClient) -> None:
     """
     Test ``GET /cubes/{name}``.
     """
     # Create a cube
-    response = client_with_account_revenue.post(
+    response = await client_with_account_revenue.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.number_of_account_types"],
@@ -55,7 +57,7 @@ def test_read_cube(client_with_account_revenue: TestClient) -> None:
     assert data["tags"] == []
 
     # Read the cube
-    response = client_with_account_revenue.get(
+    response = await client_with_account_revenue.get(
         "/cubes/default.number_of_accounts_by_account_type",
     )
     assert response.status_code == 200
@@ -67,11 +69,12 @@ def test_read_cube(client_with_account_revenue: TestClient) -> None:
     assert data["description"] == "A cube of number of accounts grouped by account type"
 
 
-def test_create_invalid_cube(client_with_account_revenue: TestClient):
+@pytest.mark.asyncio
+async def test_create_invalid_cube(client_with_account_revenue: AsyncClient):
     """
     Check that creating a cube with a query fails appropriately
     """
-    response = client_with_account_revenue.post(
+    response = await client_with_account_revenue.post(
         "/nodes/cube/",
         json={
             "description": "A cube of number of accounts grouped by account type",
@@ -100,7 +103,7 @@ def test_create_invalid_cube(client_with_account_revenue: TestClient):
     ]
 
     # Check that creating a cube with no cube elements fails appropriately
-    response = client_with_account_revenue.post(
+    response = await client_with_account_revenue.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.account_type"],
@@ -120,7 +123,7 @@ def test_create_invalid_cube(client_with_account_revenue: TestClient):
     }
 
     # Check that creating a cube with incompatible nodes fails appropriately
-    response = client_with_account_revenue.post(
+    response = await client_with_account_revenue.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.number_of_account_types"],
@@ -140,7 +143,7 @@ def test_create_invalid_cube(client_with_account_revenue: TestClient):
     }
 
     # Check that creating a cube with no metric nodes fails appropriately
-    response = client_with_account_revenue.post(
+    response = await client_with_account_revenue.post(
         "/nodes/cube/",
         json={
             "metrics": [],
@@ -159,7 +162,7 @@ def test_create_invalid_cube(client_with_account_revenue: TestClient):
     }
 
     # Check that creating a cube with no dimension nodes fails appropriately
-    response = client_with_account_revenue.post(
+    response = await client_with_account_revenue.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.number_of_account_types"],
@@ -178,15 +181,16 @@ def test_create_invalid_cube(client_with_account_revenue: TestClient):
     }
 
 
-def test_raise_on_cube_with_multiple_catalogs(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+@pytest.mark.asyncio
+async def test_raise_on_cube_with_multiple_catalogs(
+    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
 ) -> None:
     """
     Test raising when creating a cube with multiple catalogs
     """
     # Create a cube
-    custom_client = client_example_loader(["BASIC", "ACCOUNT_REVENUE"])
-    response = custom_client.post(
+    custom_client = await client_example_loader(["BASIC", "ACCOUNT_REVENUE"])
+    response = await custom_client.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.number_of_account_types", "basic.num_comments"],
@@ -201,14 +205,14 @@ def test_raise_on_cube_with_multiple_catalogs(
     assert "Metrics and dimensions cannot be from multiple catalogs" in data["message"]
 
 
-@pytest.fixture
-def client_with_repairs_cube(
+@pytest_asyncio.fixture
+async def client_with_repairs_cube(
     client_with_query_service_example_loader,
 ):
     """
     Adds a repairs cube with a new double total repair cost metric to the test client
     """
-    custom_client = client_with_query_service_example_loader(["ROADS"])
+    custom_client = await client_with_query_service_example_loader(["ROADS"])
     metrics_list = [
         "default.discounted_orders_rate",
         "default.num_repair_orders",
@@ -218,7 +222,7 @@ def client_with_repairs_cube(
     ]
 
     # Metric that doubles the total repair cost to test the sum(x) + sum(y) scenario
-    custom_client.post(
+    await custom_client.post(
         "/nodes/metric/",
         json={
             "description": "Double total repair cost",
@@ -231,7 +235,7 @@ def client_with_repairs_cube(
         },
     )
     # Should succeed
-    response = custom_client.post(
+    response = await custom_client.post(
         "/nodes/cube/",
         json={
             "metrics": metrics_list + ["default.double_total_repair_cost"],
@@ -458,7 +462,8 @@ def repairs_cube_elements():
     )
 
 
-def test_invalid_cube(client_with_roads: TestClient):
+@pytest.mark.asyncio
+async def test_invalid_cube(client_with_roads: AsyncClient):
     """
     Test that creating a cube without valid dimensions fails
     """
@@ -470,7 +475,7 @@ def test_invalid_cube(client_with_roads: TestClient):
         "default.total_repair_order_discounts",
     ]
     # Should fail because dimension attribute isn't available
-    response = client_with_roads.post(
+    response = await client_with_roads.post(
         "/nodes/cube/",
         json={
             "metrics": metrics_list,
@@ -488,13 +493,14 @@ def test_invalid_cube(client_with_roads: TestClient):
     )
 
 
-def test_create_cube(
-    client_with_repairs_cube: TestClient,
+@pytest.mark.asyncio
+async def test_create_cube(
+    client_with_repairs_cube: AsyncClient,
 ):
     """
     Tests cube creation and the generated cube SQL
     """
-    response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
+    response = await client_with_repairs_cube.get("/nodes/default.repairs_cube/")
     results = response.json()
 
     assert results["name"] == "default.repairs_cube"
@@ -520,7 +526,7 @@ def test_create_cube(
         "default.municipality_dim.local_region",
     ]
     dimensions_query = "&".join([f"dimensions={dim}" for dim in dimensions])
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         f"/sql?{metrics_query}&{dimensions_query}&filters=default.hard_hat.state='AZ'",
     )
     results = response.json()
@@ -639,8 +645,9 @@ def test_create_cube(
     assert str(parse(str(expected_query))) == str(parse(str(results["sql"])))
 
 
-def test_cube_materialization_sql_and_measures(
-    client_with_repairs_cube: TestClient,
+@pytest.mark.asyncio
+async def test_cube_materialization_sql_and_measures(
+    client_with_repairs_cube: AsyncClient,
     repairs_cube_with_materialization: requests.Response,  # pylint: disable=unused-argument
     repair_orders_cube_measures,
     repairs_cube_elements,
@@ -648,7 +655,7 @@ def test_cube_materialization_sql_and_measures(
     """
     Verifies a cube's materialization SQL + measures
     """
-    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    response = await client_with_repairs_cube.get("/cubes/default.repairs_cube/")
     data = response.json()
     assert (
         sorted(data["cube_elements"], key=lambda x: x["name"]) == repairs_cube_elements
@@ -768,15 +775,15 @@ SELECT  default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_repair
     )
 
 
-@pytest.fixture
-def repairs_cube_with_materialization(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest_asyncio.fixture
+async def repairs_cube_with_materialization(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
 ):
     """
     Repairs cube with a configured materialization
     """
-    set_temporal_partition_cube(client_with_repairs_cube)
-    return client_with_repairs_cube.post(
+    await set_temporal_partition_cube(client_with_repairs_cube)
+    return await client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "job": "druid_measures_cube",
@@ -789,15 +796,16 @@ def repairs_cube_with_materialization(
     )
 
 
-def test_druid_cube_agg_materialization(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_druid_cube_agg_materialization(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
     query_service_client: Iterator[QueryServiceClient],
 ):
     """
     Verifies scheduling a materialized aggregate cube
     """
-    set_temporal_partition_cube(client_with_repairs_cube)
-    repairs_cube_with_materialization = client_with_repairs_cube.post(
+    await set_temporal_partition_cube(client_with_repairs_cube)
+    repairs_cube_with_materialization = await client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "job": "druid_metrics_cube",
@@ -1017,7 +1025,7 @@ def test_druid_cube_agg_materialization(
             "type": "hadoop",
         },
     }
-    response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
+    response = await client_with_repairs_cube.get("/nodes/default.repairs_cube/")
     materializations = response.json()["materializations"]
     assert len(materializations) == 1
     druid_materialization = [
@@ -1089,14 +1097,15 @@ def test_druid_cube_agg_materialization(
     assert druid_materialization["schedule"] == "@daily"
 
 
-def test_cube_sql_generation_with_availability(
-    client_with_repairs_cube: TestClient,
+@pytest.mark.asyncio
+async def test_cube_sql_generation_with_availability(
+    client_with_repairs_cube: AsyncClient,
     repairs_cube_with_materialization: requests.Response,  # pylint: disable=unused-argument
 ):
     """
     Test generating SQL for metrics + dimensions in a cube after adding a cube materialization
     """
-    client_with_repairs_cube.post(
+    await client_with_repairs_cube.post(
         "/data/default.repairs_cube/availability/",
         json={
             "catalog": "default",
@@ -1107,7 +1116,7 @@ def test_cube_sql_generation_with_availability(
     )
 
     # Ask for SQL with metrics, dimensions, filters, order by, and limit
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/sql/",
         params={
             "metrics": [
@@ -1198,7 +1207,7 @@ LIMIT 100""",
     )
 
     # Ask for SQL with only metrics and dimensions
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/sql/",
         params={
             "metrics": [
@@ -1282,13 +1291,14 @@ GROUP BY
     )
 
 
-def test_unlink_node_column_dimension(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_unlink_node_column_dimension(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
 ):
     """
     When a node column link to a dimension is removed, the cube should be invalidated
     """
-    response = client_with_repairs_cube.request(
+    response = await client_with_repairs_cube.request(
         "DELETE",
         "/nodes/default.repair_order/link/",
         json={
@@ -1300,38 +1310,39 @@ def test_unlink_node_column_dimension(
         "message": "Dimension link default.hard_hat to node default.repair_order has "
         "been removed.",
     }
-    response = client_with_repairs_cube.get("/nodes/default.repairs_cube")
+    response = await client_with_repairs_cube.get("/nodes/default.repairs_cube")
     data = response.json()
     assert data["status"] == "invalid"
 
 
-def test_changing_node_upstream_from_cube(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_changing_node_upstream_from_cube(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
     repairs_cube_elements: List[Dict],  # pylint: disable=redefined-outer-name
 ):
     """
     Verify changing nodes upstream from a cube
     """
     # Verify effects on cube after deactivating a node upstream from the cube
-    client_with_repairs_cube.request("DELETE", "/nodes/default.repair_orders/")
-    response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
+    await client_with_repairs_cube.request("DELETE", "/nodes/default.repair_orders/")
+    response = await client_with_repairs_cube.get("/nodes/default.repairs_cube/")
     data = response.json()
     assert data["status"] == "invalid"
 
     # Verify effects on cube after restoring a node upstream from the cube
-    client_with_repairs_cube.post("/nodes/default.repair_orders/restore/")
-    response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
+    await client_with_repairs_cube.post("/nodes/default.repair_orders/restore/")
+    response = await client_with_repairs_cube.get("/nodes/default.repairs_cube/")
     data = response.json()
     assert data["status"] == "valid"
 
-    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    response = await client_with_repairs_cube.get("/cubes/default.repairs_cube/")
     data = response.json()
     assert (
         sorted(data["cube_elements"], key=lambda x: x["name"]) == repairs_cube_elements
     )
 
     # Verify effects on cube after updating a node upstream from the cube
-    client_with_repairs_cube.patch(
+    await client_with_repairs_cube.patch(
         "/nodes/default.discounted_orders_rate/",
         json={
             "query": """SELECT
@@ -1339,11 +1350,11 @@ def test_changing_node_upstream_from_cube(
 FROM default.repair_order_details""",
         },
     )
-    response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
+    response = await client_with_repairs_cube.get("/nodes/default.repairs_cube/")
     data = response.json()
     assert data["status"] == "valid"
 
-    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    response = await client_with_repairs_cube.get("/cubes/default.repairs_cube/")
     data = response.json()
     assert (
         sorted(data["cube_elements"], key=lambda x: x["name"]) == repairs_cube_elements
@@ -1379,14 +1390,15 @@ def assert_updated_repairs_cube(data):
     ]
 
 
-def test_updating_cube(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_updating_cube(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
 ):
     """
     Verify updating a cube
     """
     # Check a minor update to the cube
-    response = client_with_repairs_cube.patch(
+    response = await client_with_repairs_cube.patch(
         "/nodes/default.repairs_cube",
         json={
             "description": "This cube has a new description",
@@ -1397,7 +1409,7 @@ def test_updating_cube(
     assert data["description"] == "This cube has a new description"
 
     # Check a major update to the cube
-    response = client_with_repairs_cube.patch(
+    response = await client_with_repairs_cube.patch(
         "/nodes/default.repairs_cube",
         json={
             "metrics": ["default.discounted_orders_rate"],
@@ -1436,11 +1448,11 @@ def test_updating_cube(
         key=lambda x: x["name"],  # type: ignore
     )
 
-    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    response = await client_with_repairs_cube.get("/cubes/default.repairs_cube/")
     data = response.json()
     assert_updated_repairs_cube(data)
 
-    response = client_with_repairs_cube.get("/history?node=default.repairs_cube")
+    response = await client_with_repairs_cube.get("/history?node=default.repairs_cube")
     assert [
         event for event in response.json() if event["activity_type"] == "update"
     ] == [
@@ -1454,7 +1466,7 @@ def test_updating_cube(
             "node": "default.repairs_cube",
             "post": {},
             "pre": {},
-            "user": "dj",
+            "user": mock.ANY,
         },
         {
             "activity_type": "update",
@@ -1466,13 +1478,14 @@ def test_updating_cube(
             "node": "default.repairs_cube",
             "post": {},
             "pre": {},
-            "user": "dj",
+            "user": mock.ANY,
         },
     ]
 
 
-def test_updating_cube_with_existing_materialization(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_updating_cube_with_existing_materialization(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
     query_service_client: QueryServiceClient,
     repairs_cube_with_materialization: requests.Response,  # pylint: disable=redefined-outer-name
 ):
@@ -1482,12 +1495,12 @@ def test_updating_cube_with_existing_materialization(
     assert repairs_cube_with_materialization.json()
 
     # Make sure that the cube already has an additional materialization configured
-    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    response = await client_with_repairs_cube.get("/cubes/default.repairs_cube/")
     data = response.json()
     assert len(data["materializations"]) == 1
 
     # Update the existing materialization config
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization",
         json={
             "job": "druid_measures_cube",
@@ -1505,14 +1518,14 @@ def test_updating_cube_with_existing_materialization(
     }
 
     # Check that the configured materialization was updated
-    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    response = await client_with_repairs_cube.get("/cubes/default.repairs_cube/")
     data = response.json()
     assert data["materializations"][0]["config"]["spark"] == {
         "spark.executor.memory": "6g",
     }
 
     # Update the cube, but keep the temporal partition column. This should succeed
-    response = client_with_repairs_cube.patch(
+    response = await client_with_repairs_cube.patch(
         "/nodes/default.repairs_cube",
         json={
             "metrics": ["default.discounted_orders_rate"],
@@ -1542,7 +1555,7 @@ def test_updating_cube_with_existing_materialization(
     }
 
     # Check that the cube was updated
-    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    response = await client_with_repairs_cube.get("/cubes/default.repairs_cube/")
     data = response.json()
     assert_updated_repairs_cube(data)
 
@@ -1627,7 +1640,7 @@ def test_updating_cube_with_existing_materialization(
     )
     assert data["materializations"][0]["schedule"] == "@daily"
 
-    response = client_with_repairs_cube.get("/history?node=default.repairs_cube")
+    response = await client_with_repairs_cube.get("/history?node=default.repairs_cube")
     assert [
         event for event in response.json() if event["activity_type"] == "update"
     ] == [
@@ -1675,7 +1688,7 @@ def test_updating_cube_with_existing_materialization(
 
     # Update the cube, but remove the temporal partition column. This should fail when
     # trying to update the cube's materialization config
-    response = client_with_repairs_cube.patch(
+    response = await client_with_repairs_cube.patch(
         "/nodes/default.repairs_cube",
         json={
             "metrics": ["default.discounted_orders_rate"],
@@ -1690,13 +1703,14 @@ def test_updating_cube_with_existing_materialization(
     )
 
 
-def test_get_materialized_cube_dimension_sql(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_materialized_cube_dimension_sql(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
 ):
     """
     Test building SQL to get unique dimension values for a materialized cube
     """
-    client_with_repairs_cube.post(
+    await client_with_repairs_cube.post(
         "/data/default.repairs_cube/availability/",
         json={
             "catalog": "default",
@@ -1707,7 +1721,7 @@ def test_get_materialized_cube_dimension_sql(
     )
 
     # Asking for an unavailable dimension should fail
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/cubes/default.repairs_cube/dimensions/sql",
         params={
             "dimensions": ["default.hard_hat.city", "default.contractor.company_name"],
@@ -1719,7 +1733,7 @@ def test_get_materialized_cube_dimension_sql(
     )
 
     # Ask for single dimension
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/cubes/default.repairs_cube/dimensions/sql",
         params={
             "dimensions": ["default.hard_hat.city"],
@@ -1743,7 +1757,7 @@ def test_get_materialized_cube_dimension_sql(
     )
 
     # Ask for single dimension with counts
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/cubes/default.repairs_cube/dimensions/sql",
         params={
             "dimensions": ["default.hard_hat.city"],
@@ -1777,7 +1791,7 @@ def test_get_materialized_cube_dimension_sql(
     )
 
     # Ask for multiple dimensions with counts
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/cubes/default.repairs_cube/dimensions/sql",
         params={
             "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
@@ -1820,7 +1834,7 @@ def test_get_materialized_cube_dimension_sql(
     )
 
     # Ask for multiple dimensions with filters and limit
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/cubes/default.repairs_cube/dimensions/sql",
         params={
             "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
@@ -1840,14 +1854,15 @@ def test_get_materialized_cube_dimension_sql(
     )
 
 
-def test_get_unmaterialized_cube_dimensions_values(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_unmaterialized_cube_dimensions_values(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
 ):
     """
     Test building SQL + getting data for dimension values for an unmaterialized cube
     """
     # Get SQL for single dimension
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/cubes/default.repairs_cube/dimensions/sql",
         params={
             "dimensions": ["default.hard_hat.city"],
@@ -1858,7 +1873,7 @@ def test_get_unmaterialized_cube_dimensions_values(
     assert "GROUP BY  default_DOT_hard_hat_DOT_city" in results["sql"]
 
     # Get data for single dimension
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/cubes/default.repairs_cube/dimensions/data",
         params={
             "dimensions": ["default.hard_hat.city"],
@@ -1882,7 +1897,7 @@ def test_get_unmaterialized_cube_dimensions_values(
     }
 
     # Ask for single dimension with counts
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/cubes/default.repairs_cube/dimensions/sql",
         params={
             "dimensions": ["default.hard_hat.city"],
@@ -1895,7 +1910,7 @@ def test_get_unmaterialized_cube_dimensions_values(
     assert "ORDER BY 2 DESC" in results["sql"]
 
     # Get data for single dimension with counts
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/cubes/default.repairs_cube/dimensions/data",
         params={
             "dimensions": ["default.hard_hat.city"],
@@ -1919,7 +1934,7 @@ def test_get_unmaterialized_cube_dimensions_values(
     }
 
     # Get data for multiple dimensions with counts
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/cubes/default.repairs_cube/dimensions/data",
         params={
             "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
@@ -1951,7 +1966,7 @@ def test_get_unmaterialized_cube_dimensions_values(
     }
 
     # Get data for multiple dimensions with filters
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/cubes/default.repairs_cube/dimensions/data",
         params={
             "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
@@ -1972,7 +1987,7 @@ def test_get_unmaterialized_cube_dimensions_values(
     }
 
     # Get data for multiple dimensions with filters and limit
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/cubes/default.repairs_cube/dimensions/data",
         params={
             "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],

@@ -5,7 +5,8 @@ from pathlib import Path
 from unittest.mock import call
 
 import pytest
-from fastapi.testclient import TestClient
+import pytest_asyncio
+from httpx import AsyncClient
 
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.service_clients import QueryServiceClient
@@ -30,20 +31,20 @@ def load_expected_file():
     return _load
 
 
-@pytest.fixture
-def client_with_repairs_cube(
+@pytest_asyncio.fixture
+async def client_with_repairs_cube(
     client_with_query_service_example_loader,
 ):
     """
     Adds a repairs cube to the test client
     """
-    custom_client = client_with_query_service_example_loader(["ROADS"])
-    response = custom_client.post(
+    custom_client = await client_with_query_service_example_loader(["ROADS"])
+    response = await custom_client.post(
         "/nodes/default.repair_orders_fact/columns/order_date/attributes/",
         json=[{"name": "dimension"}],
     )
     assert response.status_code in (200, 201)
-    response = custom_client.post(
+    response = await custom_client.post(
         "/nodes/cube/",
         json={
             "metrics": [
@@ -75,8 +76,8 @@ def set_temporal_column(
     Sets the given column as a temporal column on the specified node.
     """
 
-    def _set_temporal_column(node_name: str, column: str):
-        response = client_with_repairs_cube.post(
+    async def _set_temporal_column(node_name: str, column: str):
+        response = await client_with_repairs_cube.post(
             f"/nodes/{node_name}/columns/{column}/partition",
             json={
                 "type_": "temporal",
@@ -89,11 +90,12 @@ def set_temporal_column(
     return _set_temporal_column
 
 
-def test_materialization_info(client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_materialization_info(client: AsyncClient) -> None:
     """
     Test ``GET /materialization/info``.
     """
-    response = client.get("/materialization/info")
+    response = await client.get("/materialization/info")
     data = response.json()
 
     assert response.status_code == 200
@@ -141,12 +143,13 @@ def test_materialization_info(client: TestClient) -> None:
     }
 
 
-def test_crud_materialization(client_with_query_service):
+@pytest.mark.asyncio
+async def test_crud_materialization(client_with_query_service: AsyncClient):
     """
     Verifies the CRUD endpoints for adding/updating/deleting materialization and backfill
     """
     # Create the engine and check the existing transform node
-    client_with_query_service.post(
+    await client_with_query_service.post(
         "/engines/",
         json={
             "name": "spark",
@@ -155,13 +158,15 @@ def test_crud_materialization(client_with_query_service):
         },
     )
 
-    response = client_with_query_service.get("/nodes/basic.transform.country_agg/")
+    response = await client_with_query_service.get(
+        "/nodes/basic.transform.country_agg/",
+    )
     old_node_data = response.json()
     assert old_node_data["version"] == "v1.0"
     assert old_node_data["materializations"] == []
 
     # Setting the materialization config should succeed
-    response = client_with_query_service.post(
+    response = await client_with_query_service.post(
         "/nodes/basic.transform.country_agg/materialization/",
         json={
             "job": "spark_sql",
@@ -177,7 +182,7 @@ def test_crud_materialization(client_with_query_service):
     )
 
     # Check history of the node with materialization
-    response = client_with_query_service.get(
+    response = await client_with_query_service.get(
         "/history?node=basic.transform.country_agg",
     )
     history = response.json()
@@ -186,7 +191,7 @@ def test_crud_materialization(client_with_query_service):
     ] == [("create", "node"), ("create", "materialization")]
 
     # Setting it again should inform that it already exists
-    response = client_with_query_service.post(
+    response = await client_with_query_service.post(
         "/nodes/basic.transform.country_agg/materialization/",
         json={
             "job": "spark_sql",
@@ -206,7 +211,7 @@ def test_crud_materialization(client_with_query_service):
     }
 
     # Deactivating it should work
-    response = client_with_query_service.delete(
+    response = await client_with_query_service.delete(
         "/nodes/basic.transform.country_agg/materializations/"
         "?materialization_name=spark_sql__full",
     )
@@ -216,7 +221,7 @@ def test_crud_materialization(client_with_query_service):
     }
 
     # Setting it again should inform that it already exists but was reactivated
-    response = client_with_query_service.post(
+    response = await client_with_query_service.post(
         "/nodes/basic.transform.country_agg/materialization/",
         json={
             "job": "spark_sql",
@@ -230,7 +235,7 @@ def test_crud_materialization(client_with_query_service):
         "exists for node `basic.transform.country_agg` but was deactivated. It has "
         "now been restored."
     )
-    response = client_with_query_service.get(
+    response = await client_with_query_service.get(
         "/history?node=basic.transform.country_agg",
     )
     assert [
@@ -248,8 +253,9 @@ def test_crud_materialization(client_with_query_service):
     ]
 
 
-def test_druid_measures_cube_full(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_druid_measures_cube_full(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
     query_service_client: QueryServiceClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
     set_temporal_column,  # pylint: disable=redefined-outer-name
@@ -265,7 +271,7 @@ def test_druid_measures_cube_full(
     - [failure] If nothing has changed, will not update the existing materialization
     """
     # [success] When there is a column on the cube with type `timestamp`:
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "job": "druid_measures_cube",
@@ -287,7 +293,7 @@ def test_druid_measures_cube_full(
     )
 
     # Reset by deleting the materialization
-    response = client_with_repairs_cube.delete(
+    response = await client_with_repairs_cube.delete(
         "/nodes/default.repairs_cube/materializations/",
         params={
             "materialization_name": "druid_measures_cube__full",
@@ -296,8 +302,11 @@ def test_druid_measures_cube_full(
     assert response.status_code in (200, 201)
 
     # [success] When there is a column on the cube with a temporal partition label:
-    set_temporal_column("default.repairs_cube", "default.repair_orders_fact.order_date")
-    response = client_with_repairs_cube.post(
+    await set_temporal_column(
+        "default.repairs_cube",
+        "default.repair_orders_fact.order_date",
+    )
+    response = await client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "job": "druid_measures_cube",
@@ -323,7 +332,7 @@ def test_druid_measures_cube_full(
     )
 
     # [failure] When there are no columns on the cube with type `timestamp` and no partition labels
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/cube/",
         json={
             "metrics": [
@@ -342,7 +351,7 @@ def test_druid_measures_cube_full(
         },
     )
     assert response.status_code in (200, 201)
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.bad_repairs_cube/materialization/",
         json={
             "job": "druid_measures_cube",
@@ -360,7 +369,7 @@ def test_druid_measures_cube_full(
     )
 
     # [failure] If nothing has changed, will not update the existing materialization
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "job": "druid_measures_cube",
@@ -379,8 +388,9 @@ def test_druid_measures_cube_full(
     )
 
 
-def test_druid_measures_cube_incremental(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_druid_measures_cube_incremental(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
     query_service_client: QueryServiceClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
     set_temporal_column,  # pylint: disable=redefined-outer-name
@@ -396,7 +406,7 @@ def test_druid_measures_cube_incremental(
     - [success] When the underlying measures node contains DJ_LOGICAL_TIMESTAMP
     """
     # [failure] If there is no time partition column configured
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "job": "druid_measures_cube",
@@ -411,8 +421,11 @@ def test_druid_measures_cube_incremental(
     )
 
     # [success] When there is a column on the cube with the partition label, should succeed.
-    set_temporal_column("default.repairs_cube", "default.repair_orders_fact.order_date")
-    response = client_with_repairs_cube.post(
+    await set_temporal_column(
+        "default.repairs_cube",
+        "default.repair_orders_fact.order_date",
+    )
+    response = await client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "job": "druid_measures_cube",
@@ -445,7 +458,7 @@ def test_druid_measures_cube_incremental(
     )
 
     # [success] When the node itself contains DJ_LOGICAL_TIMESTAMP
-    response = client_with_repairs_cube.patch(
+    response = await client_with_repairs_cube.patch(
         "/nodes/default.repair_orders_fact",
         json={
             "query": """SELECT
@@ -472,10 +485,10 @@ WHERE repair_orders.order_date = DJ_LOGICAL_TIMESTAMP()""",
         },
     )
     assert response.status_code in (200, 201)
-    response = client_with_repairs_cube.get("/nodes/default.repair_orders_fact")
+    response = await client_with_repairs_cube.get("/nodes/default.repair_orders_fact")
 
     # Delete previous
-    response = client_with_repairs_cube.delete(
+    response = await client_with_repairs_cube.delete(
         "/nodes/default.repairs_cube/materializations/",
         params={
             "materialization_name": "druid_measures_cube__incremental_time__default."
@@ -483,7 +496,7 @@ WHERE repair_orders.order_date = DJ_LOGICAL_TIMESTAMP()""",
         },
     )
     assert response.status_code in (200, 201)
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "job": "druid_measures_cube",
@@ -510,8 +523,9 @@ WHERE repair_orders.order_date = DJ_LOGICAL_TIMESTAMP()""",
     )
 
 
-def test_druid_metrics_cube_incremental(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_druid_metrics_cube_incremental(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
     query_service_client: QueryServiceClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
     set_temporal_column,  # pylint: disable=redefined-outer-name
@@ -527,7 +541,7 @@ def test_druid_metrics_cube_incremental(
     - [success] When the underlying measures node contains DJ_LOGICAL_TIMESTAMP
     """
     # [failure] If there is no time partition column configured
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "job": "druid_metrics_cube",
@@ -542,8 +556,11 @@ def test_druid_metrics_cube_incremental(
     )
 
     # [success] When there is a column on the cube with the partition label, should succeed.
-    set_temporal_column("default.repairs_cube", "default.repair_orders_fact.order_date")
-    response = client_with_repairs_cube.post(
+    await set_temporal_column(
+        "default.repairs_cube",
+        "default.repair_orders_fact.order_date",
+    )
+    response = await client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "job": "druid_metrics_cube",
@@ -576,8 +593,9 @@ def test_druid_metrics_cube_incremental(
     )
 
 
-def test_spark_sql_full(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_spark_sql_full(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
     query_service_client: QueryServiceClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
 ):
@@ -592,7 +610,7 @@ def test_spark_sql_full(
                 This just means that the output table will be partitioned by the partition cols
     """
     # [success] A transform/dimension with no partitions should work
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.hard_hat/materialization/",
         json={
             "job": "spark_sql",
@@ -609,7 +627,7 @@ def test_spark_sql_full(
     )
 
     # Reading the node should yield the materialization config
-    response = client_with_repairs_cube.get("/nodes/default.hard_hat/")
+    response = await client_with_repairs_cube.get("/nodes/default.hard_hat/")
     data = response.json()
     assert data["version"] == "v1.0"
     materialization_query = data["materializations"][0]["config"]["query"]
@@ -620,7 +638,7 @@ def test_spark_sql_full(
     assert data["materializations"] == load_expected_file("spark_sql.full.config.json")
 
     # Set both temporal and categorical partitions on node
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.hard_hat/columns/birth_date/partition",
         json={
             "type_": "temporal",
@@ -630,7 +648,7 @@ def test_spark_sql_full(
     )
     assert response.status_code in (200, 201)
 
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.hard_hat/columns/country/partition",
         json={
             "type_": "categorical",
@@ -640,7 +658,7 @@ def test_spark_sql_full(
 
     # Setting the materialization config should succeed and it should reschedule
     # the materialization with the temporal partition
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.hard_hat/materialization/",
         json={
             "job": "spark_sql",
@@ -660,7 +678,7 @@ def test_spark_sql_full(
 
     # Check that the temporal partition is appended onto the list of partitions in the
     # materialization config but is not included directly in the materialization query
-    response = client_with_repairs_cube.get("/nodes/default.hard_hat/")
+    response = await client_with_repairs_cube.get("/nodes/default.hard_hat/")
     data = response.json()
     assert data["version"] == "v1.0"
     assert len(data["materializations"]) == 2
@@ -674,7 +692,7 @@ def test_spark_sql_full(
     assert materialization_with_partitions == expected_config
 
     # Check listing materializations of the node
-    response = client_with_repairs_cube.get(
+    response = await client_with_repairs_cube.get(
         "/nodes/default.hard_hat/materializations/",
     )
     materializations = response.json()
@@ -687,7 +705,7 @@ def test_spark_sql_full(
     )
 
     # Kick off backfill for this materialization
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.hard_hat/materializations/spark_sql__full__birth_date/backfill",
         json={
             "column_name": "birth_date",
@@ -708,8 +726,9 @@ def test_spark_sql_full(
     assert response.json() == {"output_tables": [], "urls": ["http://fake.url/job"]}
 
 
-def test_spark_sql_incremental(
-    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_spark_sql_incremental(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
     query_service_client: QueryServiceClient,
     set_temporal_column,  # pylint: disable=redefined-outer-name
     load_expected_file,  # pylint: disable=redefined-outer-name
@@ -725,7 +744,7 @@ def test_spark_sql_incremental(
                 DJ_LOGICAL_TIMESTAMP() should work
     """
     # [failure] No time partitions
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.hard_hat/materialization/",
         json={
             "job": "spark_sql",
@@ -742,8 +761,8 @@ def test_spark_sql_incremental(
     )
 
     # [success] A transform/dimension with a time partition should work
-    set_temporal_column("default.hard_hat", "birth_date")
-    response = client_with_repairs_cube.post(
+    await set_temporal_column("default.hard_hat", "birth_date")
+    response = await client_with_repairs_cube.post(
         "/nodes/default.hard_hat/materialization/",
         json={
             "job": "spark_sql",
@@ -778,7 +797,7 @@ def test_spark_sql_incremental(
     )
 
     # Reading the node should yield the materialization config
-    response = client_with_repairs_cube.get("/nodes/default.hard_hat/")
+    response = await client_with_repairs_cube.get("/nodes/default.hard_hat/")
     data = response.json()
     assert data["version"] == "v1.0"
     del data["materializations"][0]["config"]["query"]
@@ -787,7 +806,7 @@ def test_spark_sql_incremental(
     )
 
     # Kick off backfill for this materialization
-    response = client_with_repairs_cube.post(
+    response = await client_with_repairs_cube.post(
         "/nodes/default.hard_hat/materializations/spark_sql__incremental_time__birth_date/backfill",
         json={
             "column_name": "birth_date",
@@ -809,7 +828,7 @@ def test_spark_sql_incremental(
 
     # [success] A transform/dimension with a time partition and additional usage of
     # DJ_LOGICAL_TIMESTAMP() should work
-    response = client_with_repairs_cube.patch(
+    response = await client_with_repairs_cube.patch(
         "/nodes/default.hard_hat",
         json={
             "query": "SELECT last_name, first_name, birth_date FROM default.hard_hats"

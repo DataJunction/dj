@@ -3,16 +3,18 @@ Tests for the attributes API.
 """
 from unittest.mock import ANY
 
-from fastapi.testclient import TestClient
+import pytest
+from httpx import AsyncClient
 
 
-def test_adding_new_attribute(
-    client: TestClient,
+@pytest.mark.asyncio
+async def test_adding_new_attribute(
+    client: AsyncClient,
 ) -> None:
     """
     Test adding an attribute.
     """
-    response = client.post(
+    response = await client.post(
         "/attributes/",
         json={
             "namespace": "custom",
@@ -32,7 +34,7 @@ def test_adding_new_attribute(
         "allowed_node_types": ["source"],
     }
 
-    response = client.post(
+    response = await client.post(
         "/attributes/",
         json={
             "namespace": "custom",
@@ -49,7 +51,7 @@ def test_adding_new_attribute(
         "warnings": [],
     }
 
-    response = client.post(
+    response = await client.post(
         "/attributes/",
         json={
             "namespace": "system",
@@ -67,13 +69,14 @@ def test_adding_new_attribute(
     }
 
 
-def test_list_attributes(
-    client: TestClient,
+@pytest.mark.asyncio
+async def test_list_attributes(
+    client: AsyncClient,
 ) -> None:
     """
     Test listing attributes. These should contain the default attributes.
     """
-    response = client.get("/attributes/")
+    response = await client.get("/attributes/")
     assert response.status_code == 200
     data = response.json()
     data = {

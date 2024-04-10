@@ -6,12 +6,13 @@ import json
 import logging
 
 from fastapi import Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from datajunction_server.api.helpers import get_node_by_name
+from datajunction_server.database import Node, NodeRevision
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.materialization import MaterializationJobTypeEnum
-from datajunction_server.models.node import NodeOutput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import get_session, get_settings
 
@@ -21,62 +22,58 @@ router = SecureAPIRouter(tags=["client"])
 
 
 @router.get("/datajunction-clients/python/new_node/{node_name}", response_model=str)
-def client_code_for_creating_node(
-    node_name: str, *, session: Session = Depends(get_session)
+async def client_code_for_creating_node(
+    node_name: str, *, session: AsyncSession = Depends(get_session)
 ) -> str:
     """
     Generate the Python client code used for creating this node
     """
     node_short_name = node_name.split(".")[-1]
-    node = get_node_by_name(session, node_name)
-
-    # Generic user-configurable node creation params
-    params = NodeOutput.from_orm(node).dict(
-        exclude={
-            "id",
-            "version",
-            "type",
-            "catalog_id",
-            "lineage",
-            "status",
-            "metric_metadata_id",
-            "mode",
-            "node_id",
-            "updated_at",
-            "materializations",
-            "columns",
-            "catalog",
-            "parents",
-            "metric_metadata",
-            "query" if node.type == NodeType.CUBE else "",
-            "dimension_links",
-            "created_at",
-            "current_version",
-            "missing_table",
-            "namespace",
-            "tags",
-        },
-        exclude_none=True,
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[
+            joinedload(Node.current).options(
+                *NodeRevision.default_load_options(),
+                joinedload(NodeRevision.cube_elements),
+            ),
+        ],
+        raise_if_not_exists=True,
     )
+    # Generic user-configurable node creation params
+    params = {
+        "name": node.name,  # type: ignore
+        "display_name": node.current.display_name,  # type: ignore
+        "description": node.current.description,  # type: ignore
+        "mode": node.current.mode,  # type: ignore
+        "query": node.current.query,  # type: ignore
+        "schema_": node.current.schema_,  # type: ignore
+        "table": node.current.table,  # type: ignore
+        "primary_key": [col.name for col in node.current.primary_key()],  # type: ignore
+    }
 
-    params["primary_key"] = [col.name for col in node.current.primary_key()]
-
-    for key in params:
-        if not isinstance(params[key], list) and key != "query" and key != "lineage":
+    for key in params:  # pylint: disable=consider-using-dict-items
+        if (
+            not isinstance(params[key], list)
+            and key != "query"
+            and key != "lineage"
+            and params[key]
+        ):
             params[key] = f'"{params[key]}"'
-        if key == "query":
+        if key == "query" and params[key]:
             params[key] = f'"""{params[key]}"""'
 
     # Cube-specific params
     cube_params = []
-    if node.type == NodeType.CUBE:
+    if node.type == NodeType.CUBE:  # type: ignore
         ordering = {
-            col.name: col.order or idx for idx, col in enumerate(node.current.columns)
+            col.name: col.order or idx
+            for idx, col in enumerate(node.current.columns)  # type: ignore
         }
         metrics_list = sorted(
             [
                 elem.node_revisions[-1].name
-                for elem in node.current.cube_elements
+                for elem in node.current.cube_elements  # type: ignore
                 if elem.node_revisions[-1].type == NodeType.METRIC
             ],
             key=lambda x: ordering[x],
@@ -84,7 +81,7 @@ def client_code_for_creating_node(
         dimensions_list = sorted(
             [
                 elem.node_revisions[-1].name + "." + elem.name
-                for elem in node.current.cube_elements
+                for elem in node.current.cube_elements  # type: ignore
                 if elem.node_revisions[-1].type == NodeType.DIMENSION
             ],
             key=lambda x: ordering[x],
@@ -97,12 +94,14 @@ def client_code_for_creating_node(
         ]
 
     formatted_params = ",\n".join(
-        [f"    {k}={params[k]}" for k in sorted(params.keys())] + cube_params,
+        [f"    {k}={params[k]}" for k in sorted(params.keys()) if params[k]]
+        + cube_params,
     )
 
+    node_type = node.type  # type: ignore
     client_code = f"""dj = DJBuilder(DJ_URL)
 
-{node_short_name} = dj.create_{node.type}(
+{node_short_name} = dj.create_{node_type}(
 {formatted_params}
 )"""
     return client_code  # type: ignore
@@ -112,17 +111,17 @@ def client_code_for_creating_node(
     "/datajunction-clients/python/add_materialization/{node_name}/{materialization_name}",
     response_model=str,
 )
-def client_code_for_adding_materialization(
+async def client_code_for_adding_materialization(
     node_name: str,
     materialization_name: str,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> str:
     """
     Generate the Python client code used for adding this materialization
     """
     node_short_name = node_name.split(".")[-1]
-    node = get_node_by_name(session, node_name)
+    node = await get_node_by_name(session, node_name)
     materialization = [
         materialization
         for materialization in node.current.materializations
@@ -160,18 +159,18 @@ materialization = MaterializationConfig(
     "/datajunction-clients/python/link_dimension/{node_name}/{column}/{dimension}/",
     response_model=str,
 )
-def client_code_for_linking_dimension_to_node(
+async def client_code_for_linking_dimension_to_node(
     node_name: str,
     column: str,
     dimension: str,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> str:
     """
     Generate the Python client code used for linking this node's column to a dimension
     """
     node_short_name = node_name.split(".")[-1]
-    node = get_node_by_name(session, node_name)
+    node = await get_node_by_name(session, node_name)
     client_code = f"""dj = DJBuilder(DJ_URL)
 {node_short_name} = dj.{node.type}(
     "{node.name}"

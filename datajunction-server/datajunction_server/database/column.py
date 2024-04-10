@@ -49,7 +49,7 @@ class Column(Base):  # type: ignore
     node_revisions: Mapped[List["NodeRevision"]] = relationship(
         back_populates="columns",
         secondary="nodecolumns",
-        lazy="select",
+        lazy="selectin",
     )
     attributes: Mapped[List["ColumnAttribute"]] = relationship(
         back_populates="column",

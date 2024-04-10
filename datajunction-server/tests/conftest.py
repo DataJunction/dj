@@ -4,16 +4,29 @@ Fixtures for testing.
 import os
 import re
 from http.client import HTTPException
-from typing import Callable, Collection, Generator, Iterator, List, Optional
+from typing import (
+    Any,
+    AsyncGenerator,
+    Callable,
+    Collection,
+    Coroutine,
+    Generator,
+    Iterator,
+    List,
+    Optional,
+)
 from unittest.mock import MagicMock, patch
 
 import duckdb
 import pytest
+import pytest_asyncio
 from cachelib.simple import SimpleCache
-from fastapi.testclient import TestClient
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
+from httpx import AsyncClient
 from pytest_mock import MockerFixture
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy import StaticPool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
 
@@ -24,6 +37,8 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJQueryServiceClientException
+from datajunction_server.internal.access.authorization import validate_access
+from datajunction_server.models.access import AccessControl, ValidateAccessFn
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.models.user import OAuthProvider
@@ -53,13 +68,23 @@ EXAMPLE_TOKEN = (
 )
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
+def _init_cache() -> Generator[Any, Any, None]:
+    """
+    Initialize FastAPI caching
+    """
+    FastAPICache.init(InMemoryBackend())
+    yield
+    FastAPICache.reset()
+
+
+@pytest_asyncio.fixture
 def settings(mocker: MockerFixture) -> Iterator[Settings]:
     """
     Custom settings for unit tests.
     """
     settings = Settings(
-        index="sqlite://",
+        index="sqlite+aiosqlite://",
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -113,19 +138,42 @@ def postgres_container() -> PostgresContainer:
         yield postgres
 
 
-@pytest.fixture
-def session(postgres_container: PostgresContainer) -> Iterator[Session]:
+@pytest_asyncio.fixture
+async def session() -> AsyncGenerator[AsyncSession, None]:
     """
     Create a Postgres session to test models.
     """
-    url = postgres_container.get_connection_url()
-    engine = create_engine(
-        url=url,
+    engine = create_async_engine(
+        "sqlite+aiosqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
-    Base.metadata.create_all(engine)
-    with Session(engine, autoflush=False) as session:
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async_session_factory = async_sessionmaker(
+        bind=engine,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    async with async_session_factory() as session:
         yield session
-    Base.metadata.drop_all(engine)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+    # for AsyncEngine created in function scope, close and
+    # clean-up pooled connections
+    await engine.dispose()
+
+
+# @pytest.fixture
+# def event_loop():
+#     try:
+#         loop = asyncio.get_running_loop()
+#     except RuntimeError:
+#         loop = asyncio.new_event_loop()
+#     yield loop
+#     loop.close()
 
 
 @pytest.fixture
@@ -243,45 +291,53 @@ def query_service_client(
 
 
 @pytest.fixture
-def client(  # pylint: disable=too-many-statements
-    session: Session,
+async def client(  # pylint: disable=too-many-statements
+    session: AsyncSession,
     settings: Settings,
-) -> Iterator[TestClient]:
+) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
     """
 
-    def get_session_override() -> Session:
+    def get_session_override() -> AsyncSession:
         return session
 
     def get_settings_override() -> Settings:
         return settings
 
+    def default_validate_access() -> ValidateAccessFn:
+        def _(access_control: AccessControl):
+            access_control.approve_all()
+
+        return _
+
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
+    app.dependency_overrides[validate_access] = default_validate_access
 
-    with TestClient(app) as client:
-        client.headers.update(
+    async with AsyncClient(app=app, base_url="http://test") as test_client:
+        test_client.headers.update(
             {
                 "Authorization": f"Bearer {EXAMPLE_TOKEN}",
             },
         )
-        yield client
+        test_client.app = app
+        yield test_client
 
     app.dependency_overrides.clear()
 
 
-def post_and_raise_if_error(client: TestClient, endpoint: str, json: dict):
+async def post_and_raise_if_error(client: AsyncClient, endpoint: str, json: dict):
     """
     Post the payload to the client and raise if there's an error
     """
-    response = client.post(endpoint, json=json)
-    if response.status_code >= 400:
+    response = await client.post(endpoint, json=json)
+    if response.status_code not in (200, 201):
         raise HTTPException(response.text)
 
 
-def load_examples_in_client(
-    client: TestClient,
+async def load_examples_in_client(
+    client: AsyncClient,
     examples_to_load: Optional[List[str]] = None,
 ):
     """
@@ -289,114 +345,126 @@ def load_examples_in_client(
     """
     # Basic service setup always has to be done (i.e., create catalogs, engines, namespaces etc)
     for endpoint, json in SERVICE_SETUP:
-        post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
+        await post_and_raise_if_error(
+            client=client,
+            endpoint="http://test" + endpoint,
+            json=json,  # type: ignore
+        )
 
     # Load only the selected examples if any are specified
     if examples_to_load is not None:
         for example_name in examples_to_load:
             for endpoint, json in EXAMPLES[example_name]:  # type: ignore
-                post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
+                await post_and_raise_if_error(
+                    client=client,
+                    endpoint=endpoint,
+                    json=json,  # type: ignore
+                )
         return client
 
     # Load all examples if none are specified
     for example_name, examples in EXAMPLES.items():
         for endpoint, json in examples:  # type: ignore
-            post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
+            await post_and_raise_if_error(
+                client=client,
+                endpoint=endpoint,
+                json=json,  # type: ignore
+            )
     return client
 
 
-@pytest.fixture
-def client_example_loader(
-    client: TestClient,
-) -> Callable[[Optional[List[str]]], TestClient]:
+@pytest_asyncio.fixture
+async def client_example_loader(
+    client: AsyncClient,
+) -> Callable[[list[str] | None], Coroutine[Any, Any, AsyncClient]]:
     """
     Provides a callable fixture for loading examples into a DJ client.
     """
 
-    def _load_examples(examples_to_load: Optional[List[str]] = None):
-        return load_examples_in_client(client, examples_to_load)
+    async def _load_examples(examples_to_load: Optional[List[str]] = None):
+        return await load_examples_in_client(client, examples_to_load)
 
     return _load_examples
 
 
-@pytest.fixture
-def client_with_examples(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
-) -> TestClient:
+@pytest_asyncio.fixture
+async def client_with_examples(
+    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
     """
     Provides a DJ client fixture with all examples
     """
-    return client_example_loader(None)
+    return await client_example_loader(None)
 
 
-@pytest.fixture
-def client_with_service_setup(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
-) -> TestClient:
+@pytest_asyncio.fixture
+async def client_with_service_setup(
+    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
     """
     Provides a DJ client fixture with just the service setup
     """
-    return client_example_loader([])
+    return await client_example_loader([])
 
 
-@pytest.fixture
-def client_with_roads(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
-) -> TestClient:
+@pytest_asyncio.fixture
+async def client_with_roads(
+    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
     """
     Provides a DJ client fixture with roads examples
     """
-    return client_example_loader(["ROADS"])
+    return await client_example_loader(["ROADS"])
 
 
-@pytest.fixture
-def client_with_namespaced_roads(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
-) -> TestClient:
+@pytest_asyncio.fixture
+async def client_with_namespaced_roads(
+    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
     """
     Provides a DJ client fixture with namespaced roads examples
     """
-    return client_example_loader(["NAMESPACED_ROADS"])
+    return await client_example_loader(["NAMESPACED_ROADS"])
 
 
-@pytest.fixture
-def client_with_basic(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
-) -> TestClient:
+@pytest_asyncio.fixture
+async def client_with_basic(
+    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
     """
     Provides a DJ client fixture with basic examples
     """
-    return client_example_loader(["BASIC"])
+    return await client_example_loader(["BASIC"])
 
 
-@pytest.fixture
-def client_with_account_revenue(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
-) -> TestClient:
+@pytest_asyncio.fixture
+async def client_with_account_revenue(
+    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
     """
     Provides a DJ client fixture with account revenue examples
     """
-    return client_example_loader(["ACCOUNT_REVENUE"])
+    return await client_example_loader(["ACCOUNT_REVENUE"])
 
 
-@pytest.fixture
-def client_with_event(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
-) -> TestClient:
+@pytest_asyncio.fixture
+async def client_with_event(
+    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
     """
     Provides a DJ client fixture with event examples
     """
-    return client_example_loader(["EVENT"])
+    return await client_example_loader(["EVENT"])
 
 
-@pytest.fixture
-def client_with_dbt(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
-) -> TestClient:
+@pytest_asyncio.fixture
+async def client_with_dbt(
+    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
     """
     Provides a DJ client fixture with dbt examples
     """
-    return client_example_loader(["DBT"])
+    return await client_example_loader(["DBT"])
 
 
 def compare_parse_trees(tree1, tree2):
@@ -450,12 +518,12 @@ def compare_query_strings_fixture():
     return compare_query_strings
 
 
-@pytest.fixture
-def client_with_query_service_example_loader(  # pylint: disable=too-many-statements
-    session: Session,
+@pytest_asyncio.fixture
+async def client_with_query_service_example_loader(  # pylint: disable=too-many-statements
+    session: AsyncSession,
     settings: Settings,
     query_service_client: QueryServiceClient,
-) -> Generator[Callable[[Optional[List[str]]], TestClient], None, None]:
+) -> Callable[[Optional[List[str]]], AsyncClient]:
     """
     Provides a callable fixture for loading examples into a test client
     fixture that additionally has a mocked query service.
@@ -464,7 +532,7 @@ def client_with_query_service_example_loader(  # pylint: disable=too-many-statem
     def get_query_service_client_override() -> QueryServiceClient:
         return query_service_client
 
-    def get_session_override() -> Session:
+    def get_session_override() -> AsyncSession:
         return session
 
     def get_settings_override() -> Settings:
@@ -476,35 +544,33 @@ def client_with_query_service_example_loader(  # pylint: disable=too-many-statem
         get_query_service_client
     ] = get_query_service_client_override
 
-    with TestClient(app) as client:
-        # The test client includes a signed and encrypted JWT in the authorization headers.
-        # Even though the user is mocked to always return a "dj" user, this allows for the
-        # JWT logic to be tested on all requests.
-        client.headers.update(
-            {
-                "Authorization": f"Bearer {EXAMPLE_TOKEN}",
-            },
-        )
+    # The test client includes a signed and encrypted JWT in the authorization headers.
+    # Even though the user is mocked to always return a "dj" user, this allows for the
+    # JWT logic to be tested on all requests.
+    client = AsyncClient(app=app, base_url="http://test")
+    client.headers.update(
+        {
+            "Authorization": f"Bearer {EXAMPLE_TOKEN}",
+        },
+    )
 
-        def _load_examples(examples_to_load: Optional[List[str]] = None):
-            return load_examples_in_client(client, examples_to_load)
+    def _load_examples(examples_to_load: Optional[List[str]] = None):
+        return load_examples_in_client(client, examples_to_load)
 
-        yield _load_examples
-
-    app.dependency_overrides.clear()
+    return _load_examples
 
 
-@pytest.fixture
-def client_with_query_service(  # pylint: disable=too-many-statements
+@pytest_asyncio.fixture
+async def client_with_query_service(  # pylint: disable=too-many-statements
     client_with_query_service_example_loader: Callable[
         [Optional[List[str]]],
-        TestClient,
+        AsyncClient,
     ],
-) -> TestClient:
+) -> AsyncClient:
     """
     Client with query service and all examples loaded.
     """
-    return client_with_query_service_example_loader(None)
+    return await client_with_query_service_example_loader(None)
 
 
 def pytest_addoption(parser):
@@ -528,8 +594,8 @@ def pytest_addoption(parser):
     )
 
 
-@pytest.fixture(scope="session", autouse=True)
-def mock_user_dj() -> Iterator[None]:
+@pytest_asyncio.fixture(autouse=True)
+async def mock_user_dj():
     """
     Mock a DJ user for tests
     """

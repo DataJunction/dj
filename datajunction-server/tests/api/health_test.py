@@ -1,26 +1,35 @@
 """
 Tests for the healthcheck API.
 """
+import asyncio
 
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
-def test_successful_health(client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_successful_health(client: AsyncClient) -> None:
     """
     Test ``GET /health/``.
     """
-    response = client.get("/health/")
+    response = await client.get("/health/")
     data = response.json()
     assert data == [{"name": "database", "status": "ok"}]
 
 
-def test_failed_health(session: Session, client: TestClient, mocker) -> None:
+@pytest.mark.asyncio
+async def test_failed_health(
+    session: AsyncSession,
+    client: AsyncClient,
+    mocker,
+) -> None:
     """
     Test failed healthcheck.
     """
-
-    session.execute = mocker.MagicMock()
-    response = client.get("/health/")
+    future: asyncio.Future = asyncio.Future()
+    future.set_result(mocker.MagicMock())
+    session.execute = mocker.MagicMock(return_value=future)
+    response = await client.get("/health/")
     data = response.json()
     assert data == [{"name": "database", "status": "failed"}]

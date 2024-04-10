@@ -1,17 +1,18 @@
 """
 Tests for the catalog API.
 """
+import pytest
+from httpx import AsyncClient
 
-from fastapi.testclient import TestClient
 
-
-def test_catalog_list(
-    client: TestClient,
+@pytest.mark.asyncio
+async def test_catalog_list(
+    client: AsyncClient,
 ) -> None:
     """
     Test listing catalogs
     """
-    response = client.post(
+    response = await client.post(
         "/engines/",
         json={
             "name": "spark",
@@ -20,7 +21,7 @@ def test_catalog_list(
         },
     )
 
-    response = client.post(
+    response = await client.post(
         "/catalogs/",
         json={
             "name": "dev",
@@ -34,14 +35,14 @@ def test_catalog_list(
         },
     )
 
-    response = client.post(
+    response = await client.post(
         "/catalogs/",
         json={
             "name": "test",
         },
     )
 
-    response = client.post(
+    response = await client.post(
         "/catalogs/",
         json={
             "name": "prod",
@@ -55,7 +56,7 @@ def test_catalog_list(
     }
     """
 
-    response = client.post("/graphql", json={"query": query})
+    response = await client.post("/graphql", json={"query": query})
     assert response.status_code == 200
     assert response.json() == {
         "data": {

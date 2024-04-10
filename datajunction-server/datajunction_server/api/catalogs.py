@@ -8,7 +8,8 @@ from typing import List
 
 from fastapi import Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from datajunction_server.api.engines import EngineInfo
 from datajunction_server.api.helpers import get_catalog_by_name
@@ -28,22 +29,27 @@ UNKNOWN_CATALOG_ID = 0
 
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])
-def list_catalogs(*, session: Session = Depends(get_session)) -> List[CatalogInfo]:
+async def list_catalogs(
+    *, session: AsyncSession = Depends(get_session)
+) -> List[CatalogInfo]:
     """
     List all available catalogs
     """
+    statement = select(Catalog).options(joinedload(Catalog.engines))
     return [
         CatalogInfo.from_orm(catalog)
-        for catalog in session.execute(select(Catalog)).scalars()
+        for catalog in (await session.execute(statement)).unique().scalars()
     ]
 
 
 @router.get("/catalogs/{name}/", response_model=CatalogInfo, name="Get a Catalog")
-def get_catalog(name: str, *, session: Session = Depends(get_session)) -> CatalogInfo:
+async def get_catalog(
+    name: str, *, session: AsyncSession = Depends(get_session)
+) -> CatalogInfo:
     """
     Return a catalog by name
     """
-    return get_catalog_by_name(session, name)
+    return await get_catalog_by_name(session, name)
 
 
 @router.post(
@@ -52,16 +58,16 @@ def get_catalog(name: str, *, session: Session = Depends(get_session)) -> Catalo
     status_code=201,
     name="Add A Catalog",
 )
-def add_catalog(
+async def add_catalog(
     data: CatalogInfo,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> CatalogInfo:
     """
     Add a Catalog
     """
     try:
-        get_catalog_by_name(session, data.name)
+        await get_catalog_by_name(session, data.name)
     except DJException:
         pass
     else:
@@ -83,15 +89,15 @@ def add_catalog(
         ],
     )
     catalog.engines.extend(
-        list_new_engines(
+        await list_new_engines(
             session=session,
             catalog=catalog,
             create_engines=data.engines,  # type: ignore
         ),
     )
     session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
+    await session.commit()
+    await session.refresh(catalog, ["engines"])
 
     return CatalogInfo.from_orm(catalog)
 
@@ -102,27 +108,27 @@ def add_catalog(
     status_code=201,
     name="Add Engines to a Catalog",
 )
-def add_engines_to_catalog(
+async def add_engines_to_catalog(
     name: str,
     data: List[EngineInfo],
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> CatalogInfo:
     """
     Attach one or more engines to a catalog
     """
-    catalog = get_catalog_by_name(session, name)
+    catalog = await get_catalog_by_name(session, name)
     catalog.engines.extend(
-        list_new_engines(session=session, catalog=catalog, create_engines=data),
+        await list_new_engines(session=session, catalog=catalog, create_engines=data),
     )
     session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
+    await session.commit()
+    await session.refresh(catalog)
     return CatalogInfo.from_orm(catalog)
 
 
-def list_new_engines(
-    session: Session,
+async def list_new_engines(
+    session: AsyncSession,
     catalog: Catalog,
     create_engines: List[EngineInfo],
 ) -> List[Engine]:
@@ -132,7 +138,7 @@ def list_new_engines(
     new_engines = []
     for engine_ref in create_engines:
         already_set = False
-        engine = get_engine(session, engine_ref.name, engine_ref.version)
+        engine = await get_engine(session, engine_ref.name, engine_ref.version)
         for set_engine in catalog.engines:
             if engine.name == set_engine.name and engine.version == set_engine.version:
                 already_set = True
@@ -141,17 +147,17 @@ def list_new_engines(
     return new_engines
 
 
-def default_catalog(session: Session = Depends(get_session)):
+async def default_catalog(session: AsyncSession = Depends(get_session)):
     """
     Loads a default catalog for nodes that are pure SQL and don't belong in any
     particular catalog. This typically applies to on-the-fly user-defined dimensions.
     """
     statement = select(Catalog).filter(Catalog.id == UNKNOWN_CATALOG_ID)
-    catalogs = session.execute(statement).all()
+    catalogs = (await session.execute(statement)).all()
     if not catalogs:
         unknown = Catalog(
             id=UNKNOWN_CATALOG_ID,
             name="unknown",
         )
         session.add(unknown)
-        session.commit()
+        await session.commit()

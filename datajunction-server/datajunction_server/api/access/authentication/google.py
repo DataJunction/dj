@@ -14,7 +14,7 @@ import requests
 from fastapi import APIRouter, Depends, Request
 from google.oauth2 import id_token
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import RedirectResponse
 
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
@@ -46,11 +46,11 @@ def login(target: Optional[str] = None):
 
 
 @router.get("/google/token/")
-def get_access_token(
+async def get_access_token(
     request: Request,
     state: Optional[str] = None,
     error: Optional[str] = None,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     setting: Settings = Depends(get_settings),
 ):
     """
@@ -75,8 +75,10 @@ def get_access_token(
         audience=setting.google_oauth_client_id,
     )
 
-    existing_user = session.execute(
-        select(User).where(User.email == user_data["email"]),
+    existing_user = (
+        await session.execute(
+            select(User).where(User.email == user_data["email"]),
+        )
     ).scalar()
     if existing_user:
         _logger.info("OAuth user found")
@@ -91,8 +93,8 @@ def get_access_token(
             oauth_provider=OAuthProvider.GOOGLE,
         )
         session.add(new_user)
-        session.commit()
-        session.refresh(new_user)
+        await session.commit()
+        await session.refresh(new_user)
         user = new_user
     response = RedirectResponse(url=urljoin(settings.frontend_host, state))  # type: ignore
     response.set_cookie(

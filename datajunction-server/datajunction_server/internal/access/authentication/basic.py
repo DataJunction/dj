@@ -6,7 +6,7 @@ from http import HTTPStatus
 
 from passlib.context import CryptContext
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJError, DJException, ErrorCode
@@ -29,15 +29,13 @@ def get_password_hash(password) -> str:
     return pwd_context.hash(password)
 
 
-def get_user(username: str, session: Session) -> User:
+async def get_user(username: str, session: AsyncSession) -> User:
     """
     Get a DJ user
     """
     user = (
-        session.execute(select(User).where(User.username == username))
-        .scalars()
-        .one_or_none()
-    )
+        await session.execute(select(User).where(User.username == username))
+    ).scalar_one_or_none()
     if not user:
         raise DJException(
             http_status_code=HTTPStatus.UNAUTHORIZED,
@@ -51,11 +49,15 @@ def get_user(username: str, session: Session) -> User:
     return user
 
 
-def validate_user_password(username: str, password: str, session: Session) -> User:
+async def validate_user_password(
+    username: str,
+    password: str,
+    session: AsyncSession,
+) -> User:
     """
     Get a DJ user and verify that the provided password matches the hashed password
     """
-    user = get_user(username=username, session=session)
+    user = await get_user(username=username, session=session)
     if not validate_password_hash(password, user.password):
         raise DJException(
             http_status_code=HTTPStatus.UNAUTHORIZED,

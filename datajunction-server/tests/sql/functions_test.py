@@ -4,7 +4,7 @@ Tests for ``datajunction_server.sql.functions``.
 """
 
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import datajunction_server.sql.functions as F
 import datajunction_server.sql.parsing.types as ct
@@ -36,7 +36,8 @@ from datajunction_server.sql.parsing.types import (
 )
 
 
-def test_missing_functions() -> None:
+@pytest.mark.asyncio
+async def test_missing_functions() -> None:
     """
     Test missing functions.
     """
@@ -52,7 +53,8 @@ def test_missing_functions() -> None:
     )
 
 
-def test_bad_combo_types() -> None:
+@pytest.mark.asyncio
+async def test_bad_combo_types() -> None:
     """
     Tests dispatch raises on bad types
     """
@@ -61,7 +63,8 @@ def test_bad_combo_types() -> None:
     assert "got an invalid combination of types" in str(exc)
 
 
-def test_abs(session: Session):
+@pytest.mark.asyncio
+async def test_abs(session: AsyncSession):
     """
     Test the `abs` Spark function
     """
@@ -72,7 +75,7 @@ def test_abs(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
@@ -83,12 +86,13 @@ def test_abs(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
 
 
-def test_aggregate(session: Session):
+@pytest.mark.asyncio
+async def test_aggregate(session: AsyncSession):
     """
     Test the `aggregate` Spark function
     """
@@ -106,30 +110,32 @@ def test_aggregate(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == StringType()  # type: ignore
 
 
-def test_approx_percentile(session: Session):
+@pytest.mark.asyncio
+async def test_approx_percentile(session: AsyncSession):
     """
     Test the `approx_percentile` Spark function
     """
     query_with_list = parse("SELECT approx_percentile(10.0, array(0.5, 0.4, 0.1), 100)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query_with_list.compile(ctx)
+    await query_with_list.compile(ctx)
     assert not exc.errors
     assert query_with_list.select.projection[0].type == ct.ListType(element_type=ct.FloatType())  # type: ignore
 
     query_with_list = parse("SELECT approx_percentile(10.0, 0.5, 100)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query_with_list.compile(ctx)
+    await query_with_list.compile(ctx)
     assert not exc.errors
     assert query_with_list.select.projection[0].type == ct.FloatType()  # type: ignore
 
 
-def test_array(session: Session):
+@pytest.mark.asyncio
+async def test_array(session: AsyncSession):
     """
     Test the `array` Spark function
     """
@@ -140,7 +146,7 @@ def test_array(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.NullType())  # type: ignore
 
@@ -151,12 +157,13 @@ def test_array(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
 
-def test_array_agg(session: Session):
+@pytest.mark.asyncio
+async def test_array_agg(session: AsyncSession):
     """
     Test the `array_agg` Spark function
     """
@@ -167,7 +174,7 @@ def test_array_agg(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
@@ -178,38 +185,40 @@ def test_array_agg(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
-def test_array_append(session: Session):
+@pytest.mark.asyncio
+async def test_array_append(session: AsyncSession):
     """
     Test the `array_append` Spark function
     """
     query = parse("SELECT array_append(array('b', 'd', 'c', 'a'), 'd')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
     query = parse("SELECT array_append(array(1, 2, 3, 4), 5)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
     query = parse("SELECT array_append(array(true, false, true, true), false)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.BooleanType())  # type: ignore
 
 
-def test_array_compact(session: Session):
+@pytest.mark.asyncio
+async def test_array_compact(session: AsyncSession):
     """
     Test the `array_compact` Spark function
     """
@@ -218,25 +227,27 @@ def test_array_compact(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
     assert query.select.projection[1].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
-def test_array_contains(session: Session):
+@pytest.mark.asyncio
+async def test_array_contains(session: AsyncSession):
     """
     Test the `array_contains` Spark function
     """
     query = parse("select array_contains(array(1, 2, 3), 2)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
-def test_array_distinct(session: Session):
+@pytest.mark.asyncio
+async def test_array_distinct(session: AsyncSession):
     """
     Test the `array_distinct` Spark function
     """
@@ -246,7 +257,7 @@ def test_array_distinct(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
     query = parse(
@@ -255,11 +266,12 @@ def test_array_distinct(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
-def test_array_except(session: Session):
+@pytest.mark.asyncio
+async def test_array_except(session: AsyncSession):
     """
     Test the `array_except` Spark function
     """
@@ -269,7 +281,7 @@ def test_array_except(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
     query = parse(
@@ -278,11 +290,12 @@ def test_array_except(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
-def test_array_intersect(session: Session):
+@pytest.mark.asyncio
+async def test_array_intersect(session: AsyncSession):
     """
     Test the `array_intersect` Spark function
     """
@@ -292,7 +305,7 @@ def test_array_intersect(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
     query = parse(
@@ -301,11 +314,12 @@ def test_array_intersect(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
-def test_array_join(session: Session):
+@pytest.mark.asyncio
+async def test_array_join(session: AsyncSession):
     """
     Test the `array_join` Spark function
     """
@@ -315,7 +329,7 @@ def test_array_join(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
 
     query = parse(
@@ -324,11 +338,12 @@ def test_array_join(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
 
 
-def test_array_max(session: Session):
+@pytest.mark.asyncio
+async def test_array_max(session: AsyncSession):
     """
     Test the `array_max` Spark function
     """
@@ -338,11 +353,12 @@ def test_array_max(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_array_min(session: Session):
+@pytest.mark.asyncio
+async def test_array_min(session: AsyncSession):
     """
     Test the `array_min` Spark function
     """
@@ -352,11 +368,12 @@ def test_array_min(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
 
 
-def test_array_position(session: Session):
+@pytest.mark.asyncio
+async def test_array_position(session: AsyncSession):
     """
     Test the `array_position` function
     """
@@ -366,11 +383,12 @@ def test_array_position(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.LongType()  # type: ignore
 
 
-def test_array_remove(session: Session):
+@pytest.mark.asyncio
+async def test_array_remove(session: AsyncSession):
     """
     Test the `array_remove` function
     """
@@ -380,11 +398,12 @@ def test_array_remove(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.FloatType())  # type: ignore
 
 
-def test_array_repeat(session: Session):
+@pytest.mark.asyncio
+async def test_array_repeat(session: AsyncSession):
     """
     Test the `array_repeat` function
     """
@@ -394,13 +413,14 @@ def test_array_repeat(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
     assert query.select.projection[1].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
     assert query.select.projection[2].type == ct.ListType(element_type=ct.FloatType())  # type: ignore
 
 
-def test_array_size(session: Session):
+@pytest.mark.asyncio
+async def test_array_size(session: AsyncSession):
     """
     Test the `array_size` function
     """
@@ -410,11 +430,12 @@ def test_array_size(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.LongType()  # type: ignore
 
 
-def test_array_sort(session: Session):
+@pytest.mark.asyncio
+async def test_array_sort(session: AsyncSession):
     """
     Test the `array_sort` function
     """
@@ -425,13 +446,14 @@ def test_array_sort(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(  # type: ignore
         element_type=ct.StringType(),
     )
 
 
-def test_array_union(session: Session):
+@pytest.mark.asyncio
+async def test_array_union(session: AsyncSession):
     """
     Test the `array_union` function
     """
@@ -441,13 +463,14 @@ def test_array_union(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(  # type: ignore
         element_type=ct.StringType(),
     )
 
 
-def test_array_overlap(session: Session):
+@pytest.mark.asyncio
+async def test_array_overlap(session: AsyncSession):
     """
     Test the `array_overlap` function
     """
@@ -457,11 +480,12 @@ def test_array_overlap(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
-def test_avg() -> None:
+@pytest.mark.asyncio
+async def test_avg() -> None:
     """
     Test ``avg`` function.
     """
@@ -471,85 +495,91 @@ def test_avg() -> None:
     assert Avg.infer_type(ast.Column(ast.Name("x"), _type=FloatType())) == DoubleType()
 
 
-def test_cardinality(session: Session):
+@pytest.mark.asyncio
+async def test_cardinality(session: AsyncSession):
     """
     Test the `cardinality` Spark function
     """
     query_with_list = parse("SELECT cardinality(array('b', 'd', 'c', 'a'))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query_with_list.compile(ctx)
+    await query_with_list.compile(ctx)
     assert not exc.errors
     assert query_with_list.select.projection[0].type == ct.IntegerType()  # type: ignore
 
     query_with_map = parse("SELECT cardinality(map('a', 1, 'b', 2))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query_with_map.compile(ctx)
+    await query_with_map.compile(ctx)
     assert not exc.errors
     assert query_with_map.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_cbrt_func(session: Session):
+@pytest.mark.asyncio
+async def test_cbrt_func(session: AsyncSession):
     """
     Test the `cbrt` function
     """
     query = parse("SELECT cbrt(27), cbrt(64.0)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == FloatType()  # type: ignore
     assert query.select.projection[1].type == FloatType()  # type: ignore
 
 
-def test_char_func(session: Session):
+@pytest.mark.asyncio
+async def test_char_func(session: AsyncSession):
     """
     Test the `char` function
     """
     query = parse("SELECT char(65), char(97)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == StringType()  # type: ignore
     assert query.select.projection[1].type == StringType()  # type: ignore
 
 
-def test_char_length_func(session: Session):
+@pytest.mark.asyncio
+async def test_char_length_func(session: AsyncSession):
     """
     Test the `char_length` function
     """
     query = parse("SELECT char_length('hello'), char_length('world')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == IntegerType()  # type: ignore
     assert query.select.projection[1].type == IntegerType()  # type: ignore
 
 
-def test_character_length_func(session: Session):
+@pytest.mark.asyncio
+async def test_character_length_func(session: AsyncSession):
     """
     Test the `character_length` function
     """
     query = parse("SELECT character_length('hello'), character_length('world')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == IntegerType()  # type: ignore
     assert query.select.projection[1].type == IntegerType()  # type: ignore
 
 
-def test_chr_func(session: Session):
+@pytest.mark.asyncio
+async def test_chr_func(session: AsyncSession):
     """
     Test the `chr` function
     """
     query = parse("SELECT chr(65), chr(97)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == StringType()  # type: ignore
     assert query.select.projection[1].type == StringType()  # type: ignore
@@ -577,7 +607,8 @@ def test_chr_func(session: Session):
         ),
     ],
 )
-def test_ceil(types, expected) -> None:
+@pytest.mark.asyncio
+async def test_ceil(types, expected) -> None:
     """
     Test ``ceil`` function.
     """
@@ -595,7 +626,8 @@ def test_ceil(types, expected) -> None:
         )
 
 
-def test_ceil_ceiling_funcs(session: Session):
+@pytest.mark.asyncio
+async def test_ceil_ceiling_funcs(session: AsyncSession):
     """
     Test the `ceil` and `ceiling` functions
     """
@@ -605,7 +637,7 @@ def test_ceil_ceiling_funcs(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == BigIntType()  # type: ignore
     assert query.select.projection[1].type == BigIntType()  # type: ignore
@@ -617,7 +649,8 @@ def test_ceil_ceiling_funcs(session: Session):
     assert query.select.projection[7].type == DecimalType(precision=14, scale=0)  # type: ignore
 
 
-def test_coalesce_infer_type() -> None:
+@pytest.mark.asyncio
+async def test_coalesce_infer_type() -> None:
     """
     Test type inference in the ``Coalesce`` function.
     """
@@ -649,7 +682,8 @@ def test_coalesce_infer_type() -> None:
     )
 
 
-def test_concat_func(session: Session):
+@pytest.mark.asyncio
+async def test_concat_func(session: AsyncSession):
     """
     Test the `concat` function
     """
@@ -658,13 +692,14 @@ def test_concat_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.ListType(ct.IntegerType())  # type: ignore
 
 
-def test_concat_ws_func(session: Session):
+@pytest.mark.asyncio
+async def test_concat_ws_func(session: AsyncSession):
     """
     Test the `concat_ws` function
     """
@@ -675,42 +710,45 @@ def test_concat_ws_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == StringType()  # type: ignore
     assert query.select.projection[1].type == StringType()  # type: ignore
     assert query.select.projection[2].type == StringType()  # type: ignore
 
 
-def test_collect_list(session: Session):
+@pytest.mark.asyncio
+async def test_collect_list(session: AsyncSession):
     """
     Test the `collect_list` function
     """
     query = parse("SELECT collect_list(col) FROM (SELECT (1), (2) AS col)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(  # type: ignore
         element_type=ct.IntegerType(),
     )
 
 
-def test_collect_set(session: Session):
+@pytest.mark.asyncio
+async def test_collect_set(session: AsyncSession):
     """
     Test the `collect_set` function
     """
     query = parse("SELECT collect_set(col) FROM (SELECT (1), (2) AS col)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(  # type: ignore
         element_type=ct.IntegerType(),
     )
 
 
-def test_contains_func(session: Session):
+@pytest.mark.asyncio
+async def test_contains_func(session: AsyncSession):
     """
     Test the `contains` function
     """
@@ -719,26 +757,28 @@ def test_contains_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
     assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
 
 
-def test_conv_func(session: Session):
+@pytest.mark.asyncio
+async def test_conv_func(session: AsyncSession):
     """
     Test the `conv` function
     """
     query = parse("SELECT conv('10', 10, 2), conv(15, 10, 16)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_convert_timezone_func(session: Session):
+@pytest.mark.asyncio
+async def test_convert_timezone_func(session: AsyncSession):
     """
     Test the `convert_timezone` function
     """
@@ -747,64 +787,69 @@ def test_convert_timezone_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
 
 
-def test_corr_func(session: Session):
+@pytest.mark.asyncio
+async def test_corr_func(session: AsyncSession):
     """
     Test the `corr` function
     """
     query = parse("SELECT corr(2.0, 3.0), corr(5, 10)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_cos_func(session: Session):
+@pytest.mark.asyncio
+async def test_cos_func(session: AsyncSession):
     """
     Test the `cos` function
     """
     query = parse("SELECT cos(0), cos(3.1416)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_cosh_func(session: Session):
+@pytest.mark.asyncio
+async def test_cosh_func(session: AsyncSession):
     """
     Test the `cosh` function
     """
     query = parse("SELECT cosh(0), cosh(1.0)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_cot_func(session: Session):
+@pytest.mark.asyncio
+async def test_cot_func(session: AsyncSession):
     """
     Test the `cot` function
     """
     query = parse("SELECT cot(1), cot(0.7854)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_count() -> None:
+@pytest.mark.asyncio
+async def test_count() -> None:
     """
     Test ``Count`` function.
     """
@@ -815,20 +860,22 @@ def test_count() -> None:
     assert Count.is_aggregation is True
 
 
-def test_count_if_func(session: Session):
+@pytest.mark.asyncio
+async def test_count_if_func(session: AsyncSession):
     """
     Test the `count_if` function
     """
     query = parse("SELECT count_if(true), count_if(false)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_count_min_sketch(session: Session):
+@pytest.mark.asyncio
+async def test_count_min_sketch(session: AsyncSession):
     """
     Test the `count_min_sketch` function
     """
@@ -837,129 +884,139 @@ def test_count_min_sketch(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BinaryType()  # type: ignore
 
 
-def test_covar_pop_func(session: Session):
+@pytest.mark.asyncio
+async def test_covar_pop_func(session: AsyncSession):
     """
     Test the `covar_pop` function
     """
     query = parse("SELECT covar_pop(1.0, 2.0), covar_pop(3, 4)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_covar_samp_func(session: Session):
+@pytest.mark.asyncio
+async def test_covar_samp_func(session: AsyncSession):
     """
     Test the `covar_samp` function
     """
     query = parse("SELECT covar_samp(1.0, 2.0), covar_samp(3, 4)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_crc32_func(session: Session):
+@pytest.mark.asyncio
+async def test_crc32_func(session: AsyncSession):
     """
     Test the `crc32` function
     """
     query = parse("SELECT crc32('hello'), crc32('world')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BigIntType()  # type: ignore
     assert query.select.projection[1].type == ct.BigIntType()  # type: ignore
 
 
-def test_csc_func(session: Session):
+@pytest.mark.asyncio
+async def test_csc_func(session: AsyncSession):
     """
     Test the `csc` function
     """
     query = parse("SELECT csc(1), csc(0.7854)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_cume_dist_func(session: Session):
+@pytest.mark.asyncio
+async def test_cume_dist_func(session: AsyncSession):
     """
     Test the `cume_dist` function
     """
     query = parse("SELECT cume_dist(), cume_dist()")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_curdate_func(session: Session):
+@pytest.mark.asyncio
+async def test_curdate_func(session: AsyncSession):
     """
     Test the `curdate` function
     """
     query = parse("SELECT curdate(), curdate()")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DateType()  # type: ignore
     assert query.select.projection[1].type == ct.DateType()  # type: ignore
 
 
-def test_current_catalog_func(session: Session):
+@pytest.mark.asyncio
+async def test_current_catalog_func(session: AsyncSession):
     """
     Test the `current_catalog` function
     """
     query = parse("SELECT current_catalog(), current_catalog()")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_current_database_func(session: Session):
+@pytest.mark.asyncio
+async def test_current_database_func(session: AsyncSession):
     """
     Test the `current_database` function
     """
     query = parse("SELECT current_database(), current_database()")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_current_schema_func(session: Session):
+@pytest.mark.asyncio
+async def test_current_schema_func(session: AsyncSession):
     """
     Test the `current_schema` function
     """
     query = parse("SELECT current_schema(), current_schema()")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_current_timezone_current_user_funcs(session: Session):
+@pytest.mark.asyncio
+async def test_current_timezone_current_user_funcs(session: AsyncSession):
     """
     Test the `current_timezone` function
     Test the `current_user` function
@@ -967,13 +1024,14 @@ def test_current_timezone_current_user_funcs(session: Session):
     query = parse("SELECT current_timezone(), current_user()")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_date_func(session: Session):
+@pytest.mark.asyncio
+async def test_date_func(session: AsyncSession):
     """
     Test the `date` function
     """
@@ -982,38 +1040,41 @@ def test_date_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DateType()  # type: ignore
     assert query.select.projection[1].type == ct.DateType()  # type: ignore
 
 
-def test_date_from_unix_date_func(session: Session):
+@pytest.mark.asyncio
+async def test_date_from_unix_date_func(session: AsyncSession):
     """
     Test the `date_from_unix_date` function
     """
     query = parse("SELECT date_from_unix_date(0), date_from_unix_date(18500)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DateType()  # type: ignore
     assert query.select.projection[1].type == ct.DateType()  # type: ignore
 
 
-def test_date_format(session: Session) -> None:
+@pytest.mark.asyncio
+async def test_date_format(session: AsyncSession) -> None:
     """
     Test ``date_format`` function.
     """
     query_with_array = parse("SELECT date_format(NOW(), 'yyyyMMdd') as date_partition")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query_with_array.compile(ctx)
+    await query_with_array.compile(ctx)
     assert not exc.errors
     assert query_with_array.select.projection[0].type == StringType()  # type: ignore
 
 
-def test_date_part_func(session: Session):
+@pytest.mark.asyncio
+async def test_date_part_func(session: AsyncSession):
     """
     Test the `date_part` function
     """
@@ -1022,25 +1083,27 @@ def test_date_part_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_dj_logical_timestamp(session: Session) -> None:
+@pytest.mark.asyncio
+async def test_dj_logical_timestamp(session: AsyncSession) -> None:
     """
     Test ``DJ_LOGICAL_TIMESTAMP`` function.
     """
     query_with_array = parse("SELECT dj_logical_timestamp() as date_partition")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query_with_array.compile(ctx)
+    await query_with_array.compile(ctx)
     assert not exc.errors
     assert query_with_array.select.projection[0].type == StringType()  # type: ignore
 
 
-def test_dayofmonth_func(session: Session):
+@pytest.mark.asyncio
+async def test_dayofmonth_func(session: AsyncSession):
     """
     Test the `dayofmonth` function
     """
@@ -1049,13 +1112,14 @@ def test_dayofmonth_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_dayofweek_func(session: Session):
+@pytest.mark.asyncio
+async def test_dayofweek_func(session: AsyncSession):
     """
     Test the `dayofweek` function
     """
@@ -1064,13 +1128,14 @@ def test_dayofweek_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_dayofyear_func(session: Session):
+@pytest.mark.asyncio
+async def test_dayofyear_func(session: AsyncSession):
     """
     Test the `dayofyear` function
     """
@@ -1079,172 +1144,185 @@ def test_dayofyear_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_decimal_func(session: Session):
+@pytest.mark.asyncio
+async def test_decimal_func(session: AsyncSession):
     """
     Test the `decimal` function
     """
     query = parse("SELECT decimal(123), decimal('456.78')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DecimalType(8, 6)  # type: ignore
     assert query.select.projection[1].type == ct.DecimalType(8, 6)  # type: ignore
 
 
-def test_decode_func(session: Session):
+@pytest.mark.asyncio
+async def test_decode_func(session: AsyncSession):
     """
     Test the `decode` function
     """
     query = parse("SELECT decode(unhex('4D7953514C'), 'UTF-8')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
 
 
-def test_degrees_func(session: Session):
+@pytest.mark.asyncio
+async def test_degrees_func(session: AsyncSession):
     """
     Test the `degrees` function
     """
     query = parse("SELECT degrees(1), degrees(3.141592653589793)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_double_func(session: Session):
+@pytest.mark.asyncio
+async def test_double_func(session: AsyncSession):
     """
     Test the `double` function
     """
     query = parse("SELECT double('123.45'), double(67890)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
     assert query.select.projection[1].type == ct.DoubleType()  # type: ignore
 
 
-def test_e_func(session: Session):
+@pytest.mark.asyncio
+async def test_e_func(session: AsyncSession):
     """
     Test the `e` function
     """
     query = parse("SELECT e(), e()")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_element_at(session: Session):
+@pytest.mark.asyncio
+async def test_element_at(session: AsyncSession):
     """
     Test the `element_at` Spark function
     """
     query_with_array = parse("SELECT element_at(array(1, 2, 3, 4), 2)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query_with_array.compile(ctx)
+    await query_with_array.compile(ctx)
     assert not exc.errors
     assert query_with_array.select.projection[0].type == IntegerType()  # type: ignore
 
     query_with_map = parse("SELECT element_at(map(1, 'a', 2, 'b'), 2)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query_with_map.compile(ctx)
+    await query_with_map.compile(ctx)
     assert not exc.errors
     assert query_with_map.select.projection[0].type == StringType()  # type: ignore
 
 
-def test_elt_func(session: Session):
+@pytest.mark.asyncio
+async def test_elt_func(session: AsyncSession):
     """
     Test the `elt` function
     """
     query = parse("SELECT elt(1, 'a', 'b', 'c'), elt(3, 'd', 'e', 'f')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_encode_func(session: Session):
+@pytest.mark.asyncio
+async def test_encode_func(session: AsyncSession):
     """
     Test the `encode` function
     """
     query = parse("SELECT encode('hello', 'UTF-8'), encode('world', 'UTF-8')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_endswith_func(session: Session):
+@pytest.mark.asyncio
+async def test_endswith_func(session: AsyncSession):
     """
     Test the `endswith` function
     """
     query = parse("SELECT endswith('hello', 'lo'), endswith('world', 'ld')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
     assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
 
 
-def test_equal_null_func(session: Session):
+@pytest.mark.asyncio
+async def test_equal_null_func(session: AsyncSession):
     """
     Test the `equal_null` function
     """
     query = parse("SELECT equal_null('hello', 'hello'), equal_null(NULL, NULL)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
     assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
 
 
-def test_every_func(session: Session):
+@pytest.mark.asyncio
+async def test_every_func(session: AsyncSession):
     """
     Test the `every` function
     """
     query = parse("SELECT every(col), every(col) FROM (SELECT (true), (false) AS col)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
     assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
 
 
-def test_exists_func(session: Session):
+@pytest.mark.asyncio
+async def test_exists_func(session: AsyncSession):
     """
     Test the `exists` function
     """
     query = parse("SELECT exists(array(1, 2, 3), x -> x % 2 > 0)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
-def test_explode_outer_func(session: Session):
+@pytest.mark.asyncio
+async def test_explode_outer_func(session: AsyncSession):
     """
     Test the `explode_outer` function
     """
@@ -1253,46 +1331,49 @@ def test_explode_outer_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_expm1_func(session: Session):
+@pytest.mark.asyncio
+async def test_expm1_func(session: AsyncSession):
     """
     Test the `expm1` function
     """
     query = parse("SELECT expm1(1), expm1(0.5)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_factorial_func(session: Session):
+@pytest.mark.asyncio
+async def test_factorial_func(session: AsyncSession):
     """
     Test the `factorial` function
     """
     query = parse("SELECT factorial(0), factorial(5)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_filter(session: Session):
+@pytest.mark.asyncio
+async def test_filter(session: AsyncSession):
     """
     Test the `filter` function
     """
     query = parse("SELECT filter(col, s -> s != 3) FROM (SELECT array(1, 2, 3) AS col)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(  # type: ignore
         element_type=ct.IntegerType(),
     )
@@ -1302,7 +1383,7 @@ def test_filter(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(  # type: ignore
         element_type=ct.IntegerType(),
     )
@@ -1313,23 +1394,25 @@ def test_filter(session: Session):
         )
         exc = DJException()
         ctx = ast.CompileContext(session=session, exception=exc)
-        query.compile(ctx)
+        await query.compile(ctx)
 
 
-def test_find_in_set_func(session: Session):
+@pytest.mark.asyncio
+async def test_find_in_set_func(session: AsyncSession):
     """
     Test the `find_in_set` function
     """
     query = parse("SELECT find_in_set('b', 'a,b,c,d'), find_in_set('e', 'a,b,c,d')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_first_and_first_value(session: Session):
+@pytest.mark.asyncio
+async def test_first_and_first_value(session: AsyncSession):
     """
     Test `first` and `first_value`
     """
@@ -1339,7 +1422,7 @@ def test_first_and_first_value(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
@@ -1347,28 +1430,30 @@ def test_first_and_first_value(session: Session):
     assert query.select.projection[3].type == ct.IntegerType()  # type: ignore
 
 
-def test_flatten(session: Session):
+@pytest.mark.asyncio
+async def test_flatten(session: AsyncSession):
     """
     Test `flatten`
     """
     query = parse("SELECT flatten(array(array(1, 2), array(3, 4)))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(  # type: ignore
         element_type=ct.IntegerType(),
     )
 
 
-def test_float_func(session: Session):
+@pytest.mark.asyncio
+async def test_float_func(session: AsyncSession):
     """
     Test the `float` function
     """
     query = parse("SELECT float(123), float('456.78')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
@@ -1396,7 +1481,8 @@ def test_float_func(session: Session):
         ),
     ],
 )
-def test_floor(types, expected) -> None:
+@pytest.mark.asyncio
+async def test_floor(types, expected) -> None:
     """
     Test ``floor`` function.
     """
@@ -1414,7 +1500,8 @@ def test_floor(types, expected) -> None:
         )
 
 
-def test_forall_func(session: Session):
+@pytest.mark.asyncio
+async def test_forall_func(session: AsyncSession):
     """
     Test the `forall` function
     """
@@ -1423,13 +1510,14 @@ def test_forall_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     # assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
     assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
 
 
-def test_format_number_func(session: Session):
+@pytest.mark.asyncio
+async def test_format_number_func(session: AsyncSession):
     """
     Test the `format_number` function
     """
@@ -1438,13 +1526,14 @@ def test_format_number_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_format_string_func(session: Session):
+@pytest.mark.asyncio
+async def test_format_string_func(session: AsyncSession):
     """
     Test the `format_string` function
     """
@@ -1453,41 +1542,44 @@ def test_format_string_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
 # TODO: Fix these two  # pylint: disable=fixme
-# def test_from_csv_func(session: Session):
+# @pytest.mark.asyncio
+# async def test_from_csv_func(session: AsyncSession):
 #     """
 #     Test the `from_csv` function
 #     """
 #     query = parse("SELECT from_csv('1,2,3', 'a INT, b INT, c INT'), from_csv('4,5,6', 'x INT, y INT, z INT')")
 #     exc = DJException()
 #     ctx = ast.CompileContext(session=session, exception=exc)
-#     query.compile(ctx)
+#     await query.compile(ctx)
 #     assert not exc.errors
 #     assert isinstance(query.select.projection[0].type, ct.StructType)  # type: ignore
 #     assert isinstance(query.select.projection[1].type, ct.StructType)  # type: ignore
 
 
 # TODO: Fix these two  # pylint: disable=fixme
-# def test_from_json_func(session: Session):
+# @pytest.mark.asyncio
+# async def test_from_json_func(session: AsyncSession):
 #     """
 #     Test the `from_json` function
 #     """
 #     query = parse("SELECT from_json('1,2,3', 'a INT, b INT, c INT'), from_json('4,5,6', 'x INT, y INT, z INT')")
 #     exc = DJException()
 #     ctx = ast.CompileContext(session=session, exception=exc)
-#     query.compile(ctx)
+#     await query.compile(ctx)
 #     assert not exc.errors
 #     assert isinstance(query.select.projection[0].type, Union[ct.StructType, ct.ListType])  # type: ignore
 #     assert isinstance(query.select.projection[1].type, Union[ct.StructType, ct.ListType])
 
 
-def test_from_unix_time_func(session: Session):
+@pytest.mark.asyncio
+async def test_from_unix_time_func(session: AsyncSession):
     """
     Test the `from_unix_time` function
     """
@@ -1496,13 +1588,14 @@ def test_from_unix_time_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_from_utc_timestamp_func(session: Session):
+@pytest.mark.asyncio
+async def test_from_utc_timestamp_func(session: AsyncSession):
     """
     Test the `from_utc_timestamp` function
     """
@@ -1512,26 +1605,28 @@ def test_from_utc_timestamp_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
     assert query.select.projection[1].type == ct.TimestampType()  # type: ignore
 
 
-def test_get_func(session: Session):
+@pytest.mark.asyncio
+async def test_get_func(session: AsyncSession):
     """
     Test the `get` function
     """
     query = parse("SELECT get(array(1, 2, 3), 0), get(array('a', 'b', 'c'), 1)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_get_json_object_func(session: Session):
+@pytest.mark.asyncio
+async def test_get_json_object_func(session: AsyncSession):
     """
     Test the `get_json_object` function
     """
@@ -1541,38 +1636,41 @@ def test_get_json_object_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_getbit_func(session: Session):
+@pytest.mark.asyncio
+async def test_getbit_func(session: AsyncSession):
     """
     Test the `getbit` function
     """
     query = parse("SELECT getbit(1010, 0), getbit(1010, 1)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_greatest(session: Session):
+@pytest.mark.asyncio
+async def test_greatest(session: AsyncSession):
     """
     Test `greatest`
     """
     query = parse("SELECT greatest(10, 9, 2, 4, 3)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_grouping_func(session: Session):
+@pytest.mark.asyncio
+async def test_grouping_func(session: AsyncSession):
     """
     Test the `grouping` function
     """
@@ -1582,13 +1680,14 @@ def test_grouping_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_grouping_id_func(session: Session):
+@pytest.mark.asyncio
+async def test_grouping_id_func(session: AsyncSession):
     """
     Test the `grouping_id` function
     """
@@ -1598,51 +1697,55 @@ def test_grouping_id_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BigIntType()  # type: ignore
 
 
-def test_hash_func(session: Session):
+@pytest.mark.asyncio
+async def test_hash_func(session: AsyncSession):
     """
     Test the `hash` function
     """
     query = parse("SELECT hash('hello'), hash(123)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_hex_func(session: Session):
+@pytest.mark.asyncio
+async def test_hex_func(session: AsyncSession):
     """
     Test the `hex` function
     """
     query = parse("SELECT hex('hello'), hex(123)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_histogram_numeric_func(session: Session):
+@pytest.mark.asyncio
+async def test_histogram_numeric_func(session: AsyncSession):
     """
     Test the `histogram_numeric` function
     """
     query = parse("SELECT histogram_numeric(col, 5) FROM (SELECT (1), (2) AS col)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert isinstance(query.select.projection[0].type, ct.ListType)  # type: ignore
     assert isinstance(query.select.projection[0].type.element.type, ct.StructType)  # type: ignore
 
 
-def test_hour_func(session: Session):
+@pytest.mark.asyncio
+async def test_hour_func(session: AsyncSession):
     """
     Test the `hour` function
     """
@@ -1651,26 +1754,28 @@ def test_hour_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_hypot_func(session: Session):
+@pytest.mark.asyncio
+async def test_hypot_func(session: AsyncSession):
     """
     Test the `hypot` function
     """
     query = parse("SELECT hypot(3, 4), hypot(5.0, 12.0)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_if(session: Session):
+@pytest.mark.asyncio
+async def test_if(session: AsyncSession):
     """
     Test the `if` functions
     """
@@ -1679,12 +1784,13 @@ def test_if(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_ilike_like_func(session: Session):
+@pytest.mark.asyncio
+async def test_ilike_like_func(session: AsyncSession):
     """
     Test the `ilike`, `like` functions
     """
@@ -1694,27 +1800,29 @@ def test_ilike_like_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
     assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
     assert query.select.projection[2].type == ct.BooleanType()  # type: ignore
 
 
-def test_initcap_func(session: Session):
+@pytest.mark.asyncio
+async def test_initcap_func(session: AsyncSession):
     """
     Test the `initcap` function
     """
     query = parse("SELECT initcap('hello world'), initcap('SQL function')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_inline_func(session: Session):
+@pytest.mark.asyncio
+async def test_inline_func(session: AsyncSession):
     """
     Test the `inline` function
     """
@@ -1725,125 +1833,135 @@ def test_inline_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert isinstance(query.select.projection[0].type, ct.StructType)  # type: ignore
     assert isinstance(query.select.projection[1].type, ct.StructType)  # type: ignore
 
 
-def test_input_file_block_length_func(session: Session):
+@pytest.mark.asyncio
+async def test_input_file_block_length_func(session: AsyncSession):
     """
     Test the `input_file_block_length` function
     """
     query = parse("SELECT input_file_block_length()")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.LongType()  # type: ignore
 
 
-def test_input_file_block_start_func(session: Session):
+@pytest.mark.asyncio
+async def test_input_file_block_start_func(session: AsyncSession):
     """
     Test the `input_file_block_start` function
     """
     query = parse("SELECT input_file_block_start()")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.LongType()  # type: ignore
 
 
-def test_input_file_name_func(session: Session):
+@pytest.mark.asyncio
+async def test_input_file_name_func(session: AsyncSession):
     """
     Test the `input_file_name` function
     """
     query = parse("SELECT input_file_name()")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
 
 
-def test_int(session: Session):
+@pytest.mark.asyncio
+async def test_int(session: AsyncSession):
     """
     Test the `int` function
     """
     query = parse("SELECT int('3')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_instr_func(session: Session):
+@pytest.mark.asyncio
+async def test_instr_func(session: AsyncSession):
     """
     Test the `instr` function
     """
     query = parse("SELECT instr('hello world', 'world'), instr('hello world', 'SQL')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_isnan_func(session: Session):
+@pytest.mark.asyncio
+async def test_isnan_func(session: AsyncSession):
     """
     Test the `isnan` function
     """
     query = parse("SELECT isnan(1/0), isnan(0.0/0.0)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
     assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
 
 
-def test_isnotnull_isnull(session: Session):
+@pytest.mark.asyncio
+async def test_isnotnull_isnull(session: AsyncSession):
     """
     Test the `isnotnull`, `isnull` functions
     """
     query = parse("SELECT isnotnull(0), isnull(null)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
     assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
 
 
-def test_json_array_length_func(session: Session):
+@pytest.mark.asyncio
+async def test_json_array_length_func(session: AsyncSession):
     """
     Test the `json_array_length` function
     """
     query = parse("SELECT json_array_length('[1, 2, 3]')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_json_object_keys_func(session: Session):
+@pytest.mark.asyncio
+async def test_json_object_keys_func(session: AsyncSession):
     """
     Test the `json_object_keys` function
     """
     query = parse('SELECT json_object_keys(\'{"key1": "value1", "key2": "value2"}\')')
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert isinstance(query.select.projection[0].type, ct.ListType)  # type: ignore
     assert query.select.projection[0].type.element.type == ct.StringType()  # type: ignore
 
 
-def test_json_tuple_func(session: Session):
+@pytest.mark.asyncio
+async def test_json_tuple_func(session: AsyncSession):
     """
     Test the `json_tuple` function
     """
@@ -1852,24 +1970,26 @@ def test_json_tuple_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert isinstance(query.select.projection[0].type, ct.ListType)  # type: ignore
 
 
-def test_kurtosis_func(session: Session):
+@pytest.mark.asyncio
+async def test_kurtosis_func(session: AsyncSession):
     """
     Test the `kurtosis` function
     """
     query = parse("SELECT kurtosis(col) FROM (SELECT (1), (2), (3) AS col)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
 
 
-def test_lag_func(session: Session):
+@pytest.mark.asyncio
+async def test_lag_func(session: AsyncSession):
     """
     Test the `lag` function
     """
@@ -1878,13 +1998,14 @@ def test_lag_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     # The output type depends on the type of `col`
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_last_and_last_value(session: Session):
+@pytest.mark.asyncio
+async def test_last_and_last_value(session: AsyncSession):
     """
     Test the `last` function
     """
@@ -1896,40 +2017,43 @@ def test_last_and_last_value(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     # The output type depends on the type of `col`
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_last_day_func(session: Session):
+@pytest.mark.asyncio
+async def test_last_day_func(session: AsyncSession):
     """
     Test the `last_day` function
     """
     query = parse("SELECT last_day('2023-01-01'), last_day(cast('2023-02-15' as date))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DateType()  # type: ignore
     assert query.select.projection[1].type == ct.DateType()  # type: ignore
 
 
-def test_lcase_func(session: Session):
+@pytest.mark.asyncio
+async def test_lcase_func(session: AsyncSession):
     """
     Test the `lcase` function
     """
     query = parse("SELECT lcase('HELLO'), lcase('WORLD')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_lead_func(session: Session):
+@pytest.mark.asyncio
+async def test_lead_func(session: AsyncSession):
     """
     Test the `lead` function
     """
@@ -1938,53 +2062,57 @@ def test_lead_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     # The output type depends on the type of `col`
     # Assuming `col` is of type StringType for this test
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
 
 
-def test_least_func(session: Session):
+@pytest.mark.asyncio
+async def test_least_func(session: AsyncSession):
     """
     Test the `least` function
     """
     query = parse("SELECT least(10, 20, 30, 40)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
 # TODO: figure out why antlr parser fails
-# def test_left_func(session: Session):
+# @pytest.mark.asyncio
+# async def test_left_func(session: AsyncSession):
 #     """
 #     Test the `left` function
 #     """
 #     query = parse("SELECT left('hello world', 5)")
 #     exc = DJException()
 #     ctx = ast.CompileContext(session=session, exception=exc)
-#     query.compile(ctx)
+#     await query.compile(ctx)
 #     assert not exc.errors
 #     assert query.select.projection[0].type == ct.StringType()  # type: ignore
 #     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_len_func(session: Session):
+@pytest.mark.asyncio
+async def test_len_func(session: AsyncSession):
     """
     Test the `len` function
     """
     query = parse("SELECT len('hello'), len('world')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_like_func(session: Session):
+@pytest.mark.asyncio
+async def test_like_func(session: AsyncSession):
     """
     Test the `like` function
     """
@@ -1993,24 +2121,26 @@ def test_like_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
-def test_localtimestamp_func(session: Session):
+@pytest.mark.asyncio
+async def test_localtimestamp_func(session: AsyncSession):
     """
     Test the `localtimestamp` function
     """
     query = parse("SELECT localtimestamp()")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
 
 
-def test_locate_func(session: Session):
+@pytest.mark.asyncio
+async def test_locate_func(session: AsyncSession):
     """
     Test the `locate` function
     """
@@ -2019,13 +2149,14 @@ def test_locate_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_log_functions(session: Session):
+@pytest.mark.asyncio
+async def test_log_functions(session: AsyncSession):
     """
     Test the `log1p`, `log10` and `log2` functions
     """
@@ -2034,89 +2165,96 @@ def test_log_functions(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
     assert query.select.projection[1].type == ct.DoubleType()  # type: ignore
     assert query.select.projection[2].type == ct.DoubleType()  # type: ignore
 
 
-def test_lpad_func(session: Session):
+@pytest.mark.asyncio
+async def test_lpad_func(session: AsyncSession):
     """
     Test the `lpad` function
     """
     query = parse("SELECT lpad('hello', 10, ' '), lpad('SQL', 5, '0')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_ltrim_func(session: Session):
+@pytest.mark.asyncio
+async def test_ltrim_func(session: AsyncSession):
     """
     Test the `ltrim` function
     """
     query = parse("SELECT ltrim('   hello'), ltrim('-----world-', '-')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_make_date_func(session: Session):
+@pytest.mark.asyncio
+async def test_make_date_func(session: AsyncSession):
     """
     Test the `make_date` function
     """
     query = parse("SELECT make_date(2023, 7, 30), make_date(2023, 12, 31)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DateType()  # type: ignore
     assert query.select.projection[1].type == ct.DateType()  # type: ignore
 
 
-def test_make_dt_interval_func(session: Session):
+@pytest.mark.asyncio
+async def test_make_dt_interval_func(session: AsyncSession):
     """
     Test the `make_dt_interval` function
     """
     query = parse("SELECT make_dt_interval(1, 2, 30, 45)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DayTimeIntervalType()  # type: ignore
 
 
-def test_make_interval_func(session: Session):
+@pytest.mark.asyncio
+async def test_make_interval_func(session: AsyncSession):
     """
     Test the `make_interval` function
     """
     query = parse("SELECT make_interval(1, 6)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.YearMonthIntervalType()  # type: ignore
 
 
-def test_make_timestamp_func(session: Session):
+@pytest.mark.asyncio
+async def test_make_timestamp_func(session: AsyncSession):
     """
     Test the `make_timestamp` function
     """
     query = parse("SELECT make_timestamp(2023, 7, 30, 14, 45, 30)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
 
 
-def test_make_timestamp_ltz_func(session: Session):
+@pytest.mark.asyncio
+async def test_make_timestamp_ltz_func(session: AsyncSession):
     """
     Test the `make_timestamp_ltz` function
     """
@@ -2126,68 +2264,73 @@ def test_make_timestamp_ltz_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
     assert query.select.projection[1].type == ct.TimestampType()  # type: ignore
 
 
-def test_make_timestamp_ntz_func(session: Session):
+@pytest.mark.asyncio
+async def test_make_timestamp_ntz_func(session: AsyncSession):
     """
     Test the `make_timestamp_ntz` function
     """
     query = parse("SELECT make_timestamp_ntz(2023, 7, 30, 14, 45, 30)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
 
 
-def test_make_ym_interval_func(session: Session):
+@pytest.mark.asyncio
+async def test_make_ym_interval_func(session: AsyncSession):
     """
     Test the `make_ym_interval` function
     """
     query = parse("SELECT make_ym_interval(1, 6)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.YearMonthIntervalType()  # type: ignore
 
 
-def test_map_concat_func(session: Session):
+@pytest.mark.asyncio
+async def test_map_concat_func(session: AsyncSession):
     """
     Test the `map_concat` function
     """
     query = parse("SELECT map_concat(map(1, 'a', 2, 'b'), map(1, 'c'))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.MapType(key_type=ct.IntegerType(), value_type=ct.StringType())  # type: ignore
 
 
-def test_map_contains_key_func(session: Session):
+@pytest.mark.asyncio
+async def test_map_contains_key_func(session: AsyncSession):
     """
     Test the `map_contains_key` function
     """
     query = parse("SELECT map_contains_key(map(1, 'a', 2, 'b'), 1)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
-def test_map_entries_func(session: Session):
+@pytest.mark.asyncio
+async def test_map_entries_func(session: AsyncSession):
     """
     Test the `map_entries` function
     """
     query = parse("SELECT map_entries(map(1, 'a', 2, 'b'))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(  # type: ignore
         element_type=ct.StructType(
@@ -2197,28 +2340,30 @@ def test_map_entries_func(session: Session):
     )  # type: ignore
 
 
-def test_map_filter_func(session: Session):
+@pytest.mark.asyncio
+async def test_map_filter_func(session: AsyncSession):
     """
     Test the `map_filter` function
     """
     query = parse("SELECT map_filter(map(1, 0, 2, 2, 3, -1), (k, v) -> k > v)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.MapType(  # type: ignore
         key_type=ct.IntegerType(),
         value_type=ct.IntegerType(),
     )
 
 
-def test_map_from_arrays_func(session: Session):
+@pytest.mark.asyncio
+async def test_map_from_arrays_func(session: AsyncSession):
     """
     Test the `map_from_arrays` function
     """
     query = parse("SELECT map_from_arrays(array(1.0, 3.0), array('2', '4'))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.MapType(  # type: ignore
         key_type=ct.FloatType(),
@@ -2226,14 +2371,15 @@ def test_map_from_arrays_func(session: Session):
     )
 
 
-def test_map_from_entries_func(session: Session):
+@pytest.mark.asyncio
+async def test_map_from_entries_func(session: AsyncSession):
     """
     Test the `map_from_entries` function
     """
     query = parse("SELECT map_from_entries(array(struct(1, 'a'), struct(2, 'b')))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.MapType(  # type: ignore
         key_type=ct.IntegerType(),
@@ -2241,31 +2387,34 @@ def test_map_from_entries_func(session: Session):
     )
 
 
-def test_map_keys_func(session: Session):
+@pytest.mark.asyncio
+async def test_map_keys_func(session: AsyncSession):
     """
     Test the `map_keys` function
     """
     query = parse("SELECT map_keys(map(1, 'a', 2, 'b'))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
 
-def test_map_values_func(session: Session):
+@pytest.mark.asyncio
+async def test_map_values_func(session: AsyncSession):
     """
     Test the `map_values` function
     """
     query = parse("SELECT map_values(map(1, 'a', 2, 'b'))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
-def test_max() -> None:
+@pytest.mark.asyncio
+async def test_max() -> None:
     """
     Test ``Max`` function.
     """
@@ -2286,7 +2435,8 @@ def test_max() -> None:
 
 
 # TODO
-# def test_map_zip_with_func(session: Session):
+# @pytest.mark.asyncio
+# async def test_map_zip_with_func(session: AsyncSession):
 #     """
 #     Test the `map_zip_with` function
 #     """
@@ -2295,12 +2445,13 @@ def test_max() -> None:
 #     query = parse("SELECT map_zip_with(map_col1, map_col2, func) FROM table")
 #     exc = DJException()
 #     ctx = ast.CompileContext(session=session, exception=exc)
-#     query.compile(ctx)
+#     await query.compile(ctx)
 #     assert not exc.errors
 #     assert isinstance(query.select.projection[0].type, ct.MapType)  # type: ignore
 
 
-def test_mask_func(session: Session):
+@pytest.mark.asyncio
+async def test_mask_func(session: AsyncSession):
     """
     Test the `mask` function
     """
@@ -2313,7 +2464,7 @@ def test_mask_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
@@ -2322,7 +2473,8 @@ def test_mask_func(session: Session):
     assert query.select.projection[4].type == ct.StringType()  # type: ignore
 
 
-def test_max_by_min_by_funcs(session: Session):
+@pytest.mark.asyncio
+async def test_max_by_min_by_funcs(session: AsyncSession):
     """
     Test the `max_by` function
     """
@@ -2332,49 +2484,53 @@ def test_max_by_min_by_funcs(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_md5_func(session: Session):
+@pytest.mark.asyncio
+async def test_md5_func(session: AsyncSession):
     """
     Test the `md5` function
     """
     query = parse("SELECT md5('Spark')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
 
 
-def test_mean_func(session: Session):
+@pytest.mark.asyncio
+async def test_mean_func(session: AsyncSession):
     """
     Test the `mean` function
     """
     query = parse("SELECT mean(col) FROM (SELECT (1), (2), (3) AS col)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
 
 
-def test_median_func(session: Session):
+@pytest.mark.asyncio
+async def test_median_func(session: AsyncSession):
     """
     Test the `median` function
     """
     query = parse("SELECT median(col) FROM (SELECT (1), (2), (3) AS col)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
 
 
-def test_min() -> None:
+@pytest.mark.asyncio
+async def test_min() -> None:
     """
     Test ``Min`` function.
     """
@@ -2392,7 +2548,8 @@ def test_min() -> None:
         ) == StringType()
 
 
-def test_minute(session: Session):
+@pytest.mark.asyncio
+async def test_minute(session: AsyncSession):
     """
     Test the `minute` function
     """
@@ -2401,13 +2558,14 @@ def test_minute(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_mod(session: Session):
+@pytest.mark.asyncio
+async def test_mod(session: AsyncSession):
     """
     Test the `mod` function
     """
@@ -2416,12 +2574,13 @@ def test_mod(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
 
 
-def test_mode(session: Session):
+@pytest.mark.asyncio
+async def test_mode(session: AsyncSession):
     """
     Test the `mode` function
     """
@@ -2430,12 +2589,13 @@ def test_mode(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_monotonically_increasing_id(session: Session):
+@pytest.mark.asyncio
+async def test_monotonically_increasing_id(session: AsyncSession):
     """
     Test the `monotonically_increasing_id` function
     """
@@ -2444,12 +2604,13 @@ def test_monotonically_increasing_id(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BigIntType()  # type: ignore
 
 
-def test_months_between(session: Session):
+@pytest.mark.asyncio
+async def test_months_between(session: AsyncSession):
     """
     Test the `months_between` function
     """
@@ -2460,19 +2621,20 @@ def test_months_between(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
 
 
-def test_named_struct_func(session: Session):
+@pytest.mark.asyncio
+async def test_named_struct_func(session: AsyncSession):
     """
     Test the `named_struct` function
     """
     query = parse("SELECT named_struct('name', 'cactus', 'age', 30)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StructType(  # type: ignore
         ct.NestedField(name="name", field_type=ct.StringType()),  # type: ignore
@@ -2480,62 +2642,68 @@ def test_named_struct_func(session: Session):
     )
 
 
-def test_nanvl_func(session: Session):
+@pytest.mark.asyncio
+async def test_nanvl_func(session: AsyncSession):
     """
     Test the `nanvl` function
     """
     query = parse("SELECT nanvl(cast('NaN' as double), 123)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
 
 
-def test_negative_func(session: Session):
+@pytest.mark.asyncio
+async def test_negative_func(session: AsyncSession):
     """
     Test the `negative` function
     """
     query = parse("SELECT negative(1)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_next_day_func(session: Session):
+@pytest.mark.asyncio
+async def test_next_day_func(session: AsyncSession):
     """
     Test the `next_day` function
     """
     query = parse("SELECT next_day('2015-01-14', 'TU')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DateType()  # type: ignore
 
 
-def test_not_func(session: Session):
+@pytest.mark.asyncio
+async def test_not_func(session: AsyncSession):
     """
     Test the `not` function
     """
     query = parse("SELECT not(true)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
-def test_now() -> None:
+@pytest.mark.asyncio
+async def test_now() -> None:
     """
     Test ``Now`` function.
     """
     assert Now.infer_type() == ct.TimestampType()
 
 
-def test_nth_value_func(session: Session):
+@pytest.mark.asyncio
+async def test_nth_value_func(session: AsyncSession):
     """
     Test the `nth_value` function
     """
@@ -2545,12 +2713,13 @@ def test_nth_value_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[2].type == ct.IntegerType()  # type: ignore
 
 
-def test_ntile_func(session: Session):
+@pytest.mark.asyncio
+async def test_ntile_func(session: AsyncSession):
     """
     Test the `ntile` function
     """
@@ -2560,60 +2729,65 @@ def test_ntile_func(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[2].type == ct.IntegerType()  # type: ignore
 
 
-def test_nullif_func(session: Session):
+@pytest.mark.asyncio
+async def test_nullif_func(session: AsyncSession):
     """
     Test the `nullif` function
     """
     query = parse("SELECT nullif(2, 2)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_nvl_func(session: Session):
+@pytest.mark.asyncio
+async def test_nvl_func(session: AsyncSession):
     """
     Test the `nvl` function
     """
     query = parse("SELECT nvl(array('1'), array('2'))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
-def test_nvl2_func(session: Session):
+@pytest.mark.asyncio
+async def test_nvl2_func(session: AsyncSession):
     """
     Test the `nvl2` function
     """
     query = parse("SELECT nvl2(3, NULL, 1)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_octet_length_func(session: Session):
+@pytest.mark.asyncio
+async def test_octet_length_func(session: AsyncSession):
     """
     Test the `octet_length` function
     """
     query = parse("SELECT octet_length('Spark SQL')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_overlay_func(session: Session):
+@pytest.mark.asyncio
+async def test_overlay_func(session: AsyncSession):
     """
     Test the `overlay` function
     TODO: support syntax like:  # pylint: disable=fixme
@@ -2622,19 +2796,20 @@ def test_overlay_func(session: Session):
     query = parse("SELECT overlay('Hello World', 'J', 7)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
 
 
-def test_percentile(session: Session):
+@pytest.mark.asyncio
+async def test_percentile(session: AsyncSession):
     """
     Test the `percentile` function
     """
     query = parse("SELECT percentile(col, 0.3) FROM (SELECT (0), (10) AS col)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
 
@@ -2643,7 +2818,7 @@ def test_percentile(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.FloatType())  # type: ignore
 
@@ -2653,7 +2828,7 @@ def test_percentile(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
 
@@ -2663,7 +2838,7 @@ def test_percentile(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
 
@@ -2673,7 +2848,7 @@ def test_percentile(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(ct.FloatType())  # type: ignore
 
@@ -2683,12 +2858,13 @@ def test_percentile(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(ct.FloatType())  # type: ignore
 
 
-def test_random(session: Session):
+@pytest.mark.asyncio
+async def test_random(session: AsyncSession):
     """
     Test `random`, `rand` and `randn`
     """
@@ -2698,13 +2874,14 @@ def test_random(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     for column in query.select.projection:
         assert column.type == ct.FloatType()  # type: ignore
 
 
-def test_rank(session: Session):
+@pytest.mark.asyncio
+async def test_rank(session: AsyncSession):
     """
     Test `dense_rank`, `rank`
     """
@@ -2718,7 +2895,7 @@ def test_rank(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
@@ -2726,7 +2903,8 @@ def test_rank(session: Session):
     assert query.select.projection[3].type == ct.IntegerType()  # type: ignore
 
 
-def test_regexp_like(session: Session):
+@pytest.mark.asyncio
+async def test_regexp_like(session: AsyncSession):
     """
     Test `regexp_like`
     """
@@ -2735,12 +2913,13 @@ def test_regexp_like(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
-def test_replace(session: Session):
+@pytest.mark.asyncio
+async def test_replace(session: AsyncSession):
     """
     Test `replace`
     """
@@ -2750,7 +2929,7 @@ def test_replace(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     # three arguments
@@ -2759,12 +2938,13 @@ def test_replace(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
 
 
-def test_row_number(session: Session):
+@pytest.mark.asyncio
+async def test_row_number(session: AsyncSession):
     """
     Test `row_number`
     """
@@ -2773,12 +2953,13 @@ def test_row_number(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_round(session: Session):
+@pytest.mark.asyncio
+async def test_round(session: AsyncSession):
     """
     Test `round`
     """
@@ -2787,7 +2968,7 @@ def test_round(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
@@ -2796,26 +2977,27 @@ def test_round(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_sequence(session: Session):
+@pytest.mark.asyncio
+async def test_sequence(session: AsyncSession):
     """
     Test `sequence`
     """
     query = parse("SELECT sequence(1, 10)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
     query = parse("SELECT sequence(1, 10, 2)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
@@ -2824,7 +3006,7 @@ def test_sequence(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.DateType())  # type: ignore
 
@@ -2834,75 +3016,80 @@ def test_sequence(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.TimestampType())  # type: ignore
 
 
-def test_size(session: Session):
+@pytest.mark.asyncio
+async def test_size(session: AsyncSession):
     """
     Test the `size` Spark function
     """
     query = parse("SELECT size(array('b', 'd', 'c', 'a'))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
     query = parse("SELECT size(map('a', 1, 'b', 2))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
-def test_split(session: Session):
+@pytest.mark.asyncio
+async def test_split(session: AsyncSession):
     """
     Test the `split` Spark function
     """
     query = parse("SELECT split('oneAtwoBthreeC', '[ABC]')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
-def test_strpos(session: Session):
+@pytest.mark.asyncio
+async def test_strpos(session: AsyncSession):
     """
     Test `strpos`
     """
     query = parse("SELECT strpos('abcde', 'cde'), strpos('abcde', 'cde', 4)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_substring(session: Session):
+@pytest.mark.asyncio
+async def test_substring(session: AsyncSession):
     """
     Test `substring`
     """
     query = parse("SELECT substring('Spark SQL', 5), substring('Spark SQL', 5, 1)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
     query = parse("SELECT substr('Spark SQL', 5), substring('Spark SQL', 5, 1)")
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-def test_sum() -> None:
+@pytest.mark.asyncio
+async def test_sum() -> None:
     """
     Test ``sum`` function.
     """
@@ -2915,7 +3102,8 @@ def test_sum() -> None:
     ) == DecimalType(18, 6)
 
 
-def test_transform(session: Session):
+@pytest.mark.asyncio
+async def test_transform(session: AsyncSession):
     """
     Test the `transform` Spark function
     """
@@ -2925,7 +3113,7 @@ def test_transform(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
     query = parse(
@@ -2934,11 +3122,12 @@ def test_transform(session: Session):
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
 
-def test_to_date() -> None:
+@pytest.mark.asyncio
+async def test_to_date() -> None:
     """
     Test ``to_date`` function.
     """
@@ -2947,38 +3136,41 @@ def test_to_date() -> None:
     )
 
 
-def test_trim(session: Session):
+@pytest.mark.asyncio
+async def test_trim(session: AsyncSession):
     """
     Test `trim`
     """
     query = parse("SELECT trim('    lmgi   ')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
 
 
-def test_unhex_func(session: Session):
+@pytest.mark.asyncio
+async def test_unhex_func(session: AsyncSession):
     """
     Test the `unhex` function
     """
     query = parse("SELECT unhex('4D'), unhex('7953514C')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BinaryType()  # type: ignore
     assert query.select.projection[1].type == ct.BinaryType()  # type: ignore
 
 
-def test_upper(session: Session):
+@pytest.mark.asyncio
+async def test_upper(session: AsyncSession):
     """
     Test `upper`
     """
     query = parse("SELECT upper('abcde')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore

@@ -7,13 +7,16 @@ import re
 from functools import lru_cache
 
 # pylint: disable=line-too-long
-from typing import TYPE_CHECKING, Iterator, List, Optional
+from typing import TYPE_CHECKING, AsyncGenerator, List, Optional
 
 from dotenv import load_dotenv
 from rich.logging import RichHandler
-from sqlalchemy.engine import Engine, create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from starlette.background import BackgroundTasks
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from starlette.requests import Request
 from yarl import URL
 
@@ -55,13 +58,15 @@ def get_settings() -> Settings:
 
 
 @lru_cache(maxsize=None)
-def get_engine() -> Engine:
+def get_engine() -> AsyncEngine:
     """
     Create the metadata engine.
     """
     settings = get_settings()
-    return create_engine(
+    engine = create_async_engine(
         settings.index,
+        future=True,
+        echo=True,
         pool_pre_ping=True,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
@@ -70,40 +75,20 @@ def get_engine() -> Engine:
             "connect_timeout": settings.db_connect_timeout,
         },
     )
+    return engine
 
 
-engine = get_engine()
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-class SessionManager:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """
-    Session context manager.
+    Async database session.
     """
-
-    def __init__(self, session_maker: sessionmaker):
-        self.session: Session = session_maker()
-
-    def __enter__(self):
-        return self.session
-
-    def __exit__(self, exception_type, exception_value, traceback):
-        self.session.close()
-
-
-def close_session(session: Session):
-    """
-    Handles session closing
-    """
-    session.close()  # pragma: no cover
-
-
-def get_session(background_tasks: BackgroundTasks) -> Iterator[Session]:
-    """
-    Direct SQLAlchemy session.
-    """
-    with SessionManager(SessionLocal) as session:  # pragma: no cover
-        background_tasks.add_task(close_session, session)
+    engine = get_engine()
+    async_session_factory = async_sessionmaker(
+        bind=engine,
+        autocommit=False,
+        expire_on_commit=False,  # prevents attributes from being expired on commit
+    )
+    async with async_session_factory() as session:
         yield session
 
 

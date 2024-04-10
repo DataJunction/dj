@@ -7,7 +7,7 @@ from typing import List
 from fastapi import APIRouter, Depends
 from pydantic.main import BaseModel
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.utils import get_session, get_settings
@@ -35,12 +35,12 @@ class HealthCheck(BaseModel):
     status: HealthcheckStatus
 
 
-def database_health(session: Session) -> HealthcheckStatus:
+async def database_health(session: AsyncSession) -> HealthcheckStatus:
     """
     The status of the database.
     """
     try:
-        result = session.execute(select(1)).one()
+        result = (await session.execute(select(1))).one()
         health_status = (
             HealthcheckStatus.OK if result == (1,) else HealthcheckStatus.FAILED
         )
@@ -50,8 +50,8 @@ def database_health(session: Session) -> HealthcheckStatus:
 
 
 @router.get("/health/", response_model=List[HealthCheck])
-def health_check(
-    session: Session = Depends(get_session),
+async def health_check(
+    session: AsyncSession = Depends(get_session),
 ) -> List[HealthCheck]:
     """
     Healthcheck for services.
@@ -59,6 +59,6 @@ def health_check(
     return [
         HealthCheck(
             name="database",
-            status=database_health(session),
+            status=await database_health(session),
         ),
     ]

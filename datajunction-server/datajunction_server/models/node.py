@@ -722,8 +722,14 @@ class GenericNodeOutputModel(BaseModel):
         current = values.get("current")
         if current is None:
             return values
-        current_dict = NodeRevisionOutput.from_orm(current).dict()
-        final_dict = dict(values.items())
+        current_dict = dict(current.__dict__.items())
+        final_dict = {
+            "namespace": values.get("namespace"),
+            "created_at": values.get("created_at"),
+            "current_version": values.get("current_version"),
+            "catalog": values.get("catalog"),
+            "missing_table": values.get("missing_table"),
+        }
         for k, v in current_dict.items():
             final_dict[k] = v
         final_dict["node_revision_id"] = final_dict["id"]

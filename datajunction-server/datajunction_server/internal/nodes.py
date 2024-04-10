@@ -8,7 +8,8 @@ from typing import Any, Dict, List, Optional, Union
 from fastapi import BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.api.catalogs import UNKNOWN_CATALOG_ID
 from datajunction_server.api.helpers import (
@@ -92,8 +93,8 @@ def get_node_column(node: Node, column_name: str) -> Column:
     return column
 
 
-def validate_and_build_attribute(
-    session: Session,
+async def validate_and_build_attribute(
+    session: AsyncSession,
     column: Column,
     attribute: AttributeTypeIdentifier,
     node: Node,
@@ -102,7 +103,7 @@ def validate_and_build_attribute(
     Run some validation and build column attribute.
     """
     # Verify attribute type exists
-    attribute_type = get_attribute_type(
+    attribute_type = await get_attribute_type(
         session,
         attribute.name,
         attribute.namespace,
@@ -127,8 +128,8 @@ def validate_and_build_attribute(
     )
 
 
-def set_node_column_attributes(
-    session: Session,
+async def set_node_column_attributes(
+    session: AsyncSession,
     node: Node,
     column_name: str,
     attributes: List[AttributeTypeIdentifier],
@@ -150,7 +151,7 @@ def set_node_column_attributes(
             column.attributes.append(existing_attributes_map[attribute.name])
         else:
             column.attributes.append(
-                validate_and_build_attribute(session, column, attribute, node),
+                await validate_and_build_attribute(session, column, attribute, node),
             )
 
     # Validate column attributes by building mapping between
@@ -197,18 +198,18 @@ def set_node_column_attributes(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
-    session.refresh(column)
+    await session.commit()
+    await session.refresh(column)
 
-    session.refresh(node)
-    session.refresh(node.current)
+    # await session.refresh(node)
+    # await session.refresh(node.current)
     return [column]
 
 
-def create_node_revision(
+async def create_node_revision(
     data: CreateNode,
     node_type: NodeType,
-    session: Session,
+    session: AsyncSession,
 ) -> NodeRevision:
     """
     Create a non-source node revision.
@@ -223,7 +224,7 @@ def create_node_revision(
         mode=data.mode,
         required_dimensions=data.required_dimensions or [],
     )
-    node_validator = validate_node_data(node_revision, session)
+    node_validator = await validate_node_data(node_revision, session)
     if node_validator.status == NodeStatus.INVALID:
         if node_revision.mode == NodeMode.DRAFT:
             node_revision.status = NodeStatus.INVALID
@@ -254,14 +255,17 @@ def create_node_revision(
         )
     catalog_id = next(iter(catalog_ids), 0)
     parent_refs = (
-        session.execute(
-            select(Node).where(
-                # pylint: disable=no-member
-                Node.name.in_(  # type: ignore
-                    new_parents,
+        (
+            await session.execute(
+                select(Node).where(
+                    # pylint: disable=no-member
+                    Node.name.in_(  # type: ignore
+                        new_parents,
+                    ),
                 ),
-            ),
+            )
         )
+        .unique()
         .scalars()
         .all()
     )
@@ -281,8 +285,8 @@ def create_node_revision(
     return node_revision
 
 
-def create_cube_node_revision(  # pylint: disable=too-many-locals
-    session: Session,
+async def create_cube_node_revision(  # pylint: disable=too-many-locals
+    session: AsyncSession,
     data: CreateCubeNode,
 ) -> NodeRevision:
     """
@@ -294,7 +298,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         dimension_nodes,
         dimension_columns,
         catalog,
-    ) = validate_cube(
+    ) = await validate_cube(
         session,
         data.metrics,
         data.dimensions,
@@ -313,6 +317,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     node_columns = []
     dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions)
     for idx, col in enumerate(metric_columns + dimension_columns):
+        await session.refresh(col, ["node_revisions"])
         referenced_node = col.node_revision()
         full_element_name = (
             referenced_node.name  # type: ignore
@@ -349,8 +354,8 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     return node_revision
 
 
-def save_node(
-    session: Session,
+async def save_node(
+    session: AsyncSession,
     node_revision: NodeRevision,
     node: Node,
     node_mode: NodeMode,
@@ -379,41 +384,58 @@ def save_node(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
+    await session.commit()
+    await session.refresh(node, ["current"])
 
-    newly_valid_nodes = resolve_downstream_references(
+    newly_valid_nodes = await resolve_downstream_references(
         session=session,
         node_revision=node_revision,
     )
-    propagate_valid_status(
+    await propagate_valid_status(
         session=session,
         valid_nodes=newly_valid_nodes,
         catalog_id=node.current.catalog_id,  # pylint: disable=no-member
         current_user=current_user,
     )
-    session.refresh(node.current)
+    await session.refresh(node.current)
 
 
-def copy_to_new_node(
-    session: Session,
-    node: Node,
+async def copy_to_new_node(
+    session: AsyncSession,
+    existing_node_name: str,
     new_name: str,
     current_user: Optional[User] = None,
 ) -> Node:
     """
     Copies the existing node to a new node with a new name.
     """
-    old_revision = node.current
+    node = await Node.get_by_name(
+        session,
+        existing_node_name,
+        options=[
+            joinedload(Node.current).options(
+                *NodeRevision.default_load_options(),
+                joinedload(NodeRevision.missing_parents),
+            ),
+            joinedload(Node.tags),
+        ],
+    )
+    old_revision = node.current  # type: ignore
     new_node = Node(
         name=new_name,
-        type=node.type,
-        display_name=node.display_name,
+        type=node.type,  # type: ignore
+        display_name=node.display_name,  # type: ignore
         namespace=".".join(new_name.split(".")[:-1]),
-        current_version=node.current_version,
-        created_at=node.created_at,
-        deactivated_at=node.deactivated_at,
-        tags=node.tags,
-        missing_table=node.missing_table,
+        current_version=node.current_version,  # type: ignore
+        created_at=node.created_at,  # type: ignore
+        deactivated_at=node.deactivated_at,  # type: ignore
+        tags=node.tags,  # type: ignore
+        missing_table=node.missing_table,  # type: ignore
+    )
+    print(
+        "old_revision.dimension_links",
+        old_revision.name,
+        old_revision.dimension_links,
     )
     new_revision = NodeRevision(
         name=new_name,
@@ -469,30 +491,30 @@ def copy_to_new_node(
             entity_name=new_node.name,
             activity_type=ActivityType.CREATE,
             user=current_user.username if current_user else None,
-            details={"copied_from": node.name},
+            details={"copied_from": node.name},  # type: ignore
         ),
     )
-    session.commit()
+    await session.commit()
 
     # If the new node makes any downstream nodes valid, propagate
-    newly_valid_nodes = resolve_downstream_references(
+    newly_valid_nodes = await resolve_downstream_references(
         session=session,
         node_revision=new_revision,
     )
-    propagate_valid_status(
+    await propagate_valid_status(
         session=session,
         valid_nodes=newly_valid_nodes,
-        catalog_id=node.current.catalog_id,  # pylint: disable=no-member
+        catalog_id=node.current.catalog_id,  # type: ignore  # pylint: disable=no-member
         current_user=current_user,
     )
-    session.refresh(node.current)
-    return node
+    await session.refresh(node.current)  # type: ignore
+    return node  # type: ignore
 
 
-def update_any_node(
+async def update_any_node(
     name: str,
     data: UpdateNode,
-    session: Session,
+    session: AsyncSession,
     query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
     background_tasks: BackgroundTasks = None,
@@ -501,11 +523,20 @@ def update_any_node(
     """
     Node update helper function that handles updating any node
     """
-    node = get_node_by_name(session, name, for_update=True, include_inactive=True)
-    if node.type == NodeType.CUBE:
-        node_revision = update_cube_node(
+    node = await Node.get_by_name(
+        session,
+        name,
+        for_update=True,
+        include_inactive=True,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+        ],
+        raise_if_not_exists=True,
+    )
+    if node.type == NodeType.CUBE:  # type: ignore
+        node_revision = await update_cube_node(
             session,
-            node.current,
+            node.current,  # type: ignore
             data,
             query_service_client=query_service_client,
             current_user=current_user,
@@ -513,7 +544,7 @@ def update_any_node(
             validate_access=validate_access,  # type: ignore
         )
         return node_revision.node if node_revision else node
-    return update_node_with_query(
+    return await update_node_with_query(
         name,
         data,
         session,
@@ -524,10 +555,10 @@ def update_any_node(
     )
 
 
-def update_node_with_query(
+async def update_node_with_query(
     name: str,
     data: UpdateNode,
-    session: Session,
+    session: AsyncSession,
     *,
     query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
@@ -541,12 +572,20 @@ def update_node_with_query(
     Note: this function works for both source nodes and nodes with query (transforms,
     dimensions, metrics). We should update it to separate out the logic for source nodes
     """
-    node = get_node_by_name(session, name, for_update=True, include_inactive=True)
-    old_revision = node.current
-    new_revision = create_new_revision_from_existing(
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+        ],
+        for_update=True,
+        include_inactive=True,
+    )
+    old_revision = node.current  # type: ignore
+    new_revision = await create_new_revision_from_existing(
         session,
         old_revision,
-        node,
+        node,  # type: ignore
         data,
     )
 
@@ -570,10 +609,10 @@ def update_node_with_query(
                 current_user=current_user,
             ),
         )
-    session.commit()
+    await session.commit()
 
-    session.refresh(new_revision)
-    session.refresh(node)
+    await session.refresh(new_revision)
+    await session.refresh(node)
 
     # Handle materializations: Note that this must be done after we commit the new revision,
     # as otherwise the SQL build won't know about the new revision's query
@@ -583,7 +622,7 @@ def update_node_with_query(
     if active_materializations and new_revision.query != old_revision.query:
         for old in active_materializations:
             new_revision.materializations.append(  # pylint: disable=no-member
-                create_new_materialization(
+                await create_new_materialization(
                     session,
                     new_revision,
                     UpsertMaterialization(
@@ -598,11 +637,11 @@ def update_node_with_query(
             )
         background_tasks.add_task(
             schedule_materialization_jobs,
-            materializations=node.current.materializations,
+            materializations=node.current.materializations,  # type: ignore
             query_service_client=query_service_client,
         )
         session.add(new_revision)
-        session.commit()
+        await session.commit()
 
     if background_tasks:
         background_tasks.add_task(
@@ -613,9 +652,9 @@ def update_node_with_query(
 
     history_events = {}
     old_columns_map = {col.name: col.type for col in old_revision.columns}
-    history_events[node.name] = {
-        "name": node.name,
-        "current_version": node.current_version,
+    history_events[node.name] = {  # type: ignore
+        "name": node.name,  # type: ignore
+        "current_version": node.current_version,  # type: ignore
         "previous_version": old_revision.version,
         "updated_columns": [
             col.name
@@ -623,9 +662,9 @@ def update_node_with_query(
             if col.name not in old_columns_map or old_columns_map[col.name] != col.type
         ],
     }
-    propagate_update_downstream(
+    await propagate_update_downstream(
         session,
-        node,
+        node,  # type: ignore
         history_events,
         query_service_client=query_service_client,
         current_user=current_user,
@@ -633,8 +672,8 @@ def update_node_with_query(
         validate_access=validate_access,
     )
 
-    session.refresh(node.current)
-    return node
+    await session.refresh(node.current, ["materializations"])  # type: ignore
+    return node  # type: ignore
 
 
 def has_minor_changes(
@@ -671,8 +710,8 @@ def node_update_history_event(new_revision: NodeRevision, current_user: Optional
     )
 
 
-def update_cube_node(  # pylint: disable=too-many-locals
-    session: Session,
+async def update_cube_node(  # pylint: disable=too-many-locals
+    session: AsyncSession,
     node_revision: NodeRevision,
     data: UpdateNode,
     *,
@@ -684,6 +723,12 @@ def update_cube_node(  # pylint: disable=too-many-locals
     """
     Update cube node based on changes
     """
+    # await session.refresh(node_revision, ["columns"])
+    # await session.refresh(node_revision, ["cube_elements"])
+    # for elem in node_revision.cube_elements:
+    #     await session.refresh(elem, ["node_revisions"])
+    #     for rev in elem.node_revisions:
+    #         await session.refresh(rev, ["node"])
     minor_changes = has_minor_changes(node_revision, data)
     old_metrics = [m.name for m in node_revision.cube_metrics()]
     old_dimensions = node_revision.cube_dimensions()
@@ -704,7 +749,7 @@ def update_cube_node(  # pylint: disable=too-many-locals
     if not major_changes and not minor_changes:
         return None
 
-    new_cube_revision = create_cube_node_revision(session, create_cube)
+    new_cube_revision = await create_cube_node_revision(session, create_cube)
 
     old_version = Version.parse(node_revision.version)
     if major_changes:
@@ -737,7 +782,7 @@ def update_cube_node(  # pylint: disable=too-many-locals
     if major_changes and active_materializations:
         for old in active_materializations:
             new_cube_revision.materializations.append(  # pylint: disable=no-member
-                create_new_materialization(
+                await create_new_materialization(
                     session,
                     new_cube_revision,
                     UpsertMaterialization(
@@ -766,16 +811,16 @@ def update_cube_node(  # pylint: disable=too-many-locals
         )
     session.add(new_cube_revision)
     session.add(new_cube_revision.node)
-    session.commit()
+    await session.commit()
 
-    session.refresh(new_cube_revision)
-    session.refresh(new_cube_revision.node)
-    session.refresh(new_cube_revision.node.current)
+    await session.refresh(new_cube_revision)
+    await session.refresh(new_cube_revision.node)
+    await session.refresh(new_cube_revision.node.current)
     return new_cube_revision
 
 
-def propagate_update_downstream(  # pylint: disable=too-many-locals
-    session: Session,
+async def propagate_update_downstream(  # pylint: disable=too-many-locals
+    session: AsyncSession,
     node: Node,
     history_events: Dict[str, Any],
     *,
@@ -795,7 +840,8 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
 
     # Each entry being processed is a list that represents the changelog of affected nodes
     # The last entry in the list is the current node that's being processed
-    to_process = deque([[node.current, child.node.current] for child in node.children])
+    await session.refresh(node, ["current", "children"])
+    to_process = deque([[node.current, child] for child in node.children])
 
     while to_process:
         changelog = to_process.popleft()
@@ -803,15 +849,36 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
 
         # Only process if it hasn't already been processed before
         if child.name not in processed:
+            await session.refresh(child)
             processed.add(child.name)
 
             if child.type == NodeType.CUBE:
-                update_cube_node(
+                child_node = await Node.get_by_name(
                     session,
-                    child,
+                    child.name,
+                    options=[
+                        joinedload(Node.current).options(
+                            selectinload(NodeRevision.columns).options(
+                                selectinload(Column.node_revisions).options(
+                                    selectinload(NodeRevision.node),
+                                ),
+                            ),
+                            selectinload(NodeRevision.cube_elements).options(
+                                selectinload(Column.node_revisions).options(
+                                    selectinload(NodeRevision.node),
+                                ),
+                            ),
+                        ),
+                    ],
+                )
+                await update_cube_node(
+                    session,
+                    child_node.current,  # type: ignore
                     UpdateNode(
-                        metrics=[metric.name for metric in child.cube_metrics()],
-                        dimensions=child.cube_dimensions(),
+                        metrics=[
+                            metric.name for metric in child_node.current.cube_metrics()  # type: ignore  # pylint: disable=line-too-long
+                        ],
+                        dimensions=child_node.current.cube_dimensions(),  # type: ignore
                     ),
                     query_service_client=query_service_client,
                     background_tasks=background_tasks,
@@ -819,13 +886,23 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
                 )
                 continue
 
-            node_validator = validate_node_data(
+            node_validator = await validate_node_data(
                 data=child,
                 session=session,
             )
-
+            result = await Node.get_by_name(
+                session,
+                child.name,
+                options=[
+                    joinedload(Node.current).options(
+                        *NodeRevision.default_load_options()
+                    ),
+                ],
+            )
+            child = result.current  # type: ignore
             # Update the child with a new node revision if its columns or status have changed
             if node_validator.differs_from(child):
+                await session.refresh(child, ["required_dimensions"])
                 new_revision = copy_existing_node_revision(child)
                 new_revision.version = str(
                     Version.parse(child.version).next_major_version(),
@@ -834,7 +911,7 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
                 new_revision.status = node_validator.status
                 new_revision.lineage = [
                     lineage.dict()
-                    for lineage in get_column_level_lineage(session, new_revision)
+                    for lineage in await get_column_level_lineage(session, new_revision)
                 ]
 
                 # Save which columns were modified and update the columns with the changes
@@ -842,12 +919,17 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
                 new_revision.columns = node_validator.columns
 
                 # Save the new revision of the child
-                new_revision.node = child.node
-                new_revision.node.current_version = new_revision.version
+                new_revision.node_id = child.node_id
                 session.add(new_revision)
+                await session.commit()
+                await session.refresh(new_revision, ["node"])
+                new_revision.node.current_version = new_revision.version
                 session.add(new_revision.node)
 
                 # Add grandchildren for processing
+                await session.refresh(child, ["node"])
+                await session.refresh(child.node, ["children"])
+
                 for grandchild in child.node.children:
                     new_changelog = changelog + [grandchild]
                     to_process.append(new_changelog)
@@ -859,6 +941,8 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
                     "previous_version": child.version,
                     "updated_columns": sorted(list(updated_columns)),
                 }
+                for entry in changelog:
+                    await session.refresh(entry)
                 event = History(
                     entity_type=EntityType.NODE,
                     entity_name=child.name,
@@ -878,9 +962,9 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
                     user=current_user.username if current_user else None,
                 )
                 session.add(event)
-                session.commit()
-                session.refresh(new_revision)
-                session.refresh(new_revision.node)
+                await session.commit()
+                await session.refresh(new_revision)
+                await session.refresh(new_revision.node)
 
 
 def copy_existing_node_revision(old_revision: NodeRevision):
@@ -907,10 +991,10 @@ def copy_existing_node_revision(old_revision: NodeRevision):
     )
 
 
-def _create_node_from_inactive(
+async def _create_node_from_inactive(  # pylint: disable=too-many-arguments
     new_node_type: NodeType,
     data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
-    session: Session,
+    session: AsyncSession,
     *,
     current_user: Optional[User] = None,
     query_service_client: QueryServiceClient,
@@ -921,9 +1005,12 @@ def _create_node_from_inactive(
     If the node existed and is inactive the re-creation takes different steps than
     creating it from scratch.
     """
-    previous_inactive_node = get_node_by_name(
+    previous_inactive_node = await Node.get_by_name(
         session,
-        name=data.name,
+        data.name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+        ],
         raise_if_not_exists=False,
         include_inactive=True,
     )
@@ -953,7 +1040,7 @@ def _create_node_from_inactive(
             if isinstance(data, CreateNode):
                 update_node.query = data.query
 
-            update_node_with_query(
+            await update_node_with_query(
                 name=data.name,
                 data=update_node,
                 session=session,
@@ -963,7 +1050,7 @@ def _create_node_from_inactive(
                 validate_access=validate_access,  # type: ignore
             )
         else:
-            update_cube_node(
+            await update_cube_node(
                 session,
                 previous_inactive_node.current,
                 data,
@@ -972,8 +1059,12 @@ def _create_node_from_inactive(
                 validate_access=validate_access,  # type: ignore
             )
         try:
-            activate_node(name=data.name, session=session, current_user=current_user)
-            return get_node_by_name(session, data.name, with_current=True)
+            await activate_node(
+                name=data.name,
+                session=session,
+                current_user=current_user,
+            )
+            return await get_node_by_name(session, data.name, with_current=True)
         except Exception as exc:  # pragma: no cover
             raise DJException(
                 f"Restoring node `{data.name}` failed: {exc}",
@@ -982,8 +1073,8 @@ def _create_node_from_inactive(
     return None
 
 
-def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-branches
-    session: Session,
+async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-branches
+    session: AsyncSession,
     old_revision: NodeRevision,
     node: Node,
     data: UpdateNode = None,
@@ -1095,7 +1186,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
 
     # Link the new revision to its parents if a new revision was created and update its status
     if new_revision.type != NodeType.SOURCE:
-        node_validator = validate_node_data(new_revision, session)
+        node_validator = await validate_node_data(new_revision, session)
         new_revision.columns = node_validator.columns
         new_revision.status = node_validator.status
         if node_validator.errors:
@@ -1109,14 +1200,19 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
 
         new_parents = [n.name for n in node_validator.dependencies_map]
         parent_refs = (
-            session.execute(
-                select(Node).where(
-                    # pylint: disable=no-member
-                    Node.name.in_(  # type: ignore
-                        new_parents,
-                    ),
-                ),
+            (
+                await session.execute(
+                    select(Node)
+                    .where(
+                        # pylint: disable=no-member
+                        Node.name.in_(  # type: ignore
+                            new_parents,
+                        ),
+                    )
+                    .options(joinedload(Node.current)),
+                )
             )
+            .unique()
             .scalars()
             .all()
         )
@@ -1134,8 +1230,10 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
 
         # Update the primary key if one was set in the input
         if data is not None and data.primary_key:
-            pk_attribute = session.execute(
-                select(AttributeType).where(AttributeType.name == "primary_key"),
+            pk_attribute = (
+                await session.execute(
+                    select(AttributeType).where(AttributeType.name == "primary_key"),
+                )
             ).scalar_one()
             if set(data.primary_key) - set(col.name for col in new_revision.columns):
                 raise DJException(  # pragma: no cover
@@ -1179,21 +1277,21 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
     return new_revision
 
 
-def save_column_level_lineage(
-    session: Session,
+async def save_column_level_lineage(
+    session: AsyncSession,
     node_revision: NodeRevision,
 ):
     """
     Saves the column-level lineage for a node
     """
-    column_level_lineage = get_column_level_lineage(session, node_revision)
+    column_level_lineage = await get_column_level_lineage(session, node_revision)
     node_revision.lineage = [lineage.dict() for lineage in column_level_lineage]
     session.add(node_revision)
-    session.commit()
+    await session.commit()
 
 
-def get_column_level_lineage(
-    session: Session,
+async def get_column_level_lineage(
+    session: AsyncSession,
     node_revision: NodeRevision,
 ) -> List[LineageColumn]:
     """
@@ -1204,7 +1302,7 @@ def get_column_level_lineage(
         NodeType.CUBE,
     ):
         return [
-            column_lineage(
+            await column_lineage(
                 session,
                 node_revision,
                 col.name,
@@ -1214,8 +1312,8 @@ def get_column_level_lineage(
     return []
 
 
-def column_lineage(
-    session: Session,
+async def column_lineage(
+    session: AsyncSession,
     node_rev: NodeRevision,
     column_name: str,
 ) -> LineageColumn:
@@ -1241,7 +1339,7 @@ def column_lineage(
         else node_rev.query
     )
     query_ast = parse(query)
-    query_ast.compile(ctx)
+    await query_ast.compile(ctx)
     query_ast.select.add_aliases_to_unnamed_columns()
 
     lineage_column = LineageColumn(
@@ -1270,7 +1368,7 @@ def column_lineage(
     # At every layer, expand the lineage search tree with all columns referenced
     # by the current column's expression. If we reach an actual table with a DJ
     # node attached, save this to the lineage record. Otherwise, continue the search
-    processed = list(column_expr.find_all(ast.Column))
+    processed = list(column_expr.find_all(ast.Column)) if column_expr else []
     seen = set()
     while processed:
         current = processed.pop()
@@ -1282,7 +1380,7 @@ def column_lineage(
             and current.table.dj_node
         ):
             lineage_column.lineage.append(  # type: ignore
-                column_lineage(
+                await column_lineage(
                     session,
                     current.table.dj_node,
                     current.name.name
@@ -1304,7 +1402,7 @@ def column_lineage(
     return lineage_column
 
 
-def get_cube_revision_metadata(session: Session, name: str):
+async def get_cube_revision_metadata(session: AsyncSession, name: str):
     """
     Returns cube revision metadata for cube named `name`.
     """
@@ -1318,14 +1416,20 @@ def get_cube_revision_metadata(session: Session, name: str):
         )
         .where(Node.name == name)
         .options(
-            joinedload(NodeRevision.availability),
-            joinedload(NodeRevision.materializations).joinedload(
+            selectinload(NodeRevision.columns),
+            selectinload(NodeRevision.availability),
+            selectinload(NodeRevision.materializations).selectinload(
                 Materialization.backfills,
             ),
-            joinedload(NodeRevision.cube_elements).joinedload(Column.node_revisions),
+            selectinload(NodeRevision.cube_elements)
+            .selectinload(Column.node_revisions)
+            .options(
+                joinedload(NodeRevision.node),
+            ),
+            selectinload(NodeRevision.node).options(selectinload(Node.tags)),
         )
     )
-    result = session.execute(statement).unique().first()
+    result = (await session.execute(statement)).unique().first()
     if not result:
         raise DJNodeNotFound(  # pragma: no cover
             message=f"A cube node with name `{name}` does not exist.",
@@ -1337,8 +1441,8 @@ def get_cube_revision_metadata(session: Session, name: str):
     return cube_metadata
 
 
-def upsert_complex_dimension_link(
-    session: Session,
+async def upsert_complex_dimension_link(
+    session: AsyncSession,
     node_name: str,
     link_input: LinkDimensionInput,
     current_user: Optional[User] = None,
@@ -1350,28 +1454,31 @@ def upsert_complex_dimension_link(
     and the role, if any. If an existing dimension link identified by those fields already exists,
     we'll update that dimension link. If no dimension link exists, we'll create a new one.
     """
-    node = get_node_by_name(session=session, name=node_name)
-    if node.type not in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):
+    node = await Node.get_by_name(
+        session,
+        node_name,
+    )
+    if node.type not in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):  # type: ignore
         raise DJInvalidInputException(
-            message=f"Cannot link dimension to a node of type {node.type}. "
+            message=f"Cannot link dimension to a node of type {node.type}. "  # type: ignore
             "Must be a source, dimension, or transform node.",
         )
 
     # Find the dimension node and check that the catalogs match
-    dimension_node = get_node_by_name(
-        session=session,
-        name=link_input.dimension_node,
-        node_type=NodeType.DIMENSION,
+    dimension_node = await Node.get_by_name(
+        session,
+        link_input.dimension_node,
     )
     if (
-        dimension_node.current.catalog_id != UNKNOWN_CATALOG_ID
-        and dimension_node.current.catalog is not None
-        and node.current.catalog.name != dimension_node.current.catalog.name
+        dimension_node.current.catalog_id != UNKNOWN_CATALOG_ID  # type: ignore
+        and dimension_node.current.catalog is not None  # type: ignore
+        and node.current.catalog.name != dimension_node.current.catalog.name  # type: ignore
     ):
         raise DJException(  # pragma: no cover
             message=(
                 "Cannot link dimension to node, because catalogs do not match: "
-                f"{node.current.catalog.name}, {dimension_node.current.catalog.name}"
+                f"{node.current.catalog.name}, "  # type: ignore
+                f"{dimension_node.current.catalog.name}"  # type: ignore
             ),
         )
 
@@ -1383,7 +1490,7 @@ def upsert_complex_dimension_link(
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    join_query.compile(ctx)
+    await join_query.compile(ctx)
     join_relation = join_query.select.from_.relations[0].extensions[0]  # type: ignore
 
     # Verify that the query references both the node and the dimension being joined
@@ -1407,9 +1514,9 @@ def upsert_complex_dimension_link(
 
     # Find an existing dimension link if there is already one defined for this node
     existing_link = [
-        link
-        for link in node.current.dimension_links
-        if link.dimension_id == dimension_node.id and link.role == link_input.role
+        link  # type: ignore
+        for link in node.current.dimension_links  # type: ignore
+        if link.dimension_id == dimension_node.id and link.role == link_input.role  # type: ignore
     ]
     activity_type = ActivityType.CREATE
 
@@ -1425,24 +1532,26 @@ def upsert_complex_dimension_link(
     else:
         # If there is no existing link, create new dimension link object
         dimension_link = DimensionLink(
-            node_revision_id=node.current.id,
-            dimension_id=dimension_node.id,
+            node_revision_id=node.current.id,  # type: ignore
+            dimension_id=dimension_node.id,  # type: ignore
             join_sql=link_input.join_on,
             join_type=DimensionLink.parse_join_type(join_relation.join_type),
             join_cardinality=link_input.join_cardinality,
             role=link_input.role,
         )
+        node.current.dimension_links.append(dimension_link)  # type: ignore
 
     # Add/update the dimension link in the database
     session.add(dimension_link)
+    session.add(node.current)  # type: ignore
     session.add(
         History(
             entity_type=EntityType.LINK,
-            entity_name=node.name,
-            node=node.name,
+            entity_name=node.name,  # type: ignore
+            node=node.name,  # type: ignore
             activity_type=activity_type,
             details={
-                "dimension": dimension_node.name,
+                "dimension": dimension_node.name,  # type: ignore
                 "join_sql": link_input.join_on,
                 "join_cardinality": link_input.join_cardinality,
                 "role": link_input.role,
@@ -1450,13 +1559,13 @@ def upsert_complex_dimension_link(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
-    session.refresh(node)
+    await session.commit()
+    await session.refresh(node)
     return activity_type
 
 
-def remove_dimension_link(
-    session: Session,
+async def remove_dimension_link(
+    session: AsyncSession,
     node_name: str,
     link_identifier: LinkDimensionIdentifier,
     current_user: Optional[User] = None,
@@ -1464,10 +1573,10 @@ def remove_dimension_link(
     """
     Removes the dimension link identified by the origin node, the dimension node, and its role.
     """
-    node = get_node_by_name(session=session, name=node_name)
+    node = await Node.get_by_name(session, node_name)
 
     # Find the dimension node
-    dimension_node = get_node_by_name(
+    dimension_node = await get_node_by_name(
         session=session,
         name=link_identifier.dimension_node,
         node_type=NodeType.DIMENSION,
@@ -1476,7 +1585,7 @@ def remove_dimension_link(
 
     # Find cubes that are affected by this dimension link removal and update their statuses
     affected_cubes = (
-        get_nodes_with_dimension(
+        await get_nodes_with_dimension(
             session,
             dimension_node,
             [NodeType.CUBE],
@@ -1489,7 +1598,7 @@ def remove_dimension_link(
             session.add(cube)
             session.add(
                 status_change_history(
-                    node,
+                    node,  # type: ignore
                     NodeStatus.VALID,
                     NodeStatus.INVALID,
                     current_user=current_user,
@@ -1497,13 +1606,13 @@ def remove_dimension_link(
             )
 
     # Delete the dimension link if one exists
-    for link in node.current.dimension_links:
+    for link in node.current.dimension_links:  # type: ignore
         if (
             link.dimension_id == dimension_node.id  # pragma: no cover
             and link.role == link_identifier.role  # pragma: no cover
         ):
             removed = True
-            session.delete(link)
+            await session.delete(link)
     if not removed:
         return JSONResponse(
             status_code=HTTPStatus.NOT_FOUND,
@@ -1517,8 +1626,8 @@ def remove_dimension_link(
     session.add(
         History(
             entity_type=EntityType.LINK,
-            entity_name=node.name,
-            node=node.name,
+            entity_name=node.name,  # type: ignore
+            node=node.name,  # type: ignore
             activity_type=ActivityType.DELETE,
             details={
                 "dimension": dimension_node.name,
@@ -1527,8 +1636,9 @@ def remove_dimension_link(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
-    session.refresh(node)
+    await session.commit()
+    await session.refresh(node.current)  # type: ignore
+    await session.refresh(node)
     return JSONResponse(
         status_code=201,
         content={
