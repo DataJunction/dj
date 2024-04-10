@@ -7,10 +7,11 @@ from typing import Dict, List, Optional
 from unittest import mock
 
 import pytest
-from fastapi.testclient import TestClient
+from httpx import AsyncClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.api.main import app
 from datajunction_server.database.node import Node
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
@@ -22,14 +23,15 @@ class TestDataForNode:
     Test ``POST /data/{node_name}/``.
     """
 
-    def test_get_dimension_data_failed(
+    @pytest.mark.asyncio
+    async def test_get_dimension_data_failed(
         self,
-        client_with_account_revenue: TestClient,
+        client_with_account_revenue: AsyncClient,
     ) -> None:
         """
         Test trying to get dimensions data while setting dimensions
         """
-        response = client_with_account_revenue.get(
+        response = await client_with_account_revenue.get(
             "/data/default.payment_type/",
             params={
                 "dimensions": ["something"],
@@ -40,15 +42,18 @@ class TestDataForNode:
         assert response.status_code == 500
         assert "Cannot resolve type of column something" in data["message"]
 
-    def test_get_dimension_data(
+    @pytest.mark.asyncio
+    async def test_get_dimension_data(
         self,
-        client_with_query_service_example_loader: TestClient,
+        client_with_query_service_example_loader,
     ) -> None:
         """
         Test trying to get dimensions data while setting dimensions
         """
-        custom_client = client_with_query_service_example_loader(["ACCOUNT_REVENUE"])
-        response = custom_client.get(
+        custom_client = await client_with_query_service_example_loader(
+            ["ACCOUNT_REVENUE"],
+        )
+        response = await custom_client.get(
             "/data/default.payment_type/",
         )
         data = response.json()
@@ -104,15 +109,18 @@ class TestDataForNode:
             "submitted_query": mock.ANY,
         }
 
-    def test_get_source_data(
+    @pytest.mark.asyncio
+    async def test_get_source_data(
         self,
-        client_with_query_service_example_loader: TestClient,
+        client_with_query_service_example_loader,
     ) -> None:
         """
         Test retrieving data for a source node
         """
-        custom_client = client_with_query_service_example_loader(["ACCOUNT_REVENUE"])
-        response = custom_client.get("/data/default.revenue/")
+        custom_client = await client_with_query_service_example_loader(
+            ["ACCOUNT_REVENUE"],
+        )
+        response = await custom_client.get("/data/default.revenue/")
         data = response.json()
         assert response.status_code == 200
         assert data == {
@@ -201,15 +209,16 @@ class TestDataForNode:
             " FROM accounting.revenue\n",
         }
 
-    def test_get_transform_data(
+    @pytest.mark.asyncio
+    async def test_get_transform_data(
         self,
-        client_with_query_service_example_loader: TestClient,
+        client_with_query_service_example_loader,
     ) -> None:
         """
         Test retrieving data for a transform node
         """
-        custom_client = client_with_query_service_example_loader(["ROADS"])
-        response = custom_client.get(
+        custom_client = await client_with_query_service_example_loader(["ROADS"])
+        response = await custom_client.get(
             "/data/default.repair_orders_fact/?limit=2",
         )
         data = response.json()
@@ -386,16 +395,17 @@ class TestDataForNode:
             "submitted_query": mock.ANY,
         }
 
-    def test_get_metric_data(
+    @pytest.mark.asyncio
+    async def test_get_metric_data(
         self,
-        client_with_query_service_example_loader: TestClient,
+        client_with_query_service_example_loader,
     ) -> None:
         """
         Test retrieving data for a metric
         """
-        custom_client = client_with_query_service_example_loader(["ROADS"])
+        custom_client = await client_with_query_service_example_loader(["ROADS"])
 
-        response = custom_client.get("/data/default.num_repair_orders/")
+        response = await custom_client.get("/data/default.num_repair_orders/")
         data = response.json()
         assert response.status_code == 200
         assert data == {
@@ -435,14 +445,14 @@ class TestDataForNode:
             "submitted_query": mock.ANY,
         }
 
-    def test_get_metric_data_unauthorized(
+    @pytest.mark.asyncio
+    async def test_get_metric_data_unauthorized(
         self,
-        client_with_query_service_example_loader: TestClient,
+        client_with_query_service_example_loader,
     ) -> None:
         """
         Test retrieving data for a metric
         """
-        custom_client = client_with_query_service_example_loader(["BASIC"])
 
         def validate_access_override():
             def _validate_access(access_control: access.AccessControl):
@@ -450,27 +460,27 @@ class TestDataForNode:
 
             return _validate_access
 
-        app = custom_client.app
         app.dependency_overrides[validate_access] = validate_access_override
-
-        response = custom_client.get("/data/basic.num_comments/")
-        app.dependency_overrides.clear()
+        custom_client = await client_with_query_service_example_loader(["BASIC"])
+        response = await custom_client.get("/data/basic.num_comments/")
         data = response.json()
         assert data["message"] == (
             "Authorization of User `dj` for this request failed."
             "\nThe following requests were denied:\nexecute:node/basic.num_comments."
         )
         assert response.status_code == 403
+        app.dependency_overrides.clear()
 
-    def test_get_multiple_metrics_and_dimensions_data(
+    @pytest.mark.asyncio
+    async def test_get_multiple_metrics_and_dimensions_data(
         self,
-        client_with_query_service_example_loader: TestClient,
+        client_with_query_service_example_loader,
     ) -> None:
         """
         Test getting multiple metrics and dimensions
         """
-        custom_client = client_with_query_service_example_loader(["ROADS"])
-        response = custom_client.get(
+        custom_client = await client_with_query_service_example_loader(["ROADS"])
+        response = await custom_client.get(
             "/data?metrics=default.num_repair_orders&metrics="
             "default.avg_repair_price&dimensions=default.dispatcher.company_name&limit=10",
         )
@@ -535,15 +545,16 @@ class TestDataForNode:
             "submitted_query": mock.ANY,
         }
 
-    def test_stream_multiple_metrics_and_dimensions_data(
+    @pytest.mark.asyncio
+    async def test_stream_multiple_metrics_and_dimensions_data(
         self,
-        client_with_query_service_example_loader: TestClient,
+        client_with_query_service_example_loader,
     ) -> None:
         """
         Test streaming query status for multiple metrics and dimensions
         """
-        custom_client = client_with_query_service_example_loader(["ROADS"])
-        with custom_client.stream(
+        custom_client = await client_with_query_service_example_loader(["ROADS"])
+        async with custom_client.stream(
             "GET",
             "/stream?metrics=default.num_repair_orders&metrics="
             "default.avg_repair_price&dimensions=default.dispatcher.company_name&limit=10",
@@ -553,22 +564,23 @@ class TestDataForNode:
         ) as response:
             assert response.status_code == 200
 
-    def test_get_data_for_query_id(
+    @pytest.mark.asyncio
+    async def test_get_data_for_query_id(
         self,
-        client_with_query_service_example_loader: TestClient,
+        client_with_query_service_example_loader,
     ) -> None:
         """
         Test retrieving data for a query ID
         """
         # run some query
-        custom_client = client_with_query_service_example_loader(["ROADS"])
-        response = custom_client.get("/data/default.num_repair_orders/")
+        custom_client = await client_with_query_service_example_loader(["ROADS"])
+        response = await custom_client.get("/data/default.num_repair_orders/")
         data = response.json()
         assert response.status_code == 200
         assert data["id"] == "bd98d6be-e2d2-413e-94c7-96d9411ddee2"
 
         # and try to get the results by the query id only
-        new_response = custom_client.get(f"/data/query/{data['id']}/")
+        new_response = await custom_client.get(f"/data/query/{data['id']}/")
         new_data = response.json()
         assert new_response.status_code == 200
         assert new_data["results"] == [
@@ -616,7 +628,7 @@ class TestDataForNode:
         ]
 
         # and repeat for a bogus query id
-        yet_another_response = custom_client.get("/data/query/foo-bar-baz/")
+        yet_another_response = await custom_client.get("/data/query/foo-bar-baz/")
         assert yet_another_response.status_code == 404
         assert "Query foo-bar-baz not found." in yet_another_response.text
 
@@ -626,16 +638,19 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     Test ``POST /data/{node_name}/availability/``.
     """
 
-    def test_setting_availability_state(
+    @pytest.mark.asyncio
+    async def test_setting_availability_state(
         self,
-        session: Session,
-        client_with_query_service_example_loader: TestClient,
+        session: AsyncSession,
+        client_with_query_service_example_loader: AsyncClient,
     ) -> None:
         """
         Test adding an availability state
         """
-        custom_client = client_with_query_service_example_loader(["ACCOUNT_REVENUE"])
-        response = custom_client.post(
+        custom_client = await client_with_query_service_example_loader(
+            ["ACCOUNT_REVENUE"],
+        )
+        response = await custom_client.post(
             "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
@@ -653,7 +668,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert data == {"message": "Availability state successfully posted"}
 
         # Check that the history tracker has been updated
-        response = custom_client.get(
+        response = await custom_client.get(
             "/history?node=default.large_revenue_payments_and_business_only",
         )
         data = response.json()
@@ -686,14 +701,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             },
         ]
 
-        statement = select(Node).where(
-            Node.name == "default.large_revenue_payments_and_business_only",
+        large_revenue_payments_and_business_only = await Node.get_by_name(
+            session,
+            "default.large_revenue_payments_and_business_only",
         )
-        large_revenue_payments_and_business_only = session.execute(
-            statement,
-        ).scalar_one()
         node_dict = AvailabilityStateBase.from_orm(
-            large_revenue_payments_and_business_only.current.availability,
+            large_revenue_payments_and_business_only.current.availability,  # type: ignore
         ).dict()
         assert node_dict == {
             "valid_through_ts": 20230125,
@@ -708,14 +721,15 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "url": "http://some.catalog.com/default.accounting.pmts",
         }
 
-    def test_availability_catalog_mismatch(
+    @pytest.mark.asyncio
+    async def test_availability_catalog_mismatch(
         self,
-        client_with_account_revenue: TestClient,
+        client_with_account_revenue: AsyncClient,
     ) -> None:
         """
         Test that setting availability works even when the catalogs do not match
         """
-        response = client_with_account_revenue.post(
+        response = await client_with_account_revenue.post(
             "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "public",
@@ -731,15 +745,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data["message"] == "Availability state successfully posted"
 
-    def test_setting_availability_state_multiple_times(
+    @pytest.mark.asyncio
+    async def test_setting_availability_state_multiple_times(
         self,
-        session: Session,
-        client_with_account_revenue: TestClient,
+        session: AsyncSession,
+        client_with_account_revenue: AsyncClient,
     ) -> None:
         """
         Test adding multiple availability states
         """
-        response = client_with_account_revenue.post(
+        response = await client_with_account_revenue.post(
             "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
@@ -755,7 +770,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data == {"message": "Availability state successfully posted"}
 
-        response = client_with_account_revenue.post(
+        response = await client_with_account_revenue.post(
             "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
@@ -771,7 +786,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data == {"message": "Availability state successfully posted"}
 
-        response = client_with_account_revenue.post(
+        response = await client_with_account_revenue.post(
             "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
@@ -790,7 +805,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert data == {"message": "Availability state successfully posted"}
 
         # Check that the history tracker has been updated
-        response = client_with_account_revenue.get(
+        response = await client_with_account_revenue.get(
             "/history/?node=default.large_revenue_payments_and_business_only",
         )
         data = response.json()
@@ -891,14 +906,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             },
         ]
 
-        statement = select(Node).where(
-            Node.name == "default.large_revenue_payments_and_business_only",
+        large_revenue_payments_and_business_only = await Node.get_by_name(
+            session,
+            "default.large_revenue_payments_and_business_only",
         )
-        large_revenue_payments_and_business_only = session.execute(
-            statement,
-        ).scalar_one()
         node_dict = AvailabilityStateBase.from_orm(
-            large_revenue_payments_and_business_only.current.availability,
+            large_revenue_payments_and_business_only.current.availability,  # type: ignore
         ).dict()
         assert node_dict == {
             "valid_through_ts": 20230125,
@@ -913,15 +926,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "url": None,
         }
 
-    def test_that_update_at_timestamp_is_being_updated(
+    @pytest.mark.asyncio
+    async def test_that_update_at_timestamp_is_being_updated(
         self,
-        session: Session,
-        client_with_account_revenue: TestClient,
+        session: AsyncSession,
+        client_with_account_revenue: AsyncClient,
     ) -> None:
         """
         Test that the `updated_at` attribute is being updated
         """
-        response = client_with_account_revenue.post(
+        response = await client_with_account_revenue.post(
             "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
@@ -933,17 +947,15 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             },
         )
         assert response.status_code == 200
-        statement = select(Node).where(
-            Node.name == "default.large_revenue_payments_and_business_only",
+        large_revenue_payments_and_business_only = await Node.get_by_name(
+            session,
+            "default.large_revenue_payments_and_business_only",
         )
-        large_revenue_payments_and_business_only = session.execute(
-            statement,
-        ).scalar_one()
         updated_at_1 = (
-            large_revenue_payments_and_business_only.current.availability.updated_at
+            large_revenue_payments_and_business_only.current.availability.updated_at  # type: ignore  # pylint: disable=line-too-long
         )
 
-        response = client_with_account_revenue.post(
+        response = await client_with_account_revenue.post(
             "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
@@ -956,21 +968,25 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         )
         assert response.status_code == 200
 
-        session.refresh(large_revenue_payments_and_business_only)
+        large_revenue_payments_and_business_only = await Node.get_by_name(
+            session,
+            "default.large_revenue_payments_and_business_only",
+        )
         updated_at_2 = (
-            large_revenue_payments_and_business_only.current.availability.updated_at
+            large_revenue_payments_and_business_only.current.availability.updated_at  # type: ignore  # pylint: disable=line-too-long
         )
 
         assert updated_at_2 > updated_at_1
 
-    def test_raising_when_node_does_not_exist(
+    @pytest.mark.asyncio
+    async def test_raising_when_node_does_not_exist(
         self,
-        client_with_service_setup: TestClient,
+        client_with_service_setup: AsyncClient,
     ) -> None:
         """
         Test raising when setting availability state on non-existent node
         """
-        response = client_with_service_setup.post(
+        response = await client_with_service_setup.post(
             "/data/default.nonexistentnode/availability/",
             json={
                 "catalog": "default",
@@ -990,14 +1006,15 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "warnings": [],
         }
 
-    def test_merging_in_a_higher_max_partition(
+    @pytest.mark.asyncio
+    async def test_merging_in_a_higher_max_partition(
         self,
-        client_with_account_revenue: TestClient,
+        client_with_account_revenue: AsyncClient,
     ) -> None:
         """
         Test that the higher max_partition value is used when merging in an availability state
         """
-        client_with_account_revenue.post(
+        await client_with_account_revenue.post(
             "/data/default.large_revenue_payments_only/availability/",
             json={
                 "catalog": "default",
@@ -1009,7 +1026,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "min_temporal_partition": [20220101],
             },
         )
-        response = client_with_account_revenue.post(
+        response = await client_with_account_revenue.post(
             "/data/default.large_revenue_payments_only/availability/",
             json={
                 "catalog": "default",
@@ -1030,8 +1047,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data == {"message": "Availability state successfully posted"}
 
-        large_revenue_payments_only = client_with_account_revenue.get(
-            "/nodes/default.large_revenue_payments_only",
+        large_revenue_payments_only = (
+            await client_with_account_revenue.get(
+                "/nodes/default.large_revenue_payments_only",
+            )
         ).json()
         assert large_revenue_payments_only["availability"] == {
             "valid_through_ts": 1710097200000,
@@ -1047,12 +1066,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         }
 
     @pytest.fixture
-    def post_local_hard_hats_availability(self, client_with_roads: TestClient):
+    def post_local_hard_hats_availability(self, client_with_roads: AsyncClient):
         """
         Fixture for posting availability for local_hard_hats
         """
 
-        def _post(
+        async def _post(
             min_temporal_partition: Optional[List[str]] = None,
             max_temporal_partition: Optional[List[str]] = None,
             partitions: List[Dict] = None,
@@ -1060,7 +1079,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         ):
             if categorical_partitions is None:
                 categorical_partitions = ["country", "postal_code"]
-            return client_with_roads.post(
+            return await client_with_roads.post(
                 "/data/default.local_hard_hats/availability/",
                 json={
                     "catalog": "default",
@@ -1077,29 +1096,30 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
 
         return _post
 
-    def test_set_temporal_only_availability(
+    @pytest.mark.asyncio
+    async def test_set_temporal_only_availability(
         self,
-        client_with_roads: TestClient,
+        client_with_roads: AsyncClient,
         post_local_hard_hats_availability,
     ):
         """
         Test setting availability on a node where it only has temporal partitions and
         no categorical partitions.
         """
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             min_temporal_partition=["20230101"],
             max_temporal_partition=["20230105"],
             partitions=[],
             categorical_partitions=[],
         )
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             min_temporal_partition=["20230101"],
             max_temporal_partition=["20230110"],
             partitions=[],
             categorical_partitions=[],
         )
 
-        response = client_with_roads.get(
+        response = await client_with_roads.get(
             "/nodes/default.local_hard_hats/",
         )
         assert response.json()["availability"] == {
@@ -1115,9 +1135,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "url": None,
         }
 
-    def test_set_node_level_availability_wider_time_range(
+    @pytest.mark.asyncio
+    async def test_set_node_level_availability_wider_time_range(
         self,
-        client_with_roads: TestClient,
+        client_with_roads: AsyncClient,
         post_local_hard_hats_availability,
     ):
         """
@@ -1127,7 +1148,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         availability.
         """
         # Set initial availability state
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             partitions=[
                 {
                     "value": ["DE", "ABC123D"],
@@ -1138,13 +1159,13 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             ],
         )
         # Post wider availability
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             min_temporal_partition=["20230101"],
             max_temporal_partition=["20230110"],
             partitions=[],
         )
 
-        response = client_with_roads.get(
+        response = await client_with_roads.get(
             "/nodes/default.local_hard_hats/",
         )
         assert response.json()["availability"] == {
@@ -1160,28 +1181,29 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "url": None,
         }
 
-    def test_set_node_level_availability_smaller_time_range(
+    @pytest.mark.asyncio
+    async def test_set_node_level_availability_smaller_time_range(
         self,
-        client_with_roads: TestClient,
+        client_with_roads: AsyncClient,
         post_local_hard_hats_availability,
     ):
         """
         Set a node level availability with a smaller time range than the existing
         one will result in no change to the merged availability state
         """
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             min_temporal_partition=["20230101"],
             max_temporal_partition=["20230110"],
             partitions=[],
         )
 
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             min_temporal_partition=["20230103"],
             max_temporal_partition=["20230105"],
             partitions=[],
         )
 
-        response = client_with_roads.get(
+        response = await client_with_roads.get(
             "/nodes/default.local_hard_hats/",
         )
         availability = response.json()["availability"]
@@ -1189,9 +1211,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert availability["max_temporal_partition"] == ["20230110"]
         assert availability["partitions"] == []
 
-    def test_set_partition_level_availability_smaller_time_range(
+    @pytest.mark.asyncio
+    async def test_set_partition_level_availability_smaller_time_range(
         self,
-        client_with_roads: TestClient,
+        client_with_roads: AsyncClient,
         post_local_hard_hats_availability,
     ):
         """
@@ -1199,13 +1222,13 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         the existing node-level time range will result in no change to the
         merged availability state
         """
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             min_temporal_partition=["20230101"],
             max_temporal_partition=["20230110"],
             partitions=[],
         )
 
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             partitions=[
                 {
                     "value": ["DE", None],
@@ -1216,7 +1239,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             ],
         )
 
-        response = client_with_roads.get(
+        response = await client_with_roads.get(
             "/nodes/default.local_hard_hats/",
         )
         availability = response.json()["availability"]
@@ -1224,9 +1247,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert availability["max_temporal_partition"] == ["20230110"]
         assert availability["partitions"] == []
 
-    def test_set_partition_level_availability_larger_time_range(
+    @pytest.mark.asyncio
+    async def test_set_partition_level_availability_larger_time_range(
         self,
-        client_with_roads: TestClient,
+        client_with_roads: AsyncClient,
         post_local_hard_hats_availability,
     ):
         """
@@ -1234,13 +1258,13 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         the existing node-level time range will result in the partition with
         the larger range being recorded
         """
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             min_temporal_partition=["20230101"],
             max_temporal_partition=["20230110"],
             partitions=[],
         )
 
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             partitions=[
                 {
                     "value": ["DE", None],
@@ -1251,7 +1275,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             ],
         )
 
-        response = client_with_roads.get(
+        response = await client_with_roads.get(
             "/nodes/default.local_hard_hats/",
         )
         availability = response.json()["availability"]
@@ -1266,15 +1290,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             },
         ]
 
-    def test_set_orthogonal_partition_level_availability(
+    @pytest.mark.asyncio
+    async def test_set_orthogonal_partition_level_availability(
         self,
-        client_with_roads: TestClient,
+        client_with_roads: AsyncClient,
         post_local_hard_hats_availability,
     ):
         """
         Test setting an orthogonal partition-level availability.
         """
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             min_temporal_partition=["20230101"],
             max_temporal_partition=["20230110"],
             partitions=[
@@ -1287,7 +1312,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             ],
         )
 
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             partitions=[
                 {
                     "value": ["MY", None],
@@ -1298,7 +1323,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             ],
         )
 
-        response = client_with_roads.get(
+        response = await client_with_roads.get(
             "/nodes/default.local_hard_hats/",
         )
         availability = response.json()["availability"]
@@ -1319,15 +1344,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             },
         ]
 
-    def test_set_overlap_partition_level_availability(
+    @pytest.mark.asyncio
+    async def test_set_overlap_partition_level_availability(
         self,
-        client_with_roads: TestClient,
+        client_with_roads: AsyncClient,
         post_local_hard_hats_availability,
     ):
         """
         Test setting an overlapping partition-level availability.
         """
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             min_temporal_partition=["20230101"],
             max_temporal_partition=["20230110"],
             partitions=[
@@ -1340,7 +1366,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             ],
         )
 
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             partitions=[
                 {
                     "value": ["DE", None],
@@ -1351,7 +1377,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             ],
         )
 
-        response = client_with_roads.get(
+        response = await client_with_roads.get(
             "/nodes/default.local_hard_hats/",
         )
         availability = response.json()["availability"]
@@ -1366,15 +1392,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             },
         ]
 
-    def test_set_semioverlap_partition_level_availability(
+    @pytest.mark.asyncio
+    async def test_set_semioverlap_partition_level_availability(
         self,
-        client_with_roads: TestClient,
+        client_with_roads: AsyncClient,
         post_local_hard_hats_availability,
     ):
         """
         Test setting a semi-overlapping partition-level availability.
         """
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             min_temporal_partition=["20230101"],
             max_temporal_partition=["20230110"],
             partitions=[
@@ -1393,7 +1420,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             ],
         )
 
-        post_local_hard_hats_availability(
+        await post_local_hard_hats_availability(
             partitions=[
                 {
                     "value": ["DE", None],
@@ -1410,7 +1437,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             ],
         )
 
-        response = client_with_roads.get(
+        response = await client_with_roads.get(
             "/nodes/default.local_hard_hats/",
         )
         availability = response.json()["availability"]
@@ -1431,15 +1458,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             },
         ]
 
-    def test_merging_in_a_lower_min_partition(
+    @pytest.mark.asyncio
+    async def test_merging_in_a_lower_min_partition(
         self,
-        session: Session,
-        client_with_account_revenue: TestClient,
+        session: AsyncSession,
+        client_with_account_revenue: AsyncClient,
     ) -> None:
         """
         Test that the lower min_partition value is used when merging in an availability state
         """
-        client_with_account_revenue.post(
+        await client_with_account_revenue.post(
             "/data/default.large_revenue_payments_only/availability/",
             json={
                 "catalog": "default",
@@ -1450,7 +1478,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "min_temporal_partition": ["2022", "01", "01"],
             },
         )
-        response = client_with_account_revenue.post(
+        response = await client_with_account_revenue.post(
             "/data/default.large_revenue_payments_only/availability/",
             json={
                 "catalog": "default",
@@ -1477,7 +1505,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         statement = select(Node).where(
             Node.name == "default.large_revenue_payments_only",
         )
-        large_revenue_payments_only = session.execute(statement).scalar_one()
+        large_revenue_payments_only = (await session.execute(statement)).scalar_one()
         node_dict = AvailabilityStateBase.from_orm(
             large_revenue_payments_only.current.availability,
         ).dict()
@@ -1494,15 +1522,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "url": None,
         }
 
-    def test_moving_back_valid_through_ts(
+    @pytest.mark.asyncio
+    async def test_moving_back_valid_through_ts(
         self,
-        session: Session,
-        client_with_account_revenue: TestClient,
+        session: AsyncSession,
+        client_with_account_revenue: AsyncClient,
     ) -> None:
         """
         Test that the valid through timestamp can be moved backwards
         """
-        client_with_account_revenue.post(
+        await client_with_account_revenue.post(
             "/data/default.large_revenue_payments_only/availability/",
             json={
                 "catalog": "default",
@@ -1513,7 +1542,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "min_temporal_partition": ["2022", "01", "01"],
             },
         )
-        response = client_with_account_revenue.post(
+        response = await client_with_account_revenue.post(
             "/data/default.large_revenue_payments_only/availability/",
             json={
                 "catalog": "default",
@@ -1540,7 +1569,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         statement = select(Node).where(
             Node.name == "default.large_revenue_payments_only",
         )
-        large_revenue_payments_only = session.execute(statement).scalar_one()
+        large_revenue_payments_only = (await session.execute(statement)).scalar_one()
         node_dict = AvailabilityStateBase.from_orm(
             large_revenue_payments_only.current.availability,
         ).dict()
@@ -1557,15 +1586,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "url": None,
         }
 
-    def test_setting_availablity_state_on_a_source_node(
+    @pytest.mark.asyncio
+    async def test_setting_availablity_state_on_a_source_node(
         self,
-        session: Session,
-        client_with_account_revenue: TestClient,
+        session: AsyncSession,
+        client_with_account_revenue: AsyncClient,
     ) -> None:
         """
         Test setting the availability state on a source node
         """
-        response = client_with_account_revenue.post(
+        response = await client_with_account_revenue.post(
             "/data/default.revenue/availability/",
             json={
                 "catalog": "default",
@@ -1584,7 +1614,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         statement = select(Node).where(
             Node.name == "default.revenue",
         )
-        revenue = session.execute(statement).scalar_one()
+        revenue = (await session.execute(statement)).scalar_one()
         node_dict = AvailabilityStateBase.from_orm(revenue.current.availability).dict()
         assert node_dict == {
             "valid_through_ts": 20230101,
@@ -1599,14 +1629,15 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "url": None,
         }
 
-    def test_raise_on_setting_invalid_availability_state_on_a_source_node(
+    @pytest.mark.asyncio
+    async def test_raise_on_setting_invalid_availability_state_on_a_source_node(
         self,
-        client_with_account_revenue: TestClient,
+        client_with_account_revenue: AsyncClient,
     ) -> None:
         """
         Test raising availability state doesn't match existing source node table
         """
-        response = client_with_account_revenue.post(
+        response = await client_with_account_revenue.post(
             "/data/default.revenue/availability/",
             json={
                 "catalog": "default",

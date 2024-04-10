@@ -7,7 +7,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Callable, Iterable, Optional, Set, Union
 
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.utils import try_get_dj_node
 from datajunction_server.database.node import Node, NodeRevision
@@ -177,16 +177,16 @@ class AccessControlStore(BaseModel):
         else:
             self.indirect_requests.add(request)
 
-    def add_request_by_node_name(
+    async def add_request_by_node_name(
         self,
-        session: Session,
+        session: AsyncSession,
         node_name: Union[str, "Column"],
         verb: Optional[ResourceRequestVerb] = None,
     ):
         """
         Add a request using a node's name
         """
-        node = try_get_dj_node(session, node_name)
+        node = await try_get_dj_node(session, node_name)
         if node is not None:
             self.add_request_by_node(node, verb)
         return node

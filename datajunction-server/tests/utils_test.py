@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from pytest_mock import MockerFixture
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTasks
 from testcontainers.postgres import PostgresContainer
 from yarl import URL
@@ -37,7 +37,8 @@ def test_setup_logging() -> None:
     assert str(excinfo.value) == "Invalid log level: invalid"
 
 
-def test_get_session(mocker: MockerFixture) -> None:
+@pytest.mark.asyncio
+async def test_get_session(mocker: MockerFixture) -> None:
     """
     Test ``get_session``.
     """
@@ -46,8 +47,8 @@ def test_get_session(mocker: MockerFixture) -> None:
         mocker.MagicMock(autospec=BackgroundTasks),
     ) as background_tasks:
         background_tasks.side_effect = lambda x, y: None
-        session = next(get_session(background_tasks))
-        assert isinstance(session, Session)
+        session = await anext(get_session())
+        assert isinstance(session, AsyncSession)
 
 
 def test_get_settings(mocker: MockerFixture) -> None:

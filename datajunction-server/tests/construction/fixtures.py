@@ -5,7 +5,8 @@
 from typing import Dict, List, Optional, Tuple
 
 import pytest
-from sqlalchemy.orm import Session
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
@@ -190,10 +191,10 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
     }
 
 
-@pytest.fixture
-def construction_session(  # pylint: disable=too-many-locals
-    session: Session,
-) -> Session:
+@pytest_asyncio.fixture
+async def construction_session(  # pylint: disable=too-many-locals
+    session: AsyncSession,
+) -> AsyncSession:
     """
     Add some source nodes and transform nodes to facilitate testing of extracting dependencies
     """
@@ -556,5 +557,5 @@ def construction_session(  # pylint: disable=too-many-locals
     session.add(orders_src)
     session.add(customers_src)
 
-    session.commit()
+    await session.commit()
     return session

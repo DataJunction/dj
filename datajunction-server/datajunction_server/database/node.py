@@ -6,10 +6,22 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
 from pydantic import Extra
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Enum,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    select,
+)
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship, selectinload
+from sqlalchemy.sql.base import ExecutableOption
+from sqlalchemy.sql.operators import is_
 
+from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.base import Base
 from datajunction_server.database.catalog import Catalog
@@ -17,7 +29,7 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.tag import Tag
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import DJInvalidInputException, DJNodeNotFound
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
@@ -187,6 +199,9 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         ),
         viewonly=True,
         uselist=False,
+        # lazy="selectin",
+        # selectin for one-to-many
+        # joined for many-to-many or many-to-one
     )
 
     children: Mapped[List["NodeRevision"]] = relationship(
@@ -202,12 +217,118 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         secondary="tagnoderelationship",
         primaryjoin="TagNodeRelationship.node_id==Node.id",
         secondaryjoin="TagNodeRelationship.tag_id==Tag.id",
+        # lazy="selectin",
     )
 
     missing_table: Mapped[bool] = mapped_column(sa.Boolean, default=False)
 
     def __hash__(self) -> int:
         return hash(self.id)
+
+    @classmethod
+    async def get_by_name(
+        cls,
+        session: AsyncSession,
+        name: str,
+        options: List[ExecutableOption] = None,
+        raise_if_not_exists: bool = False,
+        include_inactive: bool = False,
+        for_update: bool = False,
+    ) -> Optional["Node"]:
+        """
+        Get a node by name
+        """
+        statement = select(Node).where(Node.name == name)
+        options = options or [
+            joinedload(Node.current).options(
+                *NodeRevision.default_load_options(),
+            ),
+            joinedload(Node.tags),
+        ]
+        statement = statement.options(*options)
+        if not include_inactive:
+            statement = statement.where(is_(Node.deactivated_at, None))
+        if for_update:
+            statement = statement.with_for_update().execution_options(
+                populate_existing=True,
+            )
+        result = await session.execute(statement)
+        node = result.unique().scalar_one_or_none()
+        if not node and raise_if_not_exists:
+            raise DJNodeNotFound(
+                message=(f"A node with name `{name}` does not exist."),
+                http_status_code=404,
+            )
+        return node
+
+    @classmethod
+    async def get_cube_by_name(
+        cls,
+        session: AsyncSession,
+        name: str,
+    ) -> Optional["Node"]:
+        """
+        Get a cube by name
+        """
+        statement = (
+            select(Node)
+            .where(Node.name == name)
+            .options(
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.availability),
+                    selectinload(NodeRevision.columns),
+                    selectinload(NodeRevision.catalog).selectinload(Catalog.engines),
+                    selectinload(NodeRevision.materializations).joinedload(
+                        Materialization.backfills,
+                    ),
+                    selectinload(NodeRevision.cube_elements)
+                    .selectinload(Column.node_revisions)
+                    .options(
+                        selectinload(NodeRevision.node),
+                    ),
+                ),
+                joinedload(Node.tags),
+            )
+        )
+        result = await session.execute(statement)
+        node = result.unique().scalar_one_or_none()
+        return node
+
+    @classmethod
+    async def get_by_id(
+        cls,
+        session: AsyncSession,
+        node_id: int,
+        *options: ExecutableOption,
+    ) -> Optional["Node"]:
+        """
+        Get a node by id
+        """
+        statement = select(Node).where(Node.id == node_id).options(*options)
+        result = await session.execute(statement)
+        node = result.unique().scalar_one_or_none()
+        return node
+
+    @classmethod
+    async def find(
+        cls,
+        session: AsyncSession,
+        prefix: str,
+        node_type: NodeType,
+        *options: ExecutableOption,
+    ) -> List["Node"]:
+        """
+        Finds a list of nodes by prefix
+        """
+        statement = select(Node).where(is_(Node.deactivated_at, None))
+        if prefix:
+            statement = statement.where(
+                Node.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
+            )
+        if node_type:
+            statement = statement.where(Node.type == node_type)
+        result = await session.execute(statement.options(*options))
+        return result.unique().scalars().all()
 
 
 class NodeRevision(
@@ -250,6 +371,7 @@ class NodeRevision(
         "Node",
         back_populates="revisions",
         foreign_keys=[node_id],
+        lazy="selectin",
     )
     catalog_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("catalog.id", name="fk_noderevision_catalog_id_catalog"),
@@ -268,6 +390,7 @@ class NodeRevision(
         secondary="metric_required_dimensions",
         primaryjoin="NodeRevision.id==BoundDimensionsRelationship.metric_id",
         secondaryjoin="Column.id==BoundDimensionsRelationship.bound_dimension_id",
+        # lazy="joined",
     )
 
     metric_metadata_id: Mapped[Optional[int]] = mapped_column(
@@ -280,6 +403,7 @@ class NodeRevision(
         primaryjoin="NodeRevision.metric_metadata_id==MetricMetadata.id",
         cascade="all, delete",
         uselist=False,
+        # lazy="joined",
     )
 
     # A list of metric columns and dimension columns, only used by cube nodes
@@ -305,6 +429,7 @@ class NodeRevision(
         secondary="noderelationship",
         primaryjoin="NodeRevision.id==NodeRelationship.child_id",
         secondaryjoin="Node.id==NodeRelationship.parent_id",
+        # lazy="joined",
     )
 
     missing_parents: Mapped[List[MissingParent]] = relationship(
@@ -312,6 +437,7 @@ class NodeRevision(
         primaryjoin="NodeRevision.id==NodeMissingParents.referencing_node_id",
         secondaryjoin="MissingParent.id==NodeMissingParents.missing_parent_id",
         cascade="all, delete",
+        # lazy="joined",
     )
 
     columns: Mapped[List["Column"]] = relationship(
@@ -320,11 +446,13 @@ class NodeRevision(
         secondaryjoin="Column.id==NodeColumns.column_id",
         cascade="all, delete",
         order_by="Column.order",
+        # lazy="joined",
     )
 
     dimension_links: Mapped[List["DimensionLink"]] = relationship(
         back_populates="node_revision",
-        cascade="all, delete-orphan",
+        cascade="all, delete",
+        # lazy="joined",
     )
 
     # The availability of materialized data needs to be stored on the NodeRevision
@@ -336,6 +464,7 @@ class NodeRevision(
         secondaryjoin="AvailabilityState.id==NodeAvailabilityState.availability_id",
         cascade="all, delete",
         uselist=False,
+        # lazy="joined",
     )
 
     # Nodes of type SOURCE will not have this property as their materialization
@@ -343,6 +472,7 @@ class NodeRevision(
     materializations: Mapped[List["Materialization"]] = relationship(
         back_populates="node_revision",
         cascade="all, delete-orphan",
+        # lazy="joined",
     )
 
     lineage: Mapped[Optional[List[Dict]]] = mapped_column(
@@ -362,6 +492,35 @@ class NodeRevision(
             if col.has_primary_key_attribute():
                 primary_key_columns.append(col)
         return primary_key_columns
+
+    @classmethod
+    def default_load_options(cls):
+        """
+        Default options when loading a node
+        """
+        # pylint: disable=import-outside-toplevel
+        from datajunction_server.database.dimensionlink import DimensionLink
+
+        return (
+            selectinload(NodeRevision.columns).options(
+                selectinload(Column.attributes).joinedload(
+                    ColumnAttribute.attribute_type,
+                ),
+                selectinload(Column.dimension),
+                selectinload(Column.partition),
+            ),
+            selectinload(NodeRevision.catalog),
+            selectinload(NodeRevision.parents),
+            selectinload(NodeRevision.materializations),
+            selectinload(NodeRevision.metric_metadata),
+            selectinload(NodeRevision.availability),
+            selectinload(NodeRevision.dimension_links).options(
+                selectinload(DimensionLink.dimension).options(
+                    selectinload(Node.current),
+                ),
+            ),
+            selectinload(NodeRevision.required_dimensions),
+        )
 
     @staticmethod
     def format_metric_alias(query: str, name: str) -> str:

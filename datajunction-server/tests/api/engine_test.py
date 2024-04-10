@@ -1,17 +1,18 @@
 """
 Tests for the engine API.
 """
+import pytest
+from httpx import AsyncClient
 
-from fastapi.testclient import TestClient
 
-
-def test_engine_adding_a_new_engine(
-    client: TestClient,
+@pytest.mark.asyncio
+async def test_engine_adding_a_new_engine(
+    client: AsyncClient,
 ) -> None:
     """
     Test adding an engine
     """
-    response = client.post(
+    response = await client.post(
         "/engines/",
         json={
             "name": "spark",
@@ -29,13 +30,14 @@ def test_engine_adding_a_new_engine(
     }
 
 
-def test_engine_list(
-    client: TestClient,
+@pytest.mark.asyncio
+async def test_engine_list(
+    client: AsyncClient,
 ) -> None:
     """
     Test listing engines
     """
-    response = client.post(
+    response = await client.post(
         "/engines/",
         json={
             "name": "spark",
@@ -45,7 +47,7 @@ def test_engine_list(
     )
     assert response.status_code == 201
 
-    response = client.post(
+    response = await client.post(
         "/engines/",
         json={
             "name": "spark",
@@ -55,7 +57,7 @@ def test_engine_list(
     )
     assert response.status_code == 201
 
-    response = client.post(
+    response = await client.post(
         "/engines/",
         json={
             "name": "spark",
@@ -65,7 +67,7 @@ def test_engine_list(
     )
     assert response.status_code == 201
 
-    response = client.get("/engines/")
+    response = await client.get("/engines/")
     assert response.status_code == 200
     data = response.json()
     assert data == [
@@ -90,13 +92,14 @@ def test_engine_list(
     ]
 
 
-def test_engine_get_engine(
-    client: TestClient,
+@pytest.mark.asyncio
+async def test_engine_get_engine(
+    client: AsyncClient,
 ) -> None:
     """
     Test getting an engine
     """
-    response = client.post(
+    response = await client.post(
         "/engines/",
         json={
             "name": "spark",
@@ -106,7 +109,7 @@ def test_engine_get_engine(
     )
     assert response.status_code == 201
 
-    response = client.get(
+    response = await client.get(
         "/engines/spark/3.3.1",
     )
     assert response.status_code == 200
@@ -119,13 +122,14 @@ def test_engine_get_engine(
     }
 
 
-def test_engine_raise_on_engine_already_exists(
-    client: TestClient,
+@pytest.mark.asyncio
+async def test_engine_raise_on_engine_already_exists(
+    client: AsyncClient,
 ) -> None:
     """
     Test raise on engine already exists
     """
-    response = client.post(
+    response = await client.post(
         "/engines/",
         json={
             "name": "spark",
@@ -135,7 +139,7 @@ def test_engine_raise_on_engine_already_exists(
     )
     assert response.status_code == 201
 
-    response = client.post(
+    response = await client.post(
         "/engines/",
         json={
             "name": "spark",

@@ -3,7 +3,8 @@ Tests for tags.
 """
 from unittest import mock
 
-from fastapi.testclient import TestClient
+import pytest
+from httpx import AsyncClient
 
 
 class TestTags:
@@ -11,11 +12,11 @@ class TestTags:
     Test tags API endpoints.
     """
 
-    def create_tag(self, client: TestClient):
+    async def create_tag(self, client: AsyncClient):
         """
         Creates a tag.
         """
-        response = client.post(
+        response = await client.post(
             "/tags/",
             json={
                 "name": "sales_report",
@@ -27,11 +28,11 @@ class TestTags:
         )
         return response
 
-    def create_another_tag(self, client: TestClient):
+    async def create_another_tag(self, client: AsyncClient):
         """
         Creates another tag
         """
-        response = client.post(
+        response = await client.post(
             "/tags/",
             json={
                 "name": "reports",
@@ -43,11 +44,12 @@ class TestTags:
         )
         return response
 
-    def test_create_and_read_tag(self, client: TestClient) -> None:
+    @pytest.mark.asyncio
+    async def test_create_and_read_tag(self, client: AsyncClient) -> None:
         """
         Test ``POST /tags`` and ``GET /tags/{name}``
         """
-        response = self.create_tag(client)
+        response = await self.create_tag(client)
         expected_tag_output = {
             "tag_metadata": {},
             "display_name": "Sales Report",
@@ -58,7 +60,7 @@ class TestTags:
         assert response.status_code == 201
         assert response.json() == expected_tag_output
 
-        response = client.post(
+        response = await client.post(
             "/tags/",
             json={
                 "name": "sales_report2",
@@ -76,16 +78,16 @@ class TestTags:
         }
         assert response.json() == expected_tag_output2
 
-        response = client.get("/tags/sales_report/")
+        response = await client.get("/tags/sales_report/")
         assert response.status_code == 200
         assert response.json() == expected_tag_output
 
-        response = client.get("/tags/sales_report2/")
+        response = await client.get("/tags/sales_report2/")
         assert response.status_code == 200
         assert response.json() == expected_tag_output2
 
         # Check history
-        response = client.get("/history/tag/sales_report/")
+        response = await client.get("/history/tag/sales_report/")
         assert response.json() == [
             {
                 "activity_type": "create",
@@ -102,21 +104,22 @@ class TestTags:
         ]
 
         # Creating it again should raise an exception
-        response = self.create_tag(client)
+        response = await self.create_tag(client)
         response_data = response.json()
         assert (
             response_data["message"] == "A tag with name `sales_report` already exists!"
         )
 
-    def test_update_tag(self, client: TestClient) -> None:
+    @pytest.mark.asyncio
+    async def test_update_tag(self, client: AsyncClient) -> None:
         """
         Tests updating a tag.
         """
-        response = self.create_tag(client)
+        response = await self.create_tag(client)
         assert response.status_code == 201
 
         # Trying updating the tag
-        response = client.patch(
+        response = await client.patch(
             "/tags/sales_report/",
             json={
                 "description": "Helpful sales metrics",
@@ -135,7 +138,7 @@ class TestTags:
         }
 
         # Trying updating the tag
-        response = client.patch(
+        response = await client.patch(
             "/tags/sales_report/",
             json={},
         )
@@ -148,20 +151,21 @@ class TestTags:
         }
 
         # Check history
-        response = client.get("/history/tag/sales_report/")
+        response = await client.get("/history/tag/sales_report/")
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
         ] == [("create", "tag"), ("update", "tag"), ("update", "tag")]
 
-    def test_list_tags(self, client: TestClient) -> None:
+    @pytest.mark.asyncio
+    async def test_list_tags(self, client: AsyncClient) -> None:
         """
         Test ``GET /tags``
         """
-        response = self.create_tag(client)
+        response = await self.create_tag(client)
         assert response.status_code == 201
 
-        response = client.get("/tags/")
+        response = await client.get("/tags/")
         assert response.status_code == 200
         response_data = response.json()
 
@@ -175,7 +179,7 @@ class TestTags:
             },
         ]
 
-        client.post(
+        await client.post(
             "/tags/",
             json={
                 "name": "impressions_report",
@@ -186,7 +190,7 @@ class TestTags:
             },
         )
 
-        client.post(
+        await client.post(
             "/tags/",
             json={
                 "name": "rotors",
@@ -197,7 +201,7 @@ class TestTags:
             },
         )
 
-        response = client.get("/tags/?tag_type=group")
+        response = await client.get("/tags/?tag_type=group")
         assert response.status_code == 200
         response_data = response.json()
         assert response_data == [
@@ -217,7 +221,7 @@ class TestTags:
             },
         ]
 
-        response = client.get("/tags/?tag_type=business_area")
+        response = await client.get("/tags/?tag_type=business_area")
         assert response.status_code == 200
         response_data = response.json()
         assert response_data == [
@@ -230,16 +234,17 @@ class TestTags:
             },
         ]
 
-    def test_add_tag_to_node(self, client_with_dbt: TestClient) -> None:
+    @pytest.mark.asyncio
+    async def test_add_tag_to_node(self, client_with_dbt: AsyncClient) -> None:
         """
         Test ``POST /tags`` and ``GET /tags/{name}``
         """
-        response = self.create_tag(client_with_dbt)
+        response = await self.create_tag(client_with_dbt)
         assert response.status_code == 201
-        self.create_another_tag(client_with_dbt)
+        await self.create_another_tag(client_with_dbt)
 
         # Trying tag a node with a nonexistent tag should fail
-        response = client_with_dbt.post(
+        response = await client_with_dbt.post(
             "/nodes/default.items_sold_count/tags?tag_names=random_tag",
         )
         assert response.status_code == 404
@@ -247,7 +252,7 @@ class TestTags:
         assert response_data["message"] == "Tags not found: random_tag"
 
         # Trying tag a node with an existing tag should succeed
-        response = client_with_dbt.post(
+        response = await client_with_dbt.post(
             "/nodes/default.items_sold_count/tags/?tag_names=sales_report",
         )
         assert response.status_code == 200
@@ -258,7 +263,7 @@ class TestTags:
         )
 
         # Test finding all nodes for that tag
-        response = client_with_dbt.get(
+        response = await client_with_dbt.get(
             "/tags/sales_report/nodes/",
         )
         assert response.status_code == 200
@@ -278,7 +283,7 @@ class TestTags:
         ]
 
         # Tag a second node
-        response = client_with_dbt.post(
+        response = await client_with_dbt.post(
             "/nodes/default.total_profit/tags/?tag_names=sales_report&tag_names=reports",
         )
         assert response.status_code == 200
@@ -290,7 +295,7 @@ class TestTags:
         )
 
         # Check history
-        response = client_with_dbt.get("/history?node=default.total_profit")
+        response = await client_with_dbt.get("/history?node=default.total_profit")
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"], activity["details"])
@@ -301,7 +306,7 @@ class TestTags:
         ]
 
         # Check finding nodes for tag
-        response = client_with_dbt.get(
+        response = await client_with_dbt.get(
             "/tags/sales_report/nodes/",
         )
         assert response.status_code == 200
@@ -331,8 +336,8 @@ class TestTags:
         ]
 
         # Check getting nodes for tag after deactivating a node
-        client_with_dbt.delete("/nodes/default.total_profit")
-        response = client_with_dbt.get(
+        await client_with_dbt.delete("/nodes/default.total_profit")
+        response = await client_with_dbt.get(
             "/tags/sales_report/nodes/",
         )
         assert response.status_code == 200
@@ -341,7 +346,7 @@ class TestTags:
         assert response_data[0]["name"] == "default.items_sold_count"
 
         # Check finding nodes for tag
-        response = client_with_dbt.get(
+        response = await client_with_dbt.get(
             "/tags/random_tag/nodes/",
         )
         assert response.status_code == 404
@@ -351,7 +356,7 @@ class TestTags:
         )
 
         # Check finding nodes for tag
-        response = client_with_dbt.get(
+        response = await client_with_dbt.get(
             "/tags/sales_report/nodes/?node_type=transform",
         )
         assert response.status_code == 200

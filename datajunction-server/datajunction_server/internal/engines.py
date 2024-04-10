@@ -4,12 +4,12 @@ from http import HTTPStatus
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.engine import Engine
 
 
-def get_engine(session: Session, name: str, version: str) -> Engine:
+async def get_engine(session: AsyncSession, name: str, version: str) -> Engine:
     """
     Return an Engine instance given an engine name and version
     """
@@ -19,7 +19,7 @@ def get_engine(session: Session, name: str, version: str) -> Engine:
         .where(Engine.version == (version or ""))
     )
     try:
-        engine = session.execute(statement).scalar_one()
+        engine = (await session.execute(statement)).scalar_one()
     except NoResultFound as exc:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,

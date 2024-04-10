@@ -3,7 +3,7 @@ Functions for making queries directly against DJ
 """
 from typing import Dict, List, Set, Tuple
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.build import build_metric_nodes, build_node
 from datajunction_server.construction.utils import try_get_dj_node
@@ -27,8 +27,8 @@ def selects_only_metrics(select: ast.Select) -> bool:
     )
 
 
-def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
-    session: Session,
+async def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
+    session: AsyncSession,
     tree: ast.Query,
     ctx: ast.CompileContext,
     touched_nodes: Set[int],
@@ -46,7 +46,7 @@ def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
         if id(col) in touched_nodes:
             continue
         ident = col.identifier(False)
-        if metric_node := try_get_dj_node(session, ident, {NodeType.METRIC}):
+        if metric_node := await try_get_dj_node(session, ident, {NodeType.METRIC}):
             curr_cols.append((True, col))
             # if we found a metric node we need to check where it came from
             parent_select = col.get_nearest_parent_of_type(ast.Select)
@@ -82,7 +82,7 @@ def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
 
                 sibling_ident = sibling_col.identifier(False)
 
-                sibling_node = try_get_dj_node(
+                sibling_node = await try_get_dj_node(
                     session,
                     sibling_ident,
                     {NodeType.METRIC},
@@ -125,13 +125,15 @@ def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
             cte_name = ast.Name(f"metric_query_{len(tree.ctes)}")
 
             built = (
-                build_metric_nodes(
-                    session,
-                    metric_nodes,
-                    filters,
-                    dimensions,
-                    orderby,
-                    limit,
+                (
+                    await build_metric_nodes(
+                        session,
+                        metric_nodes,
+                        filters,
+                        dimensions,
+                        orderby,
+                        limit,
+                    )
                 )
                 .bake_ctes()
                 .set_alias(cte_name)
@@ -144,7 +146,9 @@ def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
             for _, cur_col in curr_cols:
                 name = amenable_name(cur_col.identifier(False))
                 ref_type = [
-                    col for col in built.columns if col.alias_or_name.name == name
+                    col
+                    for col in built.select.projection
+                    if col.alias_or_name.name == name
                 ][0].type
 
                 swap_col = (
@@ -190,8 +194,8 @@ def find_all_other(
         node.apply(lambda n: find_all_other(n, touched_nodes, node_map))
 
 
-def resolve_all(  # pylint: disable=R0914,W0640
-    session: Session,
+async def resolve_all(  # pylint: disable=R0914,W0640
+    session: AsyncSession,
     ctx: ast.CompileContext,
     tree: ast.Query,
     dj_nodes: List[Node],
@@ -200,11 +204,11 @@ def resolve_all(  # pylint: disable=R0914,W0640
     Resolve all references to DJ Nodes
     """
     touched_nodes: Set[int] = set()
-    tree = resolve_metric_queries(session, tree, ctx, touched_nodes, dj_nodes)
+    tree = await resolve_metric_queries(session, tree, ctx, touched_nodes, dj_nodes)
     node_map: Dict[str, List[ast.Column]] = {}
     find_all_other(tree, touched_nodes, node_map)
     for namespace, cols in node_map.items():
-        if dj_node := try_get_dj_node(  # pragma: no cover
+        if dj_node := await try_get_dj_node(  # pragma: no cover
             session,
             namespace,
             {NodeType.SOURCE, NodeType.TRANSFORM, NodeType.DIMENSION},
@@ -212,11 +216,11 @@ def resolve_all(  # pylint: disable=R0914,W0640
             dj_nodes.append(dj_node)
             cte_name = ast.Name(f"node_query_{len(tree.ctes)}")
             current_dj_node = dj_node.current
-            built = build_node(session, current_dj_node).bake_ctes()
+            built = (await build_node(session, current_dj_node)).bake_ctes()
             built.alias = cte_name
             built.set_as(True)
             built.parenthesized = True
-            built.compile(ctx)
+            await built.compile(ctx)
             for cur_col in cols:
                 name = cur_col.name.name
                 ref_col = [col for col in current_dj_node.columns if col.name == name][
@@ -238,15 +242,18 @@ def resolve_all(  # pylint: disable=R0914,W0640
     return tree
 
 
-def build_dj_query(session: Session, query: str) -> Tuple[ast.Query, List[Node]]:
+async def build_dj_query(
+    session: AsyncSession,
+    query: str,
+) -> Tuple[ast.Query, List[Node]]:
     """
     Build a sql query that refers to DJ Nodes
     """
     dj_nodes: List[Node] = []  # metrics first if any
     ctx = ast.CompileContext(session, ast.DJException())
     tree = parse(query).bake_ctes()
-    tree = resolve_all(session, ctx, tree, dj_nodes)
-    tree.compile(ctx)
+    tree = await resolve_all(session, ctx, tree, dj_nodes)
+    await tree.compile(ctx)
     if not dj_nodes:
         raise ast.DJParseException(f"Found no dj nodes in query `{query}`.")
     return tree, dj_nodes

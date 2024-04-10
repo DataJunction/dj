@@ -2,7 +2,7 @@
 
 # pylint: disable=W0621,C0325
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.errors import DJException
 from datajunction_server.sql.parsing import ast
@@ -29,7 +29,8 @@ from datajunction_server.sql.parsing.types import (
 )
 
 
-def test_infer_column_with_table(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_column_with_table(construction_session: AsyncSession):
     """
     Test getting the type of a column that has a table
     """
@@ -40,7 +41,7 @@ def test_infer_column_with_table(construction_session: Session):
         session=construction_session,
         exception=DJException(),
     )
-    table.compile(ctx)
+    await table.compile(ctx)
     assert table.columns[0].type == IntegerType()
     assert table.columns[1].type == IntegerType()
     assert table.columns[2].type == DateType()
@@ -79,7 +80,8 @@ def test_raise_on_invalid_infer_binary_op():
     ) in str(exc_info.value)
 
 
-def test_infer_column_with_an_aliased_table(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_column_with_an_aliased_table(construction_session: AsyncSession):
     """
     Test getting the type of a column that has an aliased table
     """
@@ -103,7 +105,7 @@ def test_infer_column_with_an_aliased_table(construction_session: Session):
         ),
         child=table,
     )
-    alias.compile(ctx)
+    await alias.compile(ctx)
 
     assert alias.child.columns[0].type == IntegerType()
     assert alias.child.columns[1].type == IntegerType()
@@ -173,7 +175,8 @@ def test_raising_when_expression_has_no_parent():
     )
 
 
-def test_infer_map_subscripts(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_map_subscripts(construction_session: AsyncSession):
     """
     Test inferring map subscript types
     """
@@ -190,7 +193,7 @@ def test_infer_map_subscripts(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     types = [
         StringType(),
         StringType(),
@@ -204,7 +207,8 @@ def test_infer_map_subscripts(construction_session: Session):
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
 
-def test_infer_types_complicated(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_types_complicated(construction_session: AsyncSession):
     """
     Test inferring complicated types
     """
@@ -270,7 +274,7 @@ def test_infer_types_complicated(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     types = [
         IntegerType(),
         TimestampType(),
@@ -308,7 +312,8 @@ def test_infer_types_complicated(construction_session: Session):
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
 
-def test_infer_bad_case_types(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_bad_case_types(construction_session: AsyncSession):
     """
     Test inferring mismatched case types.
     """
@@ -324,7 +329,7 @@ def test_infer_bad_case_types(construction_session: Session):
             session=construction_session,
             exception=DJException(),
         )
-        query.compile(ctx)
+        await query.compile(ctx)
         [  # pylint: disable=pointless-statement
             exp.type for exp in query.select.projection  # type: ignore
         ]
@@ -332,7 +337,8 @@ def test_infer_bad_case_types(construction_session: Session):
     assert str(excinfo.value) == "Not all the same type in CASE! Found: bigint, string"
 
 
-def test_infer_types_avg(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_types_avg(construction_session: AsyncSession):
     """
     Test type inference of functions
     """
@@ -354,7 +360,7 @@ def test_infer_types_avg(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     types = [
         DoubleType(),
         DecimalType(12, 10),
@@ -368,7 +374,8 @@ def test_infer_types_avg(construction_session: Session):
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
 
-def test_infer_types_min_max_sum_ceil(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_types_min_max_sum_ceil(construction_session: AsyncSession):
     """
     Test type inference of functions
     """
@@ -389,12 +396,13 @@ def test_infer_types_min_max_sum_ceil(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     types = [IntegerType(), IntegerType(), BigIntType(), BigIntType(), DoubleType()]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
 
-def test_infer_types_count(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_types_count(construction_session: AsyncSession):
     """
     Test type inference of functions
     """
@@ -410,7 +418,7 @@ def test_infer_types_count(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     types = [
         BigIntType(),
         BigIntType(),
@@ -418,7 +426,8 @@ def test_infer_types_count(construction_session: Session):
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
 
-def test_infer_types_coalesce(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_types_coalesce(construction_session: AsyncSession):
     """
     Test type inference of functions
     """
@@ -433,7 +442,7 @@ def test_infer_types_coalesce(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     types = [
         IntegerType(),
         StringType(),
@@ -441,7 +450,8 @@ def test_infer_types_coalesce(construction_session: Session):
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
 
-def test_infer_types_array_map(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_types_array_map(construction_session: AsyncSession):
     """
     Test type inference for arrays and maps
     """
@@ -458,7 +468,7 @@ def test_infer_types_array_map(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     types = [
         ListType(IntegerType()),
         MapType(IntegerType(), StringType()),
@@ -476,7 +486,7 @@ def test_infer_types_array_map(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == MapType(  # type: ignore
         key_type=IntegerType(),
         value_type=StringType(),
@@ -491,13 +501,14 @@ def test_infer_types_array_map(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     with pytest.raises(DJParseException) as exc_info:
         query.select.projection[0].type  # type: ignore  # pylint: disable=pointless-statement
     assert "Multiple types int, string passed to array" in str(exc_info)
 
 
-def test_infer_types_if(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_types_if(construction_session: AsyncSession):
     """
     Test type inference of IF
     """
@@ -512,7 +523,7 @@ def test_infer_types_if(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert query.select.projection[0].type == IntegerType()  # type: ignore
     with pytest.raises(DJException) as exc_info:
         query.select.projection[1].type  # type: ignore  # pylint: disable=pointless-statement
@@ -523,7 +534,8 @@ def test_infer_types_if(construction_session: Session):
     assert query.select.projection[2].type == IntegerType()  # type: ignore
 
 
-def test_infer_types_exp(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_types_exp(construction_session: AsyncSession):
     """
     Test type inference of math functions
     """
@@ -551,7 +563,7 @@ def test_infer_types_exp(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     types = [
         DoubleType(),
         BigIntType(),
@@ -573,7 +585,8 @@ def test_infer_types_exp(construction_session: Session):
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
 
-def test_infer_types_str(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_types_str(construction_session: AsyncSession):
     """
     Test type inference of EXP
     """
@@ -588,7 +601,7 @@ def test_infer_types_str(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     types = [
         StringType(),
         StringType(),
@@ -614,7 +627,8 @@ def test_column_type_validation():
     assert ColumnType.validate("array<int>") == ListType(IntegerType())
 
 
-def test_infer_types_datetime(construction_session: Session):
+@pytest.mark.asyncio
+async def test_infer_types_datetime(construction_session: AsyncSession):
     """
     Test type inference of functions
     """
@@ -649,7 +663,7 @@ def test_infer_types_datetime(construction_session: Session):
     )
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     types = [
         DateType(),
         TimeType(),
