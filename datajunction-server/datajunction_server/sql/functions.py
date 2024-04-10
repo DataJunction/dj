@@ -3444,6 +3444,21 @@ def infer_type(  # type: ignore
     return ct.BooleanType()
 
 
+class Replace(Function):
+    """
+    replace(str, search[, replace]) - Replaces all occurrences of `search` with `replace`.
+    """
+
+
+@Replace.register
+def infer_type(  # type: ignore
+    string: ct.StringType,
+    search: ct.StringType,
+    replace: Optional[ct.StringType] = "",
+) -> ct.StringType:
+    return ct.StringType()
+
+
 class RowNumber(Function):
     """
     row_number() - Assigns a unique, sequential number to each row, starting with
