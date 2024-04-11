@@ -337,20 +337,24 @@ def test_ast_compile_lateral_view_explode3(session: Session):
     """
 
     query = parse(
-        """SELECT a, b, c, d, e
+        """SELECT a, b, c, d, e, v.en
     FROM (SELECT 1 as a, 2 as b, 3 as c) AS foo
     LATERAL VIEW EXPLODE(ARRAY(30, 60)) AS d
-    LATERAL VIEW EXPLODE(ARRAY(40, 80)) AS e;""",
+    LATERAL VIEW EXPLODE(ARRAY(40, 80)) AS e
+    LATERAL VIEW EXPLODE(ARRAY(100, 200)) v AS en;""",
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
+    assert parse(str(query)) == query
+    assert "LATERAL VIEW EXPLODE(ARRAY(100, 200)) v AS  en" in str(query)
 
     assert query.columns[0].is_compiled()
     assert query.columns[1].is_compiled()
     assert query.columns[2].is_compiled()
     assert query.columns[3].is_compiled()
     assert query.columns[4].is_compiled()
+    assert query.columns[5].is_compiled()
     assert query.columns[0].name == ast.Name(  # type: ignore
         name="a",
         quote_style="",
@@ -376,11 +380,17 @@ def test_ast_compile_lateral_view_explode3(session: Session):
         quote_style="",
         namespace=None,
     )
+    assert query.columns[5].name == ast.Name(  # type: ignore
+        name="en",
+        quote_style="",
+        namespace=ast.Name(name="v"),
+    )
     assert isinstance(query.columns[0].type, types.IntegerType)
     assert isinstance(query.columns[1].type, types.IntegerType)
     assert isinstance(query.columns[2].type, types.IntegerType)
     assert isinstance(query.columns[3].type, types.IntegerType)
     assert isinstance(query.columns[4].type, types.IntegerType)
+    assert isinstance(query.columns[5].type, types.IntegerType)
     assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
         name="foo",
         quote_style="",
@@ -403,6 +413,11 @@ def test_ast_compile_lateral_view_explode3(session: Session):
     )
     assert query.columns[4].table.alias_or_name == ast.Name(  # type: ignore
         name="EXPLODE",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[5].table.alias_or_name == ast.Name(  # type: ignore
+        name="v",
         quote_style="",
         namespace=None,
     )
