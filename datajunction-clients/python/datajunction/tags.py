@@ -45,7 +45,7 @@ class Tag(TagInfo, ClientEntity):
         if "name" in existing_tag:
             # update
             response = self._update()
-            if not response.ok:  # pragma: no cover
+            if not response.status_code < 400:  # pragma: no cover
                 raise DJClientException(
                     f"Error updating tag `{self.name}`: {response.text}",
                 )
@@ -55,7 +55,7 @@ class Tag(TagInfo, ClientEntity):
             response = self.dj_client._create_tag(
                 tag=self,
             )  # pragma: no cover
-            if not response.ok:  # pragma: no cover
+            if not response.status_code < 400:  # pragma: no cover
                 raise DJClientException(
                     f"Error creating new tag `{self.name}`: {response.text}",
                 )

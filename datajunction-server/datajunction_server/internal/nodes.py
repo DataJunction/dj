@@ -529,11 +529,12 @@ async def update_any_node(
         for_update=True,
         include_inactive=True,
         options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            selectinload(Node.current).options(*NodeRevision.default_load_options()),
         ],
         raise_if_not_exists=True,
     )
     if node.type == NodeType.CUBE:  # type: ignore
+        node = await Node.get_cube_by_name(session, name)
         node_revision = await update_cube_node(
             session,
             node.current,  # type: ignore
@@ -578,7 +579,7 @@ async def update_node_with_query(
         options=[
             joinedload(Node.current).options(*NodeRevision.default_load_options()),
         ],
-        for_update=True,
+        # for_update=True,
         include_inactive=True,
     )
     old_revision = node.current  # type: ignore
@@ -616,9 +617,13 @@ async def update_node_with_query(
 
     # Handle materializations: Note that this must be done after we commit the new revision,
     # as otherwise the SQL build won't know about the new revision's query
+    await session.refresh(old_revision, ["materializations"])
+    await session.refresh(old_revision, ["columns"])
     active_materializations = [
         mat for mat in old_revision.materializations if not mat.deactivated_at
     ]
+
+    await session.refresh(new_revision, ["materializations"])
     if active_materializations and new_revision.query != old_revision.query:
         for old in active_materializations:
             new_revision.materializations.append(  # pylint: disable=no-member
@@ -652,6 +657,9 @@ async def update_node_with_query(
 
     history_events = {}
     old_columns_map = {col.name: col.type for col in old_revision.columns}
+
+    await session.refresh(new_revision, ["columns"])
+    await session.refresh(old_revision)
     history_events[node.name] = {  # type: ignore
         "name": node.name,  # type: ignore
         "current_version": node.current_version,  # type: ignore

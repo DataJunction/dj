@@ -1,5 +1,6 @@
 # .coveragerc to control coverage.py
 [run]
+concurrency = thread,greenlet
 branch = True
 source = datajunction_server
 omit =

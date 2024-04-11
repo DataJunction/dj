@@ -73,17 +73,25 @@ async def test_catalog_list(
 
     response = await client.get("/catalogs/")
     assert response.status_code == 200
-    assert response.json() == [
-        {"name": "unknown", "engines": []},
-        {
-            "name": "dev",
-            "engines": [
-                {"name": "spark", "version": "3.3.1", "uri": None, "dialect": "spark"},
-            ],
-        },
-        {"name": "test", "engines": []},
-        {"name": "prod", "engines": []},
-    ]
+    assert sorted(response.json(), key=lambda v: v["name"]) == sorted(
+        [
+            {"name": "unknown", "engines": []},
+            {
+                "name": "dev",
+                "engines": [
+                    {
+                        "name": "spark",
+                        "version": "3.3.1",
+                        "uri": None,
+                        "dialect": "spark",
+                    },
+                ],
+            },
+            {"name": "test", "engines": []},
+            {"name": "prod", "engines": []},
+        ],
+        key=lambda v: v["name"],  # type: ignore
+    )
 
 
 @pytest.mark.asyncio

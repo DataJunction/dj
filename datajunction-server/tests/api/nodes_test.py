@@ -5053,6 +5053,14 @@ class TestCopyNode:
             copied[field] = mock.ANY
         for link in copied["dimension_links"]:
             link["foreign_keys"] = mock.ANY
+        copied["dimension_links"] = sorted(
+            copied["dimension_links"],
+            key=lambda li: li["dimension"]["name"],
+        )
+        original["dimension_links"] = sorted(
+            original["dimension_links"],
+            key=lambda li: li["dimension"]["name"],
+        )
         assert copied == original
 
     @pytest.mark.asyncio

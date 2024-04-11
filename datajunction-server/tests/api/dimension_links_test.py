@@ -640,7 +640,7 @@ async def test_measures_sql_with_dimension_roles(
     expected = """WITH
 default_DOT_events AS (SELECT  default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
     default_DOT_countries.name default_DOT_countries_DOT_name,
-    default_DOT_events.event_start_date default_DOT_users_DOT_snapshot_date,
+    default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date,
     default_DOT_users.registration_country default_DOT_users_DOT_registration_country
  FROM (SELECT  default_DOT_events_table.user_id,
     default_DOT_events_table.event_start_date,

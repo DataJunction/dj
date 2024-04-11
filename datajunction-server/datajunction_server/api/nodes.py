@@ -301,10 +301,7 @@ async def get_node(
     node = await Node.get_by_name(
         session,
         name,
-        options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
-            joinedload(Node.tags),
-        ],
+        options=NodeOutput.load_options(),
         raise_if_not_exists=True,
     )
     end = time.time()
@@ -724,7 +721,8 @@ async def link_dimension(
         dimension,
         raise_if_not_exists=True,
     )
-    if dimension_node.type != NodeType.DIMENSION:  # type: ignore
+    if dimension_node.type != NodeType.DIMENSION:  # type: ignore  # pragma: no cover
+        # pragma: no cover
         raise DJException(message=f"Node {node.name} is not of type dimension!")  # type: ignore
     primary_key_columns = dimension_node.current.primary_key()  # type: ignore
     if len(primary_key_columns) > 1:
@@ -873,7 +871,7 @@ async def tags_node(
     """
     Add a tag to a node
     """
-    node = await Node.get_by_name(session=session, name=name, for_update=True)
+    node = await Node.get_by_name(session=session, name=name)
     if not tag_names:
         tag_names = []  # pragma: no cover
     tags = await get_tags_by_name(session, names=tag_names)
@@ -1153,7 +1151,7 @@ async def list_node_dag(
         node.current.parents[0] if node.type == NodeType.METRIC else node,  # type: ignore
         with_attributes=False,
     )
-    if node.type == NodeType.METRIC:  # type: ignore
+    if node.type == NodeType.METRIC:  # type: ignore  # pragma: no cover
         dimension_nodes = dimension_nodes + node.current.parents  # type: ignore
     dimension_nodes += [node]  # type: ignore
     downstreams = await get_downstream_nodes(

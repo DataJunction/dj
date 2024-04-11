@@ -561,8 +561,8 @@ async def get_nodes_with_dimension(
     while to_process:
         current_node = to_process.pop()
         processed.add(current_node.name)
-        if not current_node:
-            continue
+        # if not current_node:
+        #     continue
 
         # Dimension nodes are used to expand the searchable graph by finding
         # the next layer of nodes that are linked to this dimension

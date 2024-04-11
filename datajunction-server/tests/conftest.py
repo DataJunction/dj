@@ -139,13 +139,14 @@ def postgres_container() -> PostgresContainer:
 
 
 @pytest_asyncio.fixture
-async def session() -> AsyncGenerator[AsyncSession, None]:
+async def session(
+    postgres_container: PostgresContainer,
+) -> AsyncGenerator[AsyncSession, None]:
     """
     Create a Postgres session to test models.
     """
     engine = create_async_engine(
-        "sqlite+aiosqlite://",
-        connect_args={"check_same_thread": False},
+        url=postgres_container.get_connection_url(),
         poolclass=StaticPool,
     )
     async with engine.begin() as conn:
@@ -290,7 +291,7 @@ def query_service_client(
     yield qs_client
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def client(  # pylint: disable=too-many-statements
     session: AsyncSession,
     settings: Settings,

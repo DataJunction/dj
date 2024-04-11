@@ -3,6 +3,7 @@ import zlib
 from typing import Dict, List, Tuple, Union
 
 from pydantic import ValidationError
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import build_sql_for_multiple_metrics
@@ -214,6 +215,10 @@ async def create_new_materialization(
     Create a new materialization based on the input values.
     """
     generic_config = None
+    try:
+        await session.refresh(current_revision, ["columns"])
+    except InvalidRequestError:
+        pass
     temporal_partition = current_revision.temporal_partition_columns()
     timestamp_columns = [
         col for col in current_revision.columns if col.type == TimestampType()

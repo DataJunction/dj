@@ -190,6 +190,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         back_populates="node",
         primaryjoin="Node.id==NodeRevision.node_id",
         cascade="all,delete",
+        order_by="NodeRevision.updated_at",
     )
     current: Mapped["NodeRevision"] = relationship(
         "NodeRevision",
@@ -446,7 +447,7 @@ class NodeRevision(
         secondaryjoin="Column.id==NodeColumns.column_id",
         cascade="all, delete",
         order_by="Column.order",
-        # lazy="joined",
+        # lazy="selectin",
     )
 
     dimension_links: Mapped[List["DimensionLink"]] = relationship(
@@ -503,7 +504,7 @@ class NodeRevision(
 
         return (
             selectinload(NodeRevision.columns).options(
-                selectinload(Column.attributes).joinedload(
+                selectinload(Column.attributes).selectinload(
                     ColumnAttribute.attribute_type,
                 ),
                 selectinload(Column.dimension),
