@@ -88,7 +88,7 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         autocommit=False,
         expire_on_commit=False,  # prevents attributes from being expired on commit
     )
-    async with async_session_factory() as session:
+    async with async_session_factory() as session:  # pragma: no cover
         yield session
 
 

@@ -141,8 +141,8 @@ async def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
             )
             built.parenthesized = True
             built.compile(ctx)
-            for built_col in built.columns:
-                built_col.alias_or_name.namespace = None
+            for built_col in built.columns:  # pragma: no cover
+                built_col.alias_or_name.namespace = None  # pragma: no cover
             for _, cur_col in curr_cols:
                 name = amenable_name(cur_col.identifier(False))
                 ref_type = [

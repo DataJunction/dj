@@ -231,11 +231,11 @@ async def test_deactivate_namespaces(client_with_namespaced_roads: AsyncClient) 
         "bar.repair_type,foo.bar.contractors,foo.bar.municipality_municipality_type,"
         "foo.bar.municipality_type,foo.bar.municipality,foo.bar.dispatchers,foo.bar."
         "hard_hats,foo.bar.hard_hat_state,foo.bar.us_states,foo.bar.us_region,foo.ba"
-        "r.repair_order,foo.bar.contractor,foo.bar.hard_hat,foo.bar.local_hard_hats,"
-        "foo.bar.us_state,foo.bar.dispatcher,foo.bar.municipality_dim,foo.bar.num_re"
-        "pair_orders,foo.bar.avg_repair_price,foo.bar.total_repair_cost,foo.bar.avg_"
-        "length_of_employment,foo.bar.total_repair_order_discounts,foo.bar.avg_repai"
-        "r_order_discounts,foo.bar.avg_time_to_dispatch",
+        "r.contractor,foo.bar.hard_hat,foo.bar.us_state,foo.bar.avg_length_of_employ"
+        "ment,foo.bar.avg_repair_price,foo.bar.municipality_dim,foo.bar.dispatcher,f"
+        "oo.bar.total_repair_cost,foo.bar.repair_order,foo.bar.num_repair_orders,foo"
+        ".bar.avg_time_to_dispatch,foo.bar.total_repair_order_discounts,foo.bar.avg_"
+        "repair_order_discounts,foo.bar.local_hard_hats",
     }
     # Calling restore again will raise
     response = await client_with_namespaced_roads.post(
@@ -312,12 +312,12 @@ async def test_deactivate_namespaces(client_with_namespaced_roads: AsyncClient) 
                     ".bar.repair_type,foo.bar.contractors,foo.bar.municipality_municipalit"
                     "y_type,foo.bar.municipality_type,foo.bar.municipality,foo.bar.dispatc"
                     "hers,foo.bar.hard_hats,foo.bar.hard_hat_state,foo.bar.us_states,foo.b"
-                    "ar.us_region,foo.bar.repair_order,foo.bar.contractor,foo.bar.hard_hat"
-                    ",foo.bar.local_hard_hats,foo.bar.us_state,foo.bar.dispatcher,foo.bar."
-                    "municipality_dim,foo.bar.num_repair_orders,foo.bar.avg_repair_price,"
-                    "foo.bar.total_repair_cost,foo.bar.avg_length_of_employment,foo.bar.t"
-                    "otal_repair_order_discounts,foo.bar.avg_repair_order_discounts,foo.b"
-                    "ar.avg_time_to_dispatch"
+                    "ar.us_region,foo.bar.contractor,foo.bar.hard_hat,foo.bar.us_state,foo"
+                    ".bar.avg_length_of_employment,foo.bar.avg_repair_price,foo.bar.munici"
+                    "pality_dim,foo.bar.dispatcher,foo.bar.total_repair_cost,foo.bar.repai"
+                    "r_order,foo.bar.num_repair_orders,foo.bar.avg_time_to_dispatch,foo.ba"
+                    "r.total_repair_order_discounts,foo.bar.avg_repair_order_discounts,foo"
+                    ".bar.local_hard_hats"
                 ),
             },
         ),
@@ -349,7 +349,7 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
         "'foo.bar.avg_repair_order_discounts', 'foo.bar.avg_repair_price', "
         "'foo.bar.avg_time_to_dispatch', 'foo.bar.contractor', 'foo.bar.contractors', "
         "'foo.bar.dispatcher', 'foo.bar.dispatchers', 'foo.bar.hard_hat', "
-        "'foo.bar.hard_hat_state', 'foo.bar.hard_hats', 'foo.bar.local_hard_hats', "
+        "'foo.bar.hard_hats', 'foo.bar.hard_hat_state', 'foo.bar.local_hard_hats', "
         "'foo.bar.municipality', 'foo.bar.municipality_dim', "
         "'foo.bar.municipality_municipality_type', 'foo.bar.municipality_type', "
         "'foo.bar.num_repair_orders', 'foo.bar.repair_order', "

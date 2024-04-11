@@ -100,7 +100,7 @@ class Node(ClientEntity):  # pylint: disable=protected-access
             node_name=self.name,
             tags=[tag.name for tag in self.tags] if self.tags else None,
         )
-        if not response.ok:  # pragma: no cover
+        if not response.status_code < 400:  # pragma: no cover
             raise DJClientException(
                 f"Error updating tags for node {self.name}, {self.tags}",
             )
@@ -114,7 +114,7 @@ class Node(ClientEntity):  # pylint: disable=protected-access
             # update
             self._update_tags()
             response = self._update()
-            if not response.ok:  # pragma: no cover
+            if not response.status_code < 400:  # pragma: no cover
                 raise DJClientException(
                     f"Error updating node `{self.name}`: {response.text}",
                 )
@@ -125,7 +125,7 @@ class Node(ClientEntity):  # pylint: disable=protected-access
                 node=self,
                 mode=mode,
             )  # pragma: no cover
-            if not response.ok:  # pragma: no cover
+            if not response.status_code < 400:  # pragma: no cover
                 raise DJClientException(
                     f"Error creating new node `{self.name}`: {response.text}",
                 )

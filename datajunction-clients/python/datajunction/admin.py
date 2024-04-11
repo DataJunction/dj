@@ -31,7 +31,7 @@ class DJAdmin(DJBuilder):  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
         )
         json_response = response.json()
-        if not response.ok:
+        if not response.status_code < 400:
             raise DJClientException(
                 f"Adding catalog `{name}` failed: {json_response}",
             )  # pragma: no cover
@@ -70,7 +70,7 @@ class DJAdmin(DJBuilder):  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
         )
         json_response = response.json()
-        if not response.ok:
+        if not response.status_code < 400:
             raise DJClientException(
                 f"Adding engine failed: {json_response}",
             )  # pragma: no cover
@@ -95,7 +95,7 @@ class DJAdmin(DJBuilder):  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
         )
         json_response = response.json()
-        if not response.ok:
+        if not response.status_code < 400:
             raise DJClientException(
                 f"Linking engine (name: {engine}, version: {version}) "
                 f"to catalog `{catalog}` failed: {json_response}",

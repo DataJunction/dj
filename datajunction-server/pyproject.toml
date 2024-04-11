@@ -5,6 +5,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["datajunction_server"]
 
+
 [tool.pdm]
 [tool.pdm.build]
 includes = ["dj"]
@@ -27,6 +28,7 @@ test = [
     "testcontainers>=3.7.1",
     "httpx>=0.27.0",
     "greenlet>=3.0.3",
+    "gevent>=24.2.1",
 ]
 
 [[tool.pdm.autoexport]]
@@ -115,6 +117,7 @@ repository = "https://github.com/DataJunction/dj"
 
 [tool.coverage.run]
 source = ['datajunction_server/']
+concurrency = ["thread,greenlet"]
 
 [tool.isort]
 src_paths = ["datajunction_server/", "tests/"]

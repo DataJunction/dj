@@ -221,7 +221,7 @@ class DJClient(_internal.DJClient):
                 results = response.json()
 
                 # Raise errors if any
-                if not response.ok:
+                if not response.status_code < 400:
                     raise DJClientException(f"Error retrieving data: {response.text}")
                 if results["state"] not in models.QueryState.list():
                     raise DJClientException(  # pragma: no cover

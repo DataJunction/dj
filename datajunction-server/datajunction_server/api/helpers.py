@@ -98,16 +98,16 @@ async def get_node_by_name(  # pylint: disable=too-many-arguments
     with_current: bool = False,
     raise_if_not_exists: bool = True,
     include_inactive: bool = False,
-    for_update: bool = False,
+    # for_update: bool = False,
 ) -> Node:
     """
     Get a node by name
     """
     statement = select(Node).where(Node.name == name)
-    if for_update:
-        statement = statement.with_for_update().execution_options(
-            populate_existing=True,
-        )
+    # if for_update:
+    #     statement = statement.with_for_update().execution_options(
+    #         populate_existing=True,
+    #     )
     if not include_inactive:
         statement = statement.where(is_(Node.deactivated_at, None))
     if node_type:
@@ -377,8 +377,8 @@ async def validate_node_data(  # pylint: disable=too-many-locals,too-many-statem
     node_validator.columns = []
     type_inference_failures = {}
     for idx, col in enumerate(query_ast.select.projection):
-        if not col:
-            continue
+        # if not col:
+        #     continue
         column = None
         column_name = col.alias_or_name.name  # type: ignore
         existing_column = column_mapping.get(column_name)
@@ -679,6 +679,8 @@ async def validate_cube(  # pylint: disable=too-many-locals
                 f"Please make sure that `{dimension_attribute}` "
                 "is a dimensional attribute.",
             ) from exc
+        if not dimension_node:  # pragma: no cover
+            continue
         dimension_nodes.append(dimension_node)  # type: ignore
         columns = {col.name: col for col in dimension_node.current.columns}  # type: ignore
 

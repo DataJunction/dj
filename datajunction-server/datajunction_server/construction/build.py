@@ -655,6 +655,8 @@ async def add_filters_dimensions_orderby_limit_to_query_ast(
                     if dj_node:
                         await session.refresh(node, ["columns"])
                         await session.refresh(node, ["dimension_links"])
+                        for link in node.dimension_links:
+                            await session.refresh(link, ["dimension"])
                         rename_dimension_primary_keys_to_foreign_keys(
                             dj_node,
                             node,
@@ -687,6 +689,7 @@ async def add_filters_dimensions_orderby_limit_to_query_ast(
                         col,
                     )
                     if dj_node:  # pragma: no cover
+                        await session.refresh(node, ["dimension_links"])
                         rename_dimension_primary_keys_to_foreign_keys(
                             dj_node,
                             node,
@@ -865,6 +868,8 @@ async def build_node(  # pylint: disable=too-many-arguments
                 ast.Column(ast.Name(expr.alias_or_name.name), _table=node_query),  # type: ignore
             )
     else:
+        await session.refresh(node)
+        await session.refresh(node, ["columns"])
         query = build_source_node_query(node)
 
     await add_filters_dimensions_orderby_limit_to_query_ast(
@@ -1077,6 +1082,7 @@ async def build_metric_nodes(
     common_parents = group_metrics_by_parent(metric_nodes)
 
     for parent_node, metrics in common_parents.items():
+        # parent_node_ = await Node.get_by_name(session, parent_node.name)
         parent_ast = await build_node(
             session=session,
             node=parent_node.current,
