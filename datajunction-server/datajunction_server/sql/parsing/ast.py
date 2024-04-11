@@ -2224,13 +2224,13 @@ class FunctionTable(FunctionTableExpression):
         alias = f" {self.alias}" if self.alias else ""
         as_ = " AS " if self.as_ else ""
         cols = (
-            f" {', '.join(str(col) for col in self.column_list)}"
+            f" {', '.join(col.name.name for col in self.column_list)}"
             if self.column_list
             else ""
         )
-        column_list_str = f"({cols})" if cols else ""
+        column_list_str = f"({cols})" if len(self.column_list) > 1 else str(cols)
         args_str = f"({', '.join(str(col) for col in self.args)})" if self.args else ""
-        return f"{self.name}{args_str}{as_}{alias}{column_list_str}"
+        return f"{self.name}{args_str}{alias}{as_}{column_list_str}"
 
     def set_alias(self: TNode, alias: Name) -> TNode:
         self.alias = alias
