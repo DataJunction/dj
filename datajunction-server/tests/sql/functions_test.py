@@ -669,7 +669,9 @@ def test_concat_ws_func(session: Session):
     Test the `concat_ws` function
     """
     query = parse(
-        "SELECT concat_ws(',', 'hello', 'world'), concat_ws('-', 'spark', 'sql', 'function')",
+        "SELECT concat_ws(',', 'hello', 'world'), "
+        "concat_ws('-', 'spark', 'sql', 'function'), "
+        "concat_ws('-', array('spark', 'sql', 'function')), ",
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
@@ -677,6 +679,7 @@ def test_concat_ws_func(session: Session):
     assert not exc.errors
     assert query.select.projection[0].type == StringType()  # type: ignore
     assert query.select.projection[1].type == StringType()  # type: ignore
+    assert query.select.projection[2].type == StringType()  # type: ignore
 
 
 def test_collect_list(session: Session):

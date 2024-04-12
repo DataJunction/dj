@@ -1017,3 +1017,23 @@ FROM VALUES
     ] == expected_columns
     assert query.select.from_.relations[0].primary.values == expected_values  # type: ignore
     assert query.columns[0].table.alias_or_name == expected_table_name  # type: ignore
+
+
+def test_ast_subscript_handling(session: Session):
+    """
+    Test parsing a query with subscripts
+    """
+    query_str = """SELECT
+  w.a[1]['a'] as a_,
+  w.a[1]['b'] as b_
+FROM VALUES
+  (array(named_struct('a', 1, 'b', 2)), array(named_struct('a', 300, 'b', 20))) AS w(a)"""
+    query = parse(str(query_str))
+    assert str(parse(str(query))) == str(parse(str(query_str)))
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert [
+        (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
+    ] == [("a_", types.IntegerType()), ("b_", types.IntegerType())]
