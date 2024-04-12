@@ -620,8 +620,11 @@ def _(ctx: sbp.StringLitContext):
 def _(ctx: sbp.DereferenceContext):
     base = visit(ctx.base)
     field = visit(ctx.fieldName)
-    field.namespace = base.name
-    base.name = field
+    if isinstance(base, ast.Subscript) and isinstance(base.expr, ast.Column):
+        field.namespace = base.expr.name
+    if isinstance(base, ast.Column):
+        field.namespace = base.name
+        base.name = field
     return base
 
 
