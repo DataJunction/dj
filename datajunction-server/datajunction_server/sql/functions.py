@@ -877,6 +877,14 @@ def infer_type(
     return ct.StringType()
 
 
+@ConcatWs.register  # type: ignore
+def infer_type(
+    sep: ct.StringType,
+    *strings: ct.ListType,
+) -> ct.ColumnType:
+    return ct.StringType()
+
+
 class Contains(Function):
     """
     contains(left, right) - Returns a boolean. The value is True if right is found inside left.
