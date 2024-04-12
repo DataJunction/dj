@@ -671,7 +671,7 @@ def test_concat_ws_func(session: Session):
     query = parse(
         "SELECT concat_ws(',', 'hello', 'world'), "
         "concat_ws('-', 'spark', 'sql', 'function'), "
-        "concat_ws('-', array('spark', 'sql', 'function')), ",
+        "concat_ws('-', array('spark', 'sql', 'function'))",
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
