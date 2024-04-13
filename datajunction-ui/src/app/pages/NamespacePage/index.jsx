@@ -4,8 +4,7 @@ import { useContext, useEffect, useState } from 'react';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
 import Explorer from '../NamespacePage/Explorer';
-import EditIcon from '../../icons/EditIcon';
-import DeleteNode from '../../components/DeleteNode';
+import NodeListActions from '../../components/NodeListActions';
 import AddNamespacePopover from './AddNamespacePopover';
 
 export function NamespacePage() {
@@ -106,10 +105,7 @@ export function NamespacePage() {
         </span>
       </td>
       <td>
-        <a href={`/nodes/${node?.name}/edit`} style={{ marginLeft: '0.5rem' }}>
-          <EditIcon />
-        </a>
-        <DeleteNode nodeName={node?.name} />
+        <NodeListActions nodeName={node?.name} />
       </td>
     </tr>
   ));
