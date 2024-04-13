@@ -2706,16 +2706,24 @@ def test_random(session: Session):
 
 def test_rank(session: Session):
     """
-    Test `rank`
+    Test `dense_rank`, `rank`
     """
     query = parse(
-        "SELECT rank() OVER (PARTITION BY col ORDER BY col) FROM (SELECT (1), (2) AS col)",
+        "SELECT "
+        "rank() OVER (PARTITION BY col ORDER BY col),"
+        "rank(col) OVER (PARTITION BY col ORDER BY col),"
+        "dense_rank() OVER (PARTITION BY col ORDER BY col),"
+        "dense_rank(col) OVER (PARTITION BY col ORDER BY col)"
+        " FROM (SELECT (1), (2) AS col)",
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[2].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[3].type == ct.IntegerType()  # type: ignore
 
 
 def test_regexp_like(session: Session):
