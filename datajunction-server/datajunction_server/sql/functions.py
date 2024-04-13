@@ -59,7 +59,7 @@ def compare_registers(types, register) -> bool:
         fillvalue=(-1, None),
     ):
         if type_b == -1 and register_b is None:
-            if register[-1][0] == -1:  # args
+            if register and register[-1] and register[-1][0] == -1:  # args
                 register_b = register[-1][1]
             else:
                 return False  # pragma: no cover
@@ -1420,11 +1420,20 @@ def infer_type(arg: ct.NumberType) -> ct.ColumnType:
     return ct.FloatType()
 
 
-class DenseRank(Function):  # pragma: no cover
+class DenseRank(Function):
     """
-    TODO
     dense_rank() - Computes the dense rank of a value in a group of values.
     """
+
+
+@DenseRank.register
+def infer_type() -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+@DenseRank.register
+def infer_type(_: ct.ColumnType) -> ct.IntegerType:
+    return ct.IntegerType()
 
 
 class Div(Function):
@@ -3435,6 +3444,11 @@ class Rank(Function):
 
 @Rank.register
 def infer_type() -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+@Rank.register
+def infer_type(_: ct.ColumnType) -> ct.IntegerType:
     return ct.IntegerType()
 
 
