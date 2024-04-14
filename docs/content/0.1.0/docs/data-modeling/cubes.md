@@ -1,5 +1,5 @@
 ---
-weight: 50
+weight: 8
 title: "Cubes"
 mermaid: true
 ---

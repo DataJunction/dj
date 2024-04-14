@@ -1,7 +1,11 @@
 ---
-weight: 10
+weight: 3
 title: "Sources"
 ---
+
+{{< alert icon="👉" >}}
+Source nodes can be thought of as **tables**.
+{{< /alert >}}
 
 Source nodes represent external tables in a database or data warehouse and make up the foundational layer on which other nodes
 are built upon.
