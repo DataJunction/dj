@@ -1,6 +1,7 @@
 ---
 weight: 30
 title: "Dimension Discovery"
+mermaid: true
 ---
 
 In data warehousing, dimensions are parts of the data model that play a huge role in making data understandable and intuitively composable. If

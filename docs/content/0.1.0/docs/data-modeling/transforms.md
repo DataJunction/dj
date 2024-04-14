@@ -1,7 +1,11 @@
 ---
-weight: 40
+weight: 4
 title: "Transforms"
 ---
+
+{{< alert icon="👉" >}}
+Transform nodes can be thought of as **views**.
+{{< /alert >}}
 
 Transform nodes allow you to do arbitray SQL operations on sources, dimensions, and even other transform nodes. Of course with
 a perfect data model, you may not need to define any transform nodes. However, in some cases it may be convenient to use transform
