@@ -296,7 +296,7 @@ You can configure a dimension alias/reference between a particular column on a t
 {{< mermaid class="bg-light text-center" >}}
 %%{init: {"theme": "default", "themeCSS": [
     "[id*=events] .er.entityBox { fill: #7eb46150; stroke: #7eb46150; } [id*=events] .er.attributeBoxEven { fill: #fff; stroke: #7eb46150; } [id*=events] .er.attributeBoxOdd { fill: #fff; stroke: #7eb46150; }",
-    "[id*=user] .er.entityBox { fill: #ffefd0; stroke: #a9662150; } [id*=user] .er.attributeBoxEven { fill: #fff; stroke: #a9662150; } [id*=user] .er.attributeBoxOdd { fill: #fff; stroke: #a9662150; }",
+    "[id*=country] .er.entityBox { fill: #ffefd0; stroke: #a9662150; } [id*=country] .er.attributeBoxEven { fill: #fff; stroke: #a9662150; } [id*=country] .er.attributeBoxOdd { fill: #fff; stroke: #a9662150; }"
 ]}}%%
 erDiagram
     "events" {
@@ -310,10 +310,10 @@ erDiagram
         str name
         long population
     }
-   "events" ||--o{ "Dimension Alias/Ref": ""
-   "country" ||--o{ "Dimension Alias/Ref" : ""
+   "events" ||--o{ "Dimension Alias": ""
+   "country" ||--o{ "Dimension Alias" : ""
 
-   "Dimension Alias/Ref" {
+   "Dimension Alias" {
         str column "events.country_name"
         str dimension_column "country.name"
         str role "event_country"
