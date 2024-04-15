@@ -9,9 +9,9 @@ A full DJ deployment consists of the following services:
 * Core API
 * UI
 * Postgres DB (for storing metadata)
-* Query service
-* [Reflection service](../reflection-service)
-* Materialization service (optional)
+* [Query Service](../query-service)
+* [Reflection Service](../reflection-service)
+* Materialization Service (optional)
 
 {{< mermaid class="bg-light text-center" >}}
 flowchart LR
