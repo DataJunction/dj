@@ -84,15 +84,43 @@ erDiagram
    "TotalEventDuration"["total_event_duration"] {
         query sum[event_secs]
     }
-   "events" ||--o{ "TotalEventDuration" : "queries from"
+   "events" ||--o| "TotalEventDuration" : "queries from"
 {{< /mermaid >}}
 
-After the dimension link, when someone asks DJ for the `total_event_duration` metric grouped by the `user`'s 
-`registration_country`, DJ will use the configured join link to build a join between the `user` dimension and the 
-`events` source node. 
+After the dimension link, all dimension attributes on the `user` dimension node (`id`, `username`, `name` etc) 
+will be available to the `total_event_duration` metric to optionally group or filter by.  When someone asks DJ for
+the `total_event_duration` metric grouped by the `user`'s `registration_country`, DJ will use the configured join link
+to build a join between the `user` dimension and the `events` source node.
 
-All dimension attributes on the `user` dimension node (`id`, `username`, `name` etc) 
-will be available to the `total_event_duration` metric to optionally group or filter by.
+#### Configuring Join Links
+
+Dimension join links can be configured in DJ using the following:
+
+{{< tabs "connecting dimension" >}}
+{{< tab "curl" >}}
+```sh
+curl -X 'POST' \
+  'http://localhost:8000/nodes/default.events/columns/user_id/?dimension=default.user&dimension_column=id' \
+  -H 'accept: application/json'
+```
+{{< /tab >}}
+{{< tab "python" >}}
+
+```py
+dimension = dj.dimension("default.events")
+dimension.link_dimension(
+    column="user_id",
+    dimension="default.user",
+    dimension_column="id",
+)
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+dj.dimensions.link("default.events", "user_id", "default.user", "id").then(data => console.log(data))
+```
+{{< /tab >}}
+{{< /tabs >}}
 
 #### Additional Links
 
@@ -103,6 +131,11 @@ a case.
 Extending from the example above, let's add on a `country` dimension node:
 
 {{< mermaid class="bg-light text-center" >}}
+%%{init: {"theme": "default", "themeCSS": [
+    "[id*=events] .er.entityBox { fill: #7eb46150; stroke: #7eb46150; } [id*=events] .er.attributeBoxEven { fill: #fff; stroke: #7eb46150; } [id*=events] .er.attributeBoxOdd { fill: #fff; stroke: #7eb46150; }",
+    "[id*=user] .er.entityBox { fill: #ffefd0; stroke: #a9662150; } [id*=user] .er.attributeBoxEven { fill: #fff; stroke: #a9662150; } [id*=user] .er.attributeBoxOdd { fill: #fff; stroke: #a9662150; }",
+    "[id*=country] .er.entityBox { fill: #ffefd0; stroke: #a9662150; } [id*=country] .er.attributeBoxEven { fill: #fff; stroke: #a9662150; } [id*=country] .er.attributeBoxOdd { fill: #fff; stroke: #a9662150; }"
+]}}%%
 erDiagram
     "events" {
         user_id long 
@@ -134,6 +167,11 @@ erDiagram
 This can be linked to the `user` dimension node using the node's `registration_country` column:
 
 {{< mermaid class="bg-light text-center" >}}
+%%{init: {"theme": "default", "themeCSS": [
+    "[id*=events] .er.entityBox { fill: #7eb46150; stroke: #7eb46150; } [id*=events] .er.attributeBoxEven { fill: #fff; stroke: #7eb46150; } [id*=events] .er.attributeBoxOdd { fill: #fff; stroke: #7eb46150; }",
+    "[id*=user] .er.entityBox { fill: #ffefd0; stroke: #a9662150; } [id*=user] .er.attributeBoxEven { fill: #fff; stroke: #a9662150; } [id*=user] .er.attributeBoxOdd { fill: #fff; stroke: #a9662150; }",
+    "[id*=country] .er.entityBox { fill: #ffefd0; stroke: #a9662150; } [id*=country] .er.attributeBoxEven { fill: #fff; stroke: #a9662150; } [id*=country] .er.attributeBoxOdd { fill: #fff; stroke: #a9662150; }"
+]}}%%
 erDiagram
     "events" {
         user_id long 
@@ -188,6 +226,11 @@ also play a different role, like representing the country an event was recorded 
 Let's look at an example:
 
 {{< mermaid class="bg-light text-center" >}}
+%%{init: {"theme": "default", "themeCSS": [
+    "[id*=events] .er.entityBox { fill: #7eb46150; stroke: #7eb46150; } [id*=events] .er.attributeBoxEven { fill: #fff; stroke: #7eb46150; } [id*=events] .er.attributeBoxOdd { fill: #fff; stroke: #7eb46150; }",
+    "[id*=user] .er.entityBox { fill: #ffefd0; stroke: #a9662150; } [id*=user] .er.attributeBoxEven { fill: #fff; stroke: #a9662150; } [id*=user] .er.attributeBoxOdd { fill: #fff; stroke: #a9662150; }",
+    "[id*=country] .er.entityBox { fill: #ffefd0; stroke: #a9662150; } [id*=country] .er.attributeBoxEven { fill: #fff; stroke: #a9662150; } [id*=country] .er.attributeBoxOdd { fill: #fff; stroke: #a9662150; }"
+]}}%%
 erDiagram
     "events" {
         user_id long 
@@ -251,6 +294,10 @@ defined for that dimension.
 You can configure a dimension alias/reference between a particular column on a table/view-like node
 (source, transform, dimension) and a column on a dimension node. An example of the alias/reference link:
 {{< mermaid class="bg-light text-center" >}}
+%%{init: {"theme": "default", "themeCSS": [
+    "[id*=events] .er.entityBox { fill: #7eb46150; stroke: #7eb46150; } [id*=events] .er.attributeBoxEven { fill: #fff; stroke: #7eb46150; } [id*=events] .er.attributeBoxOdd { fill: #fff; stroke: #7eb46150; }",
+    "[id*=user] .er.entityBox { fill: #ffefd0; stroke: #a9662150; } [id*=user] .er.attributeBoxEven { fill: #fff; stroke: #a9662150; } [id*=user] .er.attributeBoxOdd { fill: #fff; stroke: #a9662150; }",
+]}}%%
 erDiagram
     "events" {
         long user_id 
