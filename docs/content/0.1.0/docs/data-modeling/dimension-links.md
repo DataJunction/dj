@@ -6,20 +6,35 @@ mermaid: true
 
 ## Dimension Links
 
-Linking dimensions helps build out the DJ's dimensional metadata graph, a key component of the DJ DAG.
+Dimension links help build out DJ's dimensional metadata graph, a key component of the DJ DAG.
 There are two types of dimension links: [join links](#join-links) and [alias/reference links](#reference-link).
 
 ### Join Links
 
-You can configure a join link between a dimension node and any table/view-like DJ nodes (sources, transforms, 
-dimensions). Configuring this join link will make it so that all dimension attributes on the dimension node are 
-accessible by the original node. 
+You can configure a join link between a dimension node and any source, transform, or dimension nodes. Configuring this
+join link will make it so that all dimension attributes on the dimension node are accessible by the original node. 
 
-Let's look at an example of this in action. Here is a simple dimension join link configured between the 
-`events` source node and the `user` dimension node:
+Let's look at an example to understand what "accessible" means in this context.
+
+Here is a simple dimension join link configured between the `events` source node and the `user` dimension node:
+<!--
+
+  background-color: #ffefd0 !important;
+  color: #a96621;
+  background-color: #cf7d2950 !important;
+  color: #cf7d29;
+
+  background-color: #7eb46150 !important;
+  color: #7eb461;
+
+-->
 
 {{< mermaid class="bg-light text-center" >}}
 erDiagram
+    %%{init: {"theme": "default", "themeCSS": [
+        "[id*=events] .er.entityBox { fill: #7eb46150; stroke: #7eb46150; } [id*=events] .er.attributeBoxEven { fill: #fff; stroke: #7eb46150; } [id*=events] .er.attributeBoxOdd { fill: #fff; stroke: #7eb46150; }",
+        "[id*=user] .er.entityBox { fill: #ffefd0; stroke: #a9662150; } [id*=user] .er.attributeBoxEven { fill: #fff; stroke: #a9662150; } [id*=user] .er.attributeBoxOdd { fill: #fff; stroke: #a9662150; }"
+    ]}}%%
     "events" {
         user_id long 
         country_id int
@@ -43,7 +58,8 @@ erDiagram
 {{< /mermaid >}}
 
 This join link was configured using `events`'s `user_id` column joined to the `user` dimension's `id` column. This
-tells DJ how to perform a join, should we ever need the `country` dimension for any of the fact's downstream metrics.
+tells DJ how to perform a join, should we ever need the `country` dimension for any of the `events` node's 
+downstream metrics.
 
 {{< alert icon="👉" >}}
 In most cases, the join link's `join_on` clause will just be equality comparisons between the primary key and foreign 
@@ -51,21 +67,24 @@ key columns of the original node and the dimension node. However, more complex j
 desired, including the ability to specify `RIGHT`, `LEFT` or `INNER` join links.
 {{< /alert >}}
 
-Let's also assume that this metric `total_event_duration` was created using the `fact` transform node:
+Let's also assume that this metric `total_event_duration` was created using the `events` source node:
 
 {{< mermaid class="bg-light text-center" >}}
-classDiagram
-    direction LR
-    class events {
-      user_id -> long
-      country_id -> int
-      event_secs -> long
-      event_ts -> long
+erDiagram
+    %%{init: {"theme": "default", "themeCSS": [
+        "[id*=TotalEventDuration] .er.entityBox { fill: #fad7dd; stroke: #a27e8650; } [id*=TotalEventDuration] .er.attributeBoxEven { fill: #fff; stroke: #a27e8650; } [id*=TotalEventDuration] .er.attributeBoxOdd { fill: #fff; stroke: #a27e8650; } ",
+        "[id*=events] .er.entityBox { fill: #7eb46150; stroke: #7eb46150; } [id*=events] .er.attributeBoxEven { fill: #fff; stroke: #7eb46150; } [id*=events] .er.attributeBoxOdd { fill: #fff; stroke: #7eb46150; } "
+    ]}}%%
+    "events" {
+        user_id long 
+        country_id int
+        event_secs long
+        event_ts long
     }
-    class total_event_duration {
-      query -> sum(event_secs)
+   "TotalEventDuration"["total_event_duration"] {
+        query sum[event_secs]
     }
-    events <.. total_event_duration
+   "events" ||--o{ "TotalEventDuration" : "queries from"
 {{< /mermaid >}}
 
 After the dimension link, when someone asks DJ for the `total_event_duration` metric grouped by the `user`'s 
@@ -140,7 +159,7 @@ erDiagram
    "country" ||--o{ "Dimension Join Link 2" : "linked via"
 
    "Dimension Join Link" {
-        str join_on "fact.user_id = user.id"
+        str join_on "events.user_id = user.id"
         enum join_type "LEFT"
         str role "event_user"
     }
@@ -216,8 +235,8 @@ erDiagram
     }
 {{< /mermaid >}}
 
-In this case, the `country` dimension was linked to both `user` (as the role `registration_country`) and to `event` (as
-the role `event_country`). After this link is in place, request the `country.name` dimension for the `fact` node will 
+In this case, the `country` dimension was linked to both `user` (as the role `registration_country`) and to `events` (as
+the role `event_country`). After this link is in place, request the `country.name` dimension for the `events` node will 
 be ambiguous without choosing a role. 
 
 DJ will distinguish between the two dimension roles with the following syntax:
