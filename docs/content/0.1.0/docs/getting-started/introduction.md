@@ -12,11 +12,11 @@ toc: true
 {{< alert icon="" >}}
 #### Quickstart
 
-👉 Trying to deploy DJ for internal use? See the guide to [Deploying DJ](../deploying-dj).
+👉 Trying to deploy DJ for internal use? See the guide to [Deploying DJ](../../deploying-dj/overview).
 
-👉 Trying to onboard onto DJ for data modeling? See the guide to [Data Modeling](../data-modeling).
+👉 Trying to onboard onto DJ for data modeling? See the guide to [Data Modeling](../../data-modeling/overview).
 
-👉 Want to contribute to DJ develpopment? See the [Developers Guide](.,/developers)
+👉 Want to contribute to DJ develpopment? See the [Developers Guide](../../developers/running-dj-locally)
 {{< /alert >}}
 
 ## What is it?
