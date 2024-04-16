@@ -35,7 +35,7 @@ export default function RevisionDiff() {
       return rev[1].version === revision;
     });
   const prevRevision = revisions.filter(
-    (rev, idx) => idx - 1 === thisRevision[0][0],
+    (rev, idx) => idx + 1 === thisRevision[0][0],
   );
 
   const EMPTY_HUNKS = [];

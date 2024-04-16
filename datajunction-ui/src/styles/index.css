@@ -1129,9 +1129,9 @@ pre {
   font-size: 14px;
   grid-template-rows: repeat(3, auto);
   grid-template-areas:
-      "description description details"
-      "description description details"
-      "metadata metadata details";
+    'description description details'
+    'description description details'
+    'metadata metadata details';
   grid-template-columns: min-content minmax(30%, 1fr);
   gap: 4px;
 }
@@ -1169,12 +1169,12 @@ pre {
   font-size: 12px;
 }
 .history-right {
-    display: flex;
-    flex-flow: wrap;
-    padding-top: 10px;
-    gap: 19px;
-    grid-area: details;
-    -webkit-box-flex: 2;
+  display: flex;
+  flex-flow: wrap;
+  padding-top: 10px;
+  gap: 19px;
+  grid-area: details;
+  -webkit-box-flex: 2;
 }
 
 .version {
@@ -1187,7 +1187,8 @@ pre {
 }
 
 .highlight-svg:hover {
-  filter: invert(56%) sepia(68%) saturate(4415%) hue-rotate(162deg) brightness(96%) contrast(101%);
+  filter: invert(56%) sepia(68%) saturate(4415%) hue-rotate(162deg)
+    brightness(96%) contrast(101%);
   text-decoration: none;
 }
 .no-change {

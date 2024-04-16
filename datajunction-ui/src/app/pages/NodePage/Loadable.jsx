@@ -14,13 +14,3 @@ export const NodePage = props => {
     },
   )(props);
 };
-
-export const NodeRevisionPage = props => {
-  return lazyLoad(
-    () => import('./NodeRevision'),
-    module => module.NodeRevision,
-    {
-      fallback: <div></div>,
-    },
-  )(props);
-};
