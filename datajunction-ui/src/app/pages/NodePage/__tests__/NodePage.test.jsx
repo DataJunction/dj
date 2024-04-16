@@ -501,14 +501,8 @@ describe('<NodePage />', () => {
         'node',
         mocks.mockMetricNode.name,
       );
-      expect(djClient.DataJunctionAPI.revisions).toHaveBeenCalledWith(
-        mocks.mockMetricNode.name,
-      );
-      expect(
-        screen.getByRole('table', { name: 'Revisions' }),
-      ).toMatchSnapshot();
-      expect(screen.getByRole('table', { name: 'Activity' })).toHaveTextContent(
-        'ActivityTypeNameUserTimestampDetailscreatenodedefault.avg_repair_priceunknown2023-08-21T16:48:56.950482+00:00',
+      expect(screen.getByRole('list', { name: 'Activity' })).toHaveTextContent(
+        'Status Change on default.avg_repair_price from valid to invaliddone by unknown on 8/21/2023, 9:48:56 AMMaterialized table .. with partitions between and available for default.avg_repair_price.done by unknown on 8/21/2023, 9:48:56 AMcreate materialization default.avg_repair_pricedone by unknown on 8/21/2023, 9:48:56 AMcreate link from default.avg_repair_price to default.hard_hatdone by unknown on 8/21/2023, 9:48:56 AMSet column attributes on default.avg_repair_pricedone by unknown on 8/21/2023, 9:48:56 AMcreate node default.avg_repair_pricedone by unknown on 8/21/2023, 9:48:56 AM',
       );
       screen
         .queryAllByRole('cell', {

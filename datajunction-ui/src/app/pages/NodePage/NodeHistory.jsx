@@ -119,13 +119,14 @@ export default function NodeHistory({ node, djClient }) {
         </div>
       );
     }
-    if (
-      event.activity_type === 'create' &&
-      event.entity_type === 'materialization'
-    ) {
+
+    if (event.entity_type === 'materialization') {
       return (
         <div className="history-left">
-          Create <b>{event.entity_type}</b>{' '}
+          <span style={{ textTransform: 'capitalize' }}>
+            {event.activity_type}
+          </span>{' '}
+          <b>{event.entity_type}</b>{' '}
           <a href={`/nodes/${event.node}/materializations`}>
             {event.entity_name}
           </a>
@@ -147,6 +148,34 @@ export default function NodeHistory({ node, djClient }) {
         </div>
       );
     }
+
+    if (
+      event.activity_type === 'create' &&
+      event.entity_type === 'availability'
+    ) {
+      return (
+        <div className="history-left">
+          Materialized table{' '}
+          <code>
+            {event.post.catalog}.{event.post.schema_}.{event.post.table}
+          </code>{' '}
+          with partitions between {event.post.min_temporal_partition} and{' '}
+          {event.post.max_temporal_partition} available for{' '}
+          <a href={'/nodes/' + event.node}>{event.node}</a>.
+        </div>
+      );
+    }
+
+    if (event.activity_type === 'create' && event.entity_type === 'backfill') {
+      return (
+        <div className="history-left">
+          Backfill created for materialization {event.details.materialization}{' '}
+          for partition {event.details.partition.column_name} from{' '}
+          {event.details.partition.range[0]} to{' '}
+          {event.details.partition.range[1]}
+        </div>
+      );
+    }
   };
 
   const removeTagNodeEventsWithoutTags = event =>
@@ -156,7 +185,7 @@ export default function NodeHistory({ node, djClient }) {
       event.details.tags.length > 0);
 
   return (
-    <ul className="history-border" aria-label="Activity">
+    <ul className="history-border" role="list" aria-label="Activity">
       {history.filter(removeTagNodeEventsWithoutTags).map(event => (
         <li key={`history-row-${event.id}`} className="history">
           {eventDescription(event)}
