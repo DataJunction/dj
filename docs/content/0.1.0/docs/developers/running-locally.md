@@ -1,29 +1,43 @@
 ---
-weight: 10
-title: "Docker Compose"
+weight: 1
+title: "Running DJ Locally"
 ---
 
-## DataJunction Demo Docker Compose Setup
+## Using Docker Compose
 
-The easiest way to try out DataJunction locally is to use the DJ docker compose setup. 
-This setup will launch and connect the primary DJ backend, a reflection service, a query service,
+The easiest way to try out DataJunction locally is to use the Docker Compose setup. 
+This setup will launch and connect the primary DJ backend, the DJ UI, a reflection service, a query service,
 and a JupyterLab instance with a few example notebooks.
 
-Clone the DJ repository.
+1. Clone the DJ repository.
 
 ```sh
 git clone git@github.com:DataJunction/dj.git
 ```
 
-Change into the `dj/` directory and start the docker compose environment with the `demo` profile.
+2. Change into the `dj/` directory and start the Docker Compose environment with the `demo` profile.
 
 ```sh
 cd dj/
 docker compose --profile demo up
 ```
 
-A JupyterLab instance is now available at [localhost:8181/lab](http://localhost:8181/lab) and contains examples in the `notebooks/`
+3. Check that the following services are accessible:
+
+{{< alert icon="👉" >}}
+The **DJ UI** at [http://localhost:3000](http://localhost:3000), with some example data models pre-loaded.
+You may need to login with `dj`/`dj`.
+{{< /alert >}}
+
+{{< alert icon="👉" >}}
+The **DJ API** at [http://localhost:8000](http://localhost:8000), with Swagger documentation on 
+[http://localhost:8000/docs](http://localhost:8000/docs).
+{{< /alert >}}
+
+{{< alert icon="👉" >}}
+A JupyterLab instance at [localhost:8181/lab](http://localhost:8181/lab) and contains examples in the `notebooks/`
 directory, such as `Modeling the Roads Example Database.ipynb`.
+{{< /alert >}}
 
 ## Starting Individual DJ Services
 
