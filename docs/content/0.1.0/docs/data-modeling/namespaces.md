@@ -1,7 +1,11 @@
 ---
-weight: 5
+weight: 2
 title: "Namespaces"
 ---
+
+{{< alert icon="👉" >}}
+Namespaces can be thought of as **folders**.
+{{< /alert >}}
 
 All nodes in DataJunction exist within a namespace. Node names are dot separated alpha-numeric elements. The leading elements
 identify the namespace where the node exists. Nodes that do not include any dots in the name are automatically

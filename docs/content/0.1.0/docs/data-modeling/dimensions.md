@@ -1,14 +1,58 @@
 ---
-weight: 30
+weight: 5
 mermaid: true
 title: "Dimensions"
 ---
 
-Dimension nodes are critical for defining the cross edges of the [DJ DAG](../../../dj-concepts/the-dj-dag) and are instrumental in
-many of DJ's core features. They include a query that can select from any other node to create a representation of a dimension. Any
-column in any DJ node can then be tagged as a join key to any column on the dimension node. These join paths are used by DJ to
-discover all dimensions that are accessible for each metric. Some dimensions themselves may include join keys to other dimensions,
-further extending the join path and allowing DJ to discover more dimensions that can be used to group metrics.
+{{< alert icon="👉" >}}
+Dimension nodes can be thought of as **special views**, with the additional ability to configure joins.
+{{< /alert >}}
+
+Dimension nodes include a query that can select from any other node to create a representation of a dimension.
+They must always have a primary key configured, and can have any number of associated dimensional attributes.
+
+One key feature of dimension nodes is the ability to configure **join links**. Any DJ node can be linked to a dimension
+node via two different types of [dimension linking](../dimension-links). These links are used to build out 
+the dimensional metadata edges of the [DJ DAG](../../../dj-concepts/the-dj-dag), enabling DJ to find all accessible
+dimensions for each metric.
+
+{{< alert icon="📢" >}}
+See the section on [Dimension Links](../dimension-links) for more details. This is an important part of DJ to understand.
+{{< /alert >}}
+
+Here are a few example dimension nodes:
+<!--
+  background-color: #ffefd0 !important;
+  color: #a96621;-->
+{{< mermaid class="bg-light text-center" >}}
+%%{init: {  "theme": "base",
+'themeVariables': { 'primaryColor': '#ffefd0'}}}%%
+erDiagram
+   "default.country | Country" {
+        id int PK
+        name str
+        country_code str
+        population long
+    }
+   "default.dispatcher | Dispatcher" {
+        dispatcher_id int PK
+        company_name str
+        phone str
+    }
+   "default.contractor | Contractor" {
+        contractor_id int PK
+        company_name str
+        contact_name str
+        contact_title str
+        address str
+        city str
+        state str
+        postal_code str
+        country str
+    }
+{{< /mermaid >}}
+
+## Creating Dimension Nodes
 
 | Attribute     | Description                                                                                 | Type   |
 |---------------|---------------------------------------------------------------------------------------------|--------|
@@ -17,8 +61,6 @@ further extending the join path and allowing DJ to discover more dimensions that
 | description   | A human readable description of the node                                                    | string |
 | mode          | `published` or `draft` (see [Node Mode](../../../dj-concepts/node-dependencies/#node-mode)) | string |
 | query         | A SQL query that selects from other nodes                                                   | string |
-
-## Creating Dimension Nodes
 
 Assume a `default.dispatchers` source node was defined as follows.
 
@@ -130,59 +172,6 @@ dj.dimensions.create(
     primary_key: ["dispatcher_id"]
   }
 ).then(data => console.log(data))
-```
-{{< /tab >}}
-{{< /tabs >}}
-
-## Connecting Node Columns to Dimensions
-
-Any column on any node can be identified as a join key to a dimension node column by making
-a `POST` request to the columns. For example, let's assume you have a `hard_hats` node that contains
-employee information. The state in which the employee works is stored in a separate lookup table
-that includes a mapping of `hard_hat_id` to `state_id`.
-
-
-{{< mermaid class="bg-light text-center" >}}
-classDiagram
-    direction LR
-    
-    class hard_hat_state {
-      hard_hat_id -> int
-      state_id -> int
-    }
-
-    hard_hats <-- hard_hat_state : hard_hat_id
-
-    hard_hats : hard_hat_id -> int
-    hard_hats : first_name -> str
-    hard_hats : last_name -> str
-    hard_hats : title -> str
-    hard_hats : birth_date -> date
-{{< /mermaid >}}
-
-This connection in DJ can be added using the following request.
-{{< tabs "connecting dimension" >}}
-{{< tab "curl" >}}
-```sh
-curl -X 'POST' \
-  'http://localhost:8000/nodes/default.repair_orders/columns/dispatcher_id/?dimension=default.all_dispatchers&dimension_column=dispatcher_id' \
-  -H 'accept: application/json'
-```
-{{< /tab >}}
-{{< tab "python" >}}
-
-```py
-dimension = dj.dimension("default.repair_orders")
-dimension.link_dimension(
-    column="dispatcher_id",
-    dimension="default.dispatcher",
-    dimension_column="dispatcher_id",
-)
-```
-{{< /tab >}}
-{{< tab "javascript" >}}
-```js
-dj.dimensions.link("default.repair_orders", "dispatcher_id", "default.all_dispatchers", "dispatcher_id").then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}
