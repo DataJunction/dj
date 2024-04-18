@@ -4,7 +4,6 @@ Node related APIs.
 """
 import logging
 import os
-import time
 from http import HTTPStatus
 from typing import List, Optional
 
@@ -297,20 +296,13 @@ async def get_node(
     """
     Show the active version of the specified node.
     """
-    start = time.time()
     node = await Node.get_by_name(
         session,
         name,
         options=NodeOutput.load_options(),
         raise_if_not_exists=True,
     )
-    end = time.time()
-    print("db TIME", end - start)
-    start = end
-    res = NodeOutput.from_orm(node)
-    end = time.time()
-    print("res TIME", end - start)
-    return res
+    return NodeOutput.from_orm(node)
 
 
 @router.delete("/nodes/{name}/")
