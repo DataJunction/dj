@@ -2749,6 +2749,7 @@ async def test_measures_sql_with_filters(  # pylint: disable=too-many-arguments
     }
     response = await client_with_roads.get("/sql/measures", params=sql_params)
     data = response.json()
+    print("data", data)
     assert str(parse(str(data["sql"]))) == str(parse(str(sql)))
     result = duckdb_conn.sql(data["sql"])
     assert result.fetchall() == rows

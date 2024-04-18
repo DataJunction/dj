@@ -567,8 +567,6 @@ async def create_node(
                     [AttributeTypeIdentifier(name="primary_key", namespace="system")],
                     current_user=current_user,
                 )
-    # await session.refresh(node)
-    # await session.refresh(node.current)
     node = await Node.get_by_name(  # type: ignore
         session,
         node.name,
