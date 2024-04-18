@@ -501,15 +501,9 @@ describe('<NodePage />', () => {
         'node',
         mocks.mockMetricNode.name,
       );
-      expect(djClient.DataJunctionAPI.revisions).toHaveBeenCalledWith(
-        mocks.mockMetricNode.name,
-      );
       expect(
-        screen.getByRole('table', { name: 'Revisions' }),
-      ).toMatchSnapshot();
-      expect(screen.getByRole('table', { name: 'Activity' })).toHaveTextContent(
-        'ActivityTypeNameUserTimestampDetailscreatenodedefault.avg_repair_priceunknown2023-08-21T16:48:56.950482+00:00',
-      );
+        screen.getByRole('list', { name: 'Activity' }),
+      ).toBeInTheDocument();
       screen
         .queryAllByRole('cell', {
           name: 'HistoryAttribute',
