@@ -96,6 +96,8 @@ class Settings(
     db_max_overflow = 20
     db_pool_timeout = 10
     db_connect_timeout = 5
+    db_pool_pre_ping = True
+    db_echo = False
 
     @property
     def celery(self) -> Celery:

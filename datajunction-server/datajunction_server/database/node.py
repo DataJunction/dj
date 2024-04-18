@@ -504,20 +504,20 @@ class NodeRevision(
 
         return (
             selectinload(NodeRevision.columns).options(
-                selectinload(Column.attributes).selectinload(
+                joinedload(Column.attributes).selectinload(
                     ColumnAttribute.attribute_type,
                 ),
-                selectinload(Column.dimension),
-                selectinload(Column.partition),
+                joinedload(Column.dimension),
+                joinedload(Column.partition),
             ),
-            selectinload(NodeRevision.catalog),
+            joinedload(NodeRevision.catalog),
             selectinload(NodeRevision.parents),
-            selectinload(NodeRevision.materializations),
-            selectinload(NodeRevision.metric_metadata),
-            selectinload(NodeRevision.availability),
+            joinedload(NodeRevision.materializations),
+            joinedload(NodeRevision.metric_metadata),
+            joinedload(NodeRevision.availability),
             selectinload(NodeRevision.dimension_links).options(
-                selectinload(DimensionLink.dimension).options(
-                    selectinload(Node.current),
+                joinedload(DimensionLink.dimension).options(
+                    joinedload(Node.current),
                 ),
             ),
             selectinload(NodeRevision.required_dimensions),

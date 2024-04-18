@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, AsyncGenerator, List, Optional
 
 from dotenv import load_dotenv
 from rich.logging import RichHandler
+from sqlalchemy import AsyncAdaptedQueuePool
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -66,11 +67,12 @@ def get_engine() -> AsyncEngine:
     engine = create_async_engine(
         settings.index,
         future=True,
-        echo=True,
-        pool_pre_ping=True,
+        echo=settings.db_echo,
+        pool_pre_ping=settings.db_pool_pre_ping,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_timeout=settings.db_pool_timeout,
+        poolclass=AsyncAdaptedQueuePool,
         connect_args={
             "connect_timeout": settings.db_connect_timeout,
         },
