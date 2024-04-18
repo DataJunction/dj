@@ -97,6 +97,9 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
             http_status_code=HTTPStatus.BAD_REQUEST,
             message=f"Cannot set materialization config for source node `{node_name}`!",
         )
+    if node.type == NodeType.CUBE:  # type: ignore
+        node = await Node.get_cube_by_name(session, node_name)
+
     current_revision = node.current  # type: ignore
     old_materializations = {mat.name: mat for mat in current_revision.materializations}
 
