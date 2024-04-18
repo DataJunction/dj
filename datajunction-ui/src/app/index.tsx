@@ -9,6 +9,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
+import RevisionDiff from './pages/NodePage/RevisionDiff';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
 import { CubeBuilderPage } from './pages/CubeBuilderPage/Loadable';
 import { TagPage } from './pages/TagPage/Loadable';
@@ -57,6 +58,10 @@ export function App() {
                           path=":name/edit-cube"
                           key="edit-cube"
                           element={<CubeBuilderPage />}
+                        />
+                        <Route
+                          path=":name/revisions/:revision"
+                          element={<RevisionDiff />}
                         />
                         <Route path=":name/:tab" element={<NodePage />} />
                       </Route>
