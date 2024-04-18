@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 from sqlalchemy import select
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import and_, is_
 
 from datajunction_server.construction.build import (
@@ -620,68 +620,78 @@ async def validate_cube(  # pylint: disable=too-many-locals
     """
     Validate that a set of metrics and dimensions can be built together.
     """
-    metrics: List[Column] = []
-    metric_nodes: List[Node] = []
-    dimension_nodes: List[Node] = []
-    dimensions: List[Column] = []
-    catalogs = []
+    metrics_sorting_order = {val: idx for idx, val in enumerate(metric_names)}
+    metric_nodes: List[Node] = sorted(
+        await Node.get_by_names(
+            session,
+            metric_names,
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.columns),
+                    joinedload(NodeRevision.catalog),
+                    selectinload(NodeRevision.parents),
+                ),
+            ],
+        ),
+        key=lambda x: metrics_sorting_order.get(x.name, 0),
+    )
+    metrics: List[Column] = [metric.current.columns[0] for metric in metric_nodes]
+    catalogs = [metric.current.catalog for metric in metric_nodes]
     catalog = None
 
     # Verify that the provided metrics are metric nodes
-    for node_name in metric_names:
-        metric_node = await Node.get_by_name(
-            session,
-            node_name,
-            options=[
-                joinedload(Node.current).options(
-                    joinedload(NodeRevision.catalog),
-                    joinedload(NodeRevision.columns),
-                    joinedload(NodeRevision.parents),
-                ),
-            ],
-            raise_if_not_exists=True,
-        )
-        if metric_node.type != NodeType.METRIC:  # type: ignore
-            raise DJException(
-                message=(
-                    f"Node {metric_node.name} of type {metric_node.type} "  # type: ignore
-                    f"cannot be added to a cube."
-                    + " Did you mean to add a dimension attribute?"
-                    if metric_node.type == NodeType.DIMENSION  # type: ignore
-                    else ""
-                ),
-                http_status_code=http.client.UNPROCESSABLE_ENTITY,
-            )
-        catalogs.append(metric_node.current.catalog.name)  # type: ignore
-        catalog = metric_node.current.catalog  # type: ignore
-        metrics.append(metric_node.current.columns[0])  # type: ignore
-        metric_nodes.append(metric_node)  # type: ignore
-
     if not metrics:
         raise DJException(
             message=("At least one metric is required"),
             http_status_code=http.client.UNPROCESSABLE_ENTITY,
         )
+    non_metrics = [metric for metric in metric_nodes if metric.type != NodeType.METRIC]
+    if non_metrics:
+        raise DJException(
+            message=(
+                f"Node {non_metrics[0].name} of type {non_metrics[0].type} "  # type: ignore
+                f"cannot be added to a cube."
+                + " Did you mean to add a dimension attribute?"
+                if non_metrics[0].type == NodeType.DIMENSION  # type: ignore
+                else ""
+            ),
+            http_status_code=http.client.UNPROCESSABLE_ENTITY,
+        )
 
     # Verify that the provided dimension attributes exist
-    for dimension_attribute in dimension_names:
-        try:
-            node_name, column_name = dimension_attribute.rsplit(".", 1)
-            dimension_node = await Node.get_by_name(
-                session,
-                node_name,
-                options=[
-                    joinedload(Node.current).options(joinedload(NodeRevision.columns)),
-                ],
-            )
-        except (ValueError, DJNodeNotFound) as exc:  # pragma: no cover
-            raise DJException(
-                f"Please make sure that `{dimension_attribute}` "
-                "is a dimensional attribute.",
-            ) from exc
-        if not dimension_node:  # pragma: no cover
-            continue
-        dimension_nodes.append(dimension_node)  # type: ignore
+    dimension_attributes: List[List[str]] = [
+        dimension_attribute.rsplit(".", 1) for dimension_attribute in dimension_names
+    ]
+    dimension_node_names = [node_name for node_name, _ in dimension_attributes]
+    dimension_nodes: Dict[str, Node] = {
+        node.name: node
+        for node in await Node.get_by_names(
+            session,
+            dimension_node_names,
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.columns).options(
+                        joinedload(Column.node_revisions),
+                    ),
+                ),
+            ],
+        )
+    }
+    missing_dimensions = set(dimension_nodes) - set(
+        dimension_node_names,
+    )
+    if missing_dimensions:
+        raise DJException(
+            f"Please make sure that `{missing_dimensions}` "
+            "is a dimensional attribute",
+        )
+
+    dimension_mapping: Dict[str, Node] = {
+        attr: dimension_nodes[node_name] for node_name, attr in dimension_attributes
+    }
+    dimensions: List[Column] = []
+    for node_name, column_name in dimension_attributes:
+        dimension_node = dimension_mapping[column_name]
         columns = {col.name: col for col in dimension_node.current.columns}  # type: ignore
 
         column_name_without_role = column_name
@@ -710,15 +720,13 @@ async def validate_cube(  # pylint: disable=too-many-locals
             message=("Metrics and dimensions must be part of a common catalog"),
         )
 
-    for dim in dimensions:
-        await session.refresh(dim, ["node_revisions"])
     await validate_shared_dimensions(
         session,
         metric_nodes,
         dimension_names,
         [],
     )
-    return metrics, metric_nodes, dimension_nodes, dimensions, catalog
+    return metrics, metric_nodes, list(dimension_nodes.values()), dimensions, catalog
 
 
 async def get_history(

@@ -66,6 +66,7 @@ async def client_code_for_creating_node(
     # Cube-specific params
     cube_params = []
     if node.type == NodeType.CUBE:  # type: ignore
+        node = await Node.get_cube_by_name(session, node_name)
         ordering = {
             col.name: col.order or idx
             for idx, col in enumerate(node.current.columns)  # type: ignore

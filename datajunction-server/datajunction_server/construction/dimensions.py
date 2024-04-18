@@ -34,7 +34,6 @@ async def build_dimensions_from_cube_query(  # pylint: disable=too-many-argument
     The filters provided here are additional filters layered on top of any existing cube filters.
     Setting `include_counts` to true will also provide associated counts for each dimension value.
     """
-    # await session.refresh(cube, ["columns"])
     unavailable_dimensions = set(dimensions) - set(cube.cube_dimensions())
     if unavailable_dimensions:
         raise DJInvalidInputException(
@@ -77,12 +76,6 @@ async def build_dimensions_from_cube_query(  # pylint: disable=too-many-argument
     # Build the FROM clause. The source table on the FROM clause depends on whether
     # the cube is available as a materialized datasource or if it needs to be built up
     # from the measures query.
-    # await session.refresh(cube, ["availability"])
-    # await session.refresh(cube, ["cube_elements"])
-    # for elem in cube.cube_elements:
-    #     await session.refresh(elem, ["node_revisions"])
-    #     for rev in elem.node_revisions:
-    #         await session.refresh(rev, ["node"])
     if cube.availability:
         catalog = await get_catalog_by_name(session, cube.availability.catalog)  # type: ignore
         query_ast.select.from_.relations.append(  # type: ignore
@@ -130,5 +123,5 @@ async def build_dimensions_from_cube_query(  # pylint: disable=too-many-argument
             else ColumnMetadata(name="count", type=str(IntegerType()))
             for col in query_ast.select.projection
         ],
-        dialect=catalog.engines[0].dialect,
+        dialect=catalog.engines[0].dialect if catalog else None,
     )

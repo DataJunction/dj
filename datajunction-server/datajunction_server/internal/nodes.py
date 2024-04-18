@@ -200,9 +200,6 @@ async def set_node_column_attributes(
     )
     await session.commit()
     await session.refresh(column)
-
-    # await session.refresh(node)
-    # await session.refresh(node.current)
     return [column]
 
 
@@ -731,12 +728,6 @@ async def update_cube_node(  # pylint: disable=too-many-locals
     """
     Update cube node based on changes
     """
-    # await session.refresh(node_revision, ["columns"])
-    # await session.refresh(node_revision, ["cube_elements"])
-    # for elem in node_revision.cube_elements:
-    #     await session.refresh(elem, ["node_revisions"])
-    #     for rev in elem.node_revisions:
-    #         await session.refresh(rev, ["node"])
     minor_changes = has_minor_changes(node_revision, data)
     old_metrics = [m.name for m in node_revision.cube_metrics()]
     old_dimensions = node_revision.cube_dimensions()

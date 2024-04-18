@@ -263,6 +263,42 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         return node
 
     @classmethod
+    async def get_by_names(
+        cls,
+        session: AsyncSession,
+        names: List[str],
+        options: List[ExecutableOption] = None,
+        raise_if_not_exists: bool = False,
+        include_inactive: bool = False,
+        for_update: bool = False,
+    ) -> List["Node"]:
+        """
+        Get a node by name
+        """
+        statement = select(Node).where(Node.name.in_(names))
+        options = options or [
+            joinedload(Node.current).options(
+                *NodeRevision.default_load_options(),
+            ),
+            joinedload(Node.tags),
+        ]
+        statement = statement.options(*options)
+        if not include_inactive:
+            statement = statement.where(is_(Node.deactivated_at, None))
+        if for_update:
+            statement = statement.with_for_update().execution_options(
+                populate_existing=True,
+            )
+        result = await session.execute(statement)
+        nodes = result.unique().scalars().all()
+        if not nodes and raise_if_not_exists:
+            raise DJNodeNotFound(
+                message=(f"A node with name `{names}` does not exist."),
+                http_status_code=404,
+            )
+        return nodes
+
+    @classmethod
     async def get_cube_by_name(
         cls,
         session: AsyncSession,

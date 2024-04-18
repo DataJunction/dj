@@ -1503,22 +1503,33 @@ async def get_measures_query(
     if not filters:
         filters = []
 
+    start = time.time()
     (_, metric_nodes, _, _, _) = await validate_cube(
         session,
         metrics,
         dimensions,
     )
+    print("validate_cube", time.time() - start)
+    start = time.time()
     context = CompileContext(session=session, exception=DJException())
     common_parents = group_metrics_by_parent(metric_nodes)
 
+    print("group_metrics_by_parent", time.time() - start)
+    start = time.time()
     # Mapping between each metric node and its measures
     parents_to_measures, _ = await metrics_to_measures(
         session,
         metric_nodes,
     )
+
+    print("parents_to_measures", time.time() - start)
+    start = time.time()
     column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
     matcher = re.compile(column_name_regex)
     dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
+
+    print("dimensions_without_roles", time.time() - start)
+    start = time.time()
     for parent_node, _ in common_parents.items():  # type: ignore
         measure_columns, dimensional_columns = [], []
         parent_ast = await build_node(
@@ -1531,6 +1542,8 @@ async def get_measures_query(
             access_control=access_control,
         )
 
+        print("await build_node", parent_node.name, time.time() - start)
+        start = time.time()
         # Select only columns that were one of the necessary measures
         parent_ast.select.projection = [
             expr
