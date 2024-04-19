@@ -1,13 +1,14 @@
 """
 Utility functions.
 """
+import asyncio
 import logging
 import os
 import re
 from functools import lru_cache
 
 # pylint: disable=line-too-long
-from typing import TYPE_CHECKING, AsyncGenerator, List, Optional
+from typing import TYPE_CHECKING, AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
 from rich.logging import RichHandler
@@ -15,6 +16,7 @@ from sqlalchemy import AsyncAdaptedQueuePool
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
+    async_scoped_session,
     async_sessionmaker,
     create_async_engine,
 )
@@ -58,6 +60,65 @@ def get_settings() -> Settings:
     return Settings()
 
 
+class DatabaseSessionManager:
+    """
+    DB session context manager
+    """
+
+    def __init__(self):
+        self.engine: AsyncEngine | None = None
+        self.session_maker = None
+        self.session = None
+
+    def init_db(self):
+        """
+        Initialize the database engine
+        """
+        settings = get_settings()
+        self.engine = create_async_engine(
+            settings.index,
+            future=True,
+            echo=settings.db_echo,
+            pool_pre_ping=settings.db_pool_pre_ping,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_timeout=settings.db_pool_timeout,
+            poolclass=AsyncAdaptedQueuePool,
+            connect_args={
+                "connect_timeout": settings.db_connect_timeout,
+            },
+        )
+
+        async_session_factory = async_sessionmaker(
+            bind=self.engine,
+            autocommit=False,
+            expire_on_commit=False,  # prevents attributes from being expired on commit
+        )
+        # Create a scoped session
+        self.session = async_scoped_session(  # pragma: no cover
+            async_session_factory,
+            scopefunc=asyncio.current_task,
+        )
+
+    async def close(self):
+        """
+        Close database session
+        """
+        if self.engine is None:  # pragma: no cover
+            raise DJException("DatabaseSessionManager is not initialized")
+        await self.engine.dispose()  # pragma: no cover
+
+
+@lru_cache(maxsize=None)
+def get_session_manager() -> DatabaseSessionManager:
+    """
+    Get session manager
+    """
+    session_manager = DatabaseSessionManager()
+    session_manager.init_db()
+    return session_manager
+
+
 @lru_cache(maxsize=None)
 def get_engine() -> AsyncEngine:
     """
@@ -80,18 +141,19 @@ def get_engine() -> AsyncEngine:
     return engine
 
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_session() -> AsyncIterator[AsyncSession]:
     """
     Async database session.
     """
-    engine = get_engine()
-    async_session_factory = async_sessionmaker(
-        bind=engine,
-        autocommit=False,
-        expire_on_commit=False,  # prevents attributes from being expired on commit
-    )
-    async with async_session_factory() as session:  # pragma: no cover
+    session_manager = get_session_manager()
+    session = session_manager.session()
+    try:
         yield session
+    except Exception as exc:  # pylint: disable=broad-exception-raised
+        await session.rollback()  # pragma: no cover
+        raise exc  # pragma: no cover
+    finally:
+        await session.close()
 
 
 def get_query_service_client() -> Optional[QueryServiceClient]:

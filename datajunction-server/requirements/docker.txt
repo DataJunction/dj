@@ -12,8 +12,7 @@ anyio==3.7.1
 asciidag==0.2.0
 asgiref==3.7.2
 astunparse==1.6.3; python_version < "3.9"
-async-timeout==4.0.3; python_version < "3.12.0"
-asyncpg==0.29.0
+async-timeout==4.0.3; python_full_version <= "3.11.2"
 attrs==23.1.0; python_version >= "3.11"
 backports-zoneinfo==0.2.1; python_version < "3.9"
 bcrypt==4.1.2

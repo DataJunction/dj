@@ -10,9 +10,10 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from datajunction_server.api.main import app
-from datajunction_server.database.node import Node
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
 from datajunction_server.models.node import AvailabilityStateBase
@@ -1502,10 +1503,18 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data == {"message": "Availability state successfully posted"}
 
-        statement = select(Node).where(
-            Node.name == "default.large_revenue_payments_only",
+        statement = (
+            select(Node)
+            .where(
+                Node.name == "default.large_revenue_payments_only",
+            )
+            .options(
+                joinedload(Node.current).options(joinedload(NodeRevision.availability)),
+            )
         )
-        large_revenue_payments_only = (await session.execute(statement)).scalar_one()
+        large_revenue_payments_only = (
+            (await session.execute(statement)).unique().scalar_one()
+        )
         node_dict = AvailabilityStateBase.from_orm(
             large_revenue_payments_only.current.availability,
         ).dict()
@@ -1566,10 +1575,18 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data == {"message": "Availability state successfully posted"}
 
-        statement = select(Node).where(
-            Node.name == "default.large_revenue_payments_only",
+        statement = (
+            select(Node)
+            .where(
+                Node.name == "default.large_revenue_payments_only",
+            )
+            .options(
+                joinedload(Node.current).options(joinedload(NodeRevision.availability)),
+            )
         )
-        large_revenue_payments_only = (await session.execute(statement)).scalar_one()
+        large_revenue_payments_only = (
+            (await session.execute(statement)).unique().scalar_one()
+        )
         node_dict = AvailabilityStateBase.from_orm(
             large_revenue_payments_only.current.availability,
         ).dict()

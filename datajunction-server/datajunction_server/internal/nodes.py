@@ -429,11 +429,6 @@ async def copy_to_new_node(
         tags=node.tags,  # type: ignore
         missing_table=node.missing_table,  # type: ignore
     )
-    print(
-        "old_revision.dimension_links",
-        old_revision.name,
-        old_revision.dimension_links,
-    )
     new_revision = NodeRevision(
         name=new_name,
         display_name=old_revision.display_name,
@@ -1283,9 +1278,10 @@ async def save_column_level_lineage(
     """
     Saves the column-level lineage for a node
     """
-    column_level_lineage = await get_column_level_lineage(session, node_revision)
-    node_revision.lineage = [lineage.dict() for lineage in column_level_lineage]
-    session.add(node_revision)
+    node = await Node.get_by_name(session, node_revision.name)
+    column_level_lineage = await get_column_level_lineage(session, node.current)  # type: ignore
+    node.current.lineage = [lineage.dict() for lineage in column_level_lineage]  # type: ignore
+    session.add(node.current)  # type: ignore
     await session.commit()
 
 
@@ -1435,6 +1431,7 @@ async def get_cube_revision_metadata(session: AsyncSession, name: str):
             http_status_code=404,
         )
     cube = result[0]
+    cube.cube_elements = sorted(cube.cube_elements, key=lambda elem: elem.order)
     cube_metadata = CubeRevisionMetadata.from_orm(cube)
     cube_metadata.tags = cube.node.tags
     return cube_metadata

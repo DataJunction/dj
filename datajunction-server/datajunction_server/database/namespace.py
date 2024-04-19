@@ -8,7 +8,7 @@ from sqlalchemy.sql.operators import is_, or_
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.typing import UTCDatetime
@@ -70,7 +70,7 @@ class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
         node_namespace = results.scalar_one_or_none()
         if raise_if_not_exists:  # pragma: no cover
             if not node_namespace:
-                raise DJException(
+                raise DJDoesNotExistException(
                     message=(f"node namespace `{namespace}` does not exist."),
                     http_status_code=404,
                 )

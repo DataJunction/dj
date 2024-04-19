@@ -244,7 +244,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
             joinedload(Node.current).options(
                 *NodeRevision.default_load_options(),
             ),
-            joinedload(Node.tags),
+            selectinload(Node.tags),
         ]
         statement = statement.options(*options)
         if not include_inactive:
@@ -268,9 +268,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         session: AsyncSession,
         names: List[str],
         options: List[ExecutableOption] = None,
-        raise_if_not_exists: bool = False,
         include_inactive: bool = False,
-        for_update: bool = False,
     ) -> List["Node"]:
         """
         Get a node by name
@@ -280,22 +278,13 @@ class Node(Base):  # pylint: disable=too-few-public-methods
             joinedload(Node.current).options(
                 *NodeRevision.default_load_options(),
             ),
-            joinedload(Node.tags),
+            selectinload(Node.tags),
         ]
         statement = statement.options(*options)
-        if not include_inactive:
+        if not include_inactive:  # pragma: no cover
             statement = statement.where(is_(Node.deactivated_at, None))
-        if for_update:
-            statement = statement.with_for_update().execution_options(
-                populate_existing=True,
-            )
         result = await session.execute(statement)
         nodes = result.unique().scalars().all()
-        if not nodes and raise_if_not_exists:
-            raise DJNodeNotFound(
-                message=(f"A node with name `{names}` does not exist."),
-                http_status_code=404,
-            )
         return nodes
 
     @classmethod
@@ -427,7 +416,6 @@ class NodeRevision(
         secondary="metric_required_dimensions",
         primaryjoin="NodeRevision.id==BoundDimensionsRelationship.metric_id",
         secondaryjoin="Column.id==BoundDimensionsRelationship.bound_dimension_id",
-        # lazy="joined",
     )
 
     metric_metadata_id: Mapped[Optional[int]] = mapped_column(
@@ -440,7 +428,6 @@ class NodeRevision(
         primaryjoin="NodeRevision.metric_metadata_id==MetricMetadata.id",
         cascade="all, delete",
         uselist=False,
-        # lazy="joined",
     )
 
     # A list of metric columns and dimension columns, only used by cube nodes
@@ -466,7 +453,6 @@ class NodeRevision(
         secondary="noderelationship",
         primaryjoin="NodeRevision.id==NodeRelationship.child_id",
         secondaryjoin="Node.id==NodeRelationship.parent_id",
-        # lazy="joined",
     )
 
     missing_parents: Mapped[List[MissingParent]] = relationship(
@@ -474,7 +460,6 @@ class NodeRevision(
         primaryjoin="NodeRevision.id==NodeMissingParents.referencing_node_id",
         secondaryjoin="MissingParent.id==NodeMissingParents.missing_parent_id",
         cascade="all, delete",
-        # lazy="joined",
     )
 
     columns: Mapped[List["Column"]] = relationship(
@@ -483,13 +468,11 @@ class NodeRevision(
         secondaryjoin="Column.id==NodeColumns.column_id",
         cascade="all, delete",
         order_by="Column.order",
-        # lazy="selectin",
     )
 
     dimension_links: Mapped[List["DimensionLink"]] = relationship(
         back_populates="node_revision",
         cascade="all, delete",
-        # lazy="joined",
     )
 
     # The availability of materialized data needs to be stored on the NodeRevision
@@ -501,7 +484,6 @@ class NodeRevision(
         secondaryjoin="AvailabilityState.id==NodeAvailabilityState.availability_id",
         cascade="all, delete",
         uselist=False,
-        # lazy="joined",
     )
 
     # Nodes of type SOURCE will not have this property as their materialization
@@ -509,7 +491,6 @@ class NodeRevision(
     materializations: Mapped[List["Materialization"]] = relationship(
         back_populates="node_revision",
         cascade="all, delete-orphan",
-        # lazy="joined",
     )
 
     lineage: Mapped[Optional[List[Dict]]] = mapped_column(
@@ -540,7 +521,7 @@ class NodeRevision(
 
         return (
             selectinload(NodeRevision.columns).options(
-                joinedload(Column.attributes).selectinload(
+                joinedload(Column.attributes).joinedload(
                     ColumnAttribute.attribute_type,
                 ),
                 joinedload(Column.dimension),
@@ -548,12 +529,12 @@ class NodeRevision(
             ),
             joinedload(NodeRevision.catalog),
             selectinload(NodeRevision.parents),
-            joinedload(NodeRevision.materializations),
-            joinedload(NodeRevision.metric_metadata),
-            joinedload(NodeRevision.availability),
+            selectinload(NodeRevision.materializations),
+            selectinload(NodeRevision.metric_metadata),
+            selectinload(NodeRevision.availability),
             selectinload(NodeRevision.dimension_links).options(
                 joinedload(DimensionLink.dimension).options(
-                    joinedload(Node.current),
+                    selectinload(Node.current),
                 ),
             ),
             selectinload(NodeRevision.required_dimensions),

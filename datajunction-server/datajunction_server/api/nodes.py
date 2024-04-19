@@ -39,6 +39,7 @@ from datajunction_server.database.partition import Partition
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJActionNotAllowedException,
+    DJAlreadyExistsException,
     DJDoesNotExistException,
     DJException,
     DJInvalidInputException,
@@ -1354,7 +1355,7 @@ async def copy_node(
         if existing_new_node.deactivated_at:
             await hard_delete_node(new_name, session, current_user)
         else:
-            raise DJInvalidInputException(
+            raise DJAlreadyExistsException(
                 f"A node with name {new_name} already exists.",
             )
 

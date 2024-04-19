@@ -28,6 +28,7 @@ class ColumnTypeDecorator(
     """
 
     impl = Text
+    cache_ok = True
 
     def process_bind_param(self, value: ColumnType, dialect):
         return str(value)
