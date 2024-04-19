@@ -17,7 +17,7 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJActionNotAllowedException,
-    DJException,
+    DJDoesNotExistException,
     DJInvalidInputException,
 )
 from datajunction_server.internal.nodes import get_cube_revision_metadata
@@ -96,7 +96,7 @@ async def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
     )
     namespaces = (await session.execute(statement)).scalars().all()
     if len(namespaces) == 0:
-        raise DJException(
+        raise DJDoesNotExistException(
             message=(f"Namespace `{namespace}` does not exist."),
             http_status_code=404,
         )

@@ -5092,6 +5092,14 @@ class TestCopyNode:
                 copied[field] = mock.ANY
             for link in copied["dimension_links"]:
                 link["foreign_keys"] = mock.ANY
+            copied["dimension_links"] = sorted(
+                copied["dimension_links"],
+                key=lambda link: link["dimension"]["name"],
+            )
+            original["dimension_links"] = sorted(
+                original["dimension_links"],
+                key=lambda link: link["dimension"]["name"],
+            )
             assert original == copied
 
             # Metrics contain additional metadata, so compare the /metrics endpoint as well

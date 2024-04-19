@@ -26,7 +26,7 @@ from typing import (
 )
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.construction.utils import get_dj_node, to_namespaced_name
 from datajunction_server.database import DimensionLink
@@ -747,6 +747,15 @@ class Column(Aliasable, Named, Expression):
         self._type = type_
         return self
 
+    def copy(self):
+        return Column(
+            name=self.name,
+            alias=self.alias,
+            _table=self.table,
+            _type=self.type,
+            _is_compiled=self.is_compiled(),
+        )
+
     @property
     def expression(self) -> Optional[Expression]:
         """
@@ -948,7 +957,7 @@ class Column(Aliasable, Named, Expression):
                             dj_col.dimension.name,
                             options=[
                                 joinedload(DJNodeRef.current).options(
-                                    joinedload(DJNode.columns),
+                                    selectinload(DJNode.columns),
                                 ),
                             ],
                         )

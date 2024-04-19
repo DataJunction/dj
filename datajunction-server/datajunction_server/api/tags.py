@@ -13,7 +13,7 @@ from datajunction_server.database import Node
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJDoesNotExistException, DJException
+from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
@@ -57,7 +57,7 @@ async def get_tag_by_name(
         )
     tag = (await session.execute(statement)).scalars().one_or_none()
     if not tag and raise_if_not_exists:
-        raise DJException(  # pragma: no cover
+        raise DJDoesNotExistException(  # pragma: no cover
             message=(f"A tag with name `{name}` does not exist."),
             http_status_code=404,
         )
@@ -100,7 +100,7 @@ async def create_a_tag(
     """
     tag = await get_tag_by_name(session, data.name, raise_if_not_exists=False)
     if tag:
-        raise DJException(
+        raise DJAlreadyExistsException(
             message=f"A tag with name `{data.name}` already exists!",
             http_status_code=500,
         )
@@ -180,7 +180,7 @@ async def list_nodes_for_a_tag(
     )
     tag = (await session.execute(statement)).unique().scalars().one_or_none()
     if not tag:
-        raise DJException(
+        raise DJDoesNotExistException(
             message=f"A tag with name `{name}` does not exist.",
             http_status_code=404,
         )

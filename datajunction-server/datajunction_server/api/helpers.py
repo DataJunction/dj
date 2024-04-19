@@ -42,6 +42,8 @@ from datajunction_server.database.node import (
 )
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
+    DJAlreadyExistsException,
+    DJDoesNotExistException,
     DJError,
     DJException,
     DJInvalidInputException,
@@ -84,7 +86,7 @@ async def get_node_namespace(  # pylint: disable=too-many-arguments
     node_namespace = (await session.execute(statement)).scalar_one_or_none()
     if raise_if_not_exists:  # pragma: no cover
         if not node_namespace:
-            raise DJException(
+            raise DJDoesNotExistException(
                 message=(f"node namespace `{namespace}` does not exist."),
                 http_status_code=404,
             )
@@ -98,16 +100,11 @@ async def get_node_by_name(  # pylint: disable=too-many-arguments
     with_current: bool = False,
     raise_if_not_exists: bool = True,
     include_inactive: bool = False,
-    # for_update: bool = False,
 ) -> Node:
     """
     Get a node by name
     """
     statement = select(Node).where(Node.name == name)
-    # if for_update:
-    #     statement = statement.with_for_update().execution_options(
-    #         populate_existing=True,
-    #     )
     if not include_inactive:
         statement = statement.where(is_(Node.deactivated_at, None))
     if node_type:
@@ -139,7 +136,7 @@ async def raise_if_node_exists(session: AsyncSession, name: str) -> None:
     """
     node = await Node.get_by_name(session, name, raise_if_not_exists=False)
     if node:
-        raise DJException(
+        raise DJAlreadyExistsException(
             message=f"A node with name `{name}` already exists.",
             http_status_code=HTTPStatus.CONFLICT,
         )
@@ -161,7 +158,7 @@ async def get_column(
             break
 
     if not requested_column:
-        raise DJException(
+        raise DJDoesNotExistException(
             message=f"Column {column_name} does not exist on node {node.name}",
             http_status_code=404,
         )
@@ -193,7 +190,7 @@ async def get_catalog_by_name(session: AsyncSession, name: str) -> Catalog:
     )
     catalog = (await session.execute(statement)).scalar()
     if not catalog:
-        raise DJException(
+        raise DJDoesNotExistException(
             message=f"Catalog with name `{name}` does not exist.",
             http_status_code=404,
         )
@@ -377,8 +374,6 @@ async def validate_node_data(  # pylint: disable=too-many-locals,too-many-statem
     node_validator.columns = []
     type_inference_failures = {}
     for idx, col in enumerate(query_ast.select.projection):
-        # if not col:
-        #     continue
         column = None
         column_name = col.alias_or_name.name  # type: ignore
         existing_column = column_mapping.get(column_name)
@@ -637,7 +632,7 @@ async def validate_cube(  # pylint: disable=too-many-locals
     )
     metrics: List[Column] = [metric.current.columns[0] for metric in metric_nodes]
     catalogs = [metric.current.catalog for metric in metric_nodes]
-    catalog = None
+    catalog = catalogs[0] if catalogs else None
 
     # Verify that the provided metrics are metric nodes
     if not metrics:
@@ -677,13 +672,18 @@ async def validate_cube(  # pylint: disable=too-many-locals
             ],
         )
     }
-    missing_dimensions = set(dimension_nodes) - set(
-        dimension_node_names,
-    )
-    if missing_dimensions:
-        raise DJException(
-            f"Please make sure that `{missing_dimensions}` "
-            "is a dimensional attribute",
+    missing_dimensions = set(dimension_node_names) - set(dimension_nodes)
+    if missing_dimensions:  # pragma: no cover
+        missing_dimension_attributes = ", ".join(  # pragma: no cover
+            [
+                attr
+                for node_name, attr in dimension_attributes
+                if node_name in missing_dimensions
+            ],
+        )
+        raise DJException(  # pragma: no cover
+            f"Please make sure that `{missing_dimension_attributes}` "
+            "is a dimensional attribute.",
         )
 
     dimension_mapping: Dict[str, Node] = {
