@@ -21,7 +21,7 @@ class CatalogInfo:  # pylint: disable=R0903
     """
 
 
-def list_catalogs(
+async def list_catalogs(
     *,
     info: Info = None,
 ) -> List[CatalogInfo]:
@@ -31,5 +31,5 @@ def list_catalogs(
     session = info.context["session"]  # type: ignore
     return [
         CatalogInfo.from_pydantic(_CatalogInfo.from_orm(catalog))  # type: ignore #pylint: disable=E1101
-        for catalog in session.execute(select(Catalog)).scalars().all()
+        for catalog in (await session.execute(select(Catalog))).scalars().all()
     ]

@@ -2,32 +2,37 @@
 Tests for basic auth helper functions
 """
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.constants import AUTH_COOKIE
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication import basic
 
 
-def test_login_with_username_and_password(client: TestClient):
+@pytest.mark.asyncio
+async def test_login_with_username_and_password(client: AsyncClient):
     """
     Test validating a username and a password
     """
-    client.post(
+    await client.post(
         "/basic/user/",
         data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
     )
-    response = client.post("/basic/login/", data={"username": "dj", "password": "dj"})
+    response = await client.post(
+        "/basic/login/",
+        data={"username": "dj", "password": "dj"},
+    )
     assert response.status_code in (200, 201)
     assert response.cookies.get(AUTH_COOKIE)
 
 
-def test_logout(client: TestClient):
+@pytest.mark.asyncio
+async def test_logout(client: AsyncClient):
     """
     Test validating logging out
     """
-    client.post("/logout/")
+    await client.post("/logout/")
 
 
 def test_hash_and_verify_password():
@@ -41,69 +46,89 @@ def test_hash_and_verify_password():
     )
 
 
-def test_validate_username_and_password(client: TestClient, session: Session):
+@pytest.mark.asyncio
+async def test_validate_username_and_password(
+    client: AsyncClient,
+    session: AsyncSession,
+):
     """
     Test validating a username and a password
     """
-    client.post(
+    await client.post(
         "/basic/user/",
         data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
     )
-    user = basic.validate_user_password(username="dj", password="dj", session=session)
+    user = await basic.validate_user_password(
+        username="dj",
+        password="dj",
+        session=session,
+    )
     assert user.username == "dj"
 
 
-def test_get_user(client: TestClient, session: Session):
+@pytest.mark.asyncio
+async def test_get_user(client: AsyncClient, session: AsyncSession):
     """
     Test getting a user
     """
-    client.post(
+    await client.post(
         "/basic/user/",
         data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
     )
-    user = basic.get_user(username="dj", session=session)
+    user = await basic.get_user(username="dj", session=session)
     assert user.username == "dj"
 
 
-def test_get_user_raise_on_user_not_found(session: Session):
+@pytest.mark.asyncio
+async def test_get_user_raise_on_user_not_found(session: AsyncSession):
     """
     Test raising when trying to get a user that doesn't exist
     """
     with pytest.raises(DJException) as exc_info:
-        basic.get_user(username="dj", session=session)
+        await basic.get_user(username="dj", session=session)
     assert "User dj not found" in str(exc_info.value)
 
 
-def test_login_raise_on_user_not_found(client: TestClient):
+@pytest.mark.asyncio
+async def test_login_raise_on_user_not_found(client: AsyncClient):
     """
     Test raising when trying to login as a user that doesn't exist
     """
-    response = client.post("/basic/login/", data={"username": "foo", "password": "bar"})
+    response = await client.post(
+        "/basic/login/",
+        data={"username": "foo", "password": "bar"},
+    )
     assert response.status_code == 401
 
 
-def test_fail_invalid_credentials(client: TestClient, session: Session):
+@pytest.mark.asyncio
+async def test_fail_invalid_credentials(client: AsyncClient, session: AsyncSession):
     """
     Test failing on invalid user credentials
     """
-    client.post(
+    await client.post(
         "/basic/user/",
         data={"email": "dj@datajunction.io", "username": "dj", "password": "incorrect"},
     )
     with pytest.raises(DJException) as exc_info:
-        basic.validate_user_password(username="dj", password="dj", session=session)
+        await basic.validate_user_password(
+            username="dj",
+            password="dj",
+            session=session,
+        )
     assert "Invalid password for user dj" in str(exc_info.value)
 
 
-def test_fail_on_user_already_exists(client: TestClient):
+@pytest.mark.asyncio
+async def test_fail_on_user_already_exists(client: AsyncClient):
     """
     Test failing when creating a user that already exists
     """
-    client.post(
+    await client.post(
         "/basic/user/",
         data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
     )
-    response = client.post(
+    response = await client.post(
         "/basic/user/",
         data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
     )
@@ -122,11 +147,12 @@ def test_fail_on_user_already_exists(client: TestClient):
     }
 
 
-def test_whoami(client: TestClient):
+@pytest.mark.asyncio
+async def test_whoami(client: AsyncClient):
     """
     Test the /whoami/ endpoint
     """
-    response = client.get("/whoami/")
+    response = await client.get("/whoami/")
     assert response.status_code in (200, 201)
     assert response.json() == {
         "id": 1,

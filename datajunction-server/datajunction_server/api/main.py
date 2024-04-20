@@ -114,7 +114,7 @@ async def startup():
     """
     Initialize FastAPI cache when the server starts up
     """
-    FastAPICache.init(InMemoryBackend(), prefix="inmemory-cache")
+    FastAPICache.init(InMemoryBackend(), prefix="inmemory-cache")  # pragma: no cover
 
 
 @app.exception_handler(DJException)

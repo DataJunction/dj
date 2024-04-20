@@ -15,8 +15,10 @@ from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Tuple, Union
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy.sql.operators import is_
+from sqlalchemy.exc import MissingGreenlet
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.sql.operators import and_, is_
 
 from datajunction_server.construction.build import (
     build_materialized_cube_node,
@@ -40,6 +42,8 @@ from datajunction_server.database.node import (
 )
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
+    DJAlreadyExistsException,
+    DJDoesNotExistException,
     DJError,
     DJException,
     DJInvalidInputException,
@@ -70,8 +74,8 @@ _logger = logging.getLogger(__name__)
 COLUMN_NAME_REGEX = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
 
 
-def get_node_namespace(  # pylint: disable=too-many-arguments
-    session: Session,
+async def get_node_namespace(  # pylint: disable=too-many-arguments
+    session: AsyncSession,
     namespace: str,
     raise_if_not_exists: bool = True,
 ) -> NodeNamespace:
@@ -79,33 +83,28 @@ def get_node_namespace(  # pylint: disable=too-many-arguments
     Get a node namespace
     """
     statement = select(NodeNamespace).where(NodeNamespace.namespace == namespace)
-    node_namespace = session.execute(statement).scalar_one_or_none()
+    node_namespace = (await session.execute(statement)).scalar_one_or_none()
     if raise_if_not_exists:  # pragma: no cover
         if not node_namespace:
-            raise DJException(
+            raise DJDoesNotExistException(
                 message=(f"node namespace `{namespace}` does not exist."),
                 http_status_code=404,
             )
     return node_namespace
 
 
-def get_node_by_name(  # pylint: disable=too-many-arguments
-    session: Session,
+async def get_node_by_name(  # pylint: disable=too-many-arguments
+    session: AsyncSession,
     name: Optional[str],
     node_type: Optional[NodeType] = None,
     with_current: bool = False,
     raise_if_not_exists: bool = True,
     include_inactive: bool = False,
-    for_update: bool = False,
 ) -> Node:
     """
     Get a node by name
     """
     statement = select(Node).where(Node.name == name)
-    if for_update:
-        statement = statement.with_for_update().execution_options(
-            populate_existing=True,
-        )
     if not include_inactive:
         statement = statement.where(is_(Node.deactivated_at, None))
     if node_type:
@@ -114,9 +113,11 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
         statement = statement.options(joinedload(Node.current)).options(
             joinedload(Node.tags),
         )
-        node = session.execute(statement).unique().scalar_one_or_none()
+        result = await session.execute(statement)
+        node = result.unique().scalar_one_or_none()
     else:
-        node = session.execute(statement).scalar_one_or_none()
+        result = await session.execute(statement)
+        node = result.unique().scalar_one_or_none()
     if raise_if_not_exists:
         if not node:
             raise DJNodeNotFound(
@@ -129,38 +130,43 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
     return node
 
 
-def raise_if_node_exists(session: Session, name: str) -> None:
+async def raise_if_node_exists(session: AsyncSession, name: str) -> None:
     """
     Raise an error if the node with the given name already exists.
     """
-    node = get_node_by_name(session, name, raise_if_not_exists=False)
+    node = await Node.get_by_name(session, name, raise_if_not_exists=False)
     if node:
-        raise DJException(
+        raise DJAlreadyExistsException(
             message=f"A node with name `{name}` already exists.",
             http_status_code=HTTPStatus.CONFLICT,
         )
 
 
-def get_column(node: NodeRevision, column_name: str) -> Column:
+async def get_column(
+    session: AsyncSession,
+    node: NodeRevision,
+    column_name: str,
+) -> Column:
     """
     Get a column from a node revision
     """
     requested_column = None
+    await session.refresh(node, ["columns"])
     for node_column in node.columns:
         if node_column.name == column_name:
             requested_column = node_column
             break
 
     if not requested_column:
-        raise DJException(
+        raise DJDoesNotExistException(
             message=f"Column {column_name} does not exist on node {node.name}",
             http_status_code=404,
         )
     return requested_column
 
 
-def get_attribute_type(
-    session: Session,
+async def get_attribute_type(
+    session: AsyncSession,
     name: str,
     namespace: Optional[str] = RESERVED_ATTRIBUTE_NAMESPACE,
 ) -> Optional[AttributeType]:
@@ -172,25 +178,27 @@ def get_attribute_type(
         .where(AttributeType.name == name)
         .where(AttributeType.namespace == namespace)
     )
-    return session.execute(statement).scalar_one_or_none()
+    return (await session.execute(statement)).scalar_one_or_none()
 
 
-def get_catalog_by_name(session: Session, name: str) -> Catalog:
+async def get_catalog_by_name(session: AsyncSession, name: str) -> Catalog:
     """
     Get a catalog by name
     """
-    statement = select(Catalog).where(Catalog.name == name)
-    catalog = session.execute(statement).scalar()
+    statement = (
+        select(Catalog).where(Catalog.name == name).options(joinedload(Catalog.engines))
+    )
+    catalog = (await session.execute(statement)).scalar()
     if not catalog:
-        raise DJException(
+        raise DJDoesNotExistException(
             message=f"Catalog with name `{name}` does not exist.",
             http_status_code=404,
         )
     return catalog
 
 
-def get_query(  # pylint: disable=too-many-arguments
-    session: Session,
+async def get_query(  # pylint: disable=too-many-arguments
+    session: AsyncSession,
     node_name: str,
     dimensions: List[str],
     filters: List[str],
@@ -202,23 +210,23 @@ def get_query(  # pylint: disable=too-many-arguments
     """
     Get a query for a metric, dimensions, and filters
     """
-    node = get_node_by_name(session=session, name=node_name)
+    node = await Node.get_by_name(session, node_name)
 
     # Builds the node for the engine's dialect if one is set or defaults to Spark
     if (
         not engine
-        and node.current
-        and node.current.catalog
-        and node.current.catalog.engines
+        and node.current  # type: ignore
+        and node.current.catalog  # type: ignore
+        and node.current.catalog.engines  # type: ignore
     ):
-        engine = node.current.catalog.engines[0]
+        engine = node.current.catalog.engines[0]  # type: ignore
     build_criteria = BuildCriteria(
         dialect=(engine.dialect if engine and engine.dialect else Dialect.SPARK),
     )
 
-    query_ast = build_node(
+    query_ast = await build_node(
         session=session,
-        node=node.current,
+        node=node.current,  # type: ignore
         filters=filters,
         dimensions=dimensions,
         orderby=orderby,
@@ -226,7 +234,7 @@ def get_query(  # pylint: disable=too-many-arguments
         build_criteria=build_criteria,
         access_control=access_control,
     )
-    query_ast = rename_columns(query_ast, node.current)
+    query_ast = rename_columns(query_ast, node.current)  # type: ignore
     return query_ast
 
 
@@ -301,9 +309,9 @@ class NodeValidator:
         return updated_columns
 
 
-def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
+async def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
     data: Union[NodeRevisionBase, NodeRevision],
-    session: Session,
+    session: AsyncSession,
 ) -> NodeValidator:
     """
     Validate a node. This function should never raise any errors.
@@ -322,7 +330,6 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
     ctx = ast.CompileContext(session=session, exception=DJException())
 
     # Try to parse the node's query, extract dependencies and missing parents
-    # dependencies_map = missing_parents_map = {}
     try:
         formatted_query = (
             NodeRevision.format_metric_alias(
@@ -336,7 +343,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
         (
             dependencies_map,
             missing_parents_map,
-        ) = query_ast.bake_ctes().extract_dependencies(ctx)
+        ) = await query_ast.bake_ctes().extract_dependencies(ctx)
         node_validator.dependencies_map = dependencies_map
         node_validator.missing_parents_map = missing_parents_map
     except (DJParseException, ValueError, SqlSyntaxError) as raised_exceptions:
@@ -360,7 +367,10 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
     if invalid_parents:
         node_validator.status = NodeStatus.INVALID
 
-    column_mapping = {col.name: col for col in validated_node.columns}
+    try:
+        column_mapping = {col.name: col for col in validated_node.columns}
+    except MissingGreenlet:
+        column_mapping = {}
     node_validator.columns = []
     type_inference_failures = {}
     for idx, col in enumerate(query_ast.select.projection):
@@ -389,11 +399,15 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
             node_validator.columns.append(column)
 
     # check that bound dimensions are from parent nodes
-    invalid_required_dimensions, matched_bound_columns = find_bound_dimensions(
-        validated_node,
-        dependencies_map,
-    )
-    node_validator.required_dimensions = matched_bound_columns
+    try:
+        invalid_required_dimensions, matched_bound_columns = find_bound_dimensions(
+            validated_node,
+            dependencies_map,
+        )
+        node_validator.required_dimensions = matched_bound_columns
+    except MissingGreenlet:
+        invalid_required_dimensions = set()
+        node_validator.required_dimensions = []
 
     if missing_parents_map or type_inference_failures or invalid_required_dimensions:
         # update status
@@ -459,8 +473,8 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
     return node_validator
 
 
-def resolve_downstream_references(
-    session: Session,
+async def resolve_downstream_references(
+    session: AsyncSession,
     node_revision: NodeRevision,
     current_user: Optional[User] = None,
 ) -> List[NodeRevision]:
@@ -468,8 +482,10 @@ def resolve_downstream_references(
     Find all node revisions with missing parent references to `node` and resolve them
     """
     missing_parents = (
-        session.execute(
-            select(MissingParent).where(MissingParent.name == node_revision.name),
+        (
+            await session.execute(
+                select(MissingParent).where(MissingParent.name == node_revision.name),
+            )
         )
         .scalars()
         .all()
@@ -477,10 +493,12 @@ def resolve_downstream_references(
     newly_valid_nodes = []
     for missing_parent in missing_parents:
         missing_parent_links = (
-            session.execute(
-                select(NodeMissingParents).where(
-                    NodeMissingParents.missing_parent_id == missing_parent.id,
-                ),
+            (
+                await session.execute(
+                    select(NodeMissingParents).where(
+                        NodeMissingParents.missing_parent_id == missing_parent.id,
+                    ),
+                )
             )
             .scalars()
             .all()
@@ -490,15 +508,20 @@ def resolve_downstream_references(
         ) in missing_parent_links:  # Remove from missing parents and add to parents
             downstream_node_id = link.referencing_node_id
             downstream_node_revision = (
-                session.execute(
-                    select(NodeRevision).where(NodeRevision.id == downstream_node_id),
+                (
+                    await session.execute(
+                        select(NodeRevision)
+                        .where(NodeRevision.id == downstream_node_id)
+                        .options(joinedload(NodeRevision.missing_parents)),
+                    )
                 )
                 .unique()
                 .scalar_one()
             )
+            await session.refresh(node_revision, ["node"])
             downstream_node_revision.parents.append(node_revision.node)
             downstream_node_revision.missing_parents.remove(missing_parent)
-            node_validator = validate_node_data(
+            node_validator = await validate_node_data(
                 data=downstream_node_revision,
                 session=session,
             )
@@ -519,15 +542,15 @@ def resolve_downstream_references(
             session.add(downstream_node_revision)
             if event:
                 session.add(event)
-            session.commit()
-            session.refresh(downstream_node_revision)
+            await session.commit()
+            await session.refresh(downstream_node_revision)
 
-        session.delete(missing_parent)  # Remove missing parent reference to node
+        await session.delete(missing_parent)  # Remove missing parent reference to node
     return newly_valid_nodes
 
 
-def propagate_valid_status(
-    session: Session,
+async def propagate_valid_status(
+    session: AsyncSession,
     valid_nodes: List[NodeRevision],
     catalog_id: int,
     current_user: Optional[User] = None,
@@ -542,13 +565,13 @@ def propagate_valid_status(
                 raise DJException(
                     f"Cannot propagate valid status: Node `{node_revision.name}` is not valid",
                 )
-            downstream_nodes = get_downstream_nodes(
+            downstream_nodes = await get_downstream_nodes(
                 session=session,
                 node_name=node_revision.name,
             )
             newly_valid_nodes = []
             for node in downstream_nodes:
-                node_validator = validate_node_data(
+                node_validator = await validate_node_data(
                     data=node.current,
                     session=session,
                 )
@@ -567,8 +590,8 @@ def propagate_valid_status(
                     )
                     newly_valid_nodes.append(node.current)
                 session.add(node.current)
-                session.commit()
-                session.refresh(node.current)
+                await session.commit()
+                await session.refresh(node.current)
             resolved_nodes.extend(newly_valid_nodes)
         valid_nodes = resolved_nodes
 
@@ -583,8 +606,8 @@ def map_dimensions_to_roles(dimensions: List[str]) -> Dict[str, str]:
     return {dim_rols[0]: dim_rols[1] for dim_rols in dimension_roles}
 
 
-def validate_cube(  # pylint: disable=too-many-locals
-    session: Session,
+async def validate_cube(  # pylint: disable=too-many-locals
+    session: AsyncSession,
     metric_names: List[str],
     dimension_names: List[str],
     require_dimensions: bool = True,
@@ -592,50 +615,84 @@ def validate_cube(  # pylint: disable=too-many-locals
     """
     Validate that a set of metrics and dimensions can be built together.
     """
-    metrics: List[Column] = []
-    metric_nodes: List[Node] = []
-    dimension_nodes: List[Node] = []
-    dimensions: List[Column] = []
-    catalogs = []
-    catalog = None
+    metrics_sorting_order = {val: idx for idx, val in enumerate(metric_names)}
+    metric_nodes: List[Node] = sorted(
+        await Node.get_by_names(
+            session,
+            metric_names,
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.columns),
+                    joinedload(NodeRevision.catalog),
+                    selectinload(NodeRevision.parents),
+                ),
+            ],
+        ),
+        key=lambda x: metrics_sorting_order.get(x.name, 0),
+    )
+    metrics: List[Column] = [metric.current.columns[0] for metric in metric_nodes]
+    catalogs = [metric.current.catalog for metric in metric_nodes]
+    catalog = catalogs[0] if catalogs else None
 
     # Verify that the provided metrics are metric nodes
-    for node_name in metric_names:
-        metric_node = get_node_by_name(session=session, name=node_name)
-        if metric_node.type != NodeType.METRIC:
-            raise DJException(
-                message=(
-                    f"Node {metric_node.name} of type {metric_node.type} "
-                    f"cannot be added to a cube."
-                    + " Did you mean to add a dimension attribute?"
-                    if metric_node.type == NodeType.DIMENSION
-                    else ""
-                ),
-                http_status_code=http.client.UNPROCESSABLE_ENTITY,
-            )
-        catalogs.append(metric_node.current.catalog.name)
-        catalog = metric_node.current.catalog
-        metrics.append(metric_node.current.columns[0])
-        metric_nodes.append(metric_node)
-
     if not metrics:
         raise DJException(
             message=("At least one metric is required"),
             http_status_code=http.client.UNPROCESSABLE_ENTITY,
         )
+    non_metrics = [metric for metric in metric_nodes if metric.type != NodeType.METRIC]
+    if non_metrics:
+        raise DJException(
+            message=(
+                f"Node {non_metrics[0].name} of type {non_metrics[0].type} "  # type: ignore
+                f"cannot be added to a cube."
+                + " Did you mean to add a dimension attribute?"
+                if non_metrics[0].type == NodeType.DIMENSION  # type: ignore
+                else ""
+            ),
+            http_status_code=http.client.UNPROCESSABLE_ENTITY,
+        )
 
     # Verify that the provided dimension attributes exist
-    for dimension_attribute in dimension_names:
-        try:
-            node_name, column_name = dimension_attribute.rsplit(".", 1)
-            dimension_node = get_node_by_name(session=session, name=node_name)
-        except (ValueError, DJNodeNotFound) as exc:  # pragma: no cover
-            raise DJException(
-                f"Please make sure that `{dimension_attribute}` "
-                "is a dimensional attribute.",
-            ) from exc
-        dimension_nodes.append(dimension_node)
-        columns = {col.name: col for col in dimension_node.current.columns}
+    dimension_attributes: List[List[str]] = [
+        dimension_attribute.rsplit(".", 1) for dimension_attribute in dimension_names
+    ]
+    dimension_node_names = [node_name for node_name, _ in dimension_attributes]
+    dimension_nodes: Dict[str, Node] = {
+        node.name: node
+        for node in await Node.get_by_names(
+            session,
+            dimension_node_names,
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.columns).options(
+                        joinedload(Column.node_revisions),
+                    ),
+                ),
+            ],
+        )
+    }
+    missing_dimensions = set(dimension_node_names) - set(dimension_nodes)
+    if missing_dimensions:  # pragma: no cover
+        missing_dimension_attributes = ", ".join(  # pragma: no cover
+            [
+                attr
+                for node_name, attr in dimension_attributes
+                if node_name in missing_dimensions
+            ],
+        )
+        raise DJException(  # pragma: no cover
+            f"Please make sure that `{missing_dimension_attributes}` "
+            "is a dimensional attribute.",
+        )
+
+    dimension_mapping: Dict[str, Node] = {
+        attr: dimension_nodes[node_name] for node_name, attr in dimension_attributes
+    }
+    dimensions: List[Column] = []
+    for node_name, column_name in dimension_attributes:
+        dimension_node = dimension_mapping[column_name]
+        columns = {col.name: col for col in dimension_node.current.columns}  # type: ignore
 
         column_name_without_role = column_name
         match = re.fullmatch(COLUMN_NAME_REGEX, column_name)
@@ -663,17 +720,17 @@ def validate_cube(  # pylint: disable=too-many-locals
             message=("Metrics and dimensions must be part of a common catalog"),
         )
 
-    validate_shared_dimensions(
+    await validate_shared_dimensions(
         session,
         metric_nodes,
         dimension_names,
         [],
     )
-    return metrics, metric_nodes, dimension_nodes, dimensions, catalog
+    return metrics, metric_nodes, list(dimension_nodes.values()), dimensions, catalog
 
 
-def get_history(
-    session: Session,
+async def get_history(
+    session: AsyncSession,
     entity_type: EntityType,
     entity_name: str,
     offset: int,
@@ -683,12 +740,14 @@ def get_history(
     Get the history for a given entity type and name
     """
     return (
-        session.execute(
-            select(History)
-            .where(History.entity_type == entity_type)
-            .where(History.entity_name == entity_name)
-            .offset(offset)
-            .limit(limit),
+        (
+            await session.execute(
+                select(History)
+                .where(History.entity_type == entity_type)
+                .where(History.entity_name == entity_name)
+                .offset(offset)
+                .limit(limit),
+            )
         )
         .scalars()
         .all()
@@ -716,8 +775,8 @@ def validate_orderby(
         )
 
 
-def find_existing_cube(
-    session: Session,
+async def find_existing_cube(
+    session: AsyncSession,
     metric_columns: List[Column],
     dimension_columns: List[Column],
     materialized: bool = True,
@@ -727,23 +786,36 @@ def find_existing_cube(
     If `materialized` is set, it will only look for materialized cubes.
     """
     element_names = [col.name for col in (metric_columns + dimension_columns)]
-    statement = select(NodeRevision)
+    statement = select(Node).join(
+        NodeRevision,
+        onclause=(
+            and_(
+                (Node.id == NodeRevision.node_id),
+                (Node.current_version == NodeRevision.version),
+            )
+        ),
+    )
     for name in element_names:
         statement = statement.filter(
             NodeRevision.cube_elements.any(Column.name == name),  # type: ignore  # pylint: disable=no-member
+        ).options(
+            joinedload(Node.current).options(
+                joinedload(NodeRevision.materializations),
+                joinedload(NodeRevision.availability),
+            ),
         )
 
-    existing_cubes = session.execute(statement).unique().scalars().all()
+    existing_cubes = (await session.execute(statement)).unique().scalars().all()
     for cube in existing_cubes:
         if not materialized or (  # pragma: no cover
-            materialized and cube.materializations and cube.availability
+            materialized and cube.current.materializations and cube.current.availability
         ):
-            return cube
+            return cube.current
     return None
 
 
-def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-many-locals
-    session: Session,
+async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-many-locals
+    session: AsyncSession,
     metrics: List[str],
     dimensions: List[str],
     filters: List[str] = None,
@@ -762,31 +834,39 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
     if not orderby:
         orderby = []
 
-    metric_columns, metric_nodes, _, dimension_columns, _ = validate_cube(
+    metric_columns, metric_nodes, _, dimension_columns, _ = await validate_cube(
         session,
         metrics,
         dimensions,
         require_dimensions=False,
     )
-    leading_metric_node = get_node_by_name(session, metrics[0])
-    available_engines = leading_metric_node.current.catalog.engines
+    leading_metric_node = await Node.get_by_name(
+        session,
+        metrics[0],
+        options=[
+            joinedload(Node.current).options(
+                joinedload(NodeRevision.catalog).options(joinedload(Catalog.engines)),
+            ),
+        ],
+    )
+    available_engines = leading_metric_node.current.catalog.engines  # type: ignore
 
     # Try to find a built cube that already has the given metrics and dimensions
     # The cube needs to have a materialization configured and an availability state
     # posted in order for us to use the materialized datasource
-    cube = find_existing_cube(
+    cube = await find_existing_cube(
         session,
         metric_columns,
         dimension_columns,
         materialized=True,
     )
     if cube:
-        catalog = get_catalog_by_name(session, cube.availability.catalog)  # type: ignore
+        catalog = await get_catalog_by_name(session, cube.availability.catalog)  # type: ignore
         available_engines = catalog.engines + available_engines
 
     # Check if selected engine is available
     engine = (
-        get_engine(session, engine_name, engine_version)  # type: ignore
+        await get_engine(session, engine_name, engine_version)  # type: ignore
         if engine_name
         else available_engines[0]
     )
@@ -803,7 +883,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
             access_control.add_request_by_node(cube)
             access_control.state = access.AccessControlState.INDIRECT
             access_control.raise_if_invalid_requests()
-        materialized_cube_catalog = get_catalog_by_name(
+        materialized_cube_catalog = await get_catalog_by_name(
             session,
             cube.availability.catalog,
         )
@@ -846,7 +926,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
             cube.catalog,
         )
 
-    query_ast = build_metric_nodes(
+    query_ast = await build_metric_nodes(
         session,
         metric_nodes,
         filters=filters or [],
@@ -865,13 +945,13 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
             columns=columns,
             dialect=engine.dialect if engine else None,
             upstream_tables=[
-                f"{leading_metric_node.current.catalog.name}.{tbl.identifier()}"
+                f"{leading_metric_node.current.catalog.name}.{tbl.identifier()}"  # type: ignore
                 for tbl in query_ast.find_all(ast.Table)
                 if tbl.dj_node and tbl.dj_node.type == NodeType.SOURCE
             ],
         ),
         engine,
-        leading_metric_node.current.catalog,
+        leading_metric_node.current.catalog,  # type: ignore
     )
 
 
@@ -939,8 +1019,8 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
         await asyncio.sleep(stream_delay)  # pragma: no cover
 
 
-def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-locals
-    session: Session,
+async def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-locals
+    session: AsyncSession,
     query: str,
     access_control: access.AccessControl,
     engine_name: Optional[str] = None,
@@ -950,7 +1030,7 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
     Build SQL for multiple metrics. Used by /djsql endpoints
     """
 
-    query_ast, dj_nodes = build_dj_query(session, query)
+    query_ast, dj_nodes = await build_dj_query(session, query)
 
     for node in dj_nodes:
         access_control.add_request_by_node(
@@ -964,7 +1044,7 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
 
     # Check if selected engine is available
     engine = (
-        get_engine(session, engine_name, engine_version)  # type: ignore
+        await get_engine(session, engine_name, engine_version)  # type: ignore
         if engine_name
         else available_engines[0]
     )
@@ -991,8 +1071,8 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
     )
 
 
-def deactivate_node(
-    session: Session,
+async def deactivate_node(
+    session: AsyncSession,
     name: str,
     message: str = None,
     current_user: Optional[User] = None,
@@ -1000,10 +1080,10 @@ def deactivate_node(
     """
     Deactivates a node and propagates to all downstreams.
     """
-    node = get_node_by_name(session, name, with_current=True)
+    node = await get_node_by_name(session, name, with_current=True)
 
     # Find all downstream nodes and mark them as invalid
-    downstreams = get_downstream_nodes(session, node.name)
+    downstreams = await get_downstream_nodes(session, node.name)
     for downstream in downstreams:
         if downstream.current.status != NodeStatus.INVALID:
             downstream.current.status = NodeStatus.INVALID
@@ -1038,17 +1118,23 @@ def deactivate_node(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
+    await session.commit()
+    await session.refresh(node, ["current"])
 
 
-def activate_node(
-    session: Session,
+async def activate_node(
+    session: AsyncSession,
     name: str,
     message: str = None,
     current_user: Optional[User] = None,
 ):
     """Restores node and revalidate all downstreams."""
-    node = get_node_by_name(session, name, with_current=True, include_inactive=True)
+    node = await get_node_by_name(
+        session,
+        name,
+        with_current=True,
+        include_inactive=True,
+    )
     if not node.deactivated_at:
         raise DJException(
             http_status_code=HTTPStatus.BAD_REQUEST,
@@ -1057,12 +1143,13 @@ def activate_node(
     node.deactivated_at = None  # type: ignore
 
     # Find all downstream nodes and revalidate them
-    downstreams = get_downstream_nodes(session, node.name)
+    downstreams = await get_downstream_nodes(session, node.name)
     for downstream in downstreams:
         old_status = downstream.current.status
         if downstream.type == NodeType.CUBE:
             downstream.current.status = NodeStatus.VALID
             for element in downstream.current.cube_elements:
+                await session.refresh(element, ["node_revisions"])
                 if (
                     element.node_revisions
                     and element.node_revisions[-1].status == NodeStatus.INVALID
@@ -1071,7 +1158,7 @@ def activate_node(
         else:
             # We should not fail node restoration just because of some nodes
             # that have been invalid already and stay that way.
-            node_validator = validate_node_data(downstream.current, session)
+            node_validator = await validate_node_data(downstream.current, session)
             downstream.current.status = node_validator.status
             if node_validator.errors:
                 downstream.current.status = NodeStatus.INVALID
@@ -1098,20 +1185,28 @@ def activate_node(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
+    await session.commit()
 
 
-def revalidate_node(
+async def revalidate_node(
     name: str,
-    session: Session,
+    session: AsyncSession,
     parent_node: str = None,
     current_user: Optional[User] = None,
 ):
     """
     Revalidate a single existing node and update its status appropriately
     """
-    node = get_node_by_name(session, name)
-    current_node_revision = node.current
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.tags),
+        ],
+        raise_if_not_exists=True,
+    )
+    current_node_revision = node.current  # type: ignore
     if current_node_revision.type == NodeType.SOURCE:
         if current_node_revision.status != NodeStatus.VALID:  # pragma: no cover
             current_node_revision.status = NodeStatus.VALID
@@ -1124,15 +1219,17 @@ def revalidate_node(
                 ),
             )
             session.add(current_node_revision)
-            session.commit()
-            session.refresh(current_node_revision)
+            await session.commit()
+            await session.refresh(current_node_revision)
         return NodeStatus.VALID
 
     if current_node_revision.type == NodeType.CUBE:
+        cube_node = await Node.get_cube_by_name(session, name)
+        current_node_revision = cube_node.current  # type: ignore
         cube_metrics = [metric.name for metric in current_node_revision.cube_metrics()]
         cube_dimensions = current_node_revision.cube_dimensions()
         try:
-            validate_cube(
+            await validate_cube(
                 session,
                 metric_names=cube_metrics,
                 dimension_names=cube_dimensions,
@@ -1142,46 +1239,65 @@ def revalidate_node(
         except DJException:  # pragma: no cover
             current_node_revision.status = NodeStatus.INVALID
         session.add(current_node_revision)
-        session.commit()
+        await session.commit()
         return current_node_revision.status
     previous_status = current_node_revision.status
-    node_validator = validate_node_data(current_node_revision, session)
-    current_node_revision.status = node_validator.status
-    if previous_status != current_node_revision.status:  # pragma: no cover
-        session.add(current_node_revision)
+    node_validator = await validate_node_data(current_node_revision, session)
+
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.tags),
+        ],
+        raise_if_not_exists=True,
+    )
+    node.current.status = node_validator.status  # type: ignore
+    if previous_status != node.current.status:  # type: ignore  # pragma: no cover
+        session.add(node)
         session.add(
             status_change_history(
-                current_node_revision,
+                node.current,  # type: ignore
                 previous_status,
-                current_node_revision.status,
+                node.current.status,  # type: ignore
                 parent_node=parent_node,
                 current_user=current_user,
             ),
         )
-        session.commit()
-        session.refresh(current_node_revision)
-        session.refresh(node)
-    return current_node_revision.status
+        await session.commit()
+    await session.refresh(node.current)  # type: ignore
+    await session.refresh(node, ["current"])
+    return node.current.status  # type: ignore
 
 
-def hard_delete_node(
+async def hard_delete_node(
     name: str,
-    session: Session,
+    session: AsyncSession,
     current_user: Optional[User] = None,
 ):
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
     This should be used with caution, deactivating a node is preferred.
     """
-    node = get_node_by_name(session, name, with_current=True, include_inactive=True)
-    downstream_nodes = get_downstream_nodes(session=session, node_name=name)
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[joinedload(Node.current), joinedload(Node.revisions)],
+        include_inactive=True,
+        raise_if_not_exists=False,
+    )
+    downstream_nodes = await get_downstream_nodes(session=session, node_name=name)
 
     linked_nodes = []
-    if node.type == NodeType.DIMENSION:
-        linked_nodes = get_nodes_with_dimension(session=session, dimension_node=node)
+    if node.type == NodeType.DIMENSION:  # type: ignore
+        linked_nodes = await get_nodes_with_dimension(
+            session=session,
+            dimension_node=node,  # type: ignore
+        )
 
-    session.delete(node)
-    session.commit()
+    await session.delete(node)
+    await session.commit()
     impact = []  # Aggregate all impact of this deletion to include in response
 
     # Revalidate all downstream nodes
@@ -1195,7 +1311,7 @@ def hard_delete_node(
                 user=current_user.username if current_user else None,
             ),
         )
-        status = revalidate_node(
+        status = await revalidate_node(
             name=node.name,
             session=session,
             parent_node=name,
@@ -1220,7 +1336,7 @@ def hard_delete_node(
                 user=current_user.username if current_user else None,
             ),
         )
-        status = revalidate_node(
+        status = await revalidate_node(
             name=node.name,
             session=session,
             current_user=current_user,
@@ -1244,7 +1360,7 @@ def hard_delete_node(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()  # Commit the history events
+    await session.commit()  # Commit the history events
     return impact
 
 

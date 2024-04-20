@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from pydantic import BaseModel, Extra, root_validator, validator
 from pydantic.fields import Field
 from pydantic.utils import GetterDict
+from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum
 from typing_extensions import TypedDict
@@ -722,8 +723,16 @@ class GenericNodeOutputModel(BaseModel):
         current = values.get("current")
         if current is None:
             return values
-        current_dict = NodeRevisionOutput.from_orm(current).dict()
-        final_dict = dict(values.items())
+        current_dict = dict(current.__dict__.items())
+        final_dict = {
+            "namespace": values.get("namespace"),
+            "created_at": values.get("created_at"),
+            "deactivated_at": values.get("deactivated_at"),
+            "current_version": values.get("current_version"),
+            "catalog": values.get("catalog"),
+            "missing_table": values.get("missing_table"),
+            "tags": values.get("tags"),
+        }
         for k, v in current_dict.items():
             final_dict[k] = v
         final_dict["node_revision_id"] = final_dict["id"]
@@ -805,6 +814,21 @@ class NodeOutput(GenericNodeOutputModel):
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         orm_mode = True
+
+    @classmethod
+    def load_options(cls):
+        """
+        ORM options to successfully load this object
+        """
+        from datajunction_server.database.node import (  # pylint: disable=import-outside-toplevel
+            Node,
+            NodeRevision,
+        )
+
+        return [
+            selectinload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.tags),
+        ]
 
 
 class DAGNodeRevisionOutput(BaseModel):

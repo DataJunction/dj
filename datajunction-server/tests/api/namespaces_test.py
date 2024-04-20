@@ -1,17 +1,20 @@
 """
 Tests for the namespaces API.
 """
-from fastapi.testclient import TestClient
+import pytest
+from httpx import AsyncClient
 
+from datajunction_server.api.main import app
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
 
 
-def test_list_all_namespaces(client_with_examples: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_list_all_namespaces(client_with_examples: AsyncClient) -> None:
     """
     Test ``GET /namespaces/``.
     """
-    response = client_with_examples.get("/namespaces/")
+    response = await client_with_examples.get("/namespaces/")
     assert response.status_code in (200, 201)
     assert response.json() == [
         {"namespace": "basic", "num_nodes": 8},
@@ -28,7 +31,10 @@ def test_list_all_namespaces(client_with_examples: TestClient) -> None:
     ]
 
 
-def test_list_all_namespaces_access_limited(client_with_examples: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_list_all_namespaces_access_limited(
+    client_with_examples: AsyncClient,
+) -> None:
     """
     Test ``GET /namespaces/``.
     """
@@ -46,10 +52,9 @@ def test_list_all_namespaces_access_limited(client_with_examples: TestClient) ->
 
         return _validate_access
 
-    app = client_with_examples.app
     app.dependency_overrides[validate_access] = validate_access_override
 
-    response = client_with_examples.get("/namespaces/")
+    response = await client_with_examples.get("/namespaces/")
 
     assert response.status_code in (200, 201)
     assert response.json() == [
@@ -59,10 +64,12 @@ def test_list_all_namespaces_access_limited(client_with_examples: TestClient) ->
         {"namespace": "dbt.source.stripe", "num_nodes": 1},
         {"namespace": "dbt.transform", "num_nodes": 1},
     ]
+    app.dependency_overrides.clear()
 
 
-def test_list_all_namespaces_access_bad_injection(
-    client_with_examples: TestClient,
+@pytest.mark.asyncio
+async def test_list_all_namespaces_access_bad_injection(
+    client_with_examples: AsyncClient,
 ) -> None:
     """
     Test ``GET /namespaces/``.
@@ -76,10 +83,9 @@ def test_list_all_namespaces_access_bad_injection(
 
         return _validate_access
 
-    app = client_with_examples.app
     app.dependency_overrides[validate_access] = validate_access_override
 
-    response = client_with_examples.get("/namespaces/")
+    response = await client_with_examples.get("/namespaces/")
 
     assert response.status_code == 403
     assert response.json() == {
@@ -94,9 +100,11 @@ def test_list_all_namespaces_access_bad_injection(
         ],
         "warnings": [],
     }
+    app.dependency_overrides.clear()
 
 
-def test_list_all_namespaces_deny_all(client_with_examples: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_list_all_namespaces_deny_all(client_with_examples: AsyncClient) -> None:
     """
     Test ``GET /namespaces/``.
     """
@@ -107,27 +115,28 @@ def test_list_all_namespaces_deny_all(client_with_examples: TestClient) -> None:
 
         return _validate_access
 
-    app = client_with_examples.app
     app.dependency_overrides[validate_access] = validate_access_override
 
-    response = client_with_examples.get("/namespaces/")
+    response = await client_with_examples.get("/namespaces/")
 
     assert response.status_code in (200, 201)
     assert response.json() == []
+    app.dependency_overrides.clear()
 
 
-def test_list_nodes_by_namespace(client_with_basic: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_list_nodes_by_namespace(client_with_basic: AsyncClient) -> None:
     """
     Test ``GET /namespaces/{namespace}/``.
     """
-    response = client_with_basic.get("/namespaces/basic.source/")
+    response = await client_with_basic.get("/namespaces/basic.source/")
     assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "basic.source.users",
         "basic.source.comments",
     }
 
-    response = client_with_basic.get("/namespaces/basic/")
+    response = await client_with_basic.get("/namespaces/basic/")
     assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "basic.source.users",
@@ -139,14 +148,14 @@ def test_list_nodes_by_namespace(client_with_basic: TestClient) -> None:
         "basic.num_users",
     }
 
-    response = client_with_basic.get("/namespaces/basic/?type_=dimension")
+    response = await client_with_basic.get("/namespaces/basic/?type_=dimension")
     assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "basic.dimension.users",
         "basic.dimension.countries",
     }
 
-    response = client_with_basic.get("/namespaces/basic/?type_=source")
+    response = await client_with_basic.get("/namespaces/basic/?type_=source")
     assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "basic.source.comments",
@@ -154,19 +163,24 @@ def test_list_nodes_by_namespace(client_with_basic: TestClient) -> None:
     }
 
 
-def test_deactivate_namespaces(client_with_namespaced_roads: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_deactivate_namespaces(client_with_namespaced_roads: AsyncClient) -> None:
     """
     Test ``DELETE /namespaces/{namespace}``.
     """
     # Cannot deactivate if there are nodes under the namespace
-    response = client_with_namespaced_roads.delete("/namespaces/foo.bar/?cascade=false")
+    response = await client_with_namespaced_roads.delete(
+        "/namespaces/foo.bar/?cascade=false",
+    )
     assert response.json() == {
         "message": "Cannot deactivate node namespace `foo.bar` as there are still "
         "active nodes under that namespace.",
     }
 
     # Can deactivate with cascade
-    response = client_with_namespaced_roads.delete("/namespaces/foo.bar/?cascade=true")
+    response = await client_with_namespaced_roads.delete(
+        "/namespaces/foo.bar/?cascade=true",
+    )
     assert response.json() == {
         "message": "Namespace `foo.bar` has been deactivated. The following nodes "
         "have also been deactivated: foo.bar.repair_orders,foo.bar.repair_order_details,"
@@ -181,32 +195,34 @@ def test_deactivate_namespaces(client_with_namespaced_roads: TestClient) -> None
     }
 
     # Check that the namespace is no longer listed
-    response = client_with_namespaced_roads.get("/namespaces/")
+    response = await client_with_namespaced_roads.get("/namespaces/")
     assert response.status_code in (200, 201)
     assert "foo.bar" not in {n["namespace"] for n in response.json()}
 
-    response = client_with_namespaced_roads.delete("/namespaces/foo.bar/?cascade=false")
+    response = await client_with_namespaced_roads.delete(
+        "/namespaces/foo.bar/?cascade=false",
+    )
     assert response.json()["message"] == "Namespace `foo.bar` is already deactivated."
 
     # Try restoring
-    response = client_with_namespaced_roads.post("/namespaces/foo.bar/restore/")
+    response = await client_with_namespaced_roads.post("/namespaces/foo.bar/restore/")
     assert response.json() == {
         "message": "Namespace `foo.bar` has been restored.",
     }
 
     # Check that the namespace is back
-    response = client_with_namespaced_roads.get("/namespaces/")
+    response = await client_with_namespaced_roads.get("/namespaces/")
     assert response.status_code in (200, 201)
     assert "foo.bar" in {n["namespace"] for n in response.json()}
 
     # Check that nodes in the namespace remain deactivated
-    response = client_with_namespaced_roads.get("/namespaces/foo.bar/")
+    response = await client_with_namespaced_roads.get("/namespaces/foo.bar/")
     assert response.status_code in (200, 201)
     assert response.json() == []
 
     # Restore with cascade=true should also restore all the nodes
-    client_with_namespaced_roads.delete("/namespaces/foo.bar/?cascade=false")
-    response = client_with_namespaced_roads.post(
+    await client_with_namespaced_roads.delete("/namespaces/foo.bar/?cascade=false")
+    response = await client_with_namespaced_roads.post(
         "/namespaces/foo.bar/restore/?cascade=true",
     )
     assert response.json() == {
@@ -215,14 +231,14 @@ def test_deactivate_namespaces(client_with_namespaced_roads: TestClient) -> None
         "bar.repair_type,foo.bar.contractors,foo.bar.municipality_municipality_type,"
         "foo.bar.municipality_type,foo.bar.municipality,foo.bar.dispatchers,foo.bar."
         "hard_hats,foo.bar.hard_hat_state,foo.bar.us_states,foo.bar.us_region,foo.ba"
-        "r.repair_order,foo.bar.contractor,foo.bar.hard_hat,foo.bar.local_hard_hats,"
-        "foo.bar.us_state,foo.bar.dispatcher,foo.bar.municipality_dim,foo.bar.num_re"
-        "pair_orders,foo.bar.avg_repair_price,foo.bar.total_repair_cost,foo.bar.avg_"
-        "length_of_employment,foo.bar.total_repair_order_discounts,foo.bar.avg_repai"
-        "r_order_discounts,foo.bar.avg_time_to_dispatch",
+        "r.contractor,foo.bar.hard_hat,foo.bar.us_state,foo.bar.avg_length_of_employ"
+        "ment,foo.bar.avg_repair_price,foo.bar.municipality_dim,foo.bar.dispatcher,f"
+        "oo.bar.total_repair_cost,foo.bar.repair_order,foo.bar.num_repair_orders,foo"
+        ".bar.avg_time_to_dispatch,foo.bar.total_repair_order_discounts,foo.bar.avg_"
+        "repair_order_discounts,foo.bar.local_hard_hats",
     }
     # Calling restore again will raise
-    response = client_with_namespaced_roads.post(
+    response = await client_with_namespaced_roads.post(
         "/namespaces/foo.bar/restore/?cascade=true",
     )
     assert (
@@ -231,7 +247,7 @@ def test_deactivate_namespaces(client_with_namespaced_roads: TestClient) -> None
     )
 
     # Check that nodes in the namespace are restored
-    response = client_with_namespaced_roads.get("/namespaces/foo.bar/")
+    response = await client_with_namespaced_roads.get("/namespaces/foo.bar/")
     assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "foo.bar.repair_orders",
@@ -262,7 +278,7 @@ def test_deactivate_namespaces(client_with_namespaced_roads: TestClient) -> None
         "foo.bar.avg_time_to_dispatch",
     }
 
-    response = client_with_namespaced_roads.get("/history/namespace/foo.bar/")
+    response = await client_with_namespaced_roads.get("/history/namespace/foo.bar/")
     assert [
         (activity["activity_type"], activity["details"]) for activity in response.json()
     ] == [
@@ -296,18 +312,18 @@ def test_deactivate_namespaces(client_with_namespaced_roads: TestClient) -> None
                     ".bar.repair_type,foo.bar.contractors,foo.bar.municipality_municipalit"
                     "y_type,foo.bar.municipality_type,foo.bar.municipality,foo.bar.dispatc"
                     "hers,foo.bar.hard_hats,foo.bar.hard_hat_state,foo.bar.us_states,foo.b"
-                    "ar.us_region,foo.bar.repair_order,foo.bar.contractor,foo.bar.hard_hat"
-                    ",foo.bar.local_hard_hats,foo.bar.us_state,foo.bar.dispatcher,foo.bar."
-                    "municipality_dim,foo.bar.num_repair_orders,foo.bar.avg_repair_price,"
-                    "foo.bar.total_repair_cost,foo.bar.avg_length_of_employment,foo.bar.t"
-                    "otal_repair_order_discounts,foo.bar.avg_repair_order_discounts,foo.b"
-                    "ar.avg_time_to_dispatch"
+                    "ar.us_region,foo.bar.contractor,foo.bar.hard_hat,foo.bar.us_state,foo"
+                    ".bar.avg_length_of_employment,foo.bar.avg_repair_price,foo.bar.munici"
+                    "pality_dim,foo.bar.dispatcher,foo.bar.total_repair_cost,foo.bar.repai"
+                    "r_order,foo.bar.num_repair_orders,foo.bar.avg_time_to_dispatch,foo.ba"
+                    "r.total_repair_order_discounts,foo.bar.avg_repair_order_discounts,foo"
+                    ".bar.local_hard_hats"
                 ),
             },
         ),
     ]
 
-    response = client_with_namespaced_roads.get(
+    response = await client_with_namespaced_roads.get(
         "/history?node=foo.bar.avg_length_of_employment",
     )
     assert [
@@ -321,11 +337,12 @@ def test_deactivate_namespaces(client_with_namespaced_roads: TestClient) -> None
     ]
 
 
-def test_hard_delete_namespace(client_with_examples: TestClient):
+@pytest.mark.asyncio
+async def test_hard_delete_namespace(client_with_examples: AsyncClient):
     """
     Test hard deleting a namespace
     """
-    response = client_with_examples.delete("/namespaces/foo/hard/")
+    response = await client_with_examples.delete("/namespaces/foo/hard/")
     assert response.json()["message"] == (
         "Cannot hard delete namespace `foo` as there are still the following nodes "
         "under it: `['foo.bar.avg_length_of_employment', "
@@ -344,16 +361,16 @@ def test_hard_delete_namespace(client_with_examples: TestClient):
         "action cannot be undone."
     )
 
-    client_with_examples.post("/namespaces/foo/")
-    client_with_examples.post("/namespaces/foo.bar.baz/")
-    client_with_examples.post("/namespaces/foo.bar.baf/")
-    client_with_examples.post("/namespaces/foo.bar.bif.d/")
+    await client_with_examples.post("/namespaces/foo/")
+    await client_with_examples.post("/namespaces/foo.bar.baz/")
+    await client_with_examples.post("/namespaces/foo.bar.baf/")
+    await client_with_examples.post("/namespaces/foo.bar.bif.d/")
 
     # Deactivating a few nodes should still allow the hard delete to go through
-    client_with_examples.delete("/nodes/foo.bar.avg_length_of_employment")
-    client_with_examples.delete("/nodes/foo.bar.avg_repair_order_discounts")
+    await client_with_examples.delete("/nodes/foo.bar.avg_length_of_employment")
+    await client_with_examples.delete("/nodes/foo.bar.avg_repair_order_discounts")
 
-    hard_delete_response = client_with_examples.delete(
+    hard_delete_response = await client_with_examples.delete(
         "/namespaces/foo.bar/hard/?cascade=true",
     )
     assert hard_delete_response.json() == {
@@ -531,7 +548,7 @@ def test_hard_delete_namespace(client_with_examples: TestClient):
         },
         "message": "The namespace `foo.bar` has been completely removed.",
     }
-    list_namespaces_response = client_with_examples.get("/namespaces/")
+    list_namespaces_response = await client_with_examples.get("/namespaces/")
     assert list_namespaces_response.json() == [
         {"namespace": "basic", "num_nodes": 8},
         {"namespace": "basic.dimension", "num_nodes": 2},
@@ -546,7 +563,9 @@ def test_hard_delete_namespace(client_with_examples: TestClient):
         {"namespace": "foo", "num_nodes": 0},
     ]
 
-    response = client_with_examples.delete("/namespaces/jaffle_shop/hard/?cascade=true")
+    response = await client_with_examples.delete(
+        "/namespaces/jaffle_shop/hard/?cascade=true",
+    )
     assert response.json() == {
         "errors": [],
         "message": "Namespace `jaffle_shop` does not exist.",
@@ -554,12 +573,13 @@ def test_hard_delete_namespace(client_with_examples: TestClient):
     }
 
 
-def test_create_namespace(client_with_service_setup: TestClient):
+@pytest.mark.asyncio
+async def test_create_namespace(client_with_service_setup: AsyncClient):
     """
     Verify creating namespaces, both successful and validation errors
     """
     # By default, creating a namespace will also create its parents (i.e., like mkdir -p)
-    response = client_with_service_setup.post(
+    response = await client_with_service_setup.post(
         "/namespaces/aaa.bbb.ccc?include_parents=true",
     )
     assert response.json() == {
@@ -568,23 +588,23 @@ def test_create_namespace(client_with_service_setup: TestClient):
     }
 
     # Verify that the parent namespaces already exist if we try to create it again
-    response = client_with_service_setup.post("/namespaces/aaa")
+    response = await client_with_service_setup.post("/namespaces/aaa")
     assert response.json() == {"message": "Node namespace `aaa` already exists"}
-    response = client_with_service_setup.post("/namespaces/aaa.bbb")
+    response = await client_with_service_setup.post("/namespaces/aaa.bbb")
     assert response.json() == {"message": "Node namespace `aaa.bbb` already exists"}
 
     # Setting include_parents=false will not create the parents
-    response = client_with_service_setup.post(
+    response = await client_with_service_setup.post(
         "/namespaces/acde.mmm?include_parents=false",
     )
     assert response.json() == {
         "message": "The following node namespaces have been successfully created: acde.mmm",
     }
-    response = client_with_service_setup.get("/namespaces/acde")
+    response = await client_with_service_setup.get("/namespaces/acde")
     assert response.json()["message"] == "node namespace `acde` does not exist."
 
     # Setting include_parents=true will create the parents
-    response = client_with_service_setup.post(
+    response = await client_with_service_setup.post(
         "/namespaces/a.b.c?include_parents=true",
     )
     assert response.json() == {
@@ -605,7 +625,9 @@ def test_create_namespace(client_with_service_setup: TestClient):
         "aff.123_mmm",
     ]
     for invalid_namespace in invalid_namespaces:
-        response = client_with_service_setup.post(f"/namespaces/{invalid_namespace}")
+        response = await client_with_service_setup.post(
+            f"/namespaces/{invalid_namespace}",
+        )
         assert response.status_code == 422
         assert response.json()["message"] == (
             f"{invalid_namespace} is not a valid namespace. Namespace parts cannot start "
@@ -613,12 +635,13 @@ def test_create_namespace(client_with_service_setup: TestClient):
         )
 
 
-def test_export_namespaces(client_with_examples: TestClient):
+@pytest.mark.asyncio
+async def test_export_namespaces(client_with_examples: AsyncClient):
     """
     Test exporting a namespace to a project definition
     """
     # Create a cube so that the cube definition export path is tested
-    response = client_with_examples.post(
+    response = await client_with_examples.post(
         "/nodes/cube/",
         json={
             "name": "default.example_cube",
@@ -630,7 +653,7 @@ def test_export_namespaces(client_with_examples: TestClient):
         },
     )
     assert response.status_code in (200, 201)
-    response = client_with_examples.get(
+    response = await client_with_examples.get(
         "/namespaces/default/export/",
     )
     project_definition = response.json()

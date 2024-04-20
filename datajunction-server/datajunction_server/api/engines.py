@@ -7,7 +7,7 @@ from typing import List
 
 from fastapi import Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.engine import Engine
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
@@ -20,24 +20,26 @@ router = SecureAPIRouter(tags=["engines"])
 
 
 @router.get("/engines/", response_model=List[EngineInfo])
-def list_engines(*, session: Session = Depends(get_session)) -> List[EngineInfo]:
+async def list_engines(
+    *, session: AsyncSession = Depends(get_session)
+) -> List[EngineInfo]:
     """
     List all available engines
     """
     return [
         EngineInfo.from_orm(engine)
-        for engine in session.execute(select(Engine)).scalars()
+        for engine in (await session.execute(select(Engine))).scalars()
     ]
 
 
 @router.get("/engines/{name}/{version}/", response_model=EngineInfo)
-def get_an_engine(
-    name: str, version: str, *, session: Session = Depends(get_session)
+async def get_an_engine(
+    name: str, version: str, *, session: AsyncSession = Depends(get_session)
 ) -> EngineInfo:
     """
     Return an engine by name and version
     """
-    return EngineInfo.from_orm(get_engine(session, name, version))
+    return EngineInfo.from_orm(await get_engine(session, name, version))
 
 
 @router.post(
@@ -46,16 +48,16 @@ def get_an_engine(
     status_code=201,
     name="Add An Engine",
 )
-def add_engine(
+async def add_engine(
     data: EngineInfo,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> EngineInfo:
     """
     Add a new engine
     """
     try:
-        get_engine(session, data.name, data.version)
+        await get_engine(session, data.name, data.version)
     except HTTPException:
         pass
     else:
@@ -71,7 +73,7 @@ def add_engine(
         dialect=data.dialect,
     )
     session.add(engine)
-    session.commit()
-    session.refresh(engine)
+    await session.commit()
+    await session.refresh(engine)
 
     return EngineInfo.from_orm(engine)

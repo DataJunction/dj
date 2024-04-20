@@ -495,7 +495,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             name="default.cube_one",
             description="Ice ice cube.",
             metrics=["default.number_of_account_types"],
-            dimensions=["default.payment_type"],
+            dimensions=["default.payment_type.payment_type_name"],
             mode=NodeMode.PUBLISHED,
         )
         assert cube_one.name == "default.cube_one"
@@ -556,19 +556,6 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         """
         Check that getting sql via the client works as expected.
         """
-        result = client.sql(metrics=["foo.bar.avg_repair_price"])
-        assert "SELECT" in result and "FROM" in result
-
-        # Retrieve SQL for a single metric
-        result = client.sql(
-            metrics=["foo.bar.avg_repair_price"],
-            dimensions=["dimension_that_does_not_exist"],
-            filters=[],
-        )
-        assert (
-            result["message"]
-            == "Please make sure that `dimension_that_does_not_exist` is a dimensional attribute."
-        )
 
         # Retrieve SQL for multiple metrics using the client object
         result = client.sql(
@@ -583,6 +570,20 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             engine_version="3.1.1",
         )
         assert "SELECT" in result and "FROM" in result
+
+        result = client.sql(metrics=["foo.bar.avg_repair_price"])
+        assert "SELECT" in result and "FROM" in result
+
+        # Retrieve SQL for a single metric
+        result = client.sql(
+            metrics=["foo.bar.avg_repair_price"],
+            dimensions=["foo.bar.dimension_that_does_not_exist"],
+            filters=[],
+        )
+        assert (
+            result["message"]
+            == "Please make sure that `dimension_that_does_not_exist` is a dimensional attribute."
+        )
 
         # Should fail due to dimension not being available
         result = client.sql(

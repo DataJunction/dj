@@ -1,26 +1,28 @@
 """
 Tests for whoami router
 """
-
-from fastapi.testclient import TestClient
+import pytest
+from httpx import AsyncClient
 
 from datajunction_server.internal.access.authentication.tokens import decode_token
 
 
-def test_whoami(client: TestClient):
+@pytest.mark.asyncio
+async def test_whoami(client: AsyncClient):
     """
     Test /whoami endpoint
     """
-    response = client.get("/whoami/")
+    response = await client.get("/whoami/")
     assert response.status_code in (200, 201)
     assert response.json()["username"] == "dj"
 
 
-def test_short_lived_token(client: TestClient):
+@pytest.mark.asyncio
+async def test_short_lived_token(client: AsyncClient):
     """
     Test getting a short-lived token from the /token endpoint
     """
-    response = client.get("/token/")
+    response = await client.get("/token/")
     assert response.status_code in (200, 201)
     data = response.json()
     user = decode_token(data["token"])

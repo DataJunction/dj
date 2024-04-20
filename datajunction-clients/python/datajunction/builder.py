@@ -48,14 +48,15 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         """
         Delete a namespace by name.
         """
-        response = self._session.delete(
+        response = self._session.request(
+            "DELETE",
             f"/namespaces/{namespace}/",
             timeout=self._timeout,
             params={
                 "cascade": cascade,
             },
         )
-        if not response.ok:
+        if not response.status_code < 400:
             raise DJClientException(response.json()["message"])
 
     def restore_namespace(self, namespace: str, cascade: bool = False) -> None:
@@ -84,7 +85,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
         )
         json_response = response.json()
-        if not response.ok:
+        if not response.status_code < 400:
             raise DJClientException(
                 f"Deleting node `{node_name}` failed: {json_response}",
             )  # pragma: no cover
@@ -98,7 +99,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
         )
         json_response = response.json()
-        if not response.ok:
+        if not response.status_code < 400:
             raise DJClientException(
                 f"Restoring node `{node_name}` failed: {json_response}",
             )  # pragma: no cover

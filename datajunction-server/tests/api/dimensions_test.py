@@ -3,22 +3,27 @@ Tests for the dimensions API.
 """
 from typing import Callable, List, Optional
 
-from fastapi.testclient import TestClient
+import pytest
+from httpx import AsyncClient
+
+from datajunction_server.api.main import app
 
 
-def test_list_dimension(client_with_roads: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_list_dimension(client_with_roads: AsyncClient) -> None:
     """
     Test ``GET /dimensions/``.
     """
-    response = client_with_roads.get("/dimensions/")
+    response = await client_with_roads.get("/dimensions/")
     data = response.json()
 
     assert response.status_code == 200
     assert len(data) > 5
 
 
-def test_list_nodes_with_dimension_access_limited(
-    client_with_roads: TestClient,
+@pytest.mark.asyncio
+async def test_list_nodes_with_dimension_access_limited(
+    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
 ) -> None:
     """
     Test ``GET /dimensions/{name}/nodes/``.
@@ -39,10 +44,10 @@ def test_list_nodes_with_dimension_access_limited(
 
         return _validate_access
 
-    app = client_with_roads.app
     app.dependency_overrides[validate_access] = validate_access_override
+    custom_client = await client_example_loader(["ROADS"])
 
-    response = client_with_roads.get("/dimensions/default.hard_hat/nodes/")
+    response = await custom_client.get("/dimensions/default.hard_hat/nodes/")
 
     data = response.json()
     roads_repair_nodes = {
@@ -57,13 +62,15 @@ def test_list_nodes_with_dimension_access_limited(
         "default.avg_repair_order_discounts",
     }
     assert {node["name"] for node in data} == roads_repair_nodes
+    app.dependency_overrides.clear()
 
 
-def test_list_nodes_with_dimension(client_with_roads: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_list_nodes_with_dimension(client_with_roads: AsyncClient) -> None:
     """
     Test ``GET /dimensions/{name}/nodes/``.
     """
-    response = client_with_roads.get("/dimensions/default.hard_hat/nodes/")
+    response = await client_with_roads.get("/dimensions/default.hard_hat/nodes/")
     data = response.json()
     roads_nodes = {
         "default.repair_orders",
@@ -82,19 +89,21 @@ def test_list_nodes_with_dimension(client_with_roads: TestClient) -> None:
     }
     assert {node["name"] for node in data} == roads_nodes
 
-    response = client_with_roads.get("/dimensions/default.repair_order/nodes/")
+    response = await client_with_roads.get("/dimensions/default.repair_order/nodes/")
     data = response.json()
     assert {node["name"] for node in data} == roads_nodes
 
-    response = client_with_roads.get("/dimensions/default.us_state/nodes/")
+    response = await client_with_roads.get("/dimensions/default.us_state/nodes/")
     data = response.json()
     assert {node["name"] for node in data} == roads_nodes
 
-    response = client_with_roads.get("/dimensions/default.municipality_dim/nodes/")
+    response = await client_with_roads.get(
+        "/dimensions/default.municipality_dim/nodes/",
+    )
     data = response.json()
     assert {node["name"] for node in data} == roads_nodes
 
-    response = client_with_roads.get("/dimensions/default.contractor/nodes/")
+    response = await client_with_roads.get("/dimensions/default.contractor/nodes/")
     data = response.json()
     assert {node["name"] for node in data} == {
         "default.repair_type",
@@ -102,7 +111,7 @@ def test_list_nodes_with_dimension(client_with_roads: TestClient) -> None:
         "default.regional_repair_efficiency",
     }
 
-    response = client_with_roads.get(
+    response = await client_with_roads.get(
         "/dimensions/default.municipality_dim/nodes/?node_type=metric",
     )
     data = response.json()
@@ -118,14 +127,15 @@ def test_list_nodes_with_dimension(client_with_roads: TestClient) -> None:
     }
 
 
-def test_list_nodes_with_common_dimension(
-    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+@pytest.mark.asyncio
+async def test_list_nodes_with_common_dimension(
+    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
 ) -> None:
     """
     Test ``GET /dimensions/common/``.
     """
-    custom_client = client_example_loader(["ACCOUNT_REVENUE", "ROADS"])
-    response = custom_client.get(
+    custom_client = await client_example_loader(["ACCOUNT_REVENUE", "ROADS"])
+    response = await custom_client.get(
         "/dimensions/common/?dimension=default.hard_hat",
     )
     data = response.json()
@@ -146,21 +156,21 @@ def test_list_nodes_with_common_dimension(
     }
     assert {node["name"] for node in data} == roads_nodes
 
-    response = custom_client.get(
+    response = await custom_client.get(
         "/dimensions/common/?dimension=default.hard_hat&dimension=default.us_state"
         "&dimension=default.dispatcher&dimension=default.municipality_dim",
     )
     data = response.json()
     assert {node["name"] for node in data} == roads_nodes
 
-    response = custom_client.get(
+    response = await custom_client.get(
         "/dimensions/common/?dimension=default.hard_hat&dimension=default.us_state"
         "&dimension=default.dispatcher&dimension=default.payment_type",
     )
     data = response.json()
     assert {node["name"] for node in data} == set()
 
-    response = custom_client.get(
+    response = await custom_client.get(
         "/dimensions/common/?dimension=default.hard_hat&dimension=default.us_state"
         "&dimension=default.dispatcher&node_type=metric",
     )

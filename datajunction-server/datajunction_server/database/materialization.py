@@ -82,4 +82,5 @@ class Materialization(Base):  # pylint: disable=too-few-public-methods
         back_populates="materialization",
         primaryjoin="Materialization.id==Backfill.materialization_id",
         cascade="all, delete",
+        lazy="selectin",
     )

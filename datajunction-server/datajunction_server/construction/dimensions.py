@@ -3,7 +3,7 @@ Dimensions-related query building
 """
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.build import get_measures_query
@@ -20,8 +20,8 @@ from datajunction_server.sql.parsing.types import IntegerType
 from datajunction_server.utils import SEPARATOR
 
 
-def build_dimensions_from_cube_query(  # pylint: disable=too-many-arguments,too-many-locals
-    session: Session,
+async def build_dimensions_from_cube_query(  # pylint: disable=too-many-arguments,too-many-locals
+    session: AsyncSession,
     cube: NodeRevision,
     dimensions: List[str],
     filters: Optional[str] = None,
@@ -77,7 +77,7 @@ def build_dimensions_from_cube_query(  # pylint: disable=too-many-arguments,too-
     # the cube is available as a materialized datasource or if it needs to be built up
     # from the measures query.
     if cube.availability:
-        catalog = get_catalog_by_name(session, cube.availability.catalog)  # type: ignore
+        catalog = await get_catalog_by_name(session, cube.availability.catalog)  # type: ignore
         query_ast.select.from_.relations.append(  # type: ignore
             ast.Relation(primary=ast.Table(ast.Name(cube.availability.table))),  # type: ignore
         )
@@ -93,7 +93,7 @@ def build_dimensions_from_cube_query(  # pylint: disable=too-many-arguments,too-
             query_ast.select.where = temp_filters_select.select.where
     else:
         catalog = cube.catalog
-        measures_query = get_measures_query(
+        measures_query = await get_measures_query(
             session=session,
             metrics=[metric.name for metric in cube.cube_metrics()],
             dimensions=dimensions,
@@ -123,5 +123,5 @@ def build_dimensions_from_cube_query(  # pylint: disable=too-many-arguments,too-
             else ColumnMetadata(name="count", type=str(IntegerType()))
             for col in query_ast.select.projection
         ],
-        dialect=catalog.engines[0].dialect,
+        dialect=catalog.engines[0].dialect if catalog else None,
     )

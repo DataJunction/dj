@@ -7,7 +7,7 @@ from typing import List
 
 from fastapi import Depends
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.errors import DJAlreadyExistsException, DJException
@@ -26,13 +26,13 @@ router = SecureAPIRouter(tags=["attributes"])
 
 
 @router.get("/attributes/", response_model=List[AttributeTypeBase])
-def list_attributes(
-    *, session: Session = Depends(get_session)
+async def list_attributes(
+    *, session: AsyncSession = Depends(get_session)
 ) -> List[AttributeTypeBase]:
     """
     List all available attribute types.
     """
-    attributes = session.execute(select(AttributeType)).scalars().all()
+    attributes = await AttributeType.get_all(session)
     return [AttributeTypeBase.from_orm(attr) for attr in attributes]
 
 
@@ -42,8 +42,8 @@ def list_attributes(
     status_code=201,
     name="Add an Attribute Type",
 )
-def add_attribute_type(
-    data: MutableAttributeTypeFields, *, session: Session = Depends(get_session)
+async def add_attribute_type(
+    data: MutableAttributeTypeFields, *, session: AsyncSession = Depends(get_session)
 ) -> AttributeTypeBase:
     """
     Add a new attribute type
@@ -52,26 +52,16 @@ def add_attribute_type(
         raise DJException(
             message="Cannot use `system` as the attribute type namespace as it is reserved.",
         )
-    statement = select(AttributeType).where(AttributeType.name == data.name)
-    attribute_type = session.execute(statement).unique().one_or_none()
+    attribute_type = await AttributeType.get_by_name(session, data.name)
     if attribute_type:
         raise DJAlreadyExistsException(
             message=f"Attribute type `{data.name}` already exists!",
         )
-    attribute_type = AttributeType(
-        namespace=data.namespace,
-        name=data.name,
-        description=data.description,
-        allowed_node_types=data.allowed_node_types,
-        uniqueness_scope=data.uniqueness_scope if data.uniqueness_scope else [],
-    )
-    session.add(attribute_type)
-    session.commit()
-    session.refresh(attribute_type)
-    return attribute_type
+    attribute_type = await AttributeType.create(session, data)
+    return AttributeTypeBase.from_orm(attribute_type)
 
 
-def default_attribute_types(session: Session = Depends(get_session)):
+async def default_attribute_types(session: AsyncSession = Depends(get_session)):
     """
     Loads all the column attribute types that are supported by the system
     by default into the database.
@@ -105,7 +95,7 @@ def default_attribute_types(session: Session = Depends(get_session)):
             set(default_attribute_type_names.keys()),
         ),
     )
-    attribute_types = session.execute(statement).scalars().all()
+    attribute_types = (await session.execute(statement)).scalars().all()
     for type_ in attribute_types:
         # if type_:  # pragma: no cover
         type_.name = default_attribute_type_names[type_.name].name
@@ -123,7 +113,7 @@ def default_attribute_types(session: Session = Depends(get_session)):
     new_types = set(default_attribute_type_names.keys()) - {
         type_.name for type_ in attribute_types if type_
     }
-    session.bulk_save_objects(
+    session.add_all(
         [default_attribute_type_names[name] for name in new_types],
     )
-    session.commit()
+    await session.commit()

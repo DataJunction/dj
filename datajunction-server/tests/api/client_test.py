@@ -1,15 +1,16 @@
 """
 Tests for client code generator.
 """
+import pytest
+from httpx import AsyncClient
 
-from fastapi.testclient import TestClient
 
-
-def test_generated_python_client_code_new_metric(client_with_roads: TestClient):
+@pytest.mark.asyncio
+async def test_generated_python_client_code_new_metric(client_with_roads: AsyncClient):
     """
     Test generating Python client code for creating a new metric
     """
-    response = client_with_roads.get(
+    response = await client_with_roads.get(
         "/datajunction-clients/python/new_node/default.num_repair_orders",
     )
     assert (
@@ -19,18 +20,19 @@ def test_generated_python_client_code_new_metric(client_with_roads: TestClient):
 num_repair_orders = dj.create_metric(
     description="Number of repair orders",
     display_name="Default: Num Repair Orders",
+    mode="published",
     name="default.num_repair_orders",
-    primary_key=[],
     query=\"\"\"SELECT count(repair_order_id) FROM default.repair_orders_fact\"\"\"
 )"""
     )
 
 
-def test_generated_python_client_code_new_source(client_with_roads: TestClient):
+@pytest.mark.asyncio
+async def test_generated_python_client_code_new_source(client_with_roads: AsyncClient):
     """
     Test generating Python client code for creating a new source
     """
-    response = client_with_roads.get(
+    response = await client_with_roads.get(
         "/datajunction-clients/python/new_node/default.repair_order_details",
     )
     assert (
@@ -40,19 +42,22 @@ def test_generated_python_client_code_new_source(client_with_roads: TestClient):
 repair_order_details = dj.create_source(
     description="Details on repair orders",
     display_name="default.roads.repair_order_details",
+    mode="published",
     name="default.repair_order_details",
-    primary_key=[],
     schema_="roads",
     table="repair_order_details"
 )"""
     )
 
 
-def test_generated_python_client_code_new_dimension(client_with_roads: TestClient):
+@pytest.mark.asyncio
+async def test_generated_python_client_code_new_dimension(
+    client_with_roads: AsyncClient,
+):
     """
     Test generating Python client code for creating a new dimension
     """
-    response = client_with_roads.get(
+    response = await client_with_roads.get(
         "/datajunction-clients/python/new_node/default.repair_order",
     )
     assert (
@@ -62,6 +67,7 @@ def test_generated_python_client_code_new_dimension(client_with_roads: TestClien
 repair_order = dj.create_dimension(
     description="Repair order dimension",
     display_name="Default: Repair Order",
+    mode="published",
     name="default.repair_order",
     primary_key=['repair_order_id'],
     query=\"\"\"
@@ -79,11 +85,12 @@ repair_order = dj.create_dimension(
     )
 
 
-def test_generated_python_client_code_new_cube(client_with_roads: TestClient):
+@pytest.mark.asyncio
+async def test_generated_python_client_code_new_cube(client_with_roads: AsyncClient):
     """
     Test generating Python client code for creating a new dimension
     """
-    client_with_roads.post(
+    await client_with_roads.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
@@ -96,7 +103,7 @@ def test_generated_python_client_code_new_cube(client_with_roads: TestClient):
             "name": "default.repairs_cube",
         },
     )
-    response = client_with_roads.get(
+    response = await client_with_roads.get(
         "/datajunction-clients/python/new_node/default.repairs_cube",
     )
     assert (
@@ -106,22 +113,23 @@ def test_generated_python_client_code_new_cube(client_with_roads: TestClient):
 repairs_cube = dj.create_cube(
     description="Cube of various metrics related to repairs",
     display_name="Default: Repairs Cube",
+    mode="published",
     name="default.repairs_cube",
-    primary_key=[],
     metrics=["default.num_repair_orders", "default.total_repair_cost"],
     dimensions=["default.hard_hat.country", "default.hard_hat.city"]
 )"""
     )
 
 
-def test_generated_python_client_code_adding_materialization(
+@pytest.mark.asyncio
+async def test_generated_python_client_code_adding_materialization(
     client_with_query_service_example_loader,
 ):
     """
     Test that generating python client code for adding materialization works
     """
-    custom_client = client_with_query_service_example_loader(["BASIC"])
-    custom_client.post(
+    custom_client = await client_with_query_service_example_loader(["BASIC"])
+    await custom_client.post(
         "/engines/",
         json={
             "name": "spark",
@@ -129,7 +137,7 @@ def test_generated_python_client_code_adding_materialization(
             "dialect": "spark",
         },
     )
-    custom_client.post(
+    await custom_client.post(
         "/nodes/basic.transform.country_agg/materialization/",
         json={
             "job": "spark_sql",
@@ -140,7 +148,7 @@ def test_generated_python_client_code_adding_materialization(
             "schedule": "0 * * * *",
         },
     )
-    response = custom_client.get(
+    response = await custom_client.get(
         "/datajunction-clients/python/add_materialization/"
         "basic.transform.country_agg/spark_sql__full",
     )
@@ -165,13 +173,14 @@ country_agg.add_materialization(
     )
 
 
-def test_generated_python_client_code_link_dimension(
-    client_with_namespaced_roads: TestClient,
+@pytest.mark.asyncio
+async def test_generated_python_client_code_link_dimension(
+    client_with_namespaced_roads: AsyncClient,
 ):
     """
     Test generating Python client code for creating a new dimension
     """
-    response = client_with_namespaced_roads.get(
+    response = await client_with_namespaced_roads.get(
         "/datajunction-clients/python/link_dimension/foo.bar.repair_orders/"
         "municipality_id/foo.bar.municipality_dim/",
     )

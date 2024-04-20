@@ -7,9 +7,10 @@ from typing import List, Optional
 
 from fastapi import Depends
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
-from datajunction_server.api.helpers import get_node_by_name
+from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.column import Column
 from datajunction_server.database.measure import Measure
 from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
@@ -27,14 +28,14 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["measures"])
 
 
-def get_measure_by_name(
-    session: Session,
+async def get_measure_by_name(
+    session: AsyncSession,
     measure_name: str,
     raise_if_not_exists: bool = True,
 ) -> Measure:
     """Retrieve a measure by name"""
     measure = (
-        session.execute(select(Measure).where(Measure.name == measure_name))
+        (await session.execute(select(Measure).where(Measure.name == measure_name)))
         .unique()
         .scalars()
         .one_or_none()
@@ -46,15 +47,24 @@ def get_measure_by_name(
     return measure
 
 
-def get_node_columns(session: Session, node_columns: List[NodeColumn]) -> List[Column]:
+async def get_node_columns(
+    session: AsyncSession,
+    node_columns: List[NodeColumn],
+) -> List[Column]:
     """
     Finds all the specified node columns or raises if they don't exist
     """
     measure_columns = []
     for node_column in node_columns:
-        node = get_node_by_name(session, node_column.node)
+        node = await Node.get_by_name(
+            session,
+            node_column.node,
+            options=[
+                joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            ],
+        )
         available = [
-            col for col in node.current.columns if col.name == node_column.column
+            col for col in node.current.columns if col.name == node_column.column  # type: ignore
         ]
         if len(available) == 0:
             raise DJDoesNotExistException(
@@ -66,9 +76,9 @@ def get_node_columns(session: Session, node_columns: List[NodeColumn]) -> List[C
 
 
 @router.get("/measures/", response_model=List[str])
-def list_measures(
+async def list_measures(
     prefix: Optional[str] = None,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> List[str]:
     """
     List all measures.
@@ -78,17 +88,17 @@ def list_measures(
         statement = statement.where(
             Measure.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
         )
-    return session.execute(statement).scalars().all()
+    return (await session.execute(statement)).scalars().all()
 
 
 @router.get("/measures/{measure_name}", response_model=MeasureOutput)
-def get_measure(
-    measure_name: str, *, session: Session = Depends(get_session)
+async def get_measure(
+    measure_name: str, *, session: AsyncSession = Depends(get_session)
 ) -> MeasureOutput:
     """
     Get info on a measure.
     """
-    measure = get_measure_by_name(session, measure_name, raise_if_not_exists=True)
+    measure = await get_measure_by_name(session, measure_name, raise_if_not_exists=True)
     return measure
 
 
@@ -98,16 +108,16 @@ def get_measure(
     status_code=201,
     name="Add a Measure",
 )
-def add_measure(
-    data: CreateMeasure, *, session: Session = Depends(get_session)
+async def add_measure(
+    data: CreateMeasure, *, session: AsyncSession = Depends(get_session)
 ) -> MeasureOutput:
     """
     Add a measure
     """
-    measure = get_measure_by_name(session, data.name, raise_if_not_exists=False)
+    measure = await get_measure_by_name(session, data.name, raise_if_not_exists=False)
     if measure:
         raise DJAlreadyExistsException(message=f"Measure `{data.name}` already exists!")
-    measure_columns = get_node_columns(session, data.columns)
+    measure_columns = await get_node_columns(session, data.columns)
     measure = Measure(
         name=data.name,
         display_name=data.display_name,
@@ -116,8 +126,8 @@ def add_measure(
         additive=data.additive,
     )
     session.add(measure)
-    session.commit()
-    session.refresh(measure)
+    await session.commit()
+    await session.refresh(measure)
     return measure
 
 
@@ -127,22 +137,22 @@ def add_measure(
     status_code=201,
     name="Edit a Measure",
 )
-def edit_measure(
+async def edit_measure(
     measure_name: str,
     data: EditMeasure,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> MeasureOutput:
     """
     Edit a measure
     """
-    measure = get_measure_by_name(session, measure_name, raise_if_not_exists=True)
+    measure = await get_measure_by_name(session, measure_name, raise_if_not_exists=True)
 
     if data.description:
         measure.description = data.description
 
     if data.columns is not None:
-        measure_columns = get_node_columns(session, data.columns)
+        measure_columns = await get_node_columns(session, data.columns)
         measure.columns = measure_columns
 
     if data.additive:
@@ -152,6 +162,6 @@ def edit_measure(
         measure.display_name = data.display_name
 
     session.add(measure)
-    session.commit()
-    session.refresh(measure)
+    await session.commit()
+    await session.refresh(measure)
     return measure

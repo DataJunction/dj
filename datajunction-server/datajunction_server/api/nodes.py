@@ -11,7 +11,8 @@ from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
 from fastapi_cache.decorator import cache
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 from starlette.requests import Request
 
@@ -30,6 +31,7 @@ from datajunction_server.api.helpers import (
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.constants import NODE_LIST_MAX
+from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.node import Node, NodeRevision
@@ -37,6 +39,7 @@ from datajunction_server.database.partition import Partition
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJActionNotAllowedException,
+    DJAlreadyExistsException,
     DJDoesNotExistException,
     DJException,
     DJInvalidInputException,
@@ -92,6 +95,7 @@ from datajunction_server.models.partition import (
 )
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
+    _node_output_options,
     get_dimensions,
     get_downstream_nodes,
     get_upstream_nodes,
@@ -112,10 +116,10 @@ router = SecureAPIRouter(tags=["nodes"])
 
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
-def validate_node(
+async def validate_node(
     data: NodeRevisionBase,
     response: Response,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> NodeValidation:
     """
     Determines whether the provided node is valid and returns metadata from node validation.
@@ -124,7 +128,7 @@ def validate_node(
     if data.type == NodeType.SOURCE:
         raise DJException(message="Source nodes cannot be validated")
 
-    node_validator = validate_node_data(data, session)
+    node_validator = await validate_node_data(data, session)
     if node_validator.errors:
         response.status_code = HTTPStatus.UNPROCESSABLE_ENTITY
     else:
@@ -141,15 +145,19 @@ def validate_node(
 
 
 @router.post("/nodes/{name}/validate/", response_model=NodeValidation)
-def revalidate(
+async def revalidate(
     name: str,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
-) -> NodeValidation:
+) -> JSONResponse:
     """
     Revalidate a single existing node and update its status appropriately
     """
-    status = revalidate_node(name=name, session=session, current_user=current_user)
+    status = await revalidate_node(
+        name=name,
+        session=session,
+        current_user=current_user,
+    )
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={
@@ -164,21 +172,27 @@ def revalidate(
     response_model=List[ColumnOutput],
     status_code=201,
 )
-def set_column_attributes(
+async def set_column_attributes(
     node_name: str,
     column_name: str,
     attributes: List[AttributeTypeIdentifier],
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> List[ColumnOutput]:
     """
     Set column attributes for the node.
     """
-    node = get_node_by_name(session, node_name)
-    columns = set_node_column_attributes(
+    node = await Node.get_by_name(
         session,
-        node,
+        node_name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+        ],
+    )
+    columns = await set_node_column_attributes(
+        session,
+        node,  # type: ignore
         column_name,
         attributes,
         current_user=current_user,
@@ -187,11 +201,11 @@ def set_column_attributes(
 
 
 @router.get("/nodes/", response_model=List[str])
-def list_nodes(
+async def list_nodes(
     node_type: Optional[NodeType] = None,
     prefix: Optional[str] = None,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -200,14 +214,7 @@ def list_nodes(
     """
     List the available nodes.
     """
-    statement = select(Node).where(is_(Node.deactivated_at, None))
-    if prefix:
-        statement = statement.where(
-            Node.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
-        )
-    if node_type:
-        statement = statement.where(Node.type == node_type)
-    nodes = session.execute(statement).unique().scalars().all()
+    nodes = await Node.find(session, prefix, node_type)  # type: ignore
     return [
         approval.access_object.name
         for approval in validate_access_requests(
@@ -226,10 +233,10 @@ def list_nodes(
 
 @router.get("/nodes/details/", response_model=List[NodeIndexItem])
 @cache(expire=settings.index_cache_expire)
-def list_all_nodes_with_details(
+async def list_all_nodes_with_details(
     node_type: Optional[NodeType] = None,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -255,7 +262,7 @@ def list_all_nodes_with_details(
     )  # Very high limit as a safeguard
     results = [
         NodeIndexItem(name=row[0], display_name=row[1], description=row[2], type=row[3])
-        for row in session.execute(nodes_query).all()
+        for row in (await session.execute(nodes_query)).all()
     ]
     if len(results) == NODE_LIST_MAX:  # pragma: no cover
         _logger.warning(
@@ -283,26 +290,33 @@ def list_all_nodes_with_details(
     return [row for row in results if row.name in approvals]
 
 
-@router.get("/nodes/{name}/")
-def get_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutput:
+@router.get("/nodes/{name}/", response_model=NodeOutput)
+async def get_node(
+    name: str, *, session: AsyncSession = Depends(get_session)
+) -> NodeOutput:
     """
     Show the active version of the specified node.
     """
-    node = get_node_by_name(session, name, with_current=True)
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=NodeOutput.load_options(),
+        raise_if_not_exists=True,
+    )
     return NodeOutput.from_orm(node)
 
 
 @router.delete("/nodes/{name}/")
-def delete_node(
+async def delete_node(
     name: str,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ):
     """
     Delete (aka deactivate) the specified node.
     """
-    deactivate_node(session, name, current_user=current_user)
+    await deactivate_node(session, name, current_user=current_user)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully deleted."},
@@ -310,16 +324,20 @@ def delete_node(
 
 
 @router.delete("/nodes/{name}/hard/", name="Hard Delete a DJ Node")
-def hard_delete(
+async def hard_delete(
     name: str,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
     This should be used with caution, deactivating a node is preferred.
     """
-    impact = hard_delete_node(name=name, session=session, current_user=current_user)
+    impact = await hard_delete_node(
+        name=name,
+        session=session,
+        current_user=current_user,
+    )
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={
@@ -330,16 +348,16 @@ def hard_delete(
 
 
 @router.post("/nodes/{name}/restore/")
-def restore_node(
+async def restore_node(
     name: str,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ):
     """
     Restore (aka re-activate) the specified node.
     """
-    activate_node(session, name, current_user=current_user)
+    await activate_node(session, name, current_user=current_user)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully restored."},
@@ -347,20 +365,27 @@ def restore_node(
 
 
 @router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionOutput])
-def list_node_revisions(
-    name: str, *, session: Session = Depends(get_session)
+async def list_node_revisions(
+    name: str, *, session: AsyncSession = Depends(get_session)
 ) -> List[NodeRevisionOutput]:
     """
     List all revisions for the node.
     """
-    node = get_node_by_name(session, name, with_current=False)
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.revisions).options(*NodeRevision.default_load_options()),
+        ],
+        raise_if_not_exists=True,
+    )
     return node.revisions  # type: ignore
 
 
 @router.post("/nodes/source/", response_model=NodeOutput, name="Create A Source Node")
-def create_source(
+async def create_source(
     data: CreateSourceNode,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
@@ -371,10 +396,10 @@ def create_source(
     Create a source node. If columns are not provided, the source node's schema
     will be inferred using the configured query service.
     """
-    raise_if_node_exists(session, data.name)
+    await raise_if_node_exists(session, data.name)
 
     # if the node previously existed and now is inactive
-    if recreated_node := _create_node_from_inactive(
+    if recreated_node := await _create_node_from_inactive(
         new_node_type=NodeType.SOURCE,
         data=data,
         session=session,
@@ -385,7 +410,7 @@ def create_source(
         return recreated_node
 
     namespace = get_namespace_from_name(data.name)
-    get_node_namespace(
+    await get_node_namespace(
         session=session,
         namespace=namespace,
     )  # Will return 404 if namespace doesn't exist
@@ -398,14 +423,14 @@ def create_source(
         type=NodeType.SOURCE,
         current_version=0,
     )
-    catalog = get_catalog_by_name(session=session, name=data.catalog)
+    catalog = await get_catalog_by_name(session=session, name=data.catalog)
 
     columns = [
         Column(
             name=column_data.name,
             type=column_data.type,
             dimension=(
-                get_node_by_name(
+                await get_node_by_name(
                     session,
                     name=column_data.dimension,
                     node_type=NodeType.DIMENSION,
@@ -432,7 +457,15 @@ def create_source(
     node.display_name = node_revision.display_name
 
     # Point the node to the new node revision.
-    save_node(session, node_revision, node, data.mode, current_user=current_user)
+    await save_node(session, node_revision, node, data.mode, current_user=current_user)
+    node = await Node.get_by_name(  # type: ignore
+        session,
+        node.name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.tags),
+        ],
+    )
     return node
 
 
@@ -454,11 +487,11 @@ def create_source(
     status_code=201,
     name="Create A Metric Node",
 )
-def create_node(
+async def create_node(
     data: CreateNode,
     request: Request,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
@@ -474,10 +507,10 @@ def create_node(
     if node_type == NodeType.DIMENSION and not data.primary_key:
         raise DJInvalidInputException("Dimension nodes must define a primary key!")
 
-    raise_if_node_exists(session, data.name)
+    await raise_if_node_exists(session, data.name)
 
     # if the node previously existed and now is inactive
-    if recreated_node := _create_node_from_inactive(
+    if recreated_node := await _create_node_from_inactive(
         new_node_type=node_type,
         data=data,
         session=session,
@@ -489,7 +522,7 @@ def create_node(
         return recreated_node  # pragma: no cover
 
     namespace = get_namespace_from_name(data.name)
-    get_node_namespace(
+    await get_node_namespace(
         session=session,
         namespace=namespace,
     )  # Will return 404 if namespace doesn't exist
@@ -501,16 +534,22 @@ def create_node(
         type=NodeType(node_type),
         current_version=0,
     )
-    node_revision = create_node_revision(data, node_type, session)
-    save_node(session, node_revision, node, data.mode, current_user=current_user)
+    node_revision = await create_node_revision(data, node_type, session)
+    await save_node(session, node_revision, node, data.mode, current_user=current_user)
     background_tasks.add_task(
         save_column_level_lineage,
         session=session,
         node_revision=node_revision,
     )
-    session.refresh(node_revision)
-    session.refresh(node)
 
+    node = await Node.get_by_name(  # type: ignore
+        session,
+        node.name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+        ],
+    )
+    node_revision = node.current
     column_names = {col.name for col in node_revision.columns}
     if data.primary_key and any(
         key_column not in column_names for key_column in data.primary_key
@@ -522,15 +561,21 @@ def create_node(
     if data.primary_key:
         for key_column in data.primary_key:
             if key_column in column_names:  # pragma: no cover
-                set_node_column_attributes(
+                await set_node_column_attributes(
                     session,
                     node,
                     key_column,
                     [AttributeTypeIdentifier(name="primary_key", namespace="system")],
                     current_user=current_user,
                 )
-    session.refresh(node)
-    session.refresh(node.current)
+    node = await Node.get_by_name(  # type: ignore
+        session,
+        node.name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.tags),
+        ],
+    )
     return node
 
 
@@ -540,10 +585,10 @@ def create_node(
     status_code=201,
     name="Create A Cube",
 )
-def create_cube(
+async def create_cube(
     data: CreateCubeNode,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
     background_tasks: BackgroundTasks,
@@ -554,10 +599,10 @@ def create_cube(
     """
     Create a cube node.
     """
-    raise_if_node_exists(session, data.name)
+    await raise_if_node_exists(session, data.name)
 
     # if the node previously existed and now is inactive
-    if recreated_node := _create_node_from_inactive(
+    if recreated_node := await _create_node_from_inactive(
         new_node_type=NodeType.CUBE,
         data=data,
         session=session,
@@ -569,7 +614,7 @@ def create_cube(
         return recreated_node  # pragma: no cover
 
     namespace = get_namespace_from_name(data.name)
-    get_node_namespace(
+    await get_node_namespace(
         session=session,
         namespace=namespace,
     )
@@ -581,8 +626,9 @@ def create_cube(
         type=NodeType.CUBE,
         current_version=0,
     )
-    node_revision = create_cube_node_revision(session=session, data=data)
-    save_node(session, node_revision, node, data.mode, current_user=current_user)
+    node_revision = await create_cube_node_revision(session=session, data=data)
+    await save_node(session, node_revision, node, data.mode, current_user=current_user)
+    node = await Node.get_by_name(session, data.name)  # type: ignore
     return node
 
 
@@ -591,11 +637,11 @@ def create_cube(
     response_model=NodeOutput,
     status_code=201,
 )
-def register_table(
+async def register_table(
     catalog: str,
     schema_: str,
     table: str,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeOutput:
@@ -610,17 +656,17 @@ def register_table(
         )
     namespace = f"{settings.source_node_namespace}.{catalog}.{schema_}"
     name = f"{namespace}.{table}"
-    raise_if_node_exists(session, name)
+    await raise_if_node_exists(session, name)
 
     # Create the namespace if required (idempotent)
-    create_node_namespace(
+    await create_node_namespace(
         namespace=namespace,
         session=session,
         current_user=current_user,
     )
 
     # Use reflection to get column names and types
-    _catalog = get_catalog_by_name(session=session, name=catalog)
+    _catalog = await get_catalog_by_name(session=session, name=catalog)
     columns = query_service_client.get_columns_for_table(
         _catalog.name,
         schema_,
@@ -628,7 +674,7 @@ def register_table(
         _catalog.engines[0] if len(_catalog.engines) >= 1 else None,
     )
 
-    return create_source(
+    return await create_source(
         data=CreateSourceNode(
             catalog=catalog,
             schema_=schema_,
@@ -645,33 +691,44 @@ def register_table(
 
 
 @router.post("/nodes/{name}/columns/{column}/", status_code=201)
-def link_dimension(
+async def link_dimension(
     name: str,
     column: str,
     dimension: str,
     dimension_column: Optional[str] = None,  # pylint: disable=unused-argument
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Add information to a node column
     """
-    node = get_node_by_name(session=session, name=name)
-    dimension_node = get_node_by_name(
-        session=session,
-        name=dimension,
-        node_type=NodeType.DIMENSION,
+    node = await Node.get_by_name(
+        session,
+        name,
+        raise_if_not_exists=True,
     )
-    primary_key_columns = dimension_node.current.primary_key()
+    dimension_node = await Node.get_by_name(
+        session,
+        dimension,
+        raise_if_not_exists=True,
+    )
+    if dimension_node.type != NodeType.DIMENSION:  # type: ignore  # pragma: no cover
+        # pragma: no cover
+        raise DJException(message=f"Node {node.name} is not of type dimension!")  # type: ignore
+    primary_key_columns = dimension_node.current.primary_key()  # type: ignore
     if len(primary_key_columns) > 1:
         raise DJActionNotAllowedException(  # pragma: no cover
             "Cannot use this endpoint to link a dimension with a compound primary key.",
         )
 
-    target_column = get_column(node.current, column)
+    target_column = await get_column(session, node.current, column)  # type: ignore
     if dimension_column:
         # Check that the dimension column exists
-        column_from_dimension = get_column(dimension_node.current, dimension_column)
+        column_from_dimension = await get_column(
+            session,
+            dimension_node.current,  # type: ignore
+            dimension_column,
+        )
 
         # Check the dimension column's type is compatible with the target column's type
         if not column_from_dimension.type.is_compatible(target_column.type):
@@ -685,13 +742,22 @@ def link_dimension(
     link_input = LinkDimensionInput(
         dimension_node=dimension,
         join_type=JoinType.LEFT,
-        join_on=f"{name}.{column} = {dimension_node.name}.{primary_key_columns[0].name}",
+        join_on=(
+            f"{name}.{column} = "
+            f"{dimension_node.name}.{primary_key_columns[0].name}"  # type: ignore
+        ),
     )
-    activity_type = upsert_complex_dimension_link(
+    activity_type = await upsert_complex_dimension_link(
         session,
         name,
         link_input,
         current_user,
+    )
+
+    node = await Node.get_by_name(
+        session,
+        name,
+        raise_if_not_exists=True,
     )
     return JSONResponse(
         status_code=201,
@@ -710,17 +776,17 @@ def link_dimension(
 
 
 @router.post("/nodes/{node_name}/link/", status_code=201)
-def add_complex_dimension_link(  # pylint: disable=too-many-locals
+async def add_complex_dimension_link(  # pylint: disable=too-many-locals
     node_name: str,
     link_input: LinkDimensionInput,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Links a source, dimension, or transform node to a dimension with a custom join query.
     If a link already exists, updates the link definition.
     """
-    activity_type = upsert_complex_dimension_link(
+    activity_type = await upsert_complex_dimension_link(
         session,
         node_name,
         link_input,
@@ -743,95 +809,40 @@ def add_complex_dimension_link(  # pylint: disable=too-many-locals
 
 
 @router.delete("/nodes/{node_name}/link/", status_code=201)
-def remove_complex_dimension_link(  # pylint: disable=too-many-locals
+async def remove_complex_dimension_link(  # pylint: disable=too-many-locals
     node_name: str,
     link_identifier: LinkDimensionIdentifier,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Removes a complex dimension link based on the dimension node and its role (if any).
     """
-    return remove_dimension_link(session, node_name, link_identifier, current_user)
+    return await remove_dimension_link(
+        session,
+        node_name,
+        link_identifier,
+        current_user,
+    )
 
 
 @router.delete("/nodes/{name}/columns/{column}/", status_code=201)
-def delete_dimension_link(
+async def delete_dimension_link(
     name: str,
     column: str,  # pylint: disable=unused-argument
     dimension: str,
     dimension_column: Optional[str] = None,  # pylint: disable=unused-argument
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Remove the link between a node column and a dimension node
     """
-    return remove_dimension_link(
+    return await remove_dimension_link(
         session,
         name,
         LinkDimensionIdentifier(dimension_node=dimension, role=None),
         current_user,
-    )
-
-
-@router.post("/nodes/{name}/migrate_dim_link", status_code=201)  # pragma: no cover
-def migrate_dimension_link(  # pragma: no cover
-    name: str,
-    session: Session = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
-) -> JSONResponse:
-    """
-    Migrate dimension link from column-level to node-level
-    """
-    node = get_node_by_name(session=session, name=name)
-    migrated, errors = [], []
-    _logger.info("Migrating dimension links for %s", name)
-    for column in node.current.columns:
-        if column.dimension:
-            try:
-                _logger.info(
-                    "Started migration for column %s, dimension %s",
-                    column.name,
-                    column.dimension.name,
-                )
-                dimension_node = column.dimension
-                primary_key_columns = dimension_node.current.primary_key()
-                link_input = LinkDimensionInput(
-                    dimension_node=dimension_node.name,
-                    join_type=JoinType.LEFT,
-                    join_on=(
-                        f"{name}.{column.name} = "
-                        f"{dimension_node.name}.{primary_key_columns[0].name}"
-                    ),
-                )
-                upsert_complex_dimension_link(
-                    session,
-                    name,
-                    link_input,
-                    current_user,
-                )
-                column.dimension = None  # type: ignore
-                column.dimension_id = None
-                column.dimension_column = None
-                session.add(node)
-                session.commit()
-                session.refresh(node)
-                _logger.info(
-                    "Finished migration for column %s, dimension %s",
-                    column.name,
-                    dimension_node.name,
-                )
-                migrated.append((column.name, dimension_node.name))
-            except Exception as e:  # pylint: disable=broad-exception-caught
-                errors.append((column.name, dimension_node.name, str(e)))
-
-    return JSONResponse(
-        status_code=201,
-        content={
-            "finished": migrated,
-            "errors": errors,
-        },
     )
 
 
@@ -841,28 +852,28 @@ def migrate_dimension_link(  # pragma: no cover
     tags=["tags"],
     name="Update Tags on Node",
 )
-def tags_node(
+async def tags_node(
     name: str,
     tag_names: Optional[List[str]] = Query(default=None),
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Add a tag to a node
     """
-    node = get_node_by_name(session=session, name=name)
+    node = await Node.get_by_name(session=session, name=name)
     if not tag_names:
         tag_names = []  # pragma: no cover
-    tags = get_tags_by_name(session, names=tag_names)
-    node.tags = tags
+    tags = await get_tags_by_name(session, names=tag_names)
+    node.tags = tags  # type: ignore
 
     session.add(node)
     session.add(
         History(
             entity_type=EntityType.NODE,
-            entity_name=node.name,
-            node=node.name,
+            entity_name=node.name,  # type: ignore
+            node=node.name,  # type: ignore
             activity_type=ActivityType.TAG,
             details={
                 "tags": tag_names,
@@ -870,10 +881,10 @@ def tags_node(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
-    session.refresh(node)
+    await session.commit()
+    await session.refresh(node)
     for tag in tags:
-        session.refresh(tag)
+        await session.refresh(tag)
 
     return JSONResponse(
         status_code=200,
@@ -891,18 +902,25 @@ def tags_node(
     response_model=NodeOutput,
     status_code=201,
 )
-def refresh_source_node(
+async def refresh_source_node(
     name: str,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeOutput:
     """
     Refresh a source node with the latest columns from the query service.
     """
-    source_node = get_node_by_name(session, name, node_type=NodeType.SOURCE)
-    current_revision = source_node.current
+    source_node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.tags),
+        ],
+    )
+    current_revision = source_node.current  # type: ignore
 
     # Get the latest columns for the source node's table from the query service
     new_columns = []
@@ -930,19 +948,19 @@ def refresh_source_node(
 
         # if the columns haven't changed and the node has a table, we can skip the update
         if not column_changes:
-            if not source_node.missing_table:
-                return source_node
+            if not source_node.missing_table:  # type: ignore
+                return source_node  # type: ignore
             # if the columns haven't changed but the node has a missing table, we should fix it
-            source_node.missing_table = False
+            source_node.missing_table = False  # type: ignore
             refresh_details["missing_table"] = "False"
     else:
         # since we don't see any columns, we'll assume the table is gone
-        source_node.missing_table = True
+        source_node.missing_table = True  # type: ignore
         new_columns = current_revision.columns
         refresh_details["missing_table"] = "True"
 
     # Create a new node revision with the updated columns and bump the version
-    old_version = Version.parse(source_node.current_version)
+    old_version = Version.parse(source_node.current_version)  # type: ignore
     new_revision = NodeRevision(
         name=current_revision.name,
         type=current_revision.type,
@@ -971,7 +989,7 @@ def refresh_source_node(
     new_revision.copy_dimension_links_from_revision(current_revision)
 
     # Point the source node to the new revision
-    source_node.current_version = new_revision.version
+    source_node.current_version = new_revision.version  # type: ignore
     new_revision.extra_validation()
 
     session.add(new_revision)
@@ -981,24 +999,33 @@ def refresh_source_node(
     session.add(
         History(
             entity_type=EntityType.NODE,
-            entity_name=source_node.name,
-            node=source_node.name,
+            entity_name=source_node.name,  # type: ignore
+            node=source_node.name,  # type: ignore
             activity_type=ActivityType.REFRESH,
             details=refresh_details,
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
-    session.refresh(source_node.current)
+    await session.commit()
+
+    source_node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.tags),
+        ],
+    )
+    await session.refresh(source_node, ["current"])
     return source_node  # type: ignore
 
 
 @router.patch("/nodes/{name}/", response_model=NodeOutput)
-def update_node(
+async def update_node(
     name: str,
     data: UpdateNode,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
     background_tasks: BackgroundTasks,
@@ -1009,7 +1036,7 @@ def update_node(
     """
     Update a node.
     """
-    node = update_any_node(
+    await update_any_node(
         name,
         data,
         session=session,
@@ -1018,19 +1045,37 @@ def update_node(
         background_tasks=background_tasks,
         validate_access=validate_access,
     )
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.tags),
+        ],
+    )
     return node  # type: ignore
 
 
 @router.get("/nodes/similarity/{node1_name}/{node2_name}")
-def calculate_node_similarity(
-    node1_name: str, node2_name: str, *, session: Session = Depends(get_session)
+async def calculate_node_similarity(
+    node1_name: str, node2_name: str, *, session: AsyncSession = Depends(get_session)
 ) -> JSONResponse:
     """
     Compare two nodes by how similar their queries are
     """
-    node1 = get_node_by_name(session=session, name=node1_name)
-    node2 = get_node_by_name(session=session, name=node2_name)
-    if NodeType.SOURCE in (node1.type, node2.type):
+    node1 = await Node.get_by_name(
+        session,
+        node1_name,
+        options=[joinedload(Node.current)],
+        raise_if_not_exists=True,
+    )
+    node2 = await Node.get_by_name(
+        session,
+        node2_name,
+        options=[joinedload(Node.current)],
+        raise_if_not_exists=True,
+    )
+    if NodeType.SOURCE in (node1.type, node2.type):  # type: ignore
         raise DJException(
             message="Cannot determine similarity of source nodes",
             http_status_code=HTTPStatus.CONFLICT,
@@ -1046,16 +1091,16 @@ def calculate_node_similarity(
     response_model=List[DAGNodeOutput],
     name="List Downstream Nodes For A Node",
 )
-def list_downstream_nodes(
+async def list_downstream_nodes(
     name: str,
     *,
     node_type: NodeType = None,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are downstream from the given node, filterable by type.
     """
-    return get_downstream_nodes(session, name, node_type)  # type: ignore
+    return await get_downstream_nodes(session, name, node_type)
 
 
 @router.get(
@@ -1063,46 +1108,52 @@ def list_downstream_nodes(
     response_model=List[DAGNodeOutput],
     name="List Upstream Nodes For A Node",
 )
-def list_upstream_nodes(
+async def list_upstream_nodes(
     name: str,
     *,
     node_type: NodeType = None,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are upstream from the given node, filterable by type.
     """
-    return get_upstream_nodes(session, name, node_type)
+    return await get_upstream_nodes(session, name, node_type)
 
 
 @router.get(
     "/nodes/{name}/dag/",
     name="List All Connected Nodes (Upstreams + Downstreams)",
 )
-def list_node_dag(
-    name: str, *, session: Session = Depends(get_session)
+async def list_node_dag(
+    name: str, *, session: AsyncSession = Depends(get_session)
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are part of the DAG of the given node. This means getting all upstreams,
     downstreams, and linked dimension nodes.
     """
-    node = get_node_by_name(session, name, with_current=True)
-    dimension_nodes = (
-        get_dimensions(session, node.current.parents[0], with_attributes=False)
-        + node.current.parents
-        if node.type == NodeType.METRIC
-        else get_dimensions(session, node, with_attributes=False)
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=_node_output_options(),
+        raise_if_not_exists=True,
     )
-    dimension_nodes += [node]
-    downstreams = get_downstream_nodes(
+    dimension_nodes = await get_dimensions(
+        session,
+        node.current.parents[0] if node.type == NodeType.METRIC else node,  # type: ignore
+        with_attributes=False,
+    )
+    if node.type == NodeType.METRIC:  # type: ignore  # pragma: no cover
+        dimension_nodes = dimension_nodes + node.current.parents  # type: ignore
+    dimension_nodes += [node]  # type: ignore
+    downstreams = await get_downstream_nodes(
         session,
         name,
         include_deactivated=False,
         include_cubes=False,
     )
-    upstreams = get_upstream_nodes(session, name, include_deactivated=False)
+    upstreams = await get_upstream_nodes(session, name, include_deactivated=False)
     dag_nodes = set(dimension_nodes + downstreams + upstreams)
-    return [DAGNodeOutput.from_orm(node) for node in dag_nodes]
+    return list(dag_nodes)
 
 
 @router.get(
@@ -1110,14 +1161,24 @@ def list_node_dag(
     response_model=List[DimensionAttributeOutput],
     name="List All Dimension Attributes",
 )
-def list_all_dimension_attributes(
-    name: str, *, session: Session = Depends(get_session)
+async def list_all_dimension_attributes(
+    name: str, *, session: AsyncSession = Depends(get_session)
 ) -> List[DimensionAttributeOutput]:
     """
     List all available dimension attributes for the given node.
     """
-    node = get_node_by_name(session, name)
-    return get_dimensions(session, node, with_attributes=True)
+    node = await (
+        Node.get_by_name(
+            session,
+            name,
+            options=[
+                joinedload(Node.current).options(
+                    joinedload(NodeRevision.parents).options(joinedload(Node.current)),
+                ),
+            ],
+        )
+    )
+    return await get_dimensions(session, node, with_attributes=True)  # type: ignore
 
 
 @router.get(
@@ -1125,16 +1186,31 @@ def list_all_dimension_attributes(
     response_model=List[LineageColumn],
     name="List column level lineage of node",
 )
-def column_lineage(
-    name: str, *, session: Session = Depends(get_session)
+async def column_lineage(
+    name: str, *, session: AsyncSession = Depends(get_session)
 ) -> List[LineageColumn]:
     """
     List column-level lineage of a node in a graph
     """
-    node = get_node_by_name(session, name)
-    if node.current.lineage:
+
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            selectinload(Node.current).options(
+                selectinload(NodeRevision.columns).options(
+                    selectinload(Column.attributes).joinedload(
+                        ColumnAttribute.attribute_type,
+                    ),
+                    selectinload(Column.dimension),
+                    selectinload(Column.partition),
+                ),
+            ),
+        ],
+    )
+    if node.current.lineage:  # type: ignore
         return node.current.lineage  # type: ignore
-    return get_column_level_lineage(session, node.current)  # pragma: no cover
+    return await get_column_level_lineage(session, node.current)  # type: ignore  # pragma: no cover
 
 
 @router.patch(
@@ -1142,25 +1218,29 @@ def column_lineage(
     response_model=ColumnOutput,
     status_code=201,
 )
-def set_column_display_name(
+async def set_column_display_name(
     node_name: str,
     column_name: str,
     display_name: str,
     current_user: Optional[User] = Depends(get_current_user),
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> ColumnOutput:
     """
     Set column name for the node
     """
-    node = get_node_by_name(session, node_name)
-    column = get_column(node.current, column_name)
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[joinedload(Node.current)],
+    )
+    column = await get_column(session, node.current, column_name)  # type: ignore
     column.display_name = display_name
     session.add(column)
     session.add(
         History(
             entity_type=EntityType.COLUMN_ATTRIBUTE,
-            node=node.name,
+            node=node.name,  # type: ignore
             activity_type=ActivityType.UPDATE,
             details={
                 "column": column.name,
@@ -1169,10 +1249,7 @@ def set_column_display_name(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
-    session.refresh(column)
-    session.refresh(node)
-    session.refresh(node.current)
+    await session.commit()
     return column
 
 
@@ -1182,19 +1259,28 @@ def set_column_display_name(
     status_code=201,
     name="Set Node Column as Partition",
 )
-def set_column_partition(  # pylint: disable=too-many-locals
+async def set_column_partition(  # pylint: disable=too-many-locals
     node_name: str,
     column_name: str,
     input_partition: PartitionInput,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> ColumnOutput:
     """
     Add or update partition columns for the specified node.
     """
-    node = get_node_by_name(session, node_name)
-    column = get_node_column(node, column_name)
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[
+            joinedload(Node.current).options(
+                *NodeRevision.default_load_options(),
+                joinedload(NodeRevision.cube_elements),
+            ),
+        ],
+    )
+    column = get_node_column(node, column_name)  # type: ignore
     upsert_partition_event = History(
         entity_type=EntityType.PARTITION,
         node=node_name,
@@ -1234,8 +1320,8 @@ def set_column_partition(  # pylint: disable=too-many-locals
         session.add(partition)
         session.add(upsert_partition_event)
 
-    session.commit()
-    session.refresh(column)
+    await session.commit()
+    await session.refresh(column)
     return column
 
 
@@ -1244,11 +1330,11 @@ def set_column_partition(  # pylint: disable=too-many-locals
     response_model=DAGNodeOutput,
     name="Copy A Node",
 )
-def copy_node(
+async def copy_node(
     node_name: str,
     *,
     new_name: str,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> DAGNodeOutput:
     """
@@ -1256,10 +1342,10 @@ def copy_node(
     """
     # Check to make sure that the new node's namespace exists
     new_node_namespace = ".".join(new_name.split(".")[:-1])
-    get_node_namespace(session, new_node_namespace, raise_if_not_exists=True)
+    await get_node_namespace(session, new_node_namespace, raise_if_not_exists=True)
 
     # Check if there is already a node with the new name
-    existing_new_node = get_node_by_name(
+    existing_new_node = await get_node_by_name(
         session,
         new_name,
         raise_if_not_exists=False,
@@ -1267,13 +1353,13 @@ def copy_node(
     )
     if existing_new_node:
         if existing_new_node.deactivated_at:
-            hard_delete_node(new_name, session, current_user)
+            await hard_delete_node(new_name, session, current_user)
         else:
-            raise DJInvalidInputException(
+            raise DJAlreadyExistsException(
                 f"A node with name {new_name} already exists.",
             )
 
     # Copy existing node to the new name
-    existing_node = get_node_by_name(session, node_name)
-    new_node = copy_to_new_node(session, existing_node, new_name, current_user)
-    return new_node
+    await copy_to_new_node(session, node_name, new_name, current_user)
+    new_node = await Node.get_by_name(session, new_name)
+    return new_node  # type: ignore

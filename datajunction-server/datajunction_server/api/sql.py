@@ -6,7 +6,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import Depends, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import (
     assemble_column_metadata,
@@ -30,12 +30,12 @@ router = SecureAPIRouter(tags=["sql"])
 
 
 @router.get("/sql/measures/", response_model=TranslatedSQL, name="Get Measures SQL")
-def get_measures_sql_for_cube(
+async def get_measures_sql_for_cube(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
@@ -48,7 +48,7 @@ def get_measures_sql_for_cube(
     This SQL can be used to produce an intermediate table with all the measures
     and dimensions needed for an analytics database (e.g., Druid).
     """
-    return get_measures_query(
+    return await get_measures_query(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
@@ -65,14 +65,14 @@ def get_measures_sql_for_cube(
     response_model=TranslatedSQL,
     name="Get SQL For A Node",
 )
-def get_sql(
+async def get_sql(
     node_name: str,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
@@ -90,12 +90,12 @@ def get_sql(
     )
 
     engine = (
-        get_engine(session, engine_name, engine_version)  # type: ignore
+        await get_engine(session, engine_name, engine_version)  # type: ignore
         if engine_name
         else None
     )
     validate_orderby(orderby, [node_name], dimensions)
-    query_ast = get_query(
+    query_ast = await get_query(
         session=session,
         node_name=node_name,
         dimensions=dimensions,
@@ -117,14 +117,14 @@ def get_sql(
 
 
 @router.get("/sql/", response_model=TranslatedSQL, name="Get SQL For Metrics")
-def get_sql_for_metrics(
+async def get_sql_for_metrics(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
@@ -142,7 +142,7 @@ def get_sql_for_metrics(
         base_verb=access.ResourceRequestVerb.READ,
     )
 
-    translated_sql, _, _ = build_sql_for_multiple_metrics(
+    translated_sql, _, _ = await build_sql_for_multiple_metrics(
         session,
         metrics,
         dimensions,

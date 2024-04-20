@@ -1,17 +1,18 @@
 """
 Tests for the engine API.
 """
+import pytest
+from httpx import AsyncClient
 
-from fastapi.testclient import TestClient
 
-
-def test_engine_list(
-    client: TestClient,
+@pytest.mark.asyncio
+async def test_engine_list(
+    client: AsyncClient,
 ) -> None:
     """
     Test listing engines
     """
-    response = client.post(
+    response = await client.post(
         "/engines/",
         json={
             "name": "spark",
@@ -20,7 +21,7 @@ def test_engine_list(
         },
     )
 
-    response = client.post(
+    response = await client.post(
         "/engines/",
         json={
             "name": "spark",
@@ -29,7 +30,7 @@ def test_engine_list(
         },
     )
 
-    response = client.post(
+    response = await client.post(
         "/engines/",
         json={
             "name": "spark",
@@ -48,7 +49,7 @@ def test_engine_list(
     }
     """
 
-    response = client.post("/graphql", json={"query": query})
+    response = await client.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data == {

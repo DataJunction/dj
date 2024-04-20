@@ -76,7 +76,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         """
         # full list
         metrics = client.list_metrics()
-        assert metrics == [
+        assert set(metrics) == {
             "default.num_repair_orders",
             "default.avg_repair_price",
             "default.total_repair_cost",
@@ -91,11 +91,11 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "foo.bar.total_repair_order_discounts",
             "foo.bar.avg_repair_order_discounts",
             "foo.bar.avg_time_to_dispatch",
-        ]
+        }
 
         # partial list
         metrics = client.list_metrics(namespace="foo.bar")
-        assert metrics == [
+        assert set(metrics) == {
             "foo.bar.num_repair_orders",
             "foo.bar.avg_repair_price",
             "foo.bar.total_repair_cost",
@@ -103,7 +103,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "foo.bar.total_repair_order_discounts",
             "foo.bar.avg_repair_order_discounts",
             "foo.bar.avg_time_to_dispatch",
-        ]
+        }
 
     def test_list_cubes(self, client):
         """
@@ -370,7 +370,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         Check that `client.list_catalogs()` works as expected.
         """
         result = client.list_catalogs()
-        assert result == ["unknown", "draft", "default", "public"]
+        assert set(result) == {"unknown", "draft", "default", "public"}
 
     def test_list_engines(self, client):
         """

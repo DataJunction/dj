@@ -1,15 +1,17 @@
 """
 Tests for the djsql API.
 """
-# pylint: disable=too-many-lines,C0301
-
-from fastapi.testclient import TestClient
+import pytest
+from httpx import AsyncClient
 
 from tests.sql.utils import compare_query_strings
 
+# pylint: disable=too-many-lines,C0301
 
-def test_get_djsql_data_only_nodes_query(
-    client_with_query_service: TestClient,
+
+@pytest.mark.asyncio
+async def test_get_djsql_data_only_nodes_query(
+    client_with_query_service: AsyncClient,
 ) -> None:
     """
     Test djsql with just some non-metric nodes
@@ -21,7 +23,7 @@ SELECT default.hard_hat.country,
 FROM default.hard_hat
     """
 
-    response = client_with_query_service.get(
+    response = await client_with_query_service.get(
         "/djsql/data/",
         params={"query": query},
     )
@@ -76,8 +78,9 @@ FROM default.hard_hat
     assert compare_query_strings(query, expected_query)
 
 
-def test_get_djsql_data_only_nested_metrics(
-    client_with_query_service: TestClient,
+@pytest.mark.asyncio
+async def test_get_djsql_data_only_nested_metrics(
+    client_with_query_service: AsyncClient,
 ) -> None:
     """
     Test djsql with metric subquery
@@ -104,7 +107,7 @@ def test_get_djsql_data_only_nested_metrics(
     GROUP BY city
     """
 
-    response = client_with_query_service.get(
+    response = await client_with_query_service.get(
         "/djsql/data/",
         params={"query": query},
     )
@@ -163,8 +166,9 @@ def test_get_djsql_data_only_nested_metrics(
     assert compare_query_strings(query, expected_query)
 
 
-def test_get_djsql_data_only_multiple_metrics(
-    client_with_query_service: TestClient,
+@pytest.mark.asyncio
+async def test_get_djsql_data_only_multiple_metrics(
+    client_with_query_service: AsyncClient,
 ) -> None:
     """
     Test djsql with metric subquery
@@ -183,7 +187,7 @@ def test_get_djsql_data_only_multiple_metrics(
         default.hard_hat.city
     """
 
-    response = client_with_query_service.get(
+    response = await client_with_query_service.get(
         "/djsql/data/",
         params={"query": query},
     )
@@ -244,8 +248,9 @@ def test_get_djsql_data_only_multiple_metrics(
     assert compare_query_strings(query, expected_query)
 
 
-def test_get_djsql_metric_table_exception(
-    client_with_query_service: TestClient,
+@pytest.mark.asyncio
+async def test_get_djsql_metric_table_exception(
+    client_with_query_service: AsyncClient,
 ) -> None:
     """
     Test djsql with metric subquery from non `metrics`
@@ -264,7 +269,7 @@ def test_get_djsql_metric_table_exception(
 
     """
 
-    response = client_with_query_service.get(
+    response = await client_with_query_service.get(
         "/djsql/data/",
         params={"query": query},
     )
@@ -274,8 +279,9 @@ def test_get_djsql_metric_table_exception(
     )
 
 
-def test_get_djsql_illegal_clause_metric_query(
-    client_with_query_service: TestClient,
+@pytest.mark.asyncio
+async def test_get_djsql_illegal_clause_metric_query(
+    client_with_query_service: AsyncClient,
 ) -> None:
     """
     Test djsql with metric subquery from non `metrics`
@@ -294,7 +300,7 @@ def test_get_djsql_illegal_clause_metric_query(
         HAVING 5
     """
 
-    response = client_with_query_service.get(
+    response = await client_with_query_service.get(
         "/djsql/data/",
         params={"query": query},
     )
@@ -304,8 +310,9 @@ def test_get_djsql_illegal_clause_metric_query(
     )
 
 
-def test_get_djsql_illegal_column_expression(
-    client_with_query_service: TestClient,
+@pytest.mark.asyncio
+async def test_get_djsql_illegal_column_expression(
+    client_with_query_service: AsyncClient,
 ) -> None:
     """
     Test djsql with non col exp in projection
@@ -323,7 +330,7 @@ def test_get_djsql_illegal_column_expression(
         default.hard_hat.city
     """
 
-    response = client_with_query_service.get(
+    response = await client_with_query_service.get(
         "/djsql/data/",
         params={"query": query},
     )
@@ -333,8 +340,9 @@ def test_get_djsql_illegal_column_expression(
     )
 
 
-def test_get_djsql_illegal_column(
-    client_with_query_service: TestClient,
+@pytest.mark.asyncio
+async def test_get_djsql_illegal_column(
+    client_with_query_service: AsyncClient,
 ) -> None:
     """
     Test djsql with bad col in projection
@@ -352,7 +360,7 @@ def test_get_djsql_illegal_column(
         default.hard_hat.city
     """
 
-    response = client_with_query_service.get(
+    response = await client_with_query_service.get(
         "/djsql/data/",
         params={"query": query},
     )
@@ -362,8 +370,9 @@ def test_get_djsql_illegal_column(
     )
 
 
-def test_get_djsql_illegal_limit(
-    client_with_query_service: TestClient,
+@pytest.mark.asyncio
+async def test_get_djsql_illegal_limit(
+    client_with_query_service: AsyncClient,
 ) -> None:
     """
     Test djsql with bad limit
@@ -379,7 +388,7 @@ def test_get_djsql_illegal_limit(
         LIMIT 1+2
     """
 
-    response = client_with_query_service.get(
+    response = await client_with_query_service.get(
         "/djsql/data/",
         params={"query": query},
     )
@@ -389,8 +398,9 @@ def test_get_djsql_illegal_limit(
     )
 
 
-def test_get_djsql_no_nodes(
-    client_with_query_service: TestClient,
+@pytest.mark.asyncio
+async def test_get_djsql_no_nodes(
+    client_with_query_service: AsyncClient,
 ) -> None:
     """
     Test djsql without dj node refs
@@ -400,7 +410,7 @@ def test_get_djsql_no_nodes(
         SELECT 1
     """
 
-    response = client_with_query_service.get(
+    response = await client_with_query_service.get(
         "/djsql/data/",
         params={"query": query},
     )

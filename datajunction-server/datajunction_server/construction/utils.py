@@ -5,7 +5,8 @@ Utilities used around construction
 from typing import TYPE_CHECKING, Optional, Set, Union
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 from sqlalchemy.orm.exc import NoResultFound
 
 from datajunction_server.database.node import Node, NodeRevision
@@ -16,8 +17,8 @@ if TYPE_CHECKING:
     from datajunction_server.sql.parsing.ast import Column, Name
 
 
-def get_dj_node(
-    session: Session,
+async def get_dj_node(
+    session: AsyncSession,
     node_name: str,
     kinds: Optional[Set[NodeType]] = None,
     current: bool = True,
@@ -28,7 +29,19 @@ def get_dj_node(
         query = query.filter(Node.type.in_(kinds))  # type: ignore  # pylint: disable=no-member
     match = None
     try:
-        match = session.execute(query).scalar_one()
+        match = (
+            (
+                await session.execute(
+                    query.options(
+                        joinedload(Node.current).options(
+                            *NodeRevision.default_load_options()
+                        ),
+                    ),
+                )
+            )
+            .unique()
+            .scalar_one()
+        )
     except NoResultFound as no_result_exc:
         kind_msg = " or ".join(str(k) for k in kinds) if kinds else ""
         raise DJErrorException(
@@ -40,8 +53,8 @@ def get_dj_node(
     return match.current if match and current else match
 
 
-def try_get_dj_node(
-    session: Session,
+async def try_get_dj_node(
+    session: AsyncSession,
     name: Union[str, "Column"],
     kinds: Optional[Set[NodeType]] = None,
 ) -> Optional[Node]:
@@ -54,7 +67,7 @@ def try_get_dj_node(
         else:
             return None
     try:
-        return get_dj_node(session, name, kinds, current=False)
+        return await get_dj_node(session, name, kinds, current=False)
     except DJErrorException:
         return None
 

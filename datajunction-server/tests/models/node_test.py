@@ -6,7 +6,7 @@ Tests for ``datajunction_server.models.node``.
 
 
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.node import Node, NodeRevision
@@ -14,7 +14,7 @@ from datajunction_server.models.node import AvailabilityStateBase, PartitionAvai
 from datajunction_server.models.node_type import NodeType
 
 
-def test_node_relationship(session: Session) -> None:
+def test_node_relationship(session: AsyncSession) -> None:
     """
     Test the n:n self-referential relationships.
     """

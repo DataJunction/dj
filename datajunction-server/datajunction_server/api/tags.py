@@ -6,12 +6,14 @@ from typing import List, Optional
 
 from fastapi import Depends
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
+from datajunction_server.database import Node
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJDoesNotExistException, DJException
+from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
@@ -22,15 +24,15 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["tags"])
 
 
-def get_tags_by_name(
-    session: Session,
+async def get_tags_by_name(
+    session: AsyncSession,
     names: List[str],
 ) -> List[Tag]:
     """
     Retrieves a list of tags by name
     """
     statement = select(Tag).where(Tag.name.in_(names))  # type: ignore  # pylint: disable=no-member
-    tags = session.execute(statement).scalars().all()
+    tags = (await session.execute(statement)).scalars().all()
     difference = set(names) - {tag.name for tag in tags}
     if difference:
         raise DJDoesNotExistException(
@@ -39,8 +41,8 @@ def get_tags_by_name(
     return tags
 
 
-def get_tag_by_name(
-    session: Session,
+async def get_tag_by_name(
+    session: AsyncSession,
     name: str,
     raise_if_not_exists: bool = False,
     for_update: bool = False,
@@ -53,9 +55,9 @@ def get_tag_by_name(
         statement = statement.with_for_update().execution_options(
             populate_existing=True,
         )
-    tag = session.execute(statement).scalars().one_or_none()
+    tag = (await session.execute(statement)).scalars().one_or_none()
     if not tag and raise_if_not_exists:
-        raise DJException(  # pragma: no cover
+        raise DJDoesNotExistException(  # pragma: no cover
             message=(f"A tag with name `{name}` does not exist."),
             http_status_code=404,
         )
@@ -63,8 +65,8 @@ def get_tag_by_name(
 
 
 @router.get("/tags/", response_model=List[TagOutput])
-def list_tags(
-    tag_type: Optional[str] = None, *, session: Session = Depends(get_session)
+async def list_tags(
+    tag_type: Optional[str] = None, *, session: AsyncSession = Depends(get_session)
 ) -> List[TagOutput]:
     """
     List all available tags.
@@ -72,30 +74,33 @@ def list_tags(
     statement = select(Tag)
     if tag_type:
         statement = statement.where(Tag.tag_type == tag_type)
-    return session.execute(statement).scalars().all()
+    result = await session.execute(statement)
+    return result.scalars().all()
 
 
 @router.get("/tags/{name}/", response_model=TagOutput)
-def get_a_tag(name: str, *, session: Session = Depends(get_session)) -> TagOutput:
+async def get_a_tag(
+    name: str, *, session: AsyncSession = Depends(get_session)
+) -> TagOutput:
     """
     Return a tag by name.
     """
-    tag = get_tag_by_name(session, name, raise_if_not_exists=True)
+    tag = await get_tag_by_name(session, name, raise_if_not_exists=True)
     return tag
 
 
 @router.post("/tags/", response_model=TagOutput, status_code=201)
-def create_a_tag(
+async def create_a_tag(
     data: CreateTag,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> TagOutput:
     """
     Create a tag.
     """
-    tag = get_tag_by_name(session, data.name, raise_if_not_exists=False)
+    tag = await get_tag_by_name(session, data.name, raise_if_not_exists=False)
     if tag:
-        raise DJException(
+        raise DJAlreadyExistsException(
             message=f"A tag with name `{data.name}` already exists!",
             http_status_code=500,
         )
@@ -115,22 +120,27 @@ def create_a_tag(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
-    session.refresh(tag)
+    await session.commit()
+    await session.refresh(tag)
     return tag
 
 
 @router.patch("/tags/{name}/", response_model=TagOutput)
-def update_a_tag(
+async def update_a_tag(
     name: str,
     data: UpdateTag,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
 ) -> TagOutput:
     """
     Update a tag.
     """
-    tag = get_tag_by_name(session, name, raise_if_not_exists=True, for_update=True)
+    tag = await get_tag_by_name(
+        session,
+        name,
+        raise_if_not_exists=True,
+        for_update=True,
+    )
 
     if data.description:
         tag.description = data.description
@@ -148,25 +158,29 @@ def update_a_tag(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
-    session.refresh(tag)
+    await session.commit()
+    await session.refresh(tag)
     return tag
 
 
 @router.get("/tags/{name}/nodes/", response_model=List[NodeMinimumDetail])
-def list_nodes_for_a_tag(
+async def list_nodes_for_a_tag(
     name: str,
     node_type: Optional[NodeType] = None,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> List[NodeMinimumDetail]:
     """
     Find nodes tagged with the tag, filterable by node type.
     """
-    statement = select(Tag).where(Tag.name == name).options(joinedload(Tag.nodes))
-    tag = session.execute(statement).unique().scalars().one_or_none()
+    statement = (
+        select(Tag)
+        .where(Tag.name == name)
+        .options(joinedload(Tag.nodes).options(joinedload(Node.current)))
+    )
+    tag = (await session.execute(statement)).unique().scalars().one_or_none()
     if not tag:
-        raise DJException(
+        raise DJDoesNotExistException(
             message=f"A tag with name `{name}` does not exist.",
             http_status_code=404,
         )

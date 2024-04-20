@@ -25,10 +25,12 @@ from typing import (
     cast,
 )
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.construction.utils import get_dj_node, to_namespaced_name
 from datajunction_server.database import DimensionLink
+from datajunction_server.database.node import Node as DJNodeRef
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.node import NodeRevision as DJNode
 from datajunction_server.errors import DJError, DJErrorException, DJException, ErrorCode
@@ -77,7 +79,7 @@ def flatten(maybe_iterables: Any) -> Iterator:
 
 @dataclass
 class CompileContext:
-    session: Session
+    session: AsyncSession
     exception: DJException
 
 
@@ -456,7 +458,7 @@ class Node(ABC):
         Get the string of a node
         """
 
-    def compile(self, ctx: CompileContext):
+    async def compile(self, ctx: CompileContext):
         """
         Compile a DJ Node. By default, we call compile on all immediate children of this node.
         """
@@ -464,7 +466,7 @@ class Node(ABC):
             return
         for child in self.children:
             if not child.is_compiled():
-                child.compile(ctx)
+                await child.compile(ctx)
                 child._is_compiled = True
         self._is_compiled = True
 
@@ -745,6 +747,15 @@ class Column(Aliasable, Named, Expression):
         self._type = type_
         return self
 
+    def copy(self):
+        return Column(
+            name=self.name,
+            alias=self.alias,
+            _table=self.table,
+            _type=self.type,
+            _is_compiled=self.is_compiled(),
+        )
+
     @property
     def expression(self) -> Optional[Expression]:
         """
@@ -830,7 +841,7 @@ class Column(Aliasable, Named, Expression):
             column_namespace = self.namespace[0].name
         return column_namespace, column_name, subscript_name
 
-    def find_table_sources(
+    async def find_table_sources(
         self,
         ctx: CompileContext,
     ) -> List["TableExpression"]:
@@ -853,7 +864,7 @@ class Column(Aliasable, Named, Expression):
             self.add_type(self.child.type)
         for table in direct_tables:
             if not table.is_compiled():
-                table.compile(ctx)
+                await table.compile(ctx)
 
         namespace = (
             self.name.namespace.identifier(False) if self.name.namespace else ""
@@ -876,7 +887,8 @@ class Column(Aliasable, Named, Expression):
                 not namespace
                 or namespace == table.alias_or_name.identifier(False)
             ):
-                if table.add_ref_column(self, ctx):
+                result = await table.add_ref_column(self, ctx)
+                if result:
                     found.append(table)
 
         # This column may be a struct, meaning it'll have an optional namespace,
@@ -886,7 +898,7 @@ class Column(Aliasable, Named, Expression):
                 if table.column_mapping.get(namespace) or (
                     table.column_mapping.get(column_name) and is_struct
                 ):
-                    if table.add_ref_column(self, ctx):
+                    if await table.add_ref_column(self, ctx):
                         found.append(table)
 
         if found:
@@ -902,7 +914,7 @@ class Column(Aliasable, Named, Expression):
             )
             for table in correlation_tables:
                 if not namespace or table.alias_or_name.identifier(False) == namespace:
-                    if table.add_ref_column(self, ctx):
+                    if await table.add_ref_column(self, ctx):
                         found.append(table)
 
         if found:
@@ -913,7 +925,7 @@ class Column(Aliasable, Named, Expression):
         if isinstance(alpha_query, Query) and alpha_query.ctes:
             for table in alpha_query.ctes:
                 if table.alias_or_name.identifier(False) == namespace:
-                    if table.add_ref_column(self, ctx):
+                    if await table.add_ref_column(self, ctx):
                         found.append(table)
 
         # If nothing was found in the initial AST, traverse through dimensions graph
@@ -940,43 +952,61 @@ class Column(Aliasable, Named, Expression):
                     current_table.set_dj_node(current_table.dj_node.current)
                 for dj_col in current_table.dj_node.columns:
                     if dj_col.dimension:
-                        new_table = Table(
-                            name=to_namespaced_name(dj_col.dimension.name),
-                            _dj_node=dj_col.dimension.current,
-                            path=path,
+                        col_dimension = await DJNodeRef.get_by_name(
+                            ctx.session,
+                            dj_col.dimension.name,
+                            options=[
+                                joinedload(DJNodeRef.current).options(
+                                    selectinload(DJNode.columns),
+                                ),
+                            ],
                         )
-                        new_table._columns = [
-                            Column(
-                                name=Name(col.name),
-                                _type=col.type,
-                                _table=new_table,
+                        if col_dimension:
+                            new_table = Table(
+                                name=to_namespaced_name(col_dimension.name),
+                                _dj_node=col_dimension.current,
+                                path=path,
                             )
-                            for col in dj_col.dimension.current.columns
-                        ]
-                        to_process.append((new_table, path))
+                            new_table._columns = [
+                                Column(
+                                    name=Name(col.name),
+                                    _type=col.type,
+                                    _table=new_table,
+                                )
+                                for col in col_dimension.current.columns
+                            ]
+                            to_process.append((new_table, path))
+                await ctx.session.refresh(current_table.dj_node, ["dimension_links"])
                 for link in current_table.dj_node.dimension_links:
                     all_roles = []
                     if self.role:
                         all_roles = self.role.split(" -> ")
                     if (not link.role and not all_roles) or (link.role in all_roles):
-                        new_table = Table(
-                            name=to_namespaced_name(link.dimension.name),
-                            _dj_node=link.dimension.current,
-                            dimension_link=link,
-                            path=path + [link],
-                        )
-                        new_table._columns = [
-                            Column(
-                                name=Name(col.name),
-                                _type=col.type,
-                                _table=new_table,
+                        await ctx.session.refresh(link, ["dimension"])
+                        if link.dimension:
+                            await ctx.session.refresh(link.dimension, ["current"])
+                            new_table = Table(
+                                name=to_namespaced_name(link.dimension.name),
+                                _dj_node=link.dimension.current,
+                                dimension_link=link,
+                                path=path + [link],
                             )
-                            for col in link.dimension.current.columns
-                        ]
-                        to_process.append((new_table, path + [link]))
+                            await ctx.session.refresh(
+                                link.dimension.current,
+                                ["columns"],
+                            )
+                            new_table._columns = [
+                                Column(
+                                    name=Name(col.name),
+                                    _type=col.type,
+                                    _table=new_table,
+                                )
+                                for col in link.dimension.current.columns
+                            ]
+                            to_process.append((new_table, path + [link]))
         return found
 
-    def compile(self, ctx: CompileContext):
+    async def compile(self, ctx: CompileContext):
         """
         Compile a column.
         Determines the table from which a column is from.
@@ -987,9 +1017,9 @@ class Column(Aliasable, Named, Expression):
 
         # check if the column was already given a table
         if self.table and isinstance(self.table.parent, Column):
-            self.table.add_ref_column(self, ctx)
+            await self.table.add_ref_column(self, ctx)
         else:
-            found_sources = self.find_table_sources(ctx)
+            found_sources = await self.find_table_sources(ctx)
             if len(found_sources) < 1:
                 ctx.exception.errors.append(
                     DJError(
@@ -1009,7 +1039,15 @@ class Column(Aliasable, Named, Expression):
                 return
 
             source_table = cast(TableExpression, found_sources[0])
-            source_table.add_ref_column(self, ctx)
+            added = await source_table.add_ref_column(self, ctx)
+            if not added:
+                ctx.exception.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_COLUMN,
+                        message=f"Column `{self}` does not exist on any valid table.",
+                    ),
+                )
+                return
         self._is_compiled = True
 
     @property
@@ -1132,7 +1170,7 @@ class TableExpression(Aliasable, Expression):
         """
         return self._ref_columns
 
-    def add_ref_column(
+    async def add_ref_column(
         self,
         column: Column,
         ctx: Optional[CompileContext] = None,
@@ -1170,7 +1208,7 @@ class TableExpression(Aliasable, Expression):
                     "Uncompiled Table expression requested to "
                     "add Column ref without a compilation context.",
                 )
-            self.compile(ctx)
+            await self.compile(ctx)
 
         if not isinstance(column, Alias):
             ref_col_name = column.name.name
@@ -1304,13 +1342,13 @@ class Table(TableExpression, Named):
                 col.table.alias = self.alias
         return self
 
-    def compile(self, ctx: CompileContext):
+    async def compile(self, ctx: CompileContext):
         # things we can validate here:
         # - if the node is a dimension in a groupby, is it joinable?
         self._is_compiled = True
         try:
             if not self.dj_node:
-                dj_node = get_dj_node(
+                dj_node = await get_dj_node(
                     ctx.session,
                     self.identifier(quotes=False),
                     {DJNodeType.SOURCE, DJNodeType.TRANSFORM, DJNodeType.DIMENSION},
@@ -1544,7 +1582,7 @@ class BinaryOp(Operation):
         }
         return BINOP_TYPE_COMBO_LOOKUP[kind](left_type, right_type)
 
-    def compile(self, ctx: CompileContext):
+    async def compile(self, ctx: CompileContext):
         """
         Compile a DJ Node. By default, we call compile on all immediate children of this node.
         """
@@ -1552,7 +1590,7 @@ class BinaryOp(Operation):
             return
         for child in self.children:
             if not child.is_compiled():
-                child.compile(ctx)
+                await child.compile(ctx)
                 child._is_compiled = True
         self._is_compiled = True
 
@@ -1676,21 +1714,21 @@ class Function(Named, Operation):
     def type(self) -> ColumnType:
         return self.function().infer_type(*self.args)
 
-    def compile(self, ctx: CompileContext):
+    async def compile(self, ctx: CompileContext):
         """
         Compile a function
         """
         self._is_compiled = True
         for arg in self.args:
             if not arg.is_compiled():
-                arg.compile(ctx)
+                await arg.compile(ctx)
                 arg._is_compiled = True
 
         self.function().compile_lambda(*self.args)
 
         for child in self.children:
             if not child.is_compiled():
-                child.compile(ctx)
+                await child.compile(ctx)
                 child._is_compiled = True
 
 
@@ -2236,21 +2274,21 @@ class FunctionTable(FunctionTableExpression):
         self.alias = alias
         return self
 
-    def _type(self, ctx: Optional[CompileContext] = None) -> List[NestedField]:
+    async def _type(self, ctx: Optional[CompileContext] = None) -> List[NestedField]:
         name = self.name.name.upper()
         dj_func = table_function_registry[name]
         arg_types = []
         for arg in self.args:
             if ctx:
-                arg.compile(ctx)
+                await arg.compile(ctx)
             arg_types.append(arg.type)
         return dj_func.infer_type(*arg_types)
 
-    def compile(self, ctx):
+    async def compile(self, ctx):
         if self.is_compiled():
             return
         self._is_compiled = True
-        types = self._type(ctx)
+        types = await self._type(ctx)
         for type, col in zip_longest(types, self.column_list):
             if self.column_list:
                 if (type is None) or (col is None):
@@ -2469,7 +2507,7 @@ class Select(SelectExpression):
             )
         return self.projection[0].type
 
-    def compile(self, ctx: CompileContext):
+    async def compile(self, ctx: CompileContext):
         if not self.group_by and self.having:
             ctx.exception.errors.append(
                 DJError(
@@ -2482,7 +2520,7 @@ class Select(SelectExpression):
                 ),
             )
 
-        super().compile(ctx)
+        await super().compile(ctx)
 
 
 @dataclass(eq=False)
@@ -2499,14 +2537,14 @@ class Query(TableExpression, UnNamed):
             self.filter(lambda node: node is not self and not node.is_compiled()),
         )
 
-    def compile(self, ctx: CompileContext):
+    async def compile(self, ctx: CompileContext):
         if self._is_compiled:
             return
-        self.apply(
-            lambda node: node is not self
-            and not node.is_compiled()
-            and node.compile(ctx),
-        )
+
+        for child in self.children:
+            if child is not self and not child.is_compiled():
+                await child.compile(ctx)
+
         for expr in self.select.projection:
             self._columns += expr.columns
         self._is_compiled = True
@@ -2554,7 +2592,7 @@ class Query(TableExpression, UnNamed):
                 col.table.alias = self.alias
         return self
 
-    def extract_dependencies(
+    async def extract_dependencies(
         self,
         context: Optional[CompileContext] = None,
     ) -> Tuple[Dict[NodeRevision, List[Table]], Dict[str, List[Table]]]:
@@ -2565,7 +2603,7 @@ class Query(TableExpression, UnNamed):
         if not self.is_compiled():
             if not context:
                 raise DJException("Context not provided for query compilation!")
-            self.compile(context)
+            await self.compile(context)
 
         deps: Dict[NodeRevision, List[Table]] = {}
         danglers: Dict[str, List[Table]] = {}
@@ -2584,9 +2622,9 @@ class Query(TableExpression, UnNamed):
     def type(self) -> ColumnType:
         return self.select.type
 
-    def build(  # pylint: disable=R0913,C0415
+    async def build(  # pylint: disable=R0913,C0415
         self,
-        session: Session,
+        session: AsyncSession,
         memoized_queries: Dict[int, "Query"],
         build_criteria: Optional[BuildCriteria] = None,
         filters: Optional[List[str]] = None,
@@ -2599,7 +2637,7 @@ class Query(TableExpression, UnNamed):
         from datajunction_server.construction.build import _build_select_ast
 
         self.bake_ctes()  # pylint: disable=W0212
-        _build_select_ast(
+        await _build_select_ast(
             session,
             self.select,
             memoized_queries,

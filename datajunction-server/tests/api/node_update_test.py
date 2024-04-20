@@ -1,13 +1,15 @@
 """Tests for node updates"""
 from unittest import mock
 
-from fastapi.testclient import TestClient
+import pytest
+from httpx import AsyncClient
 
 from datajunction_server.models.node import NodeStatus
 
 
-def test_update_source_node(
-    client_with_roads: TestClient,
+@pytest.mark.asyncio
+async def test_update_source_node(
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test updating a source node that has multiple layers of downstream effects
@@ -17,7 +19,7 @@ def test_update_source_node(
     - any metric selecting from `quantity` should be invalid (now quantity_v2)
     - any metric selecting from `price` should have updated types (now string)
     """
-    client_with_roads.patch(
+    await client_with_roads.patch(
         "/nodes/default.repair_order_details/",
         json={
             "columns": [
@@ -208,12 +210,12 @@ def test_update_source_node(
 
     # check all affected nodes and verify that their statuses have been updated
     for affected, expected_status in affected_nodes.items():
-        response = client_with_roads.get(f"/nodes/{affected}")
+        response = await client_with_roads.get(f"/nodes/{affected}")
         assert response.json()["status"] == expected_status
 
         # only nodes with a status change will have a history record
         if expected_status == NodeStatus.INVALID:
-            response = client_with_roads.get(f"/history?node={affected}")
+            response = await client_with_roads.get(f"/history?node={affected}")
             if node_history_events.get(affected):
                 assert [
                     event
