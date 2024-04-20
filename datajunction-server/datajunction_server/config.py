@@ -98,6 +98,10 @@ class Settings(
     db_connect_timeout = 5
     db_pool_pre_ping = True
     db_echo = False
+    db_keepalives = 1
+    db_keepalives_idle = 30
+    db_keepalives_interval = 10
+    db_keepalives_count = 5
 
     @property
     def celery(self) -> Celery:

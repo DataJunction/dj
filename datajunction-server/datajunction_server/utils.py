@@ -86,6 +86,10 @@ class DatabaseSessionManager:
             poolclass=AsyncAdaptedQueuePool,
             connect_args={
                 "connect_timeout": settings.db_connect_timeout,
+                "keepalives": settings.db_keepalives,
+                "keepalives_idle": settings.db_keepalives_idle,
+                "keepalives_interval": settings.db_keepalives_interval,
+                "keepalives_count": settings.db_keepalives_count,
             },
         )
 
