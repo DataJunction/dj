@@ -6,10 +6,11 @@ Fixtures for testing DJ client.
 import os
 from http.client import HTTPException
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import AsyncGenerator, Iterator, List, Optional
 from unittest.mock import MagicMock
 
 import pytest
+import pytest_asyncio
 from cachelib import SimpleCache
 from datajunction_server.api.main import app
 from datajunction_server.config import Settings
@@ -25,11 +26,15 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
+from httpx import AsyncClient
 from pytest_mock import MockerFixture
 from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
+from testcontainers.core.waiting_utils import wait_for_logs
+from testcontainers.postgres import PostgresContainer
 
 from datajunction import DJBuilder
 from tests.examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS
@@ -57,20 +62,55 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
     yield settings
 
 
-@pytest.fixture
-def session() -> Iterator[Session]:
+@pytest.fixture(scope="session")
+def postgres_container() -> PostgresContainer:
     """
-    Create an in-memory SQLite session to test models.
+    Setup postgres container
     """
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
+    postgres = PostgresContainer(
+        image="postgres:latest",
+        user="dj",
+        password="dj",
+        dbname="dj",
+        port=5432,
+        driver="psycopg",
+    )
+    with postgres:
+        wait_for_logs(
+            postgres,
+            r"UTC \[1\] LOG:  database system is ready to accept connections",
+            10,
+        )
+        yield postgres
+
+
+@pytest_asyncio.fixture
+async def session(
+    postgres_container: PostgresContainer,
+) -> AsyncGenerator[AsyncSession, None]:
+    """
+    Create a Postgres session to test models.
+    """
+    engine = create_async_engine(
+        url=postgres_container.get_connection_url(),
         poolclass=StaticPool,
     )
-    Base.metadata.create_all(engine)
-
-    with Session(engine, autoflush=False) as session:
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async_session_factory = async_sessionmaker(
+        bind=engine,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    async with async_session_factory() as session:
         yield session
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+    # for AsyncEngine created in function scope, close and
+    # clean-up pooled connections
+    await engine.dispose()
 
 
 @pytest.fixture
@@ -155,10 +195,10 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
 
 @pytest.fixture
 def server(  # pylint: disable=too-many-statements
-    session: Session,
+    session: AsyncSession,
     settings: Settings,
     query_service_client: QueryServiceClient,
-) -> TestClient:
+) -> Iterator[TestClient]:
     """
     Create a mock server for testing APIs that contains a mock query service.
     """
@@ -166,7 +206,7 @@ def server(  # pylint: disable=too-many-statements
     def get_query_service_client_override() -> QueryServiceClient:
         return query_service_client
 
-    def get_session_override() -> Session:
+    async def get_session_override() -> AsyncSession:
         return session
 
     def get_settings_override() -> Settings:
@@ -189,7 +229,7 @@ def post_and_raise_if_error(server: TestClient, endpoint: str, json: dict):
     Post the payload to the client and raise if there's an error
     """
     response = server.post(endpoint, json=json)
-    if not response.ok:
+    if not response.status_code < 400:
         raise HTTPException(response.text)
 
 
@@ -204,7 +244,7 @@ def session_with_examples(server: TestClient) -> TestClient:
 
 
 @pytest.fixture
-def builder_client(session_with_examples: Session):
+def builder_client(session_with_examples: TestClient):
     """
     Returns a DJ client instance
     """

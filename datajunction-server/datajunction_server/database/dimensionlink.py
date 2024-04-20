@@ -55,6 +55,7 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
     dimension: Mapped[Node] = relationship(
         "Node",
         foreign_keys=[dimension_id],
+        lazy="joined",
     )
 
     # SQL used to join the two nodes

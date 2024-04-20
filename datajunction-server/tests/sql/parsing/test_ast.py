@@ -2,9 +2,9 @@
 """
 testing ast Nodes and their methods
 """
-
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.errors import DJException
 from datajunction_server.sql.parsing import ast, types
@@ -12,9 +12,10 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from tests.sql.utils import compare_query_strings
 
 
-def test_ast_compile_table(
-    session: Session,
-    client_with_roads: TestClient,  # pylint: disable=unused-argument
+@pytest.mark.asyncio
+async def test_ast_compile_table(
+    session: AsyncSession,
+    client_with_roads: AsyncClient,  # pylint: disable=unused-argument
 ):
     """
     Test compiling the primary table from a query
@@ -24,7 +25,7 @@ def test_ast_compile_table(
     query = parse("SELECT hard_hat_id, last_name, first_name FROM default.hard_hats")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.select.from_.relations[0].primary.compile(ctx)  # type: ignore
+    await query.select.from_.relations[0].primary.compile(ctx)  # type: ignore
     assert not exc.errors
 
     node = query.select.from_.relations[  # type: ignore  # pylint: disable=protected-access
@@ -34,48 +35,52 @@ def test_ast_compile_table(
     assert node.name == "default.hard_hats"
 
 
-def test_ast_compile_table_missing_node(session):
+@pytest.mark.asyncio
+async def test_ast_compile_table_missing_node(session: AsyncSession):
     """
     Test compiling a table when the node is missing
     """
     query = parse("SELECT a FROM foo")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.select.from_.relations[0].primary.compile(ctx)
+    await query.select.from_.relations[0].primary.compile(ctx)  # type: ignore
     assert "No node `foo` exists of kind" in exc.errors[0].message
 
     query = parse("SELECT a FROM foo, bar, baz")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.select.from_.relations[0].primary.compile(ctx)
+    await query.select.from_.relations[0].primary.compile(ctx)  # type: ignore
     assert "No node `foo` exists of kind" in exc.errors[0].message
-    query.select.from_.relations[1].primary.compile(ctx)
+    await query.select.from_.relations[1].primary.compile(ctx)  # type: ignore
     assert "No node `bar` exists of kind" in exc.errors[1].message
-    query.select.from_.relations[2].primary.compile(ctx)
+    await query.select.from_.relations[2].primary.compile(ctx)  # type: ignore
     assert "No node `baz` exists of kind" in exc.errors[2].message
 
     query = parse("SELECT a FROM foo LEFT JOIN bar")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.select.from_.relations[0].primary.compile(ctx)
+    await query.select.from_.relations[0].primary.compile(ctx)  # type: ignore
     assert "No node `foo` exists of kind" in exc.errors[0].message
-    query.select.from_.relations[0].extensions[0].right.compile(ctx)
+    await query.select.from_.relations[0].extensions[0].right.compile(ctx)  # type: ignore
     assert "No node `bar` exists of kind" in exc.errors[1].message
 
     query = parse("SELECT a FROM foo LEFT JOIN (SELECT b FROM bar) b")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.select.from_.relations[0].primary.compile(ctx)
+    await query.select.from_.relations[0].primary.compile(ctx)  # type: ignore
     assert "No node `foo` exists of kind" in exc.errors[0].message
-    query.select.from_.relations[0].extensions[0].right.select.from_.relations[
-        0
-    ].primary.compile(ctx)
+    await (
+        query.select.from_.relations[0].extensions[0].right.select.from_.relations  # type: ignore
+    )[0].primary.compile(
+        ctx,
+    )
     assert "No node `bar` exists of kind" in exc.errors[1].message
 
 
-def test_ast_compile_query(
-    session: Session,
-    client_with_roads: TestClient,  # pylint: disable=unused-argument
+@pytest.mark.asyncio
+async def test_ast_compile_query(
+    session: AsyncSession,
+    client_with_roads: AsyncClient,  # pylint: disable=unused-argument
 ):
     """
     Test compiling an entire query
@@ -83,7 +88,7 @@ def test_ast_compile_query(
     query = parse("SELECT hard_hat_id, last_name, first_name FROM default.hard_hats")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
 
     node = query.select.from_.relations[  # type: ignore  # pylint: disable=protected-access
@@ -93,9 +98,10 @@ def test_ast_compile_query(
     assert node.name == "default.hard_hats"
 
 
-def test_ast_compile_query_missing_columns(
-    session: Session,
-    client_with_roads: TestClient,  # pylint: disable=unused-argument
+@pytest.mark.asyncio
+async def test_ast_compile_query_missing_columns(
+    session: AsyncSession,
+    client_with_roads: AsyncClient,  # pylint: disable=unused-argument
 ):
     """
     Test compiling a query with missing columns
@@ -103,7 +109,7 @@ def test_ast_compile_query_missing_columns(
     query = parse("SELECT hard_hat_id, column_foo, column_bar FROM default.hard_hats")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert (
         "Column `column_foo` does not exist on any valid table."
         in exc.errors[0].message
@@ -120,21 +126,23 @@ def test_ast_compile_query_missing_columns(
     assert node.name == "default.hard_hats"
 
 
-def test_ast_compile_missing_references(session: Session):
+@pytest.mark.asyncio
+async def test_ast_compile_missing_references(session: AsyncSession):
     """
     Test getting dependencies from a query that has dangling references when set not to raise
     """
     query = parse("select a, b, c from does_not_exist")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
-    _, danglers = query.extract_dependencies(ctx)
+    await query.compile(ctx)
+    _, danglers = await query.extract_dependencies(ctx)
     assert "does_not_exist" in danglers
 
 
-def test_ast_compile_raise_on_ambiguous_column(
-    session: Session,
-    client_with_basic: TestClient,  # pylint: disable=unused-argument
+@pytest.mark.asyncio
+async def test_ast_compile_raise_on_ambiguous_column(
+    session: AsyncSession,
+    client_with_basic: AsyncClient,  # pylint: disable=unused-argument
 ):
     """
     Test raising on ambiguous column
@@ -145,16 +153,17 @@ def test_ast_compile_raise_on_ambiguous_column(
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert (
         "Column `country` found in multiple tables. Consider using fully qualified name."
         in exc.errors[0].message
     )
 
 
-def test_ast_compile_having(
-    session: Session,
-    client_with_dbt: TestClient,  # pylint: disable=unused-argument
+@pytest.mark.asyncio
+async def test_ast_compile_having(
+    session: AsyncSession,
+    client_with_dbt: AsyncClient,  # pylint: disable=unused-argument
 ):
     """
     Test using having
@@ -166,7 +175,7 @@ def test_ast_compile_having(
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
 
     node = query.select.from_.relations[0].primary._dj_node  # type: ignore  # pylint: disable=protected-access
@@ -174,7 +183,8 @@ def test_ast_compile_having(
     assert node.name == "dbt.source.jaffle_shop.orders"
 
 
-def test_ast_compile_lateral_view_explode1(session: Session):
+@pytest.mark.asyncio
+async def test_ast_compile_lateral_view_explode1(session: AsyncSession):
     """
     Test lateral view explode
     """
@@ -188,7 +198,7 @@ def test_ast_compile_lateral_view_explode1(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
 
     assert not exc.errors
 
@@ -254,7 +264,8 @@ def test_ast_compile_lateral_view_explode1(session: Session):
     )
 
 
-def test_ast_compile_lateral_view_explode2(session: Session):
+@pytest.mark.asyncio
+async def test_ast_compile_lateral_view_explode2(session: AsyncSession):
     """
     Test lateral view explode
     """
@@ -267,7 +278,7 @@ def test_ast_compile_lateral_view_explode2(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
 
     assert query.columns[0].is_compiled()
     assert query.columns[1].is_compiled()
@@ -331,7 +342,8 @@ def test_ast_compile_lateral_view_explode2(session: Session):
     )
 
 
-def test_ast_compile_lateral_view_explode3(session: Session):
+@pytest.mark.asyncio
+async def test_ast_compile_lateral_view_explode3(session: AsyncSession):
     """
     Test lateral view explode of array constant
     """
@@ -345,7 +357,7 @@ def test_ast_compile_lateral_view_explode3(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert parse(str(query)) == query
     assert "LATERAL VIEW EXPLODE(ARRAY(100, 200)) v AS  en" in str(query)
 
@@ -423,14 +435,18 @@ def test_ast_compile_lateral_view_explode3(session: Session):
     )
 
 
-def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient):
+@pytest.mark.asyncio
+async def test_ast_compile_lateral_view_explode4(
+    session: AsyncSession,
+    client: AsyncClient,
+):
     """
     Test lateral view explode of an upstream column
     """
-    client.post("/namespaces/default/")
-    response = client.post("/catalogs/", json={"name": "default"})
+    await client.post("/namespaces/default/")
+    response = await client.post("/catalogs/", json={"name": "default"})
     assert response.status_code in (200, 201)
-    response = client.post(
+    response = await client.post(
         "/nodes/source/",
         json={
             "columns": [
@@ -445,7 +461,7 @@ def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient)
         },
     )
     assert response.status_code in (200, 201)
-    response = client.post(
+    response = await client.post(
         "/nodes/transform/",
         json={
             "description": "A projection with an array",
@@ -466,7 +482,7 @@ def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient)
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
 
     assert query.columns[0].is_compiled()
     assert query.columns[1].is_compiled()
@@ -506,7 +522,8 @@ def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient)
     )
 
 
-def test_ast_compile_lateral_view_explode5(session: Session):
+@pytest.mark.asyncio
+async def test_ast_compile_lateral_view_explode5(session: AsyncSession):
     """
     Test both a lateral and horizontal explode
     """
@@ -520,7 +537,7 @@ def test_ast_compile_lateral_view_explode5(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
 
     assert not exc.errors
 
@@ -593,7 +610,8 @@ def test_ast_compile_lateral_view_explode5(session: Session):
     assert query.columns[5].table is None  # type: ignore
 
 
-def test_ast_compile_lateral_view_explode6(session: Session):
+@pytest.mark.asyncio
+async def test_ast_compile_lateral_view_explode6(session: AsyncSession):
     """
     Test lateral view explode of a map (table aliased)
     """
@@ -609,7 +627,7 @@ def test_ast_compile_lateral_view_explode6(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
 
     assert not exc.errors
 
@@ -699,7 +717,8 @@ def test_ast_compile_lateral_view_explode6(session: Session):
     )
 
 
-def test_ast_compile_lateral_view_explode7(session: Session):
+@pytest.mark.asyncio
+async def test_ast_compile_lateral_view_explode7(session: AsyncSession):
     """
     Test lateral view explode of a map (column aliased)
     """
@@ -715,7 +734,7 @@ def test_ast_compile_lateral_view_explode7(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
 
     assert not exc.errors
 
@@ -805,7 +824,8 @@ def test_ast_compile_lateral_view_explode7(session: Session):
     )
 
 
-def test_ast_compile_lateral_view_explode8(session: Session):
+@pytest.mark.asyncio
+async def test_ast_compile_lateral_view_explode8(session: AsyncSession):
     """
     Test lateral view explode of a map (both table and column aliased)
     """
@@ -821,7 +841,7 @@ def test_ast_compile_lateral_view_explode8(session: Session):
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
 
     assert not exc.errors
 
@@ -911,7 +931,8 @@ def test_ast_compile_lateral_view_explode8(session: Session):
     )
 
 
-def test_ast_compile_inline_table(session: Session):
+@pytest.mark.asyncio
+async def test_ast_compile_inline_table(session: AsyncSession):
     """
     Test parsing and compiling an inline table with VALUES (...)
     """
@@ -984,7 +1005,7 @@ FROM VALUES
     assert parse(str(query)) == query
     assert compare_query_strings(str(query), query_str_explicit_columns)
 
-    query.compile(ctx)
+    await query.compile(ctx)
     assert [
         (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
     ] == expected_columns
@@ -1011,7 +1032,7 @@ FROM VALUES
     assert parse(str(query)) == query
     assert compare_query_strings(str(query), query_str_implicit_columns)
 
-    query.compile(ctx)
+    await query.compile(ctx)
     assert [
         (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
     ] == expected_columns
@@ -1019,7 +1040,8 @@ FROM VALUES
     assert query.columns[0].table.alias_or_name == expected_table_name  # type: ignore
 
 
-def test_ast_subscript_handling(session: Session):
+@pytest.mark.asyncio
+async def test_ast_subscript_handling(session: AsyncSession):
     """
     Test parsing a query with subscripts
     """
@@ -1032,7 +1054,7 @@ FROM VALUES
     assert str(parse(str(query))) == str(parse(str(query_str)))
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    await query.compile(ctx)
     assert not exc.errors
     assert [
         (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore

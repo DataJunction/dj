@@ -21,7 +21,7 @@ class EngineInfo:  # pylint: disable=R0903
     """
 
 
-def list_engines(
+async def list_engines(
     *,
     info: Info = None,
 ) -> List[EngineInfo]:
@@ -31,5 +31,5 @@ def list_engines(
     session = info.context["session"]  # type: ignore
     return [
         EngineInfo.from_pydantic(_EngineInfo.from_orm(engine))  # type: ignore #pylint: disable=E1101
-        for engine in session.execute(select(Engine)).scalars().all()
+        for engine in (await session.execute(select(Engine))).scalars().all()
     ]

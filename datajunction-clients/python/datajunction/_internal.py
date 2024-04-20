@@ -457,7 +457,8 @@ class DJClient:
         """
         Helper function to remove a complex dimension link.
         """
-        response = self._session.delete(
+        response = self._session.request(
+            "DELETE",
             f"/nodes/{node_name}/link/",
             timeout=self._timeout,
             json={

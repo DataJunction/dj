@@ -18,7 +18,7 @@ router = SecureAPIRouter(tags=["Who am I?"])
 
 
 @router.get("/whoami/", response_model=UserOutput)
-def get_user(current_user: User = Depends(get_current_user)) -> UserOutput:
+async def get_user(current_user: User = Depends(get_current_user)) -> UserOutput:
     """
     Returns the current authenticated user
     """
@@ -26,7 +26,7 @@ def get_user(current_user: User = Depends(get_current_user)) -> UserOutput:
 
 
 @router.get("/token/")
-def get_short_lived_token(request: Request) -> JSONResponse:
+async def get_short_lived_token(request: Request) -> JSONResponse:
     """
     Returns a token that expires in 24 hours
     """

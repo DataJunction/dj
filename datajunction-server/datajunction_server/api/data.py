@@ -7,19 +7,20 @@ from typing import Dict, List, Optional
 
 from fastapi import Depends, Query, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import (
     assemble_column_metadata,
     build_sql_for_multiple_metrics,
-    get_node_by_name,
     get_query,
     query_event_stream,
     validate_orderby,
 )
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJException,
@@ -50,11 +51,11 @@ router = SecureAPIRouter(tags=["data"])
 
 
 @router.post("/data/{node_name}/availability/", name="Add Availability State to Node")
-def add_availability_state(
+async def add_availability_state(
     node_name: str,
     data: AvailabilityStateBase,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -63,10 +64,21 @@ def add_availability_state(
     """
     Add an availability state to a node.
     """
-    node = get_node_by_name(session, node_name)
+
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[
+            joinedload(Node.current).options(
+                selectinload(NodeRevision.catalog),
+                selectinload(NodeRevision.availability),
+            ),
+        ],
+        raise_if_not_exists=True,
+    )
 
     # Source nodes require that any availability states set are for one of the defined tables
-    node_revision = node.current
+    node_revision = node.current  # type: ignore
     validate_access_requests(
         validate_access,
         current_user,
@@ -79,7 +91,7 @@ def add_availability_state(
         True,
     )
 
-    if node.current.type == NodeType.SOURCE:
+    if node.current.type == NodeType.SOURCE:  # type: ignore
         if (
             data.catalog != node_revision.catalog.name
             or data.schema_ != node_revision.schema_
@@ -132,7 +144,7 @@ def add_availability_state(
     session.add(
         History(
             entity_type=EntityType.AVAILABILITY,
-            node=node.name,
+            node=node.name,  # type: ignore
             activity_type=ActivityType.CREATE,
             pre=AvailabilityStateBase.from_orm(old_availability).dict()
             if old_availability
@@ -141,7 +153,7 @@ def add_availability_state(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
+    await session.commit()
     return JSONResponse(
         status_code=200,
         content={"message": "Availability state successfully posted"},
@@ -149,7 +161,7 @@ def add_availability_state(
 
 
 @router.get("/data/{node_name}/", name="Get Data for a Node")
-def get_data(  # pylint: disable=too-many-locals
+async def get_data(  # pylint: disable=too-many-locals
     node_name: str,
     *,
     dimensions: List[str] = Query([], description="Dimensional attributes to group by"),
@@ -163,7 +175,7 @@ def get_data(  # pylint: disable=too-many-locals
         default=False,
         description="Whether to run the query async or wait for results from the query engine",
     ),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -175,12 +187,10 @@ def get_data(  # pylint: disable=too-many-locals
     """
     Gets data for a node
     """
-
-    node = get_node_by_name(session, node_name)
-
-    available_engines = node.current.catalog.engines
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
+    available_engines = node.current.catalog.engines  # type: ignore
     engine = (
-        get_engine(session, engine_name, engine_version)  # type: ignore
+        await get_engine(session, engine_name, engine_version)  # type: ignore
         if engine_name
         else available_engines[0]
     )
@@ -197,7 +207,7 @@ def get_data(  # pylint: disable=too-many-locals
         base_verb=access.ResourceRequestVerb.EXECUTE,
     )
 
-    query_ast = get_query(
+    query_ast = await get_query(
         session=session,
         node_name=node_name,
         dimensions=dimensions,
@@ -220,7 +230,7 @@ def get_data(  # pylint: disable=too-many-locals
 
     query_create = QueryCreate(
         engine_name=engine.name,
-        catalog_name=node.current.catalog.name,
+        catalog_name=node.current.catalog.name,  # type: ignore
         engine_version=engine.version,
         submitted_query=query.sql,
         async_=async_,
@@ -255,7 +265,7 @@ def get_data_for_query(
 
 
 @router.get("/data/", response_model=QueryWithResults, name="Get Data For Metrics")
-def get_data_for_metrics(  # pylint: disable=R0914, R0913
+async def get_data_for_metrics(  # pylint: disable=R0914, R0913
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
@@ -263,7 +273,7 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
     limit: Optional[int] = None,
     async_: bool = False,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -281,7 +291,7 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
         base_verb=access.ResourceRequestVerb.READ,
     )
 
-    translated_sql, engine, catalog = build_sql_for_multiple_metrics(
+    translated_sql, engine, catalog = await build_sql_for_multiple_metrics(
         session,
         metrics,
         dimensions,
@@ -316,7 +326,7 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
@@ -325,7 +335,7 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
     """
     Return data for a set of metrics with dimensions and filters using server side events
     """
-    translated_sql, engine, catalog = build_sql_for_multiple_metrics(
+    translated_sql, engine, catalog = await build_sql_for_multiple_metrics(
         session,
         metrics,
         dimensions,

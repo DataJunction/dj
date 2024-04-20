@@ -3,7 +3,8 @@ import zlib
 from typing import Dict, List, Tuple, Union
 
 from pydantic import ValidationError
-from sqlalchemy.orm import Session
+from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import build_sql_for_multiple_metrics
 from datajunction_server.construction.build import build_node, get_measures_query
@@ -36,8 +37,8 @@ from datajunction_server.utils import SEPARATOR
 MAX_COLUMN_NAME_LENGTH = 128
 
 
-def rewrite_metrics_expressions(
-    session: Session,
+async def rewrite_metrics_expressions(
+    session: AsyncSession,
     current_revision: NodeRevision,
     measures_query: TranslatedSQL,
 ) -> Dict[str, MetricMeasures]:
@@ -54,7 +55,7 @@ def rewrite_metrics_expressions(
     for metric in current_revision.cube_metrics():
         measures_for_metric = []
         metric_ast = parse(metric.current.query)
-        metric_ast.compile(context)
+        await metric_ast.compile(context)
         for col in metric_ast.select.find_all(ast.Column):
             full_column_name = (
                 col.table.dj_node.name + SEPARATOR + col.alias_or_name.name  # type: ignore
@@ -87,8 +88,8 @@ def rewrite_metrics_expressions(
     return metrics_expressions
 
 
-def build_cube_materialization_config(
-    session: Session,
+async def build_cube_materialization_config(
+    session: AsyncSession,
     current_revision: NodeRevision,
     upsert_input: UpsertMaterialization,
     validate_access: access.ValidateAccessFn,
@@ -110,7 +111,7 @@ def build_cube_materialization_config(
     try:
         # Druid Metrics Cube (Post-Agg)
         if upsert_input.job == MaterializationJobTypeEnum.DRUID_METRICS_CUBE:
-            metrics_query, _, _ = build_sql_for_multiple_metrics(
+            metrics_query, _, _ = await build_sql_for_multiple_metrics(
                 session=session,
                 metrics=[node.name for node in current_revision.cube_metrics()],
                 dimensions=current_revision.cube_dimensions(),
@@ -136,7 +137,7 @@ def build_cube_materialization_config(
             return generic_config
 
         # Druid Measures Cube (Pre-Agg)
-        measures_query = get_measures_query(
+        measures_query = await get_measures_query(
             session=session,
             metrics=[node.name for node in current_revision.cube_metrics()],
             dimensions=current_revision.cube_dimensions(),
@@ -144,7 +145,7 @@ def build_cube_materialization_config(
             validate_access=validate_access,
             cast_timestamp_to_ms=True,
         )
-        metrics_expressions = rewrite_metrics_expressions(
+        metrics_expressions = await rewrite_metrics_expressions(
             session,
             current_revision,
             measures_query,
@@ -174,15 +175,15 @@ def build_cube_materialization_config(
         ) from exc
 
 
-def build_non_cube_materialization_config(
-    session: Session,
+async def build_non_cube_materialization_config(
+    session: AsyncSession,
     current_revision: NodeRevision,
     upsert: UpsertMaterialization,
 ) -> GenericMaterializationConfig:
     """
     Build materialization config for non-cube nodes (transforms and dimensions).
     """
-    materialization_ast = build_node(
+    materialization_ast = await build_node(
         session=session,
         node=current_revision,
         dimensions=[],
@@ -204,8 +205,8 @@ def build_non_cube_materialization_config(
     return generic_config
 
 
-def create_new_materialization(
-    session: Session,
+async def create_new_materialization(
+    session: AsyncSession,
     current_revision: NodeRevision,
     upsert: UpsertMaterialization,
     validate_access: access.ValidateAccessFn,
@@ -214,6 +215,10 @@ def create_new_materialization(
     Create a new materialization based on the input values.
     """
     generic_config = None
+    try:
+        await session.refresh(current_revision, ["columns"])
+    except InvalidRequestError:
+        pass
     temporal_partition = current_revision.temporal_partition_columns()
     timestamp_columns = [
         col for col in current_revision.columns if col.type == TimestampType()
@@ -222,7 +227,7 @@ def create_new_materialization(
         NodeType.DIMENSION,
         NodeType.TRANSFORM,
     ):
-        generic_config = build_non_cube_materialization_config(
+        generic_config = await build_non_cube_materialization_config(
             session,
             current_revision,
             upsert,
@@ -235,7 +240,7 @@ def create_new_materialization(
                 "temporal partition specified on the cube. Please make sure at "
                 "least one cube element has a temporal partition defined",
             )
-        generic_config = build_cube_materialization_config(
+        generic_config = await build_cube_materialization_config(
             session,
             current_revision,
             upsert,

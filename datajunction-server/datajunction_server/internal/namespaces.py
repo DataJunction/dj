@@ -7,8 +7,8 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
-from sqlalchemy.sql.operators import is_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from datajunction_server.api.helpers import get_node_namespace, hard_delete_node
 from datajunction_server.database.history import ActivityType, EntityType, History
@@ -17,7 +17,7 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJActionNotAllowedException,
-    DJException,
+    DJDoesNotExistException,
     DJInvalidInputException,
 )
 from datajunction_server.internal.nodes import get_cube_revision_metadata
@@ -33,8 +33,8 @@ RESERVED_NAMESPACE_NAMES = [
 ]
 
 
-def get_nodes_in_namespace(
-    session: Session,
+async def get_nodes_in_namespace(
+    session: AsyncSession,
     namespace: str,
     node_type: NodeType = None,
     include_deactivated: bool = False,
@@ -42,20 +42,25 @@ def get_nodes_in_namespace(
     """
     Gets a list of node names in the namespace
     """
-    get_node_namespace(session, namespace)
+    return await NodeNamespace.list_nodes(
+        session,
+        namespace,
+        node_type=node_type,
+        include_deactivated=include_deactivated,
+    )
+
+
+async def get_nodes_in_namespace_detailed(
+    session: AsyncSession,
+    namespace: str,
+    node_type: NodeType = None,
+) -> List[Node]:
+    """
+    Gets a list of node names (w/ full details) in the namespace
+    """
+    await get_node_namespace(session, namespace)
     list_nodes_query = (
-        select(
-            Node.name,
-            NodeRevision.display_name,
-            NodeRevision.description,
-            Node.type,
-            Node.current_version.label(  # type: ignore # pylint: disable=no-member
-                "version",
-            ),
-            NodeRevision.status,
-            NodeRevision.mode,
-            NodeRevision.updated_at,
-        )
+        select(Node)
         .where(
             or_(
                 Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
@@ -65,48 +70,17 @@ def get_nodes_in_namespace(
             Node.name == NodeRevision.name,
             Node.type == node_type if node_type else True,
         )
-        .order_by(Node.id)
-    )
-    if include_deactivated is False:
-        list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))
-    return [
-        NodeMinimumDetail(
-            name=row.name,
-            display_name=row.display_name,
-            description=row.description,
-            version=row.version,
-            type=row.type,
-            status=row.status,
-            mode=row.mode,
-            updated_at=row.updated_at,
+        .options(
+            joinedload(Node.current).options(
+                *NodeRevision.default_load_options(),
+            ),
         )
-        for row in session.execute(list_nodes_query).all()
-    ]
-
-
-def get_nodes_in_namespace_detailed(
-    session: Session,
-    namespace: str,
-    node_type: NodeType = None,
-) -> List[Node]:
-    """
-    Gets a list of node names (w/ full details) in the namespace
-    """
-    get_node_namespace(session, namespace)
-    list_nodes_query = select(Node).where(
-        or_(
-            Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
-            Node.namespace == namespace,
-        ),
-        Node.current_version == NodeRevision.version,
-        Node.name == NodeRevision.name,
-        Node.type == node_type if node_type else True,
     )
-    return session.execute(list_nodes_query).scalars().all()
+    return (await session.execute(list_nodes_query)).unique().scalars().all()
 
 
-def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
-    session: Session,
+async def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
+    session: AsyncSession,
     namespace: str,
 ) -> List[NodeNamespace]:
     """
@@ -120,17 +94,17 @@ def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
             NodeNamespace.namespace == namespace,
         ),
     )
-    namespaces = session.execute(statement).scalars().all()
+    namespaces = (await session.execute(statement)).scalars().all()
     if len(namespaces) == 0:
-        raise DJException(
+        raise DJDoesNotExistException(
             message=(f"Namespace `{namespace}` does not exist."),
             http_status_code=404,
         )
     return namespaces
 
 
-def mark_namespace_deactivated(
-    session: Session,
+async def mark_namespace_deactivated(
+    session: AsyncSession,
     namespace: NodeNamespace,
     message: str = None,
     current_user: Optional[User] = None,
@@ -157,11 +131,11 @@ def mark_namespace_deactivated(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
+    await session.commit()
 
 
-def mark_namespace_restored(
-    session: Session,
+async def mark_namespace_restored(
+    session: AsyncSession,
     namespace: NodeNamespace,
     message: str = None,
     current_user: Optional[User] = None,
@@ -180,7 +154,7 @@ def mark_namespace_restored(
             user=current_user.username if current_user else None,
         ),
     )
-    session.commit()
+    await session.commit()
 
 
 def validate_namespace(namespace: str):
@@ -208,8 +182,8 @@ def get_parent_namespaces(namespace: str):
     return [SEPARATOR.join(parts[0:i]) for i in range(len(parts)) if parts[0:i]]
 
 
-def create_namespace(
-    session: Session,
+async def create_namespace(
+    session: AsyncSession,
     namespace: str,
     include_parents: bool = True,
     current_user: Optional[User] = None,
@@ -223,7 +197,7 @@ def create_namespace(
         else [namespace]
     )
     for parent_namespace in parents:
-        if not get_node_namespace(  # pragma: no cover
+        if not await get_node_namespace(  # pragma: no cover
             session=session,
             namespace=parent_namespace,
             raise_if_not_exists=False,
@@ -239,12 +213,12 @@ def create_namespace(
                     user=current_user.username if current_user else None,
                 ),
             )
-    session.commit()
+    await session.commit()
     return parents
 
 
-def hard_delete_namespace(
-    session: Session,
+async def hard_delete_namespace(
+    session: AsyncSession,
     namespace: str,
     cascade: bool = False,
     current_user: Optional[User] = None,
@@ -253,15 +227,19 @@ def hard_delete_namespace(
     Hard delete a node namespace.
     """
     node_names = (
-        session.execute(
-            select(Node.name)
-            .where(
-                or_(
-                    Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
-                    Node.namespace == namespace,
-                ),
+        (
+            await session.execute(
+                select(Node.name)
+                .where(
+                    or_(
+                        Node.namespace.like(
+                            f"{namespace}.%",
+                        ),  # pylint: disable=no-member
+                        Node.namespace == namespace,
+                    ),
+                )
+                .order_by(Node.name),
             )
-            .order_by(Node.name),
         )
         .scalars()
         .all()
@@ -279,20 +257,20 @@ def hard_delete_namespace(
 
     impacts = {}
     for node_name in node_names:
-        impacts[node_name] = hard_delete_node(
+        impacts[node_name] = await hard_delete_node(
             node_name,
             session,
             current_user=current_user,
         )
 
-    namespaces = list_namespaces_in_hierarchy(session, namespace)
+    namespaces = await list_namespaces_in_hierarchy(session, namespace)
     for _namespace in namespaces:
         impacts[_namespace.namespace] = {
             "namespace": _namespace.namespace,
             "status": "deleted",
         }
-        session.delete(_namespace)
-    session.commit()
+        await session.delete(_namespace)
+    await session.commit()
     return impacts
 
 
@@ -402,8 +380,8 @@ def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
     }
 
 
-def _cube_project_config(
-    session: Session,
+async def _cube_project_config(
+    session: AsyncSession,
     node: Node,
     namespace_requested: str,
 ) -> Dict:
@@ -415,7 +393,7 @@ def _cube_project_config(
         node_type=NodeType.CUBE,
         namespace_requested=namespace_requested,
     )
-    cube_revision = get_cube_revision_metadata(session, node.name)
+    cube_revision = await get_cube_revision_metadata(session, node.name)
     metrics = []
     dimensions = []
     for element in cube_revision.cube_elements:
@@ -433,8 +411,8 @@ def _cube_project_config(
     }
 
 
-def get_project_config(
-    session: Session,
+async def get_project_config(
+    session: AsyncSession,
     nodes: List[Node],
     namespace_requested: str,
 ) -> List[Dict]:
@@ -473,7 +451,7 @@ def get_project_config(
             )
         else:
             project_components.append(
-                _cube_project_config(
+                await _cube_project_config(
                     session=session,
                     node=node,
                     namespace_requested=namespace_requested,

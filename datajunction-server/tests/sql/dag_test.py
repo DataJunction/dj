@@ -1,8 +1,8 @@
 """
 Tests for ``datajunction_server.sql.dag``.
 """
-
-from sqlalchemy.orm import Session
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
@@ -12,7 +12,8 @@ from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.parsing.types import IntegerType, StringType
 
 
-def test_get_dimensions(session: Session) -> None:
+@pytest.mark.asyncio
+async def test_get_dimensions(session: AsyncSession) -> None:
     """
     Test ``get_dimensions``.
     """
@@ -64,9 +65,9 @@ def test_get_dimensions(session: Session) -> None:
     child_ref.current = child
     session.add(child)
     session.add(child_ref)
-    session.commit()
+    await session.commit()
 
-    assert get_dimensions(session, child_ref) == [
+    assert await get_dimensions(session, child_ref) == [
         DimensionAttributeOutput(
             name="B.attribute",
             node_name="B",

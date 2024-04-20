@@ -1,19 +1,25 @@
 """
 Utility functions.
 """
+import asyncio
 import logging
 import os
 import re
 from functools import lru_cache
 
 # pylint: disable=line-too-long
-from typing import TYPE_CHECKING, Iterator, List, Optional
+from typing import TYPE_CHECKING, AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
 from rich.logging import RichHandler
-from sqlalchemy.engine import Engine, create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from starlette.background import BackgroundTasks
+from sqlalchemy import AsyncAdaptedQueuePool
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_scoped_session,
+    async_sessionmaker,
+    create_async_engine,
+)
 from starlette.requests import Request
 from yarl import URL
 
@@ -54,57 +60,100 @@ def get_settings() -> Settings:
     return Settings()
 
 
+class DatabaseSessionManager:
+    """
+    DB session context manager
+    """
+
+    def __init__(self):
+        self.engine: AsyncEngine | None = None
+        self.session_maker = None
+        self.session = None
+
+    def init_db(self):
+        """
+        Initialize the database engine
+        """
+        settings = get_settings()
+        self.engine = create_async_engine(
+            settings.index,
+            future=True,
+            echo=settings.db_echo,
+            pool_pre_ping=settings.db_pool_pre_ping,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_timeout=settings.db_pool_timeout,
+            poolclass=AsyncAdaptedQueuePool,
+            connect_args={
+                "connect_timeout": settings.db_connect_timeout,
+            },
+        )
+
+        async_session_factory = async_sessionmaker(
+            bind=self.engine,
+            autocommit=False,
+            expire_on_commit=False,  # prevents attributes from being expired on commit
+        )
+        # Create a scoped session
+        self.session = async_scoped_session(  # pragma: no cover
+            async_session_factory,
+            scopefunc=asyncio.current_task,
+        )
+
+    async def close(self):
+        """
+        Close database session
+        """
+        if self.engine is None:  # pragma: no cover
+            raise DJException("DatabaseSessionManager is not initialized")
+        await self.engine.dispose()  # pragma: no cover
+
+
 @lru_cache(maxsize=None)
-def get_engine() -> Engine:
+def get_session_manager() -> DatabaseSessionManager:
+    """
+    Get session manager
+    """
+    session_manager = DatabaseSessionManager()
+    session_manager.init_db()
+    return session_manager
+
+
+@lru_cache(maxsize=None)
+def get_engine() -> AsyncEngine:
     """
     Create the metadata engine.
     """
     settings = get_settings()
-    return create_engine(
+    engine = create_async_engine(
         settings.index,
-        pool_pre_ping=True,
+        future=True,
+        echo=settings.db_echo,
+        pool_pre_ping=settings.db_pool_pre_ping,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_timeout=settings.db_pool_timeout,
+        poolclass=AsyncAdaptedQueuePool,
         connect_args={
             "connect_timeout": settings.db_connect_timeout,
         },
     )
+    return engine
 
 
-engine = get_engine()
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-class SessionManager:
+async def get_session() -> AsyncIterator[AsyncSession]:
     """
-    Session context manager.
+    Async database session.
     """
-
-    def __init__(self, session_maker: sessionmaker):
-        self.session: Session = session_maker()
-
-    def __enter__(self):
-        return self.session
-
-    def __exit__(self, exception_type, exception_value, traceback):
-        self.session.close()
-
-
-def close_session(session: Session):
-    """
-    Handles session closing
-    """
-    session.close()  # pragma: no cover
-
-
-def get_session(background_tasks: BackgroundTasks) -> Iterator[Session]:
-    """
-    Direct SQLAlchemy session.
-    """
-    with SessionManager(SessionLocal) as session:  # pragma: no cover
-        background_tasks.add_task(close_session, session)
+    session_manager = get_session_manager()
+    session = session_manager.session()
+    try:
         yield session
+    except Exception as exc:  # pylint: disable=broad-exception-raised
+        await session.rollback()  # pragma: no cover
+        raise exc  # pragma: no cover
+    finally:
+        await session.close()
 
 
 def get_query_service_client() -> Optional[QueryServiceClient]:
