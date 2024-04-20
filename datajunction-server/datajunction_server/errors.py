@@ -1,7 +1,7 @@
 """
 Errors and warnings.
 """
-
+from http import HTTPStatus
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from pydantic.main import BaseModel
@@ -218,6 +218,8 @@ class DJNodeNotFound(DJException):
     Exception raised when a given node name is not found.
     """
 
+    http_status_code: int = HTTPStatus.NOT_FOUND
+
 
 class DJInvalidInputException(DJException):
     """
@@ -225,7 +227,7 @@ class DJInvalidInputException(DJException):
     """
 
     dbapi_exception: DBAPIExceptions = "ProgrammingError"
-    http_status_code: int = 422
+    http_status_code: int = HTTPStatus.UNPROCESSABLE_ENTITY
 
 
 class DJNotImplementedException(DJException):
@@ -252,7 +254,7 @@ class DJAlreadyExistsException(DJException):
     """
 
     dbapi_exception: DBAPIExceptions = "DataError"
-    http_status_code: int = 500
+    http_status_code: int = HTTPStatus.CONFLICT
 
 
 class DJDoesNotExistException(DJException):
@@ -261,7 +263,7 @@ class DJDoesNotExistException(DJException):
     """
 
     dbapi_exception: DBAPIExceptions = "DataError"
-    http_status_code: int = 404
+    http_status_code: int = HTTPStatus.NOT_FOUND
 
 
 class DJQueryServiceClientException(DJException):
