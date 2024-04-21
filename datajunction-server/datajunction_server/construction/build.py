@@ -437,20 +437,29 @@ async def _build_tables_on_select(
                             for link in node.dimension_links
                             for left, right in link.foreign_key_mapping().items()
                         }
+                        foreign_keys_alias_map = {
+                            col.alias_or_name.name: col  # type: ignore
+                            for col in node_query.select.projection
+                        }
                         if all(
                             col.alias_or_name.name in fk_column_mapping
                             or col.alias_or_name.name in foreign_keys_map
                             for col in referenced_cols
                         ):
+                            # Renames the columns to the foreign key columns
                             for col in referenced_cols:
                                 ref_col_name = (
                                     fk_column_mapping[col.alias_or_name.name].name
                                     if col.alias_or_name.name in fk_column_mapping
                                     else foreign_keys_map[
                                         col.alias_or_name.name
-                                    ].alias_or_name.name
+                                    ].alias_or_name
                                 )
                                 col.name = ast.Name(name=ref_col_name)
+                                if col.alias_or_name.name in foreign_keys_alias_map:
+                                    col.name = foreign_keys_alias_map[  # type: ignore
+                                        col.alias_or_name.name
+                                    ].name
                             filter_asts.append(
                                 temp_select.where,  # type:ignore
                             )
