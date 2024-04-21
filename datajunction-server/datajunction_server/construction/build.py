@@ -426,21 +426,21 @@ async def _build_tables_on_select(
                     filter_asts = (  # pylint: disable=consider-using-ternary
                         node_query.select.where and [node_query.select.where] or []
                     )
+                    foreign_keys_map = {
+                        left.alias_or_name.name: right
+                        for link in node.dimension_links
+                        for left, right in link.foreign_key_mapping().items()
+                    }
+                    foreign_keys_alias_map = {
+                        col.alias_or_name.name: col  # type: ignore
+                        for col in node_query.select.projection
+                    }
                     for filter_ in filters:
                         temp_select = parse(f"select * where {filter_}").select
                         referenced_cols = list(temp_select.find_all(ast.Column))
 
                         # We can only push down the filter if all columns referenced by the filter
                         # are available as foreign key columns on the node
-                        foreign_keys_map = {
-                            left.alias_or_name.name: right
-                            for link in node.dimension_links
-                            for left, right in link.foreign_key_mapping().items()
-                        }
-                        foreign_keys_alias_map = {
-                            col.alias_or_name.name: col  # type: ignore
-                            for col in node_query.select.projection
-                        }
                         if all(
                             col.alias_or_name.name in fk_column_mapping
                             or col.alias_or_name.name in foreign_keys_map
@@ -456,7 +456,9 @@ async def _build_tables_on_select(
                                     ].alias_or_name
                                 )
                                 col.name = ast.Name(name=ref_col_name)
-                                if col.alias_or_name.name in foreign_keys_alias_map:
+                                if (  # pragma: no cover
+                                    col.alias_or_name.name in foreign_keys_alias_map
+                                ):
                                     col.name = foreign_keys_alias_map[  # type: ignore
                                         col.alias_or_name.name
                                     ].name

@@ -3250,3 +3250,56 @@ async def test_measures_sql_with_filters(  # pylint: disable=too-many-arguments
     result = duckdb_conn.sql(data["sql"])
     assert result.fetchall() == rows
     assert data["columns"] == columns
+
+
+@pytest.mark.asyncio
+async def test_alias_node_sql(
+    client_with_roads: AsyncClient,
+):
+    """
+    Pushing down filters should use the column names and not the column aliases
+    """
+    response = await client_with_roads.patch(
+        "/nodes/default.repair_orders_fact",
+        json={
+            "query": "SELECT repair_orders.hard_hat_id AS hh_id "
+            "FROM default.repair_orders repair_orders",
+        },
+    )
+    assert response.status_code == 200
+
+    response = await client_with_roads.post(
+        "/nodes/default.repair_orders_fact/link",
+        json={
+            "dimension_node": "default.hard_hat",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_orders_fact.hh_id = default.hard_hat.hard_hat_id"
+            ),
+        },
+    )
+    assert response.status_code == 201
+
+    response = await client_with_roads.get(
+        "/sql/default.repair_orders_fact",
+        params={
+            "dimensions": ["default.hard_hat.hard_hat_id"],
+            "filters": ["default.hard_hat.hard_hat_id IN (123, 13)"],
+        },
+    )
+    assert str(parse(response.json()["sql"])) == str(
+        parse(
+            """
+            SELECT
+              default_DOT_repair_orders_fact.hh_id default_DOT_repair_orders_fact_DOT_hh_id,
+              default_DOT_repair_orders_fact.hh_id default_DOT_hard_hat_DOT_hard_hat_id
+            FROM (
+              SELECT
+                default_DOT_repair_orders.hard_hat_id AS hh_id
+              FROM roads.repair_orders AS default_DOT_repair_orders
+              WHERE  default_DOT_repair_orders.hard_hat_id IN (123, 13)
+            ) AS default_DOT_repair_orders_fact
+            WHERE  default_DOT_repair_orders_fact.hh_id IN (123, 13)
+            """,
+        ),
+    )
