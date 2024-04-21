@@ -703,20 +703,17 @@ async def validate_cube(  # pylint: disable=too-many-locals
             dimensions.append(columns[column_name_without_role])
 
     if require_dimensions and not dimensions:
-        raise DJException(
-            message=("At least one dimension is required"),
-            http_status_code=http.client.UNPROCESSABLE_ENTITY,
-        )
+        raise DJInvalidInputException(message="At least one dimension is required")
 
     if len(set(catalogs)) > 1:
-        raise DJException(
+        raise DJInvalidInputException(
             message=(
                 f"Metrics and dimensions cannot be from multiple catalogs: {catalogs}"
             ),
         )
 
     if len(set(catalogs)) < 1:  # pragma: no cover
-        raise DJException(
+        raise DJInvalidInputException(
             message=("Metrics and dimensions must be part of a common catalog"),
         )
 

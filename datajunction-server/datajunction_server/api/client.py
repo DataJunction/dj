@@ -7,7 +7,7 @@ import logging
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.database import Node, NodeRevision
@@ -122,10 +122,18 @@ async def client_code_for_adding_materialization(
     Generate the Python client code used for adding this materialization
     """
     node_short_name = node_name.split(".")[-1]
-    node = await get_node_by_name(session, node_name)
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[
+            joinedload(Node.current).options(
+                selectinload(NodeRevision.materializations),
+            ),
+        ],
+    )
     materialization = [
         materialization
-        for materialization in node.current.materializations
+        for materialization in node.current.materializations  # type: ignore
         if materialization.name == materialization_name
     ][0]
     user_modified_config = {
@@ -141,8 +149,8 @@ async def client_code_for_adding_materialization(
     )
     client_code = f"""dj = DJBuilder(DJ_URL)
 
-{node_short_name} = dj.{node.type}(
-    "{node.name}"
+{node_short_name} = dj.{node.type if node else ""}(
+    "{node.name if node else ""}"
 )
 materialization = MaterializationConfig(
     job="{MaterializationJobTypeEnum.find_match(materialization.job).name.lower()}",
