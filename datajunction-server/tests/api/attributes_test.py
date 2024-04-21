@@ -43,7 +43,7 @@ async def test_adding_new_attribute(
             "allowed_node_types": ["source"],
         },
     )
-    assert response.status_code == 500
+    assert response.status_code == 409
     data = response.json()
     assert data == {
         "message": "Attribute type `internal` already exists!",
