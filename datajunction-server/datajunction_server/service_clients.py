@@ -10,7 +10,9 @@ from urllib3 import Retry
 from datajunction_server.database.column import Column
 from datajunction_server.errors import (
     DJDoesNotExistException,
+    DJError,
     DJQueryServiceClientException,
+    ErrorCode,
 )
 from datajunction_server.models.materialization import (
     DruidMaterializationInput,
@@ -136,6 +138,10 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
                 message=f"Error response from query service: {response_data['message']}",
+                errors=[
+                    DJError(code=ErrorCode.QUERY_SERVICE_ERROR, message=error)
+                    for error in response_data["errors"]
+                ],
                 http_status_code=response.status_code,
             )
         query_info = response.json()
