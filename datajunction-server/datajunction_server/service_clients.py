@@ -1,6 +1,6 @@
 """Clients for various configurable services."""
 from http import HTTPStatus
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 from urllib.parse import urljoin
 
 import requests
@@ -120,18 +120,23 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
     def submit_query(  # pylint: disable=too-many-arguments
         self,
         query_create: QueryCreate,
+        headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
         """
         Submit a query to the query service
         """
+        if not headers:
+            headers = {"Cache-Control": ""}
         response = self.requests_session.post(
             "/queries/",
+            headers=headers,
             json=query_create.dict(),
         )
         response_data = response.json()
         if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
                 message=f"Error response from query service: {response_data['message']}",
+                http_status_code=response.status_code,
             )
         query_info = response.json()
         return QueryWithResults(**query_info)
