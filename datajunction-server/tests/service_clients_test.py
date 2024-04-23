@@ -10,7 +10,9 @@ from requests import Request
 from datajunction_server.database.engine import Engine
 from datajunction_server.errors import (
     DJDoesNotExistException,
+    DJError,
     DJQueryServiceClientException,
+    ErrorCode,
 )
 from datajunction_server.models.materialization import (
     GenericMaterializationInput,
@@ -192,12 +194,11 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         )
         query_service_client.submit_query(
             query_create,
-            headers={"Cache-Control": "max-age=0"},
         )
 
         mock_request.assert_called_with(
             "/queries/",
-            headers={"Cache-Control": "max-age=0"},
+            headers={"Cache-Control": ""},
             json={
                 "catalog_name": "default",
                 "engine_name": "postgres",
@@ -344,7 +345,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         """
         mock_response = MagicMock()
         mock_response.status_code = 400
-        mock_response.json.return_value = {"message": "Errors"}
+        mock_response.json.return_value = {"message": "Errors", "errors": ["a", "b"]}
 
         mocker.patch(
             "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
@@ -376,6 +377,20 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
                 headers={"Cache-Control": "no-cache"},
             )
         assert "Error response from query service" in str(exc_info.value)
+        assert exc_info.value.errors == [
+            DJError(
+                code=ErrorCode.QUERY_SERVICE_ERROR,
+                message="a",
+                debug=None,
+                context="",
+            ),
+            DJError(
+                code=ErrorCode.QUERY_SERVICE_ERROR,
+                message="b",
+                debug=None,
+                context="",
+            ),
+        ]
 
     def test_materialize(self, mocker: MockerFixture) -> None:
         """
