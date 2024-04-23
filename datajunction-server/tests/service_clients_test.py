@@ -190,10 +190,14 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             submitted_query="SELECT 1",
             async_=False,
         )
-        query_service_client.submit_query(query_create)
+        query_service_client.submit_query(
+            query_create,
+            headers={"Cache-Control": "max-age=0"},
+        )
 
         mock_request.assert_called_with(
             "/queries/",
+            headers={"Cache-Control": "max-age=0"},
             json={
                 "catalog_name": "default",
                 "engine_name": "postgres",
@@ -367,7 +371,10 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         )
 
         with pytest.raises(DJQueryServiceClientException) as exc_info:
-            query_service_client.submit_query(query_create)
+            query_service_client.submit_query(
+                query_create,
+                headers={"Cache-Control": "no-cache"},
+            )
         assert "Error response from query service" in str(exc_info.value)
 
     def test_materialize(self, mocker: MockerFixture) -> None:
