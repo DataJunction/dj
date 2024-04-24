@@ -10,6 +10,7 @@ from typing import (
     Callable,
     Collection,
     Coroutine,
+    Dict,
     Generator,
     Iterator,
     List,
@@ -203,6 +204,7 @@ def query_service_client(
 
     def mock_submit_query(
         query_create: QueryCreate,
+        headers: Optional[Dict[str, str]] = None,  # pylint: disable=unused-argument
     ) -> QueryWithResults:
         result = duckdb_conn.sql(query_create.submitted_query)
         columns = [

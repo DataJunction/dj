@@ -3,9 +3,9 @@
 Data related APIs.
 """
 from http import HTTPStatus
-from typing import Dict, List, Optional
+from typing import Annotated, Dict, List, Optional
 
-from fastapi import Depends, Query, Request
+from fastapi import Depends, Header, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -175,6 +175,7 @@ async def get_data(  # pylint: disable=too-many-locals
         default=False,
         description="Whether to run the query async or wait for results from the query engine",
     ),
+    cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
@@ -235,7 +236,10 @@ async def get_data(  # pylint: disable=too-many-locals
         submitted_query=query.sql,
         async_=async_,
     )
-    result = query_service_client.submit_query(query_create)
+    result = query_service_client.submit_query(
+        query_create,
+        headers={"Cache-Control": cache_control},
+    )
     # Inject column info if there are results
     if result.results.__root__:  # pragma: no cover
         result.results.__root__[0].columns = columns
@@ -273,6 +277,7 @@ async def get_data_for_metrics(  # pylint: disable=R0914, R0913
     limit: Optional[int] = None,
     async_: bool = False,
     *,
+    cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
@@ -310,7 +315,10 @@ async def get_data_for_metrics(  # pylint: disable=R0914, R0913
         submitted_query=translated_sql.sql,
         async_=async_,
     )
-    result = query_service_client.submit_query(query_create)
+    result = query_service_client.submit_query(
+        query_create,
+        headers={"Cache-Control": cache_control},
+    )
 
     # Inject column info if there are results
     if result.results.__root__:  # pragma: no cover
@@ -326,6 +334,7 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
+    cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -354,7 +363,10 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
         async_=True,
     )
     # Submits the query, equivalent to calling POST /data/ directly
-    initial_query_info = query_service_client.submit_query(query_create)
+    initial_query_info = query_service_client.submit_query(
+        query_create,
+        headers={"Cache-Control": cache_control},
+    )
     return EventSourceResponse(
         query_event_stream(
             query=initial_query_info,
