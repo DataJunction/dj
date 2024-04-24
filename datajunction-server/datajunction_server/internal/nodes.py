@@ -865,19 +865,20 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
                         ),
                     ],
                 )
-                await update_cube_node(
-                    session,
-                    child_node.current,  # type: ignore
-                    UpdateNode(
-                        metrics=[
-                            metric.name for metric in child_node.current.cube_metrics()  # type: ignore  # pylint: disable=line-too-long
-                        ],
-                        dimensions=child_node.current.cube_dimensions(),  # type: ignore
-                    ),
-                    query_service_client=query_service_client,
-                    background_tasks=background_tasks,
-                    validate_access=validate_access,
-                )
+                if child_node:  # pragma: no cover
+                    await update_cube_node(
+                        session,
+                        child_node.current,  # type: ignore
+                        UpdateNode(
+                            metrics=[
+                                metric.name for metric in child_node.current.cube_metrics()  # type: ignore  # pylint: disable=line-too-long
+                            ],
+                            dimensions=child_node.current.cube_dimensions(),  # type: ignore
+                        ),
+                        query_service_client=query_service_client,
+                        background_tasks=background_tasks,
+                        validate_access=validate_access,
+                    )
                 continue
 
             node_validator = await validate_node_data(

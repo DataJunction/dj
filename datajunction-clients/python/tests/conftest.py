@@ -6,7 +6,7 @@ Fixtures for testing DJ client.
 import os
 from http.client import HTTPException
 from pathlib import Path
-from typing import AsyncGenerator, Iterator, List, Optional
+from typing import AsyncGenerator, Dict, Iterator, List, Optional
 from unittest.mock import MagicMock
 
 import pytest
@@ -137,6 +137,7 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
 
     def mock_submit_query(
         query_create: QueryCreate,
+        headers: Optional[Dict[str, str]] = None,  # pylint: disable=unused-argument
     ) -> QueryWithResults:
         results = QUERY_DATA_MAPPINGS[
             query_create.submitted_query.strip()
