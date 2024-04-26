@@ -484,28 +484,16 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         history = response.json()
         assert history == [
             {
-                "activity_type": "create",
-                "node": "basic.source.users",
-                "created_at": mock.ANY,
-                "details": {},
-                "entity_name": "basic.source.users",
-                "entity_type": "node",
                 "id": mock.ANY,
-                "post": {},
-                "pre": {},
-                "user": "dj",
-            },
-            {
-                "activity_type": "delete",
-                "node": "basic.source.users",
-                "created_at": mock.ANY,
-                "details": {},
-                "entity_name": "basic.source.users",
                 "entity_type": "node",
-                "id": mock.ANY,
-                "post": {},
-                "pre": {},
+                "entity_name": "basic.source.users",
+                "node": "basic.source.users",
+                "activity_type": "restore",
                 "user": "dj",
+                "pre": {},
+                "post": {},
+                "details": {},
+                "created_at": mock.ANY,
             },
             {
                 "id": mock.ANY,
@@ -520,16 +508,28 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "created_at": mock.ANY,
             },
             {
-                "id": mock.ANY,
-                "entity_type": "node",
-                "entity_name": "basic.source.users",
+                "activity_type": "delete",
                 "node": "basic.source.users",
-                "activity_type": "restore",
-                "user": "dj",
-                "pre": {},
-                "post": {},
-                "details": {},
                 "created_at": mock.ANY,
+                "details": {},
+                "entity_name": "basic.source.users",
+                "entity_type": "node",
+                "id": mock.ANY,
+                "post": {},
+                "pre": {},
+                "user": "dj",
+            },
+            {
+                "activity_type": "create",
+                "node": "basic.source.users",
+                "created_at": mock.ANY,
+                "details": {},
+                "entity_name": "basic.source.users",
+                "entity_type": "node",
+                "id": mock.ANY,
+                "post": {},
+                "pre": {},
+                "user": "dj",
             },
         ]
 
@@ -615,13 +615,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             if activity["activity_type"] == "status_change"
         ] == [
             (
-                {"status": "valid"},
                 {"status": "invalid"},
+                {"status": "valid"},
                 {"upstream_node": "default.users"},
             ),
             (
-                {"status": "invalid"},
                 {"status": "valid"},
+                {"status": "invalid"},
                 {"upstream_node": "default.users"},
             ),
         ]
@@ -757,7 +757,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
-        ] == [("create", "node"), ("delete", "node"), ("restore", "node")]
+        ] == [("restore", "node"), ("delete", "node"), ("create", "node")]
 
         # This downstream metric should have been changed to valid
         response = await client.get("/nodes/default.num_us_users/")
@@ -770,13 +770,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             if activity["activity_type"] == "status_change"
         ] == [
             (
-                {"status": "valid"},
                 {"status": "invalid"},
+                {"status": "valid"},
                 {"upstream_node": "default.us_users"},
             ),
             (
-                {"status": "invalid"},
                 {"status": "valid"},
+                {"status": "invalid"},
                 {"upstream_node": "default.us_users"},
             ),
         ]
@@ -1026,7 +1026,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
-        ] == [("create", "node"), ("create", "link")]
+        ] == [("create", "link"), ("create", "node")]
 
         # Delete the dimension node
         response = await client.delete("/nodes/default.us_users/")
@@ -1633,7 +1633,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
-        ] == [("create", "node"), ("create", "link"), ("refresh", "node")]
+        ] == [("refresh", "node"), ("create", "link"), ("create", "node")]
 
         # Refresh it again, but this time no columns will have changed so
         # verify that the node revision stays the same
@@ -1678,7 +1678,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
-        ] == [("create", "node"), ("create", "link"), ("refresh", "node")]
+        ] == [("refresh", "node"), ("create", "link"), ("create", "node")]
 
         # Refresh it again, but this time no columns are found
         mocker.patch.object(
@@ -3790,7 +3790,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert [
             (activity["activity_type"], activity["entity_type"])
             for activity in response.json()
-        ] == [("create", "node"), ("create", "link"), ("delete", "link")]
+        ] == [("delete", "link"), ("create", "link"), ("create", "node")]
 
         # Removing the dimension link again will result in no change
         response = await custom_client.delete(
@@ -3806,7 +3806,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert [
             (activity["activity_type"], activity["entity_type"])
             for activity in response.json()
-        ] == [("create", "node"), ("create", "link"), ("delete", "link")]
+        ] == [("delete", "link"), ("create", "link"), ("create", "node")]
 
         # Check that the proper error is raised when the column doesn't exist
         response = await custom_client.post(
@@ -3868,10 +3868,10 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
         ] == [
-            ("create", "node"),
-            ("set_attribute", "column_attribute"),
-            ("create", "link"),
             ("update", "node"),
+            ("create", "link"),
+            ("set_attribute", "column_attribute"),
+            ("create", "node"),
         ]
 
         response = (await client_with_roads.get("/nodes/default.hard_hat")).json()
@@ -3912,10 +3912,10 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
         ] == [
-            ("create", "node"),
-            ("set_attribute", "column_attribute"),
-            ("create", "link"),
             ("update", "node"),
+            ("create", "link"),
+            ("set_attribute", "column_attribute"),
+            ("create", "node"),
         ]
 
     @pytest.mark.asyncio
@@ -4947,10 +4947,10 @@ async def test_delete_recreate_for_all_nodes(client_with_roads: AsyncClient):
     assert response.json()["version"] == "v2.0"
     response = await client_with_roads.get("/history?node=default.dispatchers")
     assert [activity["activity_type"] for activity in response.json()] == [
-        "create",
-        "delete",
-        "update",
         "restore",
+        "update",
+        "delete",
+        "create",
     ]
     await client_with_roads.patch(
         "/nodes/default.dispatcher",
@@ -5003,11 +5003,11 @@ ON s.state_region = r.us_region_id""",
     assert node_data["version"] == "v2.0"
     response = await client_with_roads.get("/history?node=default.us_state")
     assert [activity["activity_type"] for activity in response.json()] == [
-        "create",
-        "set_attribute",
-        "delete",
-        "update",
         "restore",
+        "update",
+        "delete",
+        "set_attribute",
+        "create",
     ]
 
     create_cube_payload = {
@@ -5037,9 +5037,9 @@ ON s.state_region = r.us_region_id""",
     )
     response = await client_with_roads.get("/history?node=default.repairs_cube")
     assert [activity["activity_type"] for activity in response.json()] == [
-        "create",
-        "delete",
         "restore",
+        "delete",
+        "create",
     ]
 
 

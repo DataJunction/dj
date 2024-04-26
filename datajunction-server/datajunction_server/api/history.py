@@ -58,7 +58,7 @@ async def list_history_by_node_context(
             await session.execute(
                 select(History)
                 .where(History.node == node)
-                .order_by(History.created_at)
+                .order_by(History.created_at.desc())
                 .offset(offset)
                 .limit(limit),
             )

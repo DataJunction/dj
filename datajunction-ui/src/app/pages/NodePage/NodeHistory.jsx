@@ -11,7 +11,7 @@ export default function NodeHistory({ node, djClient }) {
     const fetchData = async () => {
       if (node) {
         const data = await djClient.history('node', node.name);
-        setHistory(data.reverse());
+        setHistory(data);
       }
     };
     fetchData().catch(console.error);

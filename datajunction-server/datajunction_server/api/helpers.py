@@ -743,7 +743,8 @@ async def get_history(
                 .where(History.entity_type == entity_type)
                 .where(History.entity_name == entity_name)
                 .offset(offset)
-                .limit(limit),
+                .limit(limit)
+                .order_by(History.created_at.desc()),
             )
         )
         .scalars()
