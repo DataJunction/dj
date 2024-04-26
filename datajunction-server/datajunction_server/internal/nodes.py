@@ -865,7 +865,7 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
                         ),
                     ],
                 )
-                if child_node:  # pragma: no cover
+                if child_node:
                     await update_cube_node(
                         session,
                         child_node.current,  # type: ignore
@@ -894,6 +894,8 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
                     ),
                 ],
             )
+            if not result:
+                continue
             child = result.current  # type: ignore
             # Update the child with a new node revision if its columns or status have changed
             if node_validator.differs_from(child):
