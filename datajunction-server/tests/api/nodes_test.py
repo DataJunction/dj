@@ -1863,14 +1863,14 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["message"] == "A node with name `something` does not exist."
 
     @pytest.mark.asyncio
-    async def test_update_node_with_deleted_children(
+    async def test_update_node_with_deactivated_children(
         self,
         client_with_roads: AsyncClient,
     ) -> None:
         """
-        Test updating a node with deleted children
+        Test updating a node with deactivated children
         """
-        # Test updating a transform with a deleted downstream cube
+        # Test updating a transform with a deactivated downstream cube
         response = await client_with_roads.post(
             "/nodes/cube/",
             json={
@@ -1902,7 +1902,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
         assert response.status_code == 200
 
-        # Test updating a transform with a deleted downstream metric
+        # Test updating a transform with a deactivated downstream metric
         response = await client_with_roads.delete(
             "/nodes/default.num_repair_orders/",
         )
