@@ -155,7 +155,7 @@ class TestTags:
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
-        ] == [("create", "tag"), ("update", "tag"), ("update", "tag")]
+        ] == [("update", "tag"), ("update", "tag"), ("create", "tag")]
 
     @pytest.mark.asyncio
     async def test_list_tags(self, client: AsyncClient) -> None:
@@ -301,8 +301,8 @@ class TestTags:
             (activity["activity_type"], activity["entity_type"], activity["details"])
             for activity in history
         ] == [
-            ("create", "node", {}),
             ("tag", "node", {"tags": ["sales_report", "reports"]}),
+            ("create", "node", {}),
         ]
 
         # Check finding nodes for tag

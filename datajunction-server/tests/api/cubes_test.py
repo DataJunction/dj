@@ -1459,7 +1459,7 @@ async def test_updating_cube(
         {
             "activity_type": "update",
             "created_at": mock.ANY,
-            "details": {"version": "v1.1"},
+            "details": {"version": "v2.0"},
             "entity_name": "default.repairs_cube",
             "entity_type": "node",
             "id": mock.ANY,
@@ -1471,7 +1471,7 @@ async def test_updating_cube(
         {
             "activity_type": "update",
             "created_at": mock.ANY,
-            "details": {"version": "v2.0"},
+            "details": {"version": "v1.1"},
             "entity_name": "default.repairs_cube",
             "entity_type": "node",
             "id": mock.ANY,
@@ -1647,11 +1647,7 @@ async def test_updating_cube_with_existing_materialization(
         {
             "activity_type": "update",
             "created_at": mock.ANY,
-            "details": {
-                "materialization": "druid_measures_cube__incremental_time__"
-                "default.hard_hat.hire_date",
-                "node": "default.repairs_cube",
-            },
+            "details": {},
             "entity_name": "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
             "entity_type": "materialization",
             "id": mock.ANY,
@@ -1675,7 +1671,11 @@ async def test_updating_cube_with_existing_materialization(
         {
             "activity_type": "update",
             "created_at": mock.ANY,
-            "details": {},
+            "details": {
+                "materialization": "druid_measures_cube__incremental_time__"
+                "default.hard_hat.hire_date",
+                "node": "default.repairs_cube",
+            },
             "entity_name": "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
             "entity_type": "materialization",
             "id": mock.ANY,

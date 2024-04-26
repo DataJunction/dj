@@ -246,10 +246,10 @@ async def test_crud_materialization(client_with_query_service: AsyncClient):
         )
         for activity in response.json()
     ] == [
-        ("create", "node", "basic.transform.country_agg"),
-        ("create", "materialization", "spark_sql__full"),
-        ("delete", "materialization", "spark_sql__full"),
         ("restore", "materialization", "spark_sql__full"),
+        ("delete", "materialization", "spark_sql__full"),
+        ("create", "materialization", "spark_sql__full"),
+        ("create", "node", "basic.transform.country_agg"),
     ]
 
 

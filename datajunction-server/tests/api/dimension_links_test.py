@@ -237,22 +237,22 @@ async def test_link_complex_dimension_without_role(
         if entry["entity_type"] == "link"
     ] == [
         (
-            "create",
-            {
-                "dimension": "default.users",
-                "join_cardinality": "one_to_one",
-                "join_sql": "default.events.user_id = default.users.user_id AND "
-                "default.events.event_start_date = default.users.snapshot_date",
-                "role": None,
-            },
-        ),
-        (
             "update",
             {
                 "dimension": "default.users",
                 "join_cardinality": "one_to_many",
                 "join_sql": "default.events.user_id = default.users.user_id AND "
                 "default.events.event_end_date = default.users.snapshot_date",
+                "role": None,
+            },
+        ),
+        (
+            "create",
+            {
+                "dimension": "default.users",
+                "join_cardinality": "one_to_one",
+                "join_sql": "default.events.user_id = default.users.user_id AND "
+                "default.events.event_start_date = default.users.snapshot_date",
                 "role": None,
             },
         ),
