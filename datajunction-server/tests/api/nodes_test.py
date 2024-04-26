@@ -1863,6 +1863,62 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["message"] == "A node with name `something` does not exist."
 
     @pytest.mark.asyncio
+    async def test_update_node_with_deleted_children(
+        self,
+        client_with_roads: AsyncClient,
+    ) -> None:
+        """
+        Test updating a node with deleted children
+        """
+        # Test updating a transform with a deleted downstream cube
+        response = await client_with_roads.post(
+            "/nodes/cube/",
+            json={
+                "metrics": ["default.num_repair_orders", "default.avg_repair_price"],
+                "dimensions": [
+                    "default.hard_hat.country",
+                    "default.dispatcher.company_name",
+                ],
+                "description": "Cube of various metrics related to repairs",
+                "mode": "published",
+                "name": "default.repairs_cube",
+            },
+        )
+        assert response.status_code == 201
+        response = await client_with_roads.delete(
+            "/nodes/default.repairs_cube/",
+        )
+        assert response.status_code == 200
+
+        response = await client_with_roads.patch(
+            "/nodes/default.repair_orders_fact",
+            json={
+                "query": """SELECT
+          repair_orders.repair_order_id,
+          repair_orders.municipality_id
+        FROM
+          default.repair_orders repair_orders""",
+            },
+        )
+        assert response.status_code == 200
+
+        # Test updating a transform with a deleted downstream metric
+        response = await client_with_roads.delete(
+            "/nodes/default.num_repair_orders/",
+        )
+        assert response.status_code == 200
+        response = await client_with_roads.patch(
+            "/nodes/default.repair_orders_fact",
+            json={
+                "query": """SELECT
+          repair_orders.repair_order_id
+        FROM
+          default.repair_orders repair_orders""",
+            },
+        )
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
     async def test_raise_on_source_node_with_no_catalog(
         self,
         client: AsyncClient,
