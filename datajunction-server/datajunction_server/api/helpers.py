@@ -512,7 +512,10 @@ async def resolve_downstream_references(
                     await session.execute(
                         select(NodeRevision)
                         .where(NodeRevision.id == downstream_node_id)
-                        .options(joinedload(NodeRevision.missing_parents)),
+                        .options(
+                            joinedload(NodeRevision.missing_parents),
+                            joinedload(NodeRevision.parents),
+                        ),
                     )
                 )
                 .unique()
