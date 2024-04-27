@@ -630,19 +630,25 @@ async def validate_cube(  # pylint: disable=too-many-locals
         ),
         key=lambda x: metrics_sorting_order.get(x.name, 0),
     )
-    ## --TODO--
+
+    # Verify that all metrics exist
     if len(metric_nodes) != len(metric_names):
         not_found = set(metric_names) - {metric.name for metric in metric_nodes}
-        raise DJNodeNotFound(f"The following metric nodes were not found: {not_found}")
+        raise DJNodeNotFound(
+            f"The following metric nodes were not found: {', '.join(not_found)}",
+        )
+
+    # Verify that all metrics are in valid status
     invalid_metrics = [
-        metric for metric in metric_nodes if metric.current.status == NodeStatus.INVALID
+        metric.name
+        for metric in metric_nodes
+        if metric.current.status == NodeStatus.INVALID
     ]
     if invalid_metrics:
         raise DJInvalidInputException(
-            "A cube could not be created because the following "
-            f"metric nodes are invalid: {invalid_metrics}",
+            f"The following metric nodes are invalid: {', '.join(invalid_metrics)}",
         )
-    ## --TODO--
+
     metrics: List[Column] = [metric.current.columns[0] for metric in metric_nodes]
     catalogs = [metric.current.catalog for metric in metric_nodes]
     catalog = catalogs[0] if catalogs else None
