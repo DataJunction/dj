@@ -512,7 +512,10 @@ async def resolve_downstream_references(
                     await session.execute(
                         select(NodeRevision)
                         .where(NodeRevision.id == downstream_node_id)
-                        .options(joinedload(NodeRevision.missing_parents)),
+                        .options(
+                            joinedload(NodeRevision.missing_parents),
+                            joinedload(NodeRevision.parents),
+                        ),
                     )
                 )
                 .unique()
@@ -630,6 +633,25 @@ async def validate_cube(  # pylint: disable=too-many-locals
         ),
         key=lambda x: metrics_sorting_order.get(x.name, 0),
     )
+
+    # Verify that all metrics exist
+    if len(metric_nodes) != len(metric_names):
+        not_found = set(metric_names) - {metric.name for metric in metric_nodes}
+        raise DJNodeNotFound(
+            f"The following metric nodes were not found: {', '.join(not_found)}",
+        )
+
+    # Verify that all metrics are in valid status
+    invalid_metrics = [
+        metric.name
+        for metric in metric_nodes
+        if metric.current.status == NodeStatus.INVALID
+    ]
+    if invalid_metrics:
+        raise DJInvalidInputException(
+            f"The following metric nodes are invalid: {', '.join(invalid_metrics)}",
+        )
+
     metrics: List[Column] = [metric.current.columns[0] for metric in metric_nodes]
     catalogs = [metric.current.catalog for metric in metric_nodes]
     catalog = catalogs[0] if catalogs else None
@@ -743,7 +765,8 @@ async def get_history(
                 .where(History.entity_type == entity_type)
                 .where(History.entity_name == entity_name)
                 .offset(offset)
-                .limit(limit),
+                .limit(limit)
+                .order_by(History.created_at.desc()),
             )
         )
         .scalars()

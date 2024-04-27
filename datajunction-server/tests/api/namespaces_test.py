@@ -282,27 +282,6 @@ async def test_deactivate_namespaces(client_with_namespaced_roads: AsyncClient) 
     assert [
         (activity["activity_type"], activity["details"]) for activity in response.json()
     ] == [
-        ("create", {}),
-        (
-            "delete",
-            {
-                "message": (
-                    "Namespace `foo.bar` has been deactivated. The following nodes have "
-                    "also been deactivated: foo.bar.repair_orders,foo.bar.repair_order_d"
-                    "etails,foo.bar.repair_type,foo.bar.contractors,foo.bar.municipality"
-                    "_municipality_type,foo.bar.municipality_type,foo.bar.municipality,f"
-                    "oo.bar.dispatchers,foo.bar.hard_hats,foo.bar.hard_hat_state,foo.bar"
-                    ".us_states,foo.bar.us_region,foo.bar.repair_order,foo.bar.contracto"
-                    "r,foo.bar.hard_hat,foo.bar.local_hard_hats,foo.bar.us_state,foo.bar"
-                    ".dispatcher,foo.bar.municipality_dim,foo.bar.num_repair_orders,foo."
-                    "bar.avg_repair_price,foo.bar.total_repair_cost,foo.bar.avg_length_o"
-                    "f_employment,foo.bar.total_repair_order_discounts,foo.bar.avg_repai"
-                    "r_order_discounts,foo.bar.avg_time_to_dispatch"
-                ),
-            },
-        ),
-        ("restore", {"message": "Namespace `foo.bar` has been restored."}),
-        ("delete", {"message": "Namespace `foo.bar` has been deactivated."}),
         (
             "restore",
             {
@@ -321,6 +300,27 @@ async def test_deactivate_namespaces(client_with_namespaced_roads: AsyncClient) 
                 ),
             },
         ),
+        ("delete", {"message": "Namespace `foo.bar` has been deactivated."}),
+        ("restore", {"message": "Namespace `foo.bar` has been restored."}),
+        (
+            "delete",
+            {
+                "message": (
+                    "Namespace `foo.bar` has been deactivated. The following nodes have "
+                    "also been deactivated: foo.bar.repair_orders,foo.bar.repair_order_d"
+                    "etails,foo.bar.repair_type,foo.bar.contractors,foo.bar.municipality"
+                    "_municipality_type,foo.bar.municipality_type,foo.bar.municipality,f"
+                    "oo.bar.dispatchers,foo.bar.hard_hats,foo.bar.hard_hat_state,foo.bar"
+                    ".us_states,foo.bar.us_region,foo.bar.repair_order,foo.bar.contracto"
+                    "r,foo.bar.hard_hat,foo.bar.local_hard_hats,foo.bar.us_state,foo.bar"
+                    ".dispatcher,foo.bar.municipality_dim,foo.bar.num_repair_orders,foo."
+                    "bar.avg_repair_price,foo.bar.total_repair_cost,foo.bar.avg_length_o"
+                    "f_employment,foo.bar.total_repair_order_discounts,foo.bar.avg_repai"
+                    "r_order_discounts,foo.bar.avg_time_to_dispatch"
+                ),
+            },
+        ),
+        ("create", {}),
     ]
 
     response = await client_with_namespaced_roads.get(
@@ -329,11 +329,11 @@ async def test_deactivate_namespaces(client_with_namespaced_roads: AsyncClient) 
     assert [
         (activity["activity_type"], activity["details"]) for activity in response.json()
     ] == [
-        ("create", {}),
+        ("restore", {"message": "Cascaded from restoring namespace `foo.bar`"}),
         ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
         ("delete", {"message": "Cascaded from deactivating namespace `foo.bar`"}),
         ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
-        ("restore", {"message": "Cascaded from restoring namespace `foo.bar`"}),
+        ("create", {}),
     ]
 
 

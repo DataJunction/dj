@@ -494,6 +494,63 @@ async def test_invalid_cube(client_with_roads: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_create_cube_failures(
+    client_with_roads: AsyncClient,
+):
+    """
+    Test create cube failure cases
+    """
+    # Creating a cube with a metric that doesn't exist should fail
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.metric_that_doesnt_exist"],
+            "dimensions": [
+                "default.hard_hat.country",
+                "default.hard_hat.postal_code",
+            ],
+            "description": "Cube with metric that doesn't exist",
+            "mode": "published",
+            "name": "default.bad_cube",
+        },
+    )
+    assert response.status_code == 404
+    assert response.json() == {
+        "message": "The following metric nodes were not found: default.metric_that_doesnt_exist",
+        "errors": [],
+        "warnings": [],
+    }
+
+    # Creating a cube with an invalid metric should fail
+    response = await client_with_roads.patch(
+        "/nodes/default.repair_orders_fact/",
+        json={
+            "query": "select 1",
+        },
+    )
+    assert response.status_code == 200
+
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": [
+                "default.hard_hat.country",
+                "default.hard_hat.postal_code",
+            ],
+            "description": "Cube with invalid metric",
+            "mode": "published",
+            "name": "default.bad_cube",
+        },
+    )
+    assert response.status_code == 422
+    assert (
+        response.json()["message"]
+        == "The following metric nodes are invalid: default.num_repair_orders"
+    )
+
+
+@pytest.mark.asyncio
 async def test_create_cube(
     client_with_repairs_cube: AsyncClient,
 ):
@@ -1459,7 +1516,7 @@ async def test_updating_cube(
         {
             "activity_type": "update",
             "created_at": mock.ANY,
-            "details": {"version": "v1.1"},
+            "details": {"version": "v2.0"},
             "entity_name": "default.repairs_cube",
             "entity_type": "node",
             "id": mock.ANY,
@@ -1471,7 +1528,7 @@ async def test_updating_cube(
         {
             "activity_type": "update",
             "created_at": mock.ANY,
-            "details": {"version": "v2.0"},
+            "details": {"version": "v1.1"},
             "entity_name": "default.repairs_cube",
             "entity_type": "node",
             "id": mock.ANY,
@@ -1647,11 +1704,7 @@ async def test_updating_cube_with_existing_materialization(
         {
             "activity_type": "update",
             "created_at": mock.ANY,
-            "details": {
-                "materialization": "druid_measures_cube__incremental_time__"
-                "default.hard_hat.hire_date",
-                "node": "default.repairs_cube",
-            },
+            "details": {},
             "entity_name": "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
             "entity_type": "materialization",
             "id": mock.ANY,
@@ -1675,7 +1728,11 @@ async def test_updating_cube_with_existing_materialization(
         {
             "activity_type": "update",
             "created_at": mock.ANY,
-            "details": {},
+            "details": {
+                "materialization": "druid_measures_cube__incremental_time__"
+                "default.hard_hat.hire_date",
+                "node": "default.repairs_cube",
+            },
             "entity_name": "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
             "entity_type": "materialization",
             "id": mock.ANY,
