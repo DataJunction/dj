@@ -188,7 +188,7 @@ async def test_crud_materialization(client_with_query_service: AsyncClient):
     history = response.json()
     assert [
         (activity["activity_type"], activity["entity_type"]) for activity in history
-    ] == [("create", "node"), ("create", "materialization")]
+    ] == [("create", "materialization"), ("create", "node")]
 
     # Setting it again should inform that it already exists
     response = await client_with_query_service.post(
@@ -246,10 +246,10 @@ async def test_crud_materialization(client_with_query_service: AsyncClient):
         )
         for activity in response.json()
     ] == [
-        ("create", "node", "basic.transform.country_agg"),
-        ("create", "materialization", "spark_sql__full"),
-        ("delete", "materialization", "spark_sql__full"),
         ("restore", "materialization", "spark_sql__full"),
+        ("delete", "materialization", "spark_sql__full"),
+        ("create", "materialization", "spark_sql__full"),
+        ("create", "node", "basic.transform.country_agg"),
     ]
 
 
