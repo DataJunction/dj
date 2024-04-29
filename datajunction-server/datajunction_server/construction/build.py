@@ -1469,6 +1469,7 @@ async def get_measures_query(
     current_user: Optional[User] = None,
     validate_access: access.ValidateAccessFn = None,
     cast_timestamp_to_ms: bool = False,
+    include_all_columns: bool = False,
 ) -> TranslatedSQL:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.
@@ -1535,18 +1536,19 @@ async def get_measures_query(
         )
 
         # Select only columns that were one of the necessary measures
-        parent_ast.select.projection = [
-            expr
-            for expr in parent_ast.select.projection
-            if from_amenable_name(expr.alias_or_name.identifier(False)).split(  # type: ignore
-                SEPARATOR,
-            )[
-                -1
+        if not include_all_columns:
+            parent_ast.select.projection = [
+                expr
+                for expr in parent_ast.select.projection
+                if from_amenable_name(expr.alias_or_name.identifier(False)).split(  # type: ignore
+                    SEPARATOR,
+                )[
+                    -1
+                ]
+                in parents_to_measures[parent_node.name]
+                or from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
+                in dimensions_without_roles
             ]
-            in parents_to_measures[parent_node.name]
-            or from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
-            in dimensions_without_roles
-        ]
         await session.refresh(parent_node.current, ["columns"])
         parent_ast = rename_columns(parent_ast, parent_node.current)
 
