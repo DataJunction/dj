@@ -12,6 +12,7 @@ __all__ = [
     "NodeNamespace",
     "NodeRevision",
     "Partition",
+    "QueryRequest",
     "Table",
     "Tag",
     "User",
@@ -28,6 +29,7 @@ from datajunction_server.database.measure import Measure
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
+from datajunction_server.database.queryrequest import QueryRequest
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User
 from datajunction_server.models.history import History
