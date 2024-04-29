@@ -6,16 +6,15 @@ from typing import Callable, List, Optional
 # pylint: disable=C0302
 import duckdb
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.main import app
-from datajunction_server.database import QueryRequest
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.queryrequest import QueryBuildType
+from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
 from datajunction_server.models.node_type import NodeType
@@ -57,6 +56,7 @@ async def test_sql(
         query="SELECT COUNT(*) FROM default.my_table",
         type=NodeType.METRIC,
     )
+    node_revision.parents = [source_node]
     session.add(database)
     session.add(node_revision)
     session.add(source_node_rev)
@@ -86,59 +86,181 @@ async def test_sql(
     assert query_request[0].dimensions == []
     assert query_request[0].filters == []
     assert query_request[0].orderby == []
-    assert query_request[0].limit == None
+    assert query_request[0].limit is None
     assert query_request[0].query_type == QueryBuildType.NODE
     assert compare_query_strings(query_request[0].query, response["sql"])
     assert query_request[0].columns == response["columns"]
 
 
-@pytest.mark.asyncio
-async def test_saving_node_sql_requests(
-    session: AsyncSession,
-    client_with_roads: AsyncClient,
-) -> None:
+@pytest.fixture
+def transform_node_sql_request(client_with_roads: AsyncClient):
     """
-    Test different scenarios involving saving query requests
-    - Requesting node SQL for a transform with a joined-in dimension, filter, limit, and order by
-        - Update the transform
-        - Update a dimension
-    - Requesting measures SQL for a set of metrics + dimensions + filters
-        - Update a metric
-        - Update a dimension (both used in filters and not)
-    - Requesting metrics SQL (for a set of metrics + dimensions)
+    Request SQL for a transform node
+    GET `/sql/default.repair_orders_fact`
     """
-    transform_node_sql_params = {
-        "dimensions": [
-            "default.repair_orders_fact.repair_order_id",
-            "default.hard_hat.state",
-            "default.repair_orders_fact.hard_hat_id",
-        ],
-        "filters": ["default.hard_hat.state = 'CA'"],
-        "limit": 200,
-        "orderby": ["default.repair_orders_fact.hard_hat_id ASC"],
-    }
-    response = await client_with_roads.get(
-        "/sql/default.repair_orders_fact",
-        params=transform_node_sql_params,
+
+    async def _make_request() -> Response:
+        transform_node_sql_params = {
+            "dimensions": [
+                "default.dispatcher.company_name",
+                "default.hard_hat.state",
+                "default.hard_hat.hard_hat_id",
+            ],
+            "filters": ["default.hard_hat.state = 'CA'"],
+            "limit": 200,
+            "orderby": ["default.dispatcher.company_name ASC"],
+        }
+        response = await client_with_roads.get(
+            "/sql/default.repair_orders_fact",
+            params=transform_node_sql_params,
+        )
+        return response
+
+    return _make_request
+
+
+@pytest.fixture
+def measures_sql_request(client_with_roads: AsyncClient):
+    """
+    Request measures SQL for some metrics
+    GET `/sql/measures`
+    """
+
+    async def _make_request() -> Response:
+        measures_sql_params = {
+            "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
+            "dimensions": [
+                "default.dispatcher.company_name",
+                "default.hard_hat.state",
+            ],
+            "filters": ["default.hard_hat.state = 'CA'"],
+            "include_all_columns": True,
+        }
+        response = await client_with_roads.get(
+            "/sql/measures",
+            params=measures_sql_params,
+        )
+        return response
+
+    return _make_request
+
+
+@pytest.fixture
+def metrics_sql_request(client_with_roads: AsyncClient):
+    """
+    Request metrics SQL for some metrics
+    GET `/sql`
+    """
+
+    async def _make_request() -> Response:
+        metrics_sql_params = {
+            "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
+            "dimensions": [
+                "default.dispatcher.company_name",
+                "default.hard_hat.state",
+            ],
+            "filters": ["default.hard_hat.state = 'CA'"],
+            "orderby": ["default.num_repair_orders DESC", "default.hard_hat.state"],
+            "limit": 50,
+        }
+        return await client_with_roads.get(
+            "/sql",
+            params=metrics_sql_params,
+        )
+
+    return _make_request
+
+
+@pytest.fixture
+def update_transform_node(client_with_roads: AsyncClient):
+    """
+    Update transform node with a simplified query
+    """
+
+    async def _make_request() -> Response:
+        response = await client_with_roads.patch(
+            "/nodes/default.repair_orders_fact",
+            json={
+                "query": """SELECT
+          repair_orders.repair_order_id,
+          repair_orders.municipality_id,
+          repair_orders.hard_hat_id,
+          repair_orders.dispatcher_id,
+          repair_orders.order_date,
+          repair_orders.dispatched_date,
+          repair_orders.required_date,
+          repair_order_details.discount,
+          repair_order_details.price * repair_order_details.quantity AS total_repair_cost
+        FROM
+          default.repair_orders repair_orders
+        JOIN
+          default.repair_order_details repair_order_details
+        ON repair_orders.repair_order_id = repair_order_details.repair_order_id""",
+            },
+        )
+        return response
+
+    return _make_request
+
+
+async def get_query_requests(session: AsyncSession, query_type: QueryBuildType):
+    """
+    Get all query requests of the specific query type
+    """
+    return (
+        (
+            await session.execute(
+                select(QueryRequest)
+                .where(
+                    QueryRequest.query_type == query_type,
+                )
+                .order_by(QueryRequest.created_at.asc()),
+            )
+        )
+        .scalars()
+        .all()
     )
 
+
+@pytest.mark.asyncio
+async def test_saving_node_sql_requests(  # pylint: disable=too-many-statements
+    session: AsyncSession,
+    client_with_roads: AsyncClient,
+    transform_node_sql_request,  # pylint: disable=redefined-outer-name
+    update_transform_node,  # pylint: disable=redefined-outer-name
+) -> None:
+    """
+    Test different scenarios involving saving and reusing cached query requests when
+    requesting node SQL for a transform.
+    """
+    response = await transform_node_sql_request()
+
     # Check that this query request has been saved
-    query_request = (await session.execute(select(QueryRequest))).scalars().all()
+    query_request = await get_query_requests(session, QueryBuildType.NODE)
     assert len(query_request) == 1
     assert query_request[0].nodes == ["default.repair_orders_fact@v1.0"]
+    assert query_request[0].parents == [
+        "default.repair_order_details@v1.0",
+        "default.repair_orders@v1.0",
+    ]
     assert query_request[0].dimensions == [
-        "default.repair_orders_fact.repair_order_id@v1.0",
+        "default.dispatcher.company_name@v1.0",
         "default.hard_hat.state@v1.0",
-        "default.repair_orders_fact.hard_hat_id@v1.0",
+        "default.hard_hat.hard_hat_id@v1.0",
     ]
     assert query_request[0].filters == ["default.hard_hat.state@v1.0 = 'CA'"]
     assert query_request[0].orderby == [
-        "default.repair_orders_fact.hard_hat_id@v1.0 ASC",
+        "default.dispatcher.company_name@v1.0 ASC",
     ]
     assert query_request[0].limit == 200
     assert query_request[0].query_type == QueryBuildType.NODE
     assert query_request[0].query.strip() == response.json()["sql"].strip()
     assert query_request[0].columns == response.json()["columns"]
+
+    # Requesting it again should reuse the saved request
+    await transform_node_sql_request()
+    query_requests = await get_query_requests(session, QueryBuildType.NODE)
+    assert len(query_requests) == 1
 
     # Update the transform node to a query that invalidates the SQL request
     response = await client_with_roads.patch(
@@ -153,58 +275,35 @@ async def test_saving_node_sql_requests(
     assert response.status_code == 200
 
     # This should now trigger error messages when requesting SQL
-    response = await client_with_roads.get(
-        "/sql/default.repair_orders_fact",
-        params=transform_node_sql_params,
-    )
+    response = await transform_node_sql_request()
     assert (
         "Cannot resolve type of column default.repair_orders_fact.hard_hat_id"
         in response.json()["message"]
     )
 
     # Update the transform node with a new query
-    response = await client_with_roads.patch(
-        "/nodes/default.repair_orders_fact",
-        json={
-            "query": """SELECT
-  repair_orders.repair_order_id,
-  repair_orders.municipality_id,
-  repair_orders.hard_hat_id,
-  repair_orders.dispatcher_id,
-  repair_orders.order_date,
-  repair_orders.dispatched_date,
-  repair_orders.required_date,
-  repair_order_details.discount,
-  repair_order_details.price * repair_order_details.quantity AS total_repair_cost
-FROM
-  default.repair_orders repair_orders
-JOIN
-  default.repair_order_details repair_order_details
-ON repair_orders.repair_order_id = repair_order_details.repair_order_id""",
-        },
-    )
+    response = await update_transform_node()
     assert response.status_code == 200
 
-    response = (
-        await client_with_roads.get(
-            "/sql/default.repair_orders_fact",
-            params=transform_node_sql_params,
-        )
-    ).json()
+    response = (await transform_node_sql_request()).json()
 
     # Check that the node update triggered an updated query request to be saved. Note that
     # default.repair_orders_fact's version gets bumped, but default.hard_hat will stay the same
-    query_request = (await session.execute(select(QueryRequest))).scalars().all()
+    query_request = await get_query_requests(session, QueryBuildType.NODE)
     assert len(query_request) == 2
     assert query_request[1].nodes == ["default.repair_orders_fact@v3.0"]
+    assert query_request[1].parents == [
+        "default.repair_order_details@v1.0",
+        "default.repair_orders@v1.0",
+    ]
     assert query_request[1].dimensions == [
-        "default.repair_orders_fact.repair_order_id@v3.0",
+        "default.dispatcher.company_name@v1.0",
         "default.hard_hat.state@v1.0",
-        "default.repair_orders_fact.hard_hat_id@v3.0",
+        "default.hard_hat.hard_hat_id@v1.0",
     ]
     assert query_request[1].filters == ["default.hard_hat.state@v1.0 = 'CA'"]
     assert query_request[1].orderby == [
-        "default.repair_orders_fact.hard_hat_id@v3.0 ASC",
+        "default.dispatcher.company_name@v1.0 ASC",
     ]
     assert query_request[1].limit == 200
     assert query_request[1].query_type == QueryBuildType.NODE
@@ -219,154 +318,30 @@ ON repair_orders.repair_order_id = repair_order_details.repair_order_id""",
     assert response.status_code == 200
 
     # Request the same node query again
-    response = (
-        await client_with_roads.get(
-            "/sql/default.repair_orders_fact",
-            params=transform_node_sql_params,
-        )
-    ).json()
+    response = (await transform_node_sql_request()).json()
 
     # Check that the dimension node update triggered an updated query request to be saved. Now
     # default.repair_orders_fact's version remains the same, but default.hard_hat gets bumped
-    query_request = (
-        (
-            await session.execute(
-                select(QueryRequest).where(
-                    QueryRequest.query_type == QueryBuildType.NODE,
-                ),
-            )
-        )
-        .scalars()
-        .all()
-    )
+    query_request = await get_query_requests(session, QueryBuildType.NODE)
     assert len(query_request) == 3
     assert query_request[2].nodes == ["default.repair_orders_fact@v3.0"]
+    assert query_request[2].parents == [
+        "default.repair_order_details@v1.0",
+        "default.repair_orders@v1.0",
+    ]
     assert query_request[2].dimensions == [
-        "default.repair_orders_fact.repair_order_id@v3.0",
+        "default.dispatcher.company_name@v1.0",
         "default.hard_hat.state@v2.0",
-        "default.repair_orders_fact.hard_hat_id@v3.0",
+        "default.hard_hat.hard_hat_id@v2.0",
     ]
     assert query_request[2].filters == ["default.hard_hat.state@v2.0 = 'CA'"]
     assert query_request[2].orderby == [
-        "default.repair_orders_fact.hard_hat_id@v3.0 ASC",
+        "default.dispatcher.company_name@v1.0 ASC",
     ]
     assert query_request[2].limit == 200
     assert query_request[2].query_type == QueryBuildType.NODE
     assert query_request[2].query.strip() == response["sql"].strip()
     assert query_request[2].columns == response["columns"]
-
-
-@pytest.mark.asyncio
-async def test_saving_measures_sql_requests(
-    session: AsyncSession,
-    client_with_roads: AsyncClient,
-) -> None:
-    """
-    Test saving query request while requesting measures SQL for a set of
-    metrics + dimensions + filters
-    Checks that additional arguments like `include_all_columns` are recorded
-    - Requesting metrics SQL (for a set of metrics + dimensions)
-    """
-    # -------
-    # Requesting measures SQL for a set of metrics + dimensions + filters
-    # - Check that additional arguments like `include_all_columns` are recorded
-    # -------
-    measures_sql_params = {
-        "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
-        "dimensions": [
-            "default.dispatcher.company_name",
-            "default.hard_hat.state",
-        ],
-        "filters": ["default.hard_hat.state = 'CA'"],
-        "include_all_columns": True,
-    }
-    response = (
-        await client_with_roads.get(
-            "/sql/measures",
-            params=measures_sql_params,
-        )
-    ).json()
-
-    # Check that the measures SQL request was saved
-    query_request = (
-        (
-            await session.execute(
-                select(QueryRequest).where(
-                    QueryRequest.query_type == QueryBuildType.MEASURES,
-                ),
-            )
-        )
-        .scalars()
-        .all()
-    )
-    assert len(query_request) == 1
-    assert query_request[0].nodes == [
-        "default.num_repair_orders@v1.0",
-        "default.total_repair_cost@v1.0",
-    ]
-    assert query_request[0].dimensions == [
-        "default.dispatcher.company_name@v1.0",
-        "default.hard_hat.state@v1.0",
-    ]
-    assert query_request[0].filters == ["default.hard_hat.state@v1.0 = 'CA'"]
-    assert query_request[0].orderby == []
-    assert query_request[0].limit is None
-    assert query_request[0].query_type == QueryBuildType.MEASURES
-    assert query_request[0].other_args == {"include_all_columns": True}
-    assert query_request[0].query.strip() == response["sql"].strip()
-    assert query_request[0].columns == response["columns"]
-
-    # -------
-    # Requesting metrics SQL for a set of metrics + dimensions + filters
-    # -------
-    metrics_sql_params = {
-        "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
-        "dimensions": [
-            "default.dispatcher.company_name",
-            "default.hard_hat.state",
-        ],
-        "filters": ["default.hard_hat.state = 'CA'"],
-        "orderby": ["default.num_repair_orders DESC", "default.hard_hat.state"],
-        "limit": 50,
-    }
-    response = (
-        await client_with_roads.get(
-            "/sql",
-            params=metrics_sql_params,
-        )
-    ).json()
-
-    # Check that the measures SQL request was saved
-    query_request = (
-        (
-            await session.execute(
-                select(QueryRequest).where(
-                    QueryRequest.query_type == QueryBuildType.METRICS,
-                ),
-            )
-        )
-        .scalars()
-        .all()
-    )
-    assert len(query_request) == 1
-    assert query_request[0].nodes == [
-        "default.num_repair_orders@v1.0",
-        "default.total_repair_cost@v1.0",
-    ]
-    assert query_request[0].dimensions == [
-        "default.dispatcher.company_name@v1.0",
-        "default.hard_hat.state@v1.0",
-    ]
-    assert query_request[0].filters == ["default.hard_hat.state@v1.0 = 'CA'"]
-    assert query_request[0].orderby == [
-        "default.num_repair_orders@v1.0 DESC",
-        "default.hard_hat.state@v1.0",
-    ]
-    assert query_request[0].limit is 50
-    assert query_request[0].query_type == QueryBuildType.METRICS
-    assert query_request[0].other_args is None
-    assert query_request[0].query.strip() == response["sql"].strip()
-    assert query_request[0].columns == response["columns"]
 
     # Remove a dimension node link to default.hard_hat
     response = await client_with_roads.request(
@@ -379,29 +354,223 @@ async def test_saving_measures_sql_requests(
     assert response.status_code == 201
 
     # Now requesting metrics SQL with default.hard_hat.state should fail
+    response = (await transform_node_sql_request()).json()
+    assert response["message"] == (
+        "default.hard_hat.hard_hat_id, default.hard_hat.state are not available dimensions "
+        "on default.repair_orders_fact"
+    )
+
+
+@pytest.mark.asyncio
+async def test_saving_measures_sql_requests(
+    session: AsyncSession,
+    client_with_roads: AsyncClient,
+    measures_sql_request,  # pylint: disable=redefined-outer-name
+    update_transform_node,  # pylint: disable=redefined-outer-name
+) -> None:
+    """
+    Test saving query request while requesting measures SQL for a set of metrics + dimensions
+    + filters. It also checks that additional arguments like `include_all_columns` are recorded
+    in the query request key.
+    - Requesting metrics SQL (for a set of metrics + dimensions)
+    """
+    response = (await measures_sql_request()).json()
+
+    # Check that the measures SQL request was saved
+    query_requests = await get_query_requests(session, QueryBuildType.MEASURES)
+    assert len(query_requests) == 1
+    assert query_requests[0].nodes == [
+        "default.num_repair_orders@v1.0",
+        "default.total_repair_cost@v1.0",
+    ]
+    assert query_requests[0].dimensions == [
+        "default.dispatcher.company_name@v1.0",
+        "default.hard_hat.state@v1.0",
+    ]
+    assert query_requests[0].filters == ["default.hard_hat.state@v1.0 = 'CA'"]
+    assert query_requests[0].orderby == []
+    assert query_requests[0].limit is None
+    assert query_requests[0].query_type == QueryBuildType.MEASURES
+    assert query_requests[0].other_args == {"include_all_columns": True}
+    assert query_requests[0].query.strip() == response["sql"].strip()
+    assert query_requests[0].columns == response["columns"]
+
+    # Requesting it again should reuse the saved request
+    await measures_sql_request()
+    query_requests = await get_query_requests(session, QueryBuildType.MEASURES)
+    assert len(query_requests) == 1
+
+    # Update the underlying transform behind the metrics
+    response = await update_transform_node()
+    assert response.status_code == 200
+    response = (await measures_sql_request()).json()
+
+    # Check that the measures SQL request was saved
+    query_requests = await get_query_requests(session, QueryBuildType.MEASURES)
+    assert len(query_requests) == 2
+    assert query_requests[1].nodes == [
+        "default.num_repair_orders@v1.0",
+        "default.total_repair_cost@v1.0",
+    ]
+    assert query_requests[1].parents == [
+        "default.repair_order_details@v1.0",
+        "default.repair_orders@v1.0",
+        "default.repair_orders_fact@v2.0",
+    ]
+    assert query_requests[1].dimensions == [
+        "default.dispatcher.company_name@v1.0",
+        "default.hard_hat.state@v1.0",
+    ]
+    assert query_requests[1].filters == ["default.hard_hat.state@v1.0 = 'CA'"]
+    assert query_requests[1].orderby == []
+    assert query_requests[1].limit is None
+    assert query_requests[1].query_type == QueryBuildType.MEASURES
+    assert query_requests[1].other_args == {"include_all_columns": True}
+    assert query_requests[1].query.strip() == response["sql"].strip()
+    assert query_requests[1].columns == response["columns"]
+
+    # Remove a dimension node link to default.hard_hat
+    response = await client_with_roads.request(
+        "DELETE",
+        "/nodes/default.repair_orders_fact/link",
+        json={
+            "dimension_node": "default.hard_hat",
+        },
+    )
+    assert response.status_code == 201
+
+    # And requesting measures SQL with default.hard_hat.state should fail
+    response = (await measures_sql_request()).json()
+    assert response["message"] == (
+        "default.hard_hat.state are not available dimensions on default.num_repair_orders, default.total_repair_cost"
+    )
+
+
+@pytest.mark.asyncio
+async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statements
+    session: AsyncSession,
+    client_with_roads: AsyncClient,
+    metrics_sql_request,  # pylint: disable=redefined-outer-name
+    update_transform_node,  # pylint: disable=redefined-outer-name
+) -> None:
+    """
+    Requesting metrics SQL for a set of metrics + dimensions + filters
+    """
+    response = (await metrics_sql_request()).json()
+
+    # Check that the metrics SQL request was saved
+    query_request = await get_query_requests(session, QueryBuildType.METRICS)
+    assert len(query_request) == 1
+    assert query_request[0].nodes == [
+        "default.num_repair_orders@v1.0",
+        "default.total_repair_cost@v1.0",
+    ]
+    assert query_request[0].parents == [
+        "default.repair_order_details@v1.0",
+        "default.repair_orders@v1.0",
+        "default.repair_orders_fact@v1.0",
+    ]
+    assert query_request[0].dimensions == [
+        "default.dispatcher.company_name@v1.0",
+        "default.hard_hat.state@v1.0",
+    ]
+    assert query_request[0].filters == ["default.hard_hat.state@v1.0 = 'CA'"]
+    assert query_request[0].orderby == [
+        "default.num_repair_orders@v1.0 DESC",
+        "default.hard_hat.state@v1.0",
+    ]
+    assert query_request[0].limit == 50
+    assert query_request[0].engine_name is None
+    assert query_request[0].engine_version is None
+    assert query_request[0].other_args == {}
+
+    assert query_request[0].query_type == QueryBuildType.METRICS
+    assert query_request[0].query.strip() == response["sql"].strip()
+    assert query_request[0].columns == response["columns"]
+
+    # Requesting it again should reuse the cached values
+    await metrics_sql_request()
+    query_request = await get_query_requests(session, QueryBuildType.METRICS)
+    assert len(query_request) == 1
+
+    # Patch the underlying transform with a new query
+    await update_transform_node()
+
+    # Now requesting metrics SQL should not use the cached entry
+    response = (await metrics_sql_request()).json()
+
+    # Check that a new metrics SQL request was saved
+    query_request = await get_query_requests(session, QueryBuildType.METRICS)
+    assert len(query_request) == 2
+    assert query_request[1].nodes == [
+        "default.num_repair_orders@v1.0",
+        "default.total_repair_cost@v1.0",
+    ]
+    assert query_request[1].parents == [
+        "default.repair_order_details@v1.0",
+        "default.repair_orders@v1.0",
+        "default.repair_orders_fact@v2.0",
+    ]
+    assert query_request[1].dimensions == [
+        "default.dispatcher.company_name@v1.0",
+        "default.hard_hat.state@v1.0",
+    ]
+    assert query_request[1].filters == ["default.hard_hat.state@v1.0 = 'CA'"]
+    assert query_request[1].orderby == [
+        "default.num_repair_orders@v1.0 DESC",
+        "default.hard_hat.state@v1.0",
+    ]
+    assert query_request[1].limit == 50
+    assert query_request[1].engine_name is None
+    assert query_request[1].engine_version is None
+    assert query_request[1].other_args == {}
+
+    assert query_request[1].query_type == QueryBuildType.METRICS
+    assert query_request[1].query.strip() == response["sql"].strip()
+    assert query_request[1].columns == response["columns"]
+
+    # Request metrics SQL without dimensions, filters, limit or orderby
+    metrics_sql_params = {
+        "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
+    }
     response = (
         await client_with_roads.get(
             "/sql",
             params=metrics_sql_params,
         )
     ).json()
-    assert response["message"] == (
-        "The dimension attribute `default.hard_hat.state` is not "
-        "available on every metric and thus cannot be included."
-    )
 
-    # And requesting measures SQL with default.hard_hat.state should fail
-    response = (
-        await client_with_roads.get(
-            "/sql/measures",
-            params=measures_sql_params,
-        )
-    ).json()
-    assert response == {}
-    # assert response["message"] == (
-    #     "The dimension attribute `default.dispatcher.company_name` is not "
-    #     "available on every metric and thus cannot be included."
-    # )
+    # Check the query request entry that was saved
+    query_request = await get_query_requests(session, QueryBuildType.METRICS)
+    assert len(query_request) == 3
+    assert query_request[2].nodes == [
+        "default.num_repair_orders@v1.0",
+        "default.total_repair_cost@v1.0",
+    ]
+    assert query_request[2].parents == [
+        "default.repair_order_details@v1.0",
+        "default.repair_orders@v1.0",
+        "default.repair_orders_fact@v2.0",
+    ]
+    assert query_request[2].dimensions == []
+    assert query_request[2].filters == []
+    assert query_request[2].orderby == []
+    assert query_request[2].limit is None
+    assert query_request[2].engine_name is None
+    assert query_request[2].engine_version is None
+    assert query_request[2].other_args == {}
+
+    assert query_request[2].query_type == QueryBuildType.METRICS
+    assert query_request[2].query.strip() == response["sql"].strip()
+    assert query_request[2].columns == response["columns"]
+
+    # Request it again and check that no new entry was created
+    await client_with_roads.get(
+        "/sql",
+        params=metrics_sql_params,
+    )
+    query_request = await get_query_requests(session, QueryBuildType.METRICS)
+    assert len(query_request) == 3
 
 
 @pytest.mark.parametrize(

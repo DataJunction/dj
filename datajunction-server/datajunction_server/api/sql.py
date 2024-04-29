@@ -15,9 +15,7 @@ from datajunction_server.api.helpers import (
     validate_orderby,
 )
 from datajunction_server.construction.build import get_measures_query
-from datajunction_server.construction.utils import to_namespaced_name
-from datajunction_server.database import Node, QueryRequest
-from datajunction_server.database.queryrequest import QueryBuildType
+from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
@@ -25,8 +23,6 @@ from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.user import UserOutput
-from datajunction_server.sql.parsing import ast
-from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
 _logger = logging.getLogger(__name__)
@@ -72,7 +68,11 @@ async def get_measures_sql_for_cube(
         query_type=QueryBuildType.MEASURES,
         other_args={"include_all_columns": include_all_columns},
     ):
-        engine = await get_engine(session, engine_name, engine_version)
+        engine = (
+            await get_engine(session, engine_name, engine_version)  # type: ignore
+            if engine_name
+            else None
+        )
         return TranslatedSQL(
             sql=query_request.query,
             columns=query_request.columns,
@@ -102,7 +102,7 @@ async def get_measures_sql_for_cube(
         engine_version=engine_version,
         query_type=QueryBuildType.MEASURES,
         query=measures_query.sql,
-        columns=[col.dict() for col in measures_query.columns],
+        columns=[col.dict() for col in measures_query.columns],  # type: ignore
         other_args={"include_all_columns": include_all_columns},
     )
     return measures_query
@@ -113,7 +113,7 @@ async def get_measures_sql_for_cube(
     response_model=TranslatedSQL,
     name="Get SQL For A Node",
 )
-async def get_sql(
+async def get_sql(  # pylint: disable=too-many-locals
     node_name: str,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
@@ -233,7 +233,11 @@ async def get_sql_for_metrics(
         engine_version=engine_version,
         query_type=QueryBuildType.METRICS,
     ):
-        engine = await get_engine(session, engine_name, engine_version)
+        engine = (
+            await get_engine(session, engine_name, engine_version)  # type: ignore
+            if engine_name
+            else None
+        )
         return TranslatedSQL(
             sql=query_request.query,
             columns=query_request.columns,
@@ -263,6 +267,6 @@ async def get_sql_for_metrics(
         engine_version=engine_version,
         query_type=QueryBuildType.METRICS,
         query=translated_sql.sql,
-        columns=[col.dict() for col in translated_sql.columns],
+        columns=[col.dict() for col in translated_sql.columns],  # type: ignore
     )
     return translated_sql

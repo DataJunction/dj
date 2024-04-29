@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.construction.utils import get_dj_node, to_namespaced_name
-from datajunction_server.database import DimensionLink
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node as DJNodeRef
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.node import NodeRevision as DJNode
