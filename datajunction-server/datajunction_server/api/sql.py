@@ -103,6 +103,7 @@ async def get_measures_sql_for_cube(
         query_type=QueryBuildType.MEASURES,
         query=measures_query.sql,
         columns=[col.dict() for col in measures_query.columns],
+        other_args={"include_all_columns": include_all_columns},
     )
     return measures_query
 
@@ -142,7 +143,7 @@ async def get_sql(
         else None
     )
     validate_orderby(orderby, [node_name], dimensions)
-    access_control.validate_access()
+
     if query_request := await QueryRequest.get_query_request(
         session,
         nodes=[node_name],
@@ -182,8 +183,8 @@ async def get_sql(
         filters=filters,
         orderby=orderby,
         limit=limit,
-        engine_name=engine.name,
-        engine_version=engine.version,
+        engine_name=engine.name if engine else None,
+        engine_version=engine.version if engine else None,
         query_type=QueryBuildType.NODE,
         query=query,
         columns=[col.dict() for col in columns],
