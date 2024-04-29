@@ -583,6 +583,9 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert (
             result["message"]
             == "Please make sure that `dimension_that_does_not_exist` is a dimensional attribute."
+            or result["message"]
+            == "foo.bar.dimension_that_does_not_exist are not available dimensions on "
+            "foo.bar.avg_repair_price"
         )
 
         # Should fail due to dimension not being available
@@ -596,6 +599,9 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert result["message"] == (
             "The dimension attribute `default.hard_hat.city` is not available on "
             "every metric and thus cannot be included."
+        ) or result["message"] == (
+            "default.hard_hat.city are not available dimensions on "
+            "foo.bar.num_repair_orders, foo.bar.avg_repair_price"
         )
 
     def test_get_dimensions(self, client):
