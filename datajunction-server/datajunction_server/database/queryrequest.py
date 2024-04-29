@@ -85,6 +85,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
             filters,
             orderby,
         )
+        print("versioned_request", versioned_request)
         statement = select(cls).where(
             and_(
                 cls.query_type == query_type,
@@ -94,7 +95,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
                 cls.engine_name == engine_name,
                 cls.engine_version == engine_version,
                 cls.limit == limit,
-                cls.orderby == orderby,
+                cls.orderby == versioned_request["orderby"],
                 cls.other_args == other_args,
             ),
         )
@@ -154,7 +155,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
                 engine_name=engine_name,
                 engine_version=engine_version,
                 limit=limit,
-                orderby=orderby,
+                orderby=versioned_request["orderby"],
                 query=query,
                 columns=columns,
                 other_args=other_args,
@@ -190,25 +191,26 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
                     col.alias_or_name.namespace.identifier(),
                     options=[],
                 )
-                col.alias_or_name.namespace = to_namespaced_name(
-                    f"{dimension_node.name}@{dimension_node.current_version}",
+                col.alias_or_name.name = to_namespaced_name(
+                    f"{col.alias_or_name.name}@{dimension_node.current_version}",
                 )
 
+        orders = []
         for idx, order in enumerate(orderby):
             order_rule = order.split(" ")
             metric = await Node.get_by_name(session, order_rule[0], options=[])
             if metric:
                 order_rule[0] = f"{metric.name}@{metric.current_version}"
-                orderby[idx] = " ".join(order_rule)
+                orders.append(" ".join(order_rule))
             else:
                 node = await Node.get_by_name(
                     session,
                     ".".join(order_rule[0].split(".")[:-1]),
                     options=[],
                 )
-                order_rule[0].replace(node.name, f"{node.name}@{node.current_version}")
-                orderby[idx] = " ".join(order_rule)
-
+                order_rule[0] = f"{order_rule[0]}@{node.current_version}"
+                orders.append(" ".join(order_rule))
+                print("ORDERSS", node.name, node.current_version, orders)
         return {
             "nodes": [f"{node.name}@{node.current_version}" for node in nodes],
             "dimensions": [
@@ -218,7 +220,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
             "filters": [
                 str(filter_ast.select.where) for filter_ast in filter_asts.values()
             ],
-            "orderby": orderby,
+            "orderby": orders,
         }
 
 
