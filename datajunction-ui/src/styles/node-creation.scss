@@ -254,6 +254,15 @@ form {
   }
 }
 
+.warning {
+  background-color: rgb(253, 248, 242);
+  color: rgb(190, 105, 37);
+  svg {
+    filter: invert(16%) sepia(68%) saturate(2827%) hue-rotate(344deg)
+      brightness(96%) contrast(100%);
+  }
+}
+
 .SourceCreationInput {
   margin: 0.5rem 0;
   display: inline-grid;
