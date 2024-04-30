@@ -7,6 +7,9 @@ import ListGroupItem from '../../components/ListGroupItem';
 import ToggleSwitch from '../../components/ToggleSwitch';
 import DJClientContext from '../../providers/djclient';
 import { labelize } from '../../../utils/form';
+import { AlertMessage } from '../AddEditNodePage/AlertMessage';
+import AlertIcon from '../../icons/AlertIcon';
+import InvalidIcon from '../../icons/InvalidIcon';
 
 SyntaxHighlighter.registerLanguage('sql', sql);
 foundation.hljs['padding'] = '2rem';
@@ -39,6 +42,35 @@ export default function NodeInfoTab({ node }) {
   function toggle(value) {
     return !value;
   }
+  const metricsWarning =
+    node?.type === 'metric' ? (
+      <div className="message warning" style={{ marginTop: '0.7rem' }}>
+        ⚠{' '}
+        <small>
+          The following functions used in the metric definition may not be
+          compatible with Druid SQL:{' '}
+          {node?.incompatible_druid_functions.map(func => (
+            <li style={{ listStyleType: 'none', margin: '0.7rem 0.7rem' }}>
+              ⇢{' '}
+              <span style={{ background: '#fff', padding: '0.3rem' }}>
+                {func}
+              </span>
+            </li>
+          ))}
+          If you need your metrics to be compatible with Druid, please use{' '}
+          <a
+            href={
+              'https://druid.apache.org/docs/latest/querying/sql-functions/'
+            }
+          >
+            these supported functions
+          </a>
+          .
+        </small>
+      </div>
+    ) : (
+      ''
+    );
   const metricQueryDiv = (
     <div className="list-group-item d-flex">
       <div className="gap-2 w-100 justify-content-between py-3">
@@ -205,6 +237,7 @@ export default function NodeInfoTab({ node }) {
       className="list-group align-items-center justify-content-between flex-md-row gap-2"
       style={{ minWidth: '700px' }}
     >
+      {node?.type === 'metric' ? metricsWarning : ''}
       <ListGroupItem label="Description" value={node?.description} />
       <div className="list-group-item d-flex">
         <div className="d-flex gap-2 w-100 justify-content-between py-3">

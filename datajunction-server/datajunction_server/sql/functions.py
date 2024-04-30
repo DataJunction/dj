@@ -398,7 +398,6 @@ def infer_type(
     return col.type  # type: ignore
 
 
-
 class ApproxQuantileDs(Function):
     """
     approx_quantile_ds(col, percentage [, accuracy]) -
@@ -421,6 +420,7 @@ class Array(Function):
     """
     Returns an array of constants
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -446,6 +446,7 @@ class ArrayAgg(Function):
     """
     Collects and returns a list of non-unique elements.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -466,6 +467,7 @@ class ArrayAppend(Function):
     """
     Add the element at the end of the array passed as first argument
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -495,6 +497,7 @@ class ArrayConcat(Function):
     array_concat(arr1, arr2)
     Concatenates arr2 to arr1. The resulting array type is determined by the type of arr1.
     """
+
     dialects = [Dialect.DRUID]
 
 
@@ -510,6 +513,7 @@ class ArrayContains(Function):
     """
     array_contains(array, value) - Returns true if the array contains the value.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -553,6 +557,7 @@ class ArrayLength(Function):
     """
     array_length(expr) - Returns the size of an array. The function returns null for null input.
     """
+
     dialects = [Dialect.DRUID]
 
 
@@ -637,6 +642,7 @@ class ArrayOffset(Function):
     ARRAY_OFFSET(arr, long)
     Returns the array element at the 0-based index supplied
     """
+
     dialects = [Dialect.DRUID]
 
 
@@ -653,6 +659,7 @@ class ArrayOrdinal(Function):
     ARRAY_ORDINAL(arr, long)
     Returns the array element at the 1-based index supplied
     """
+
     dialects = [Dialect.DRUID]
 
 
@@ -846,6 +853,7 @@ class Ceil(Function):
     """
     Computes the smallest integer greater than or equal to the input value.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -926,6 +934,7 @@ class CharLength(Function):
     """
     char_length(expr) - Returns the length of the value expr.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -938,6 +947,7 @@ class CharacterLength(Function):
     """
     character_length(expr) - Returns the length of the value expr.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -1020,6 +1030,7 @@ class Concat(Function):
     """
     concat(col1, col2, ..., colN) - Returns the concatenation of col1, col2, ..., colN.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -1077,6 +1088,7 @@ class ContainsString(Function):
     """
     contains_string(left, right) - Returns a boolean
     """
+
     dialects = [Dialect.DRUID]
 
 
@@ -1151,6 +1163,7 @@ class Cos(Function):
     """
     cos(expr) - Compute the cosine of expr.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -1174,6 +1187,7 @@ class Cot(Function):
     """
     cot(expr) - Compute the cotangent of expr.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -1320,6 +1334,7 @@ class CurrentDate(Function):
     """
     Returns the current date.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -1354,6 +1369,7 @@ class CurrentTimestamp(Function):
     """
     Returns the current timestamp.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -1605,6 +1621,7 @@ class Degrees(Function):
     """
     degrees(expr) - Converts radians to degrees.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -1634,6 +1651,7 @@ class Div(Function):
     expr1 div expr2 - Divide expr1 by expr2. It returns NULL if an operand is NULL or
     expr2 is 0. The result is casted to long.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -1788,6 +1806,7 @@ class Exp(Function):
     """
     Returns e to the power of expr.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -1845,6 +1864,7 @@ class Extract(Function):
     """
     Returns a specified component of a timestamp, such as year, month or day.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
     @staticmethod
@@ -1998,6 +2018,7 @@ class Floor(Function):
     """
     Returns the largest integer less than or equal to a specified number.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -2227,6 +2248,7 @@ class Greatest(Function):
     """
     greatest(expr, ...) - Returns the greatest value of all parameters, skipping null values.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -2241,6 +2263,7 @@ class Grouping(Function):
     """
     grouping(col) - Returns 1 if the specified column is aggregated, and 0 otherwise.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -2641,6 +2664,7 @@ class Least(Function):
     """
     least(expr1, expr2, ...) - Returns the smallest value of the list of values.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -2655,6 +2679,7 @@ class Left(Function):
     """
     left(str, len) - Returns the leftmost `len` characters from the string.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -2681,6 +2706,7 @@ class Length(Function):
     """
     Returns the length of a string.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -2720,6 +2746,7 @@ class Ln(Function):
     """
     Returns the natural logarithm of a number.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -2774,6 +2801,7 @@ class Log10(Function):
     """
     Returns the base-10 logarithm of a number.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -2812,6 +2840,7 @@ class Lower(Function):
     """
     Converts a string to lowercase.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
     @staticmethod
@@ -2824,6 +2853,7 @@ class Lpad(Function):
     lpad(str, len[, pad]) - Left-pads the string with pad to a length of len.
     If str is longer than len, the return value is shortened to len characters.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -2840,6 +2870,7 @@ class Ltrim(Function):
     """
     ltrim(str[, trimStr]) - Trims the spaces from left end of the string.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -3274,6 +3305,7 @@ class Mod(Function):
     """
     mod(expr1, expr2) - Returns the remainder after expr1/expr2.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -3437,6 +3469,7 @@ class Nullif(Function):
     """
     nullif(expr1, expr2) - Returns null if expr1 equals expr2, or expr1 otherwise.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -3450,6 +3483,7 @@ class Nvl(Function):
     nvl(expr1, expr2) - Returns the first argument if it is not null, or the
     second argument if the first argument is null.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -3574,6 +3608,7 @@ class Power(Function):
     """
     Raises a base expression to the power of an exponent expression.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -3673,6 +3708,7 @@ class RegexpLike(Function):
     """
     regexp_like(str, regexp) - Returns true if str matches regexp, or false otherwise
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -3688,6 +3724,7 @@ class Replace(Function):
     """
     replace(str, search[, replace]) - Replaces all occurrences of `search` with `replace`.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -3716,6 +3753,7 @@ class Round(Function):
     """
     Rounds a numeric column or expression to the specified number of decimal places.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -3830,6 +3868,7 @@ class Sqrt(Function):
     """
     Computes the square root of a numeric column or expression.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -3890,6 +3929,7 @@ class Strpos(Function):
         negative number the search will start from the end of string. Positions start with 1.
         If not found, 0 is returned.
     """
+
     dialects = [Dialect.TRINO, Dialect.DRUID]
 
 
@@ -3933,6 +3973,7 @@ class Substring(Function):
     """
     Extracts a substring from a string column or expression.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -3957,6 +3998,7 @@ class Substr(Function):
     """
     Extracts a substring from a string column or expression.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -4085,6 +4127,7 @@ class Trim(Function):
     """
     Removes leading and trailing whitespace from a string value.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -4110,6 +4153,7 @@ class Upper(Function):
     """
     Converts a string value to uppercase.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -4220,6 +4264,7 @@ class Unnest(TableFunction):
     nested array, or map column into multiple rows.
     It will generate a new row for each element in the specified column.
     """
+
     dialects = [Dialect.SPARK, Dialect.DRUID]
 
 

@@ -58,6 +58,7 @@ export function NodePage() {
         data.required_dimensions = metric.required_dimensions;
         data.upstream_node = metric.upstream_node;
         data.expression = metric.expression;
+        data.incompatible_druid_functions = metric.incompatible_druid_functions;
       }
       if (data.type === 'cube') {
         const cube = await djClient.cube(name);

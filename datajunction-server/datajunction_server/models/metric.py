@@ -13,7 +13,7 @@ from datajunction_server.models.node import (
     MetricMetadataOutput,
 )
 from datajunction_server.models.query import ColumnMetadata
-from datajunction_server.sql.parsing.backends.antlr4 import parse, ast
+from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.transpilation import get_transpilation_plugin
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import get_settings
@@ -50,7 +50,11 @@ class Metric(BaseModel):
         """
         query_ast = parse(node.current.query)
         functions = [func.function() for func in query_ast.find_all(ast.Function)]
-        incompatible_druid_functions = [func.__name__.upper() for func in functions if Dialect.DRUID not in func.dialects]
+        incompatible_druid_functions = [
+            func.__name__.upper()
+            for func in functions
+            if Dialect.DRUID not in func.dialects
+        ]
         return cls(
             id=node.id,
             name=node.name,
