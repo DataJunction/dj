@@ -310,7 +310,7 @@ class AnyValue(Function):
     """
 
     is_aggregation = True
-    dialects = [Dialect.DRUID]
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @AnyValue.register
@@ -322,9 +322,7 @@ def infer_type(
 
 class ApproxCountDistinct(Function):
     """
-    approx_percentile(col, percentage [, accuracy]) -
-    Returns the approximate percentile of the numeric or ansi interval
-    column col which is the smallest value in the ordered col values
+    approx_count_distinct(expr)
     """
 
     is_aggregation = True
@@ -396,24 +394,6 @@ def infer_type(
     accuracy: Optional[ct.NumberType],
 ) -> ct.NumberType:
     return col.type  # type: ignore
-
-
-class ApproxQuantileDs(Function):
-    """
-    approx_quantile_ds(col, percentage [, accuracy]) -
-    Computes approximate quantiles on a Quantiles sketch column or a regular numeric column.
-    """
-
-    is_aggregation = True
-
-
-@ApproxQuantileDs.register
-def infer_type(
-    col: ct.NumberType,
-    percentage: ct.ListType,
-    accuracy: Optional[ct.NumberType],
-) -> ct.DoubleType:
-    return ct.ListType(element_type=col.type)  # type: ignore
 
 
 class Array(Function):
@@ -649,8 +629,8 @@ class ArrayOffset(Function):
 @ArrayOffset.register
 def infer_type(
     array: ct.ListType,
-    index: ct.LongType,
-) -> ct.LongType:
+    index: Union[ct.LongType, ct.IntegerType],
+) -> ct.NumberType:
     return array.type.element.type  # type: ignore
 
 
@@ -666,8 +646,8 @@ class ArrayOrdinal(Function):
 @ArrayOrdinal.register
 def infer_type(
     array: ct.ListType,
-    index: ct.LongType,
-) -> ct.LongType:
+    index: Union[ct.LongType, ct.IntegerType],
+) -> ct.NumberType:
     return array.type.element.type  # type: ignore
 
 
@@ -1177,6 +1157,8 @@ class Cosh(Function):
     cosh(expr) - Compute the hyperbolic cosine of expr.
     """
 
+    dialects = [Dialect.SPARK, Dialect.DRUID]
+
 
 @Cosh.register  # type: ignore
 def infer_type(arg: ct.NumberType) -> ct.ColumnType:
@@ -1656,7 +1638,7 @@ class Div(Function):
 
 
 @Div.register
-def infer_type(_: ct.NumberType) -> ct.LongType:
+def infer_type(expr1: ct.NumberType, expr2: ct.NumberType) -> ct.LongType:
     return ct.LongType()
 
 
