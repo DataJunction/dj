@@ -42,6 +42,7 @@ from datajunction_server.errors import (
     DJNotImplementedException,
     ErrorCode,
 )
+from datajunction_server.models.engine import Dialect
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import get_settings
 
@@ -166,6 +167,7 @@ class Function(Dispatch):  # pylint: disable=too-few-public-methods
 
     is_aggregation: ClassVar[bool] = False
     is_runtime: ClassVar[bool] = False
+    dialects: List[Dialect] = [Dialect.SPARK]
 
     @staticmethod
     def infer_type(*args) -> ct.ColumnType:
@@ -233,6 +235,7 @@ class Abs(Function):
     """
 
     is_aggregation = True
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Abs.register
@@ -241,6 +244,21 @@ def infer_type(
 ) -> ct.NumberType:
     type_ = arg.type
     return type_
+
+
+class Acos(Function):
+    """
+    Returns the inverse cosine (a.k.a. arc cosine) of expr
+    """
+
+    dialects = [Dialect.SPARK, Dialect.DRUID]
+
+
+@Acos.register
+def infer_type(
+    arg: ct.NumberType,
+) -> ct.FloatType:
+    return ct.FloatType()
 
 
 class Aggregate(Function):
@@ -286,6 +304,72 @@ def infer_type(
     return merge.expr.type
 
 
+class AnyValue(Function):
+    """
+    Returns any value of the specified expression
+    """
+
+    is_aggregation = True
+    dialects = [Dialect.DRUID]
+
+
+@AnyValue.register
+def infer_type(
+    expr: ct.ColumnType,
+) -> ct.ColumnType:
+    return expr.type  # type: ignore
+
+
+class ApproxCountDistinct(Function):
+    """
+    approx_percentile(col, percentage [, accuracy]) -
+    Returns the approximate percentile of the numeric or ansi interval
+    column col which is the smallest value in the ordered col values
+    """
+
+    is_aggregation = True
+    dialects = [Dialect.DRUID]
+
+
+@ApproxCountDistinct.register
+def infer_type(
+    expr: ct.ColumnType,
+) -> ct.LongType:
+    return ct.LongType()
+
+
+class ApproxCountDistinctDsHll(Function):
+    """
+    Counts distinct values of an HLL sketch column or a regular column
+    """
+
+    is_aggregation = True
+    dialects = [Dialect.DRUID]
+
+
+@ApproxCountDistinctDsHll.register
+def infer_type(
+    expr: ct.ColumnType,
+) -> ct.LongType:
+    return ct.LongType()
+
+
+class ApproxCountDistinctDsTheta(Function):
+    """
+    Counts distinct values of a Theta sketch column or a regular column.
+    """
+
+    is_aggregation = True
+    dialects = [Dialect.DRUID]
+
+
+@ApproxCountDistinctDsTheta.register
+def infer_type(
+    expr: ct.ColumnType,
+) -> ct.LongType:
+    return ct.LongType()
+
+
 class ApproxPercentile(Function):
     """
     approx_percentile(col, percentage [, accuracy]) -
@@ -314,10 +398,30 @@ def infer_type(
     return col.type  # type: ignore
 
 
+
+class ApproxQuantileDs(Function):
+    """
+    approx_quantile_ds(col, percentage [, accuracy]) -
+    Computes approximate quantiles on a Quantiles sketch column or a regular numeric column.
+    """
+
+    is_aggregation = True
+
+
+@ApproxQuantileDs.register
+def infer_type(
+    col: ct.NumberType,
+    percentage: ct.ListType,
+    accuracy: Optional[ct.NumberType],
+) -> ct.DoubleType:
+    return ct.ListType(element_type=col.type)  # type: ignore
+
+
 class Array(Function):
     """
     Returns an array of constants
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Array.register  # type: ignore
@@ -342,6 +446,7 @@ class ArrayAgg(Function):
     """
     Collects and returns a list of non-unique elements.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @ArrayAgg.register  # type: ignore
@@ -361,6 +466,7 @@ class ArrayAppend(Function):
     """
     Add the element at the end of the array passed as first argument
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @ArrayAppend.register  # type: ignore
@@ -384,10 +490,27 @@ def infer_type(
     return array.type
 
 
+class ArrayConcat(Function):
+    """
+    array_concat(arr1, arr2)
+    Concatenates arr2 to arr1. The resulting array type is determined by the type of arr1.
+    """
+    dialects = [Dialect.DRUID]
+
+
+@ArrayConcat.register
+def infer_type(
+    arr1: ct.ListType,
+    arr2: ct.ListType,
+) -> ct.ListType:
+    return arr1.type
+
+
 class ArrayContains(Function):
     """
     array_contains(array, value) - Returns true if the array contains the value.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @ArrayContains.register
@@ -424,6 +547,20 @@ def infer_type(
     array2: ct.ListType,
 ) -> ct.ListType:
     return array1.type
+
+
+class ArrayLength(Function):
+    """
+    array_length(expr) - Returns the size of an array. The function returns null for null input.
+    """
+    dialects = [Dialect.DRUID]
+
+
+@ArrayLength.register
+def infer_type(
+    array: ct.ListType,
+) -> ct.LongType:
+    return ct.LongType()
 
 
 class ArrayIntersect(Function):
@@ -493,6 +630,38 @@ def infer_type(
     array: ct.ListType,
 ) -> ct.NumberType:
     return array.type.element.type
+
+
+class ArrayOffset(Function):
+    """
+    ARRAY_OFFSET(arr, long)
+    Returns the array element at the 0-based index supplied
+    """
+    dialects = [Dialect.DRUID]
+
+
+@ArrayOffset.register
+def infer_type(
+    array: ct.ListType,
+    index: ct.LongType,
+) -> ct.LongType:
+    return array.type.element.type  # type: ignore
+
+
+class ArrayOrdinal(Function):
+    """
+    ARRAY_ORDINAL(arr, long)
+    Returns the array element at the 1-based index supplied
+    """
+    dialects = [Dialect.DRUID]
+
+
+@ArrayOrdinal.register
+def infer_type(
+    array: ct.ListType,
+    index: ct.LongType,
+) -> ct.LongType:
+    return array.type.element.type  # type: ignore
 
 
 class ArrayPosition(Function):
@@ -608,6 +777,7 @@ class Avg(Function):
     """
 
     is_aggregation = True
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Avg.register
@@ -676,6 +846,7 @@ class Ceil(Function):
     """
     Computes the smallest integer greater than or equal to the input value.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 class Ceiling(Function):
@@ -755,6 +926,7 @@ class CharLength(Function):
     """
     char_length(expr) - Returns the length of the value expr.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @CharLength.register  # type: ignore
@@ -766,6 +938,7 @@ class CharacterLength(Function):
     """
     character_length(expr) - Returns the length of the value expr.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @CharacterLength.register  # type: ignore
@@ -790,6 +963,7 @@ class Coalesce(Function):
     """
 
     is_aggregation = False
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Coalesce.register  # type: ignore
@@ -846,6 +1020,7 @@ class Concat(Function):
     """
     concat(col1, col2, ..., colN) - Returns the concatenation of col1, col2, ..., colN.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Concat.register  # type: ignore
@@ -894,6 +1069,18 @@ class Contains(Function):
 
 
 @Contains.register  # type: ignore
+def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
+class ContainsString(Function):
+    """
+    contains_string(left, right) - Returns a boolean
+    """
+    dialects = [Dialect.DRUID]
+
+
+@ContainsString.register  # type: ignore
 def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
     return ct.BooleanType()
 
@@ -964,6 +1151,7 @@ class Cos(Function):
     """
     cos(expr) - Compute the cosine of expr.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Cos.register  # type: ignore
@@ -986,6 +1174,7 @@ class Cot(Function):
     """
     cot(expr) - Compute the cotangent of expr.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Cot.register  # type: ignore
@@ -999,6 +1188,7 @@ class Count(Function):
     """
 
     is_aggregation = True
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Count.register  # type: ignore
@@ -1130,6 +1320,7 @@ class CurrentDate(Function):
     """
     Returns the current date.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @CurrentDate.register  # type: ignore
@@ -1163,6 +1354,7 @@ class CurrentTimestamp(Function):
     """
     Returns the current timestamp.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @CurrentTimestamp.register  # type: ignore
@@ -1413,6 +1605,7 @@ class Degrees(Function):
     """
     degrees(expr) - Converts radians to degrees.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Degrees.register  # type: ignore
@@ -1438,10 +1631,15 @@ def infer_type(_: ct.ColumnType) -> ct.IntegerType:
 
 class Div(Function):
     """
-    TODO
     expr1 div expr2 - Divide expr1 by expr2. It returns NULL if an operand is NULL or
     expr2 is 0. The result is casted to long.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
+
+
+@Div.register
+def infer_type(_: ct.NumberType) -> ct.LongType:
+    return ct.LongType()
 
 
 class Double(Function):
@@ -1590,6 +1788,7 @@ class Exp(Function):
     """
     Returns e to the power of expr.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Exp.register  # type: ignore
@@ -1646,6 +1845,7 @@ class Extract(Function):
     """
     Returns a specified component of a timestamp, such as year, month or day.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
     @staticmethod
     def infer_type(  # type: ignore
@@ -1798,6 +1998,7 @@ class Floor(Function):
     """
     Returns the largest integer less than or equal to a specified number.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Floor.register  # type: ignore
@@ -2026,6 +2227,7 @@ class Greatest(Function):
     """
     greatest(expr, ...) - Returns the greatest value of all parameters, skipping null values.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Greatest.register  # type: ignore
@@ -2039,6 +2241,7 @@ class Grouping(Function):
     """
     grouping(col) - Returns 1 if the specified column is aggregated, and 0 otherwise.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Grouping.register  # type: ignore
@@ -2438,6 +2641,7 @@ class Least(Function):
     """
     least(expr1, expr2, ...) - Returns the smallest value of the list of values.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Least.register  # type: ignore
@@ -2451,6 +2655,7 @@ class Left(Function):
     """
     left(str, len) - Returns the leftmost `len` characters from the string.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Left.register  # type: ignore
@@ -2476,6 +2681,7 @@ class Length(Function):
     """
     Returns the length of a string.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Length.register  # type: ignore
@@ -2514,6 +2720,7 @@ class Ln(Function):
     """
     Returns the natural logarithm of a number.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Ln.register  # type: ignore
@@ -2567,6 +2774,7 @@ class Log10(Function):
     """
     Returns the base-10 logarithm of a number.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Log10.register  # type: ignore
@@ -2604,6 +2812,7 @@ class Lower(Function):
     """
     Converts a string to lowercase.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
     @staticmethod
     def infer_type(arg: "Expression") -> ct.StringType:  # type: ignore
@@ -2615,6 +2824,7 @@ class Lpad(Function):
     lpad(str, len[, pad]) - Left-pads the string with pad to a length of len.
     If str is longer than len, the return value is shortened to len characters.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Lpad.register  # type: ignore
@@ -2630,6 +2840,7 @@ class Ltrim(Function):
     """
     ltrim(str[, trimStr]) - Trims the spaces from left end of the string.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Ltrim.register  # type: ignore
@@ -2937,6 +3148,7 @@ class Max(Function):
     """
 
     is_aggregation = True
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Max.register  # type: ignore
@@ -3012,6 +3224,7 @@ class Min(Function):
     """
 
     is_aggregation = True
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Min.register  # type: ignore
@@ -3061,6 +3274,7 @@ class Mod(Function):
     """
     mod(expr1, expr2) - Returns the remainder after expr1/expr2.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Mod.register  # type: ignore
@@ -3223,6 +3437,7 @@ class Nullif(Function):
     """
     nullif(expr1, expr2) - Returns null if expr1 equals expr2, or expr1 otherwise.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Nullif.register  # type: ignore
@@ -3235,6 +3450,7 @@ class Nvl(Function):
     nvl(expr1, expr2) - Returns the first argument if it is not null, or the
     second argument if the first argument is null.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Nvl.register  # type: ignore
@@ -3358,6 +3574,7 @@ class Power(Function):
     """
     Raises a base expression to the power of an exponent expression.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Power.register  # type: ignore
@@ -3456,6 +3673,7 @@ class RegexpLike(Function):
     """
     regexp_like(str, regexp) - Returns true if str matches regexp, or false otherwise
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @RegexpLike.register
@@ -3470,6 +3688,7 @@ class Replace(Function):
     """
     replace(str, search[, replace]) - Replaces all occurrences of `search` with `replace`.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Replace.register
@@ -3497,6 +3716,7 @@ class Round(Function):
     """
     Rounds a numeric column or expression to the specified number of decimal places.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Round.register  # type: ignore
@@ -3610,6 +3830,7 @@ class Sqrt(Function):
     """
     Computes the square root of a numeric column or expression.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Sqrt.register
@@ -3623,6 +3844,7 @@ class Stddev(Function):
     """
 
     is_aggregation = True
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Stddev.register
@@ -3636,6 +3858,7 @@ class StddevPop(Function):
     """
 
     is_aggregation = True
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @StddevPop.register
@@ -3649,6 +3872,7 @@ class StddevSamp(Function):
     """
 
     is_aggregation = True
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @StddevSamp.register
@@ -3665,8 +3889,8 @@ class Strpos(Function):
         Returns the position of the N-th instance of substring in string. When instance is a
         negative number the search will start from the end of string. Positions start with 1.
         If not found, 0 is returned.
-    Note: Trino-only
     """
+    dialects = [Dialect.TRINO, Dialect.DRUID]
 
 
 @Strpos.register
@@ -3709,6 +3933,7 @@ class Substring(Function):
     """
     Extracts a substring from a string column or expression.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Substring.register
@@ -3732,6 +3957,7 @@ class Substr(Function):
     """
     Extracts a substring from a string column or expression.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Substr.register
@@ -3757,6 +3983,7 @@ class Sum(Function):
     """
 
     is_aggregation = True
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Sum.register  # type: ignore
@@ -3858,6 +4085,7 @@ class Trim(Function):
     """
     Removes leading and trailing whitespace from a string value.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Trim.register
@@ -3882,6 +4110,7 @@ class Upper(Function):
     """
     Converts a string value to uppercase.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Upper.register
@@ -3895,6 +4124,7 @@ class Variance(Function):
     """
 
     is_aggregation = True
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Variance.register
@@ -3908,9 +4138,24 @@ class VarPop(Function):
     """
 
     is_aggregation = True
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @VarPop.register
+def infer_type(arg: ct.NumberType) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class VarSamp(Function):
+    """
+    Computes the sample variance of the input column or expression.
+    """
+
+    is_aggregation = True
+    dialects = [Dialect.SPARK, Dialect.DRUID]
+
+
+@VarSamp.register
 def infer_type(arg: ct.NumberType) -> ct.DoubleType:
     return ct.DoubleType()
 
@@ -3975,6 +4220,7 @@ class Unnest(TableFunction):
     nested array, or map column into multiple rows.
     It will generate a new row for each element in the specified column.
     """
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @Unnest.register
