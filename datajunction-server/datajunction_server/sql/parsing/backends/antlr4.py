@@ -256,6 +256,11 @@ def _(ctx: list, nones=False):
 
 
 @visit.register
+def _(ctx: sbp.Any_valueContext):
+    return ast.Function(ast.Name("ANY_VALUE"), args=[visit(ctx.expression())])
+
+
+@visit.register
 def _(ctx: sbp.SingleStatementContext):
     return visit(ctx.statement())
 

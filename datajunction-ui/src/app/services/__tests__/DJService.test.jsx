@@ -34,6 +34,22 @@ describe('DataJunctionAPI', () => {
     });
   });
 
+  it('calls catalogs correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.catalogs();
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/catalogs`, {
+      credentials: 'include',
+    });
+  });
+
+  it('calls engines correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.engines();
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/engines`, {
+      credentials: 'include',
+    });
+  });
+
   it('calls node correctly', async () => {
     fetch.mockResponseOnce(JSON.stringify(mocks.mockMetricNode));
     const nodeData = await DataJunctionAPI.node(mocks.mockMetricNode.name);

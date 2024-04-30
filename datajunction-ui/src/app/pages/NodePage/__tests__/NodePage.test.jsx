@@ -88,6 +88,7 @@ describe('<NodePage />', () => {
       created_at: '2023-08-21T16:48:56.932162+00:00',
       tags: [{ name: 'purpose', display_name: 'Purpose' }],
       primary_key: [],
+      incompatible_druid_functions: ['IF'],
       createNodeClientCode:
         'dj = DJBuilder(DJ_URL)\n\navg_repair_price = dj.create_metric(\n    description="Average repair price",\n    display_name="Default: Avg Repair Price",\n    name="default.avg_repair_price",\n    primary_key=[],\n    query="""SELECT  avg(price) default_DOT_avg_repair_price \n FROM default.repair_order_details\n\n"""\n)',
       dimensions: [

@@ -149,7 +149,7 @@ export default function RevisionDiff() {
           </div>
           {Object.keys(diffObjects).map(field => {
             return (
-              <div className="diff">
+              <div className="diff" aria-label={'DiffView'} role={'gridcell'}>
                 <h4>
                   {labelize(field)}{' '}
                   <small className="no-change-banner">

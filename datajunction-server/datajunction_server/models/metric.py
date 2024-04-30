@@ -13,7 +13,7 @@ from datajunction_server.models.node import (
     MetricMetadataOutput,
 )
 from datajunction_server.models.query import ColumnMetadata
-from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.transpilation import get_transpilation_plugin
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import get_settings
@@ -41,12 +41,20 @@ class Metric(BaseModel):
     metric_metadata: Optional[MetricMetadataOutput] = None
     required_dimensions: List[str]
 
+    incompatible_druid_functions: List[str]
+
     @classmethod
     def parse_node(cls, node: Node, dims: List[DimensionAttributeOutput]) -> "Metric":
         """
         Parses a node into a metric.
         """
         query_ast = parse(node.current.query)
+        functions = [func.function() for func in query_ast.find_all(ast.Function)]
+        incompatible_druid_functions = [
+            func.__name__.upper()
+            for func in functions
+            if Dialect.DRUID not in func.dialects
+        ]
         return cls(
             id=node.id,
             name=node.name,
@@ -61,6 +69,7 @@ class Metric(BaseModel):
             dimensions=dims,
             metric_metadata=node.current.metric_metadata,
             required_dimensions=[dim.name for dim in node.current.required_dimensions],
+            incompatible_druid_functions=incompatible_druid_functions,
         )
 
 

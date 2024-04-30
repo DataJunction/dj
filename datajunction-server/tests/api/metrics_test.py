@@ -41,6 +41,10 @@ async def test_read_metrics(client_with_roads: AsyncClient) -> None:
     assert data["upstream_node"] == "default.repair_orders_fact"
     assert data["expression"] == "count(repair_order_id)"
 
+    response = await client_with_roads.get("/metrics/default.discounted_orders_rate")
+    data = response.json()
+    assert data["incompatible_druid_functions"] == ["IF"]
+
 
 @pytest.mark.asyncio
 async def test_read_metric(session: AsyncSession, client: AsyncClient) -> None:

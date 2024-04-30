@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.errors import DJException
+from datajunction_server.models.engine import Dialect
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -583,6 +584,16 @@ async def test_infer_types_exp(construction_session: AsyncSession):
         DoubleType(),
     ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
+    assert query.select.projection[4].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
+    assert query.select.projection[5].function().dialects == [Dialect.SPARK]  # type: ignore
+    assert query.select.projection[6].function().dialects == [Dialect.SPARK]  # type: ignore
+    assert query.select.projection[7].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
 
 @pytest.mark.asyncio
