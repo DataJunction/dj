@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import datajunction_server.sql.functions as F
 import datajunction_server.sql.parsing.types as ct
 from datajunction_server.errors import DJException, DJNotImplementedException
+from datajunction_server.models.engine import Dialect
 from datajunction_server.sql.functions import (
     Avg,
     Coalesce,
@@ -88,7 +89,32 @@ async def test_abs(session: AsyncSession):
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
     assert not exc.errors
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_acos(session: AsyncSession):
+    """
+    Test the `acos` function
+    """
+    query = parse(
+        """
+    select acos(0.0)
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
 
 @pytest.mark.asyncio
@@ -112,6 +138,50 @@ async def test_aggregate(session: AsyncSession):
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
     assert query.select.projection[0].type == StringType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_any_value(session: AsyncSession):
+    """
+    Test the `any_value` function
+    """
+    query = parse(
+        """select any_value(col) FROM (select (1), (2) AS col)""",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_approx_count_distinct(session: AsyncSession):
+    """
+    Test the `approx_count_distinct` function
+    """
+    query = parse(
+        """
+        select
+          approx_count_distinct(col),
+          approx_count_distinct_ds_hll(col),
+          approx_count_distinct_ds_theta(col)
+        FROM (select (1), (2) AS col)""",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.LongType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [Dialect.DRUID]  # type: ignore
+    assert query.select.projection[1].type == ct.LongType()  # type: ignore
+    assert query.select.projection[1].function().dialects == [Dialect.DRUID]  # type: ignore
+    assert query.select.projection[2].type == ct.LongType()  # type: ignore
+    assert query.select.projection[2].function().dialects == [Dialect.DRUID]  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -149,6 +219,10 @@ async def test_array(session: AsyncSession):
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.NullType())  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
     query = parse(
         """
@@ -160,6 +234,10 @@ async def test_array(session: AsyncSession):
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
 
 @pytest.mark.asyncio
@@ -177,6 +255,10 @@ async def test_array_agg(session: AsyncSession):
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
     query = parse(
         """
@@ -234,6 +316,22 @@ async def test_array_compact(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_array_concat(session: AsyncSession):
+    """
+    Test the `array_concat` Spark function
+    """
+    query = parse(
+        'SELECT array_concat(array("a", "b", "d"), array("a", "b", "c"))',
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+    assert query.select.projection[0].function().dialects == [Dialect.DRUID]  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_array_contains(session: AsyncSession):
     """
     Test the `array_contains` Spark function
@@ -244,6 +342,10 @@ async def test_array_contains(session: AsyncSession):
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
 
 @pytest.mark.asyncio
@@ -373,6 +475,26 @@ async def test_array_min(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_array_offset_ordinal(session: AsyncSession):
+    """
+    Test the `array_offset` and `array_ordinal` functions
+    """
+    query = parse(
+        """
+        SELECT
+          array_offset(array(1.0, 202.2, null, 3.333), 1),
+          array_ordinal(array(1.0, 202.2, null, 3.333), 1)
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [Dialect.DRUID]  # type: ignore
+    assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[1].function().dialects == [Dialect.DRUID]  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_array_position(session: AsyncSession):
     """
     Test the `array_position` function
@@ -422,16 +544,21 @@ async def test_array_repeat(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_array_size(session: AsyncSession):
     """
-    Test the `array_size` function
+    Test the `array_size` and `array_length` functions
     """
     query = parse(
         """
-        SELECT array_size(array('abc', 'd', 'e', 'f'))
+        SELECT
+          array_size(array('abc', 'd', 'e', 'f')),
+          array_length(array('abc', 'd', 'e', 'f'))
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
     await query.compile(ctx)
     assert query.select.projection[0].type == ct.LongType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [Dialect.SPARK]  # type: ignore
+    assert query.select.projection[1].type == ct.LongType()  # type: ignore
+    assert query.select.projection[1].function().dialects == [Dialect.DRUID]  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -493,6 +620,7 @@ async def test_avg() -> None:
         Avg.infer_type(ast.Column(ast.Name("x"), _type=IntegerType())) == DoubleType()
     )
     assert Avg.infer_type(ast.Column(ast.Name("x"), _type=FloatType())) == DoubleType()
+    assert Avg.dialects == [Dialect.SPARK, Dialect.DRUID]
 
 
 @pytest.mark.asyncio
@@ -555,6 +683,10 @@ async def test_char_length_func(session: AsyncSession):
     assert not exc.errors
     assert query.select.projection[0].type == IntegerType()  # type: ignore
     assert query.select.projection[1].type == IntegerType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
 
 @pytest.mark.asyncio
@@ -569,6 +701,10 @@ async def test_character_length_func(session: AsyncSession):
     assert not exc.errors
     assert query.select.projection[0].type == IntegerType()  # type: ignore
     assert query.select.projection[1].type == IntegerType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
 
 @pytest.mark.asyncio
@@ -624,6 +760,7 @@ async def test_ceil(types, expected) -> None:
             )
             == expected
         )
+    assert F.Ceil.dialects == [Dialect.SPARK, Dialect.DRUID]
 
 
 @pytest.mark.asyncio
@@ -680,6 +817,7 @@ async def test_coalesce_infer_type() -> None:
         )
         == StringType()
     )
+    assert Coalesce.dialects == [Dialect.SPARK, Dialect.DRUID]
 
 
 @pytest.mark.asyncio
@@ -715,6 +853,22 @@ async def test_concat_ws_func(session: AsyncSession):
     assert query.select.projection[0].type == StringType()  # type: ignore
     assert query.select.projection[1].type == StringType()  # type: ignore
     assert query.select.projection[2].type == StringType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_contains_string(session: AsyncSession):
+    """
+    Test the `contains_string` function
+    """
+    query = parse(
+        "SELECT contains_string('hello', 'world')",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [Dialect.DRUID]  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -818,6 +972,10 @@ async def test_cos_func(session: AsyncSession):
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
 
 @pytest.mark.asyncio
@@ -832,6 +990,10 @@ async def test_cosh_func(session: AsyncSession):
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
 
 @pytest.mark.asyncio
@@ -846,6 +1008,10 @@ async def test_cot_func(session: AsyncSession):
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
 
 @pytest.mark.asyncio
@@ -858,6 +1024,7 @@ async def test_count() -> None:
         == BigIntType()
     )
     assert Count.is_aggregation is True
+    assert Count.dialects == [Dialect.SPARK, Dialect.DRUID]
 
 
 @pytest.mark.asyncio
@@ -1192,6 +1359,23 @@ async def test_degrees_func(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_div(session: AsyncSession):
+    """
+    Test the `div` function
+    """
+    query = parse("SELECT div(1, 2)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.LongType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
+
+
+@pytest.mark.asyncio
 async def test_double_func(session: AsyncSession):
     """
     Test the `double` function
@@ -1217,6 +1401,7 @@ async def test_e_func(session: AsyncSession):
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[1].function().dialects == [Dialect.SPARK]  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -1498,6 +1683,7 @@ async def test_floor(types, expected) -> None:
             )
             == expected
         )
+    assert F.Floor.dialects == [Dialect.SPARK, Dialect.DRUID]
 
 
 @pytest.mark.asyncio
@@ -1667,6 +1853,10 @@ async def test_greatest(session: AsyncSession):
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
 
 @pytest.mark.asyncio
@@ -2080,6 +2270,10 @@ async def test_least_func(session: AsyncSession):
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
 
 # TODO: figure out why antlr parser fails
@@ -2102,13 +2296,19 @@ async def test_len_func(session: AsyncSession):
     """
     Test the `len` function
     """
-    query = parse("SELECT len('hello'), len('world')")
+    query = parse("SELECT len('hello'), length('world')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[0].function().dialects == [Dialect.SPARK]  # type: ignore
+
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
 
 
 @pytest.mark.asyncio
@@ -3174,3 +3374,16 @@ async def test_upper(session: AsyncSession):
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_var_samp(session: AsyncSession):
+    """
+    Test `var_samp`
+    """
+    query = parse("SELECT var_samp(col) FROM (select (1), (2) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
