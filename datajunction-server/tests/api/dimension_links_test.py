@@ -4,7 +4,10 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from requests import Response
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from tests.conftest import post_and_raise_if_error
 from tests.examples import COMPLEX_DIMENSION_LINK, SERVICE_SETUP
@@ -615,6 +618,7 @@ async def test_remove_dimension_link(
 
 @pytest.mark.asyncio
 async def test_measures_sql_with_dimension_roles(
+    session: AsyncSession,
     dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
     link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
     link_events_to_users_with_role_windowed,  # pylint: disable=redefined-outer-name
@@ -664,3 +668,28 @@ SELECT  default_DOT_events.default_DOT_events_DOT_elapsed_secs,
     default_DOT_events.default_DOT_users_DOT_registration_country
  FROM default_DOT_events"""
     assert str(parse(query)) == str(parse(expected))
+    query_request = (
+        (
+            await session.execute(
+                select(QueryRequest).where(
+                    QueryRequest.query_type == QueryBuildType.MEASURES,
+                ),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(query_request) == 1
+    assert query_request[0].nodes == ["default.elapsed_secs@v1.0"]
+    assert query_request[0].parents == [
+        "default.events@v1.0",
+        "default.events_table@v1.0",
+    ]
+    assert query_request[0].dimensions == [
+        "default.countries.name[user_direct->registration_country]@v1.0",
+        "default.users.snapshot_date[user_direct]@v1.0",
+        "default.users.registration_country[user_direct]@v1.0",
+    ]
+    assert query_request[0].filters == [
+        "default.countries.name[user_direct -> registration_country]@v1.0 = 'UG'",
+    ]
