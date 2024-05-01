@@ -3936,6 +3936,44 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         ]
 
     @pytest.mark.asyncio
+    async def test_propagate_update_downstream(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        Tests that propagating updates downstream preserves dimension links
+        """
+        # Extract existing dimension links on transform
+        response = await client_with_roads.get("/nodes/default.repair_orders_fact")
+        existing_dimension_links = response.json()["dimension_links"]
+
+        # Update one of the transform's parents
+        response = await client_with_roads.patch(
+            "/nodes/default.repair_order_details",
+            json={
+                "columns": [
+                    {"name": "repair_order_id", "type": "int"},
+                    {"name": "repair_type_id", "type": "int"},
+                    {"name": "discount", "type": "float"},
+                ],
+            },
+        )
+        assert response.status_code == 200
+
+        # Check that the transform's original dimension links remain after the parent node's
+        # update has been propagated to the transform
+        response = await client_with_roads.get("/nodes/default.repair_orders_fact")
+        data = response.json()
+        assert sorted(
+            data["dimension_links"],
+            key=lambda key: key["dimension"]["name"],
+        ) == sorted(
+            existing_dimension_links,
+            key=lambda key: key["dimension"]["name"],
+        )
+        assert data["status"] == "invalid"
+
+    @pytest.mark.asyncio
     async def test_update_dimension_remove_pk_column(
         self,
         client_with_roads: AsyncClient,

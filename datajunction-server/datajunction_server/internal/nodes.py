@@ -985,6 +985,16 @@ def copy_existing_node_revision(old_revision: NodeRevision):
         status=old_revision.status,
         required_dimensions=old_revision.required_dimensions,
         metric_metadata=old_revision.metric_metadata,
+        dimension_links=[
+            DimensionLink(
+                dimension_id=link.dimension_id,
+                join_sql=link.join_sql,
+                join_type=link.join_type,
+                join_cardinality=link.join_cardinality,
+                materialization_conf=link.materialization_conf,
+            )
+            for link in old_revision.dimension_links
+        ],
     )
 
 
