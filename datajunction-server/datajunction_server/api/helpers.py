@@ -522,6 +522,10 @@ async def resolve_downstream_references(
                 .scalar_one()
             )
             await session.refresh(node_revision, ["node"])
+            await session.refresh(
+                downstream_node_revision,
+                ["parents", "missing_parents"],
+            )
             downstream_node_revision.parents.append(node_revision.node)
             downstream_node_revision.missing_parents.remove(missing_parent)
             node_validator = await validate_node_data(
