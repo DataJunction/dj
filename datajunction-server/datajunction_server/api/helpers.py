@@ -383,16 +383,17 @@ async def validate_cube(  # pylint: disable=too-many-locals
             f"The following metric nodes were not found: {', '.join(not_found)}",
         )
 
-    # Verify that all metrics are in valid status
-    invalid_metrics = [
-        metric.name
-        for metric in metric_nodes
-        if metric.current.status == NodeStatus.INVALID
-    ]
-    if invalid_metrics:
-        raise DJInvalidInputException(
-            f"The following metric nodes are invalid: {', '.join(invalid_metrics)}",
-        )
+    # TODO: Removing for now until we fix the issue with status updates  # pylint: disable=fixme
+    # # Verify that all metrics are in valid status
+    # invalid_metrics = [
+    #     metric.name
+    #     for metric in metric_nodes
+    #     if metric.current.status == NodeStatus.INVALID
+    # ]
+    # if invalid_metrics:
+    #     raise DJInvalidInputException(
+    #         f"The following metric nodes are invalid: {', '.join(invalid_metrics)}",
+    #     )
 
     metrics: List[Column] = [metric.current.columns[0] for metric in metric_nodes]
     catalogs = [metric.current.catalog for metric in metric_nodes]
