@@ -49,6 +49,9 @@ class ErrorCode(IntEnum):
     UNAUTHORIZED_ACCESS = 500
     INCOMPLETE_AUTHORIZATION = 501
 
+    # Node validation
+    INVALID_PARENT = 1
+
 
 class DebugType(TypedDict, total=False):
     """

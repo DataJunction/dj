@@ -16,17 +16,12 @@ from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 from starlette.requests import Request
 
-from datajunction_server.api.helpers import (
-    activate_node,
-    deactivate_node,
+from datajunction_server.api.helpers import (  # revalidate_node,
     get_catalog_by_name,
     get_column,
     get_node_by_name,
     get_node_namespace,
-    hard_delete_node,
     raise_if_node_exists,
-    revalidate_node,
-    validate_node_data,
 )
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
@@ -42,7 +37,7 @@ from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJDoesNotExistException,
     DJException,
-    DJInvalidInputException,
+    DJInvalidInputException, DJError, ErrorCode,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -57,12 +52,15 @@ from datajunction_server.internal.nodes import (
     get_column_level_lineage,
     get_node_column,
     remove_dimension_link,
+    revalidate_node,
     save_column_level_lineage,
     save_node,
     set_node_column_attributes,
     update_any_node,
-    upsert_complex_dimension_link,
+    upsert_complex_dimension_link, deactivate_node, activate_node, hard_delete_node,
 )
+from datajunction_server.internal.validation import validate_node_data
+
 from datajunction_server.models import access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.dimensionlink import (
@@ -84,8 +82,11 @@ from datajunction_server.models.node import (
     NodeRevisionBase,
     NodeRevisionOutput,
     NodeStatus,
+    NodeStatusDetails,
     NodeValidation,
+    NodeValidationError,
     UpdateNode,
+    ValidationErrorType,
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import (
@@ -144,26 +145,61 @@ async def validate_node(
     )
 
 
-@router.post("/nodes/{name}/validate/", response_model=NodeValidation)
+@router.post("/nodes/{name}/validate/", response_model=NodeStatusDetails)
 async def revalidate(
     name: str,
     session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
-) -> JSONResponse:
+) -> NodeStatusDetails:
     """
     Revalidate a single existing node and update its status appropriately
     """
-    status = await revalidate_node(
+    node_validator = await revalidate_node(
         name=name,
         session=session,
         current_user=current_user,
     )
-    return JSONResponse(
-        status_code=HTTPStatus.OK,
-        content={
-            "message": f"Node `{name}` has been set to {status}",
-            "status": status,
-        },
+
+    return NodeStatusDetails(
+        status=node_validator.status,
+        errors=[
+            *(
+                [
+                    NodeValidationError(
+                        type=ErrorCode.MISSING_PARENT,
+                        message=f"This node references the following nodes that do not exist: "
+                        + str(
+                            ",".join(
+                                [
+                                    f"`{missing}`"
+                                    for missing in node_validator.missing_parents_map
+                                ],
+                            ),
+                        ),
+                    ),
+                ]
+                if node_validator.missing_parents_map
+                else []
+            ),
+            *[
+                NodeValidationError(
+                    type=ErrorCode.TYPE_INFERENCE,
+                    message=failure,
+                )
+                for failure in node_validator.type_inference_failures
+            ],
+            *[
+                NodeValidationError(
+                    type=(
+                        ErrorCode.TYPE_INFERENCE
+                        if "Unable to infer type" in error.message
+                        else error.code
+                    ),
+                    message=error.message,
+                )
+                for error in node_validator.errors
+            ],
+        ],
     )
 
 

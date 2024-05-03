@@ -10,7 +10,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from datajunction_server.api.helpers import get_node_namespace, hard_delete_node
+from datajunction_server.api.helpers import get_node_namespace
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
@@ -20,7 +20,7 @@ from datajunction_server.errors import (
     DJDoesNotExistException,
     DJInvalidInputException,
 )
-from datajunction_server.internal.nodes import get_cube_revision_metadata
+from datajunction_server.internal.nodes import get_cube_revision_metadata, hard_delete_node
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.typing import UTCDatetime

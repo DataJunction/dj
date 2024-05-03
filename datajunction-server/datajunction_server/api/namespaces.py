@@ -10,10 +10,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import (
-    activate_node,
-    deactivate_node,
     get_node_namespace,
 )
+from datajunction_server.internal.nodes import deactivate_node, activate_node
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException

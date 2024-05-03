@@ -16,7 +16,7 @@ from sqlalchemy.types import Enum
 from typing_extensions import TypedDict
 
 from datajunction_server.enum import StrEnum
-from datajunction_server.errors import DJError
+from datajunction_server.errors import DJError, ErrorCode
 from datajunction_server.models.base import labelize
 from datajunction_server.models.catalog import CatalogInfo
 from datajunction_server.models.column import ColumnYAML
@@ -74,6 +74,20 @@ class NodeStatus(StrEnum):
 
     VALID = "valid"
     INVALID = "invalid"
+
+
+class NodeValidationError(BaseModel):
+    type: ErrorCode
+    message: str
+
+
+class NodeStatusDetails(BaseModel):
+    """
+    Node status details. Contains a list of node errors or an empty list of the node status is valid
+    """
+
+    status: NodeStatus
+    errors: List[NodeValidationError]
 
 
 class NodeYAML(TypedDict, total=False):
