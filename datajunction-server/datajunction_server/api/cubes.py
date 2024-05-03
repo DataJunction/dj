@@ -9,6 +9,7 @@ from fastapi import Depends, Header, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_catalog_by_name
+from datajunction_server.construction.build import get_measures_query
 from datajunction_server.construction.dimensions import build_dimensions_from_cube_query
 from datajunction_server.database.node import Node
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
@@ -157,4 +158,41 @@ async def get_cube_dimension_values(  # pylint: disable=too-many-locals
         ],
         values=dimension_values,
         cardinality=len(dimension_values),
+    )
+
+
+@router.get("/cubes/{name}/measures/sql", name="Measures SQL for Cube")
+async def get_cube_measures_sql(
+    name: str,
+    *,
+    filters: List[str] = Query(
+        None,
+        description="Filters if any",
+    ),
+    include_all_columns: bool = Query(
+        False,
+        description=(
+            "Whether to include all columns or only those necessary "
+            "for the metrics and dimensions in the cube"
+        ),
+    ),
+    session: AsyncSession = Depends(get_session),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=redefined-outer-name
+        validate_access,
+    ),
+) -> TranslatedSQL:
+    """
+    Generates measures SQL for the cube
+    """
+    node = await Node.get_cube_by_name(session, name)
+    current_revision = node.current  # type: ignore
+
+    return await get_measures_query(
+        session=session,
+        metrics=[node.name for node in current_revision.cube_metrics()],
+        dimensions=current_revision.cube_dimensions(),
+        filters=filters,
+        validate_access=validate_access,
+        cast_timestamp_to_ms=True,
+        include_all_columns=include_all_columns,
     )
