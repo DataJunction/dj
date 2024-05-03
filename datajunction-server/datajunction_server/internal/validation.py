@@ -1,6 +1,6 @@
 """Node validation functions."""
 from dataclasses import dataclass, field
-from typing import Dict, List, Union
+from typing import Dict, List, Set, Union
 
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,7 @@ from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
 @dataclass
-class NodeValidator:
+class NodeValidator:  # pylint: disable=too-many-instance-attributes
     """
     Node validation
     """
@@ -29,6 +29,7 @@ class NodeValidator:
     missing_parents_map: Dict[str, List[ast.Table]] = field(default_factory=dict)
     type_inference_failures: List[str] = field(default_factory=list)
     errors: List[DJError] = field(default_factory=list)
+    updated_columns: List[str] = field(default_factory=list)
 
     def differs_from(self, node_revision: NodeRevision):
         """
@@ -40,12 +41,14 @@ class NodeValidator:
         existing_columns_map = {col.name: col for col in self.columns}
         for col in node_revision.columns:
             if col.name not in existing_columns_map:
+                print(f"{col.name} not in existing_columns_map")
                 return True  # pragma: no cover
             if existing_columns_map[col.name].type != col.type:
+                print(f"{col.name}'s type does not match existing")
                 return True  # pragma: no cover
         return False
 
-    def modified_columns(self, node_revision: NodeRevision):
+    def modified_columns(self, node_revision: NodeRevision) -> Set[str]:
         """
         Compared to the provided node revision, returns the modified columns
         """
@@ -118,6 +121,12 @@ async def validate_node_data(  # pylint: disable=too-many-locals,too-many-statem
         if parent.type != NodeType.SOURCE and parent.status == NodeStatus.INVALID
     }
     if invalid_parents:
+        node_validator.errors.append(
+            DJError(
+                code=ErrorCode.INVALID_PARENT,
+                message=f"References invalid parent node(s) {','.join(invalid_parents)}",
+            ),
+        )
         node_validator.status = NodeStatus.INVALID
 
     try:
@@ -182,18 +191,13 @@ async def validate_node_data(  # pylint: disable=too-many-locals,too-many-statem
             [
                 DJError(
                     code=ErrorCode.TYPE_INFERENCE,
-                    message=(
-                        f"Unable to infer type for some columns on node `{data.name}`.\n"
-                        + ("\n\t* " if type_inference_failures else "")
-                        + "\n\t* ".join(
-                            [val[:103] for val in type_inference_failures.values()],
-                        )
-                    ),
+                    message=message,
                     debug={
-                        "columns": type_inference_failures,
+                        "columns": [column],
                         "errors": ctx.exception.errors,
                     },
-                ),
+                )
+                for column, message in type_inference_failures.items()
             ]
             if type_inference_failures
             else []
