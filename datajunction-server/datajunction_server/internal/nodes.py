@@ -6,6 +6,7 @@ from datetime import datetime
 from http import HTTPStatus
 from typing import Dict, List, Optional, Union
 
+import sqlalchemy
 from fastapi import BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
@@ -890,6 +891,7 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
         )
 
     # Revalidate all other node types
+    previous_status = current_node_revision.status
     node_validator = await validate_node_data(current_node_revision, session)
 
     # Update the status
@@ -906,9 +908,8 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
         else:
             node.current.columns.append(col)  # type: ignore
             updated_columns = True
-
     # Only create a new revision if the columns have been updated
-    if updated_columns:  # type: ignore
+    if previous_status != node.current.status or updated_columns:  # type: ignore
         new_revision = copy_existing_node_revision(node.current)  # type: ignore
         new_revision.version = str(
             Version.parse(node.current.version).next_major_version(),  # type: ignore
@@ -930,7 +931,10 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
         node.current_version = new_revision.version  # type: ignore
         new_revision.node_id = node.id  # type: ignore
         session.add(node)
-        session.add(new_revision)
+        try:
+            session.add(new_revision)
+        except sqlalchemy.exc.InvalidRequestError:
+            pass
     await session.commit()
     await session.refresh(node.current)  # type: ignore
     await session.refresh(node, ["current"])
@@ -1033,7 +1037,7 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
                     f"{node.current_version}",
                 },
                 pre={
-                    "status": original_node_revision.status,
+                    "status": previous_status,
                     "version": original_node_revision.version,
                 },
                 post={

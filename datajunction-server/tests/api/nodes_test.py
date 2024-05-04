@@ -1189,7 +1189,6 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ]
 
         # Hard delete the node
-        print("Deleting", node_name)
         response = await client_with_roads.delete(f"/nodes/{node_name}/hard/")
         assert response.status_code in (200, 201)
 
