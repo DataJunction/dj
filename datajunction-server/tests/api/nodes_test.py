@@ -1189,6 +1189,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ]
 
         # Hard delete the node
+        print("Deleting", node_name)
         response = await client_with_roads.delete(f"/nodes/{node_name}/hard/")
         assert response.status_code in (200, 201)
 
@@ -2013,27 +2014,18 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data == {
             "message": (
-                "Unable to infer type for some columns on node "
-                "`default.avg_length_of_employment_plus_one`.\n\n"
-                "\t* Incompatible types in binary operation NOW() - "
-                "foo.bar.hard_hats.hire_date + 1. Got left timestamp, rig"
+                "Incompatible types in binary operation NOW() - "
+                "foo.bar.hard_hats.hire_date + 1. Got left timestamp, right int."
             ),
             "errors": [
                 {
                     "code": 302,
                     "message": (
-                        "Unable to infer type for some columns on node "
-                        "`default.avg_length_of_employment_plus_one`.\n\n"
-                        "\t* Incompatible types in binary operation NOW() - "
-                        "foo.bar.hard_hats.hire_date + 1. Got left timestamp, rig"
+                        "Incompatible types in binary operation NOW() - "
+                        "foo.bar.hard_hats.hire_date + 1. Got left timestamp, right int."
                     ),
                     "debug": {
-                        "columns": {
-                            "default_DOT_avg_length_of_employment_plus_one": (
-                                "Incompatible types in binary operation NOW() - "
-                                "foo.bar.hard_hats.hire_date + 1. Got left timestamp, right int."
-                            ),
-                        },
+                        "columns": ["default_DOT_avg_length_of_employment_plus_one"],
                         "errors": [],
                     },
                     "context": "",

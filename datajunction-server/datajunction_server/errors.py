@@ -50,7 +50,9 @@ class ErrorCode(IntEnum):
     INCOMPLETE_AUTHORIZATION = 501
 
     # Node validation
-    INVALID_PARENT = 1
+    INVALID_PARENT = 600
+    INVALID_DIMENSION = 601
+    INVALID_METRIC = 602
 
 
 class DebugType(TypedDict, total=False):

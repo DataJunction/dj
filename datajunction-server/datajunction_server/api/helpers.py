@@ -41,13 +41,13 @@ from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJDoesNotExistException,
+    DJError,
     DJException,
     DJInvalidInputException,
     DJNodeNotFound,
+    ErrorCode,
 )
 from datajunction_server.internal.engines import get_engine
-# from datajunction_server.internal.nodes import revalidate_node
-# from datajunction_server.internal.validation import validate_node_data
 from datajunction_server.models import access
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from datajunction_server.models.engine import Dialect
@@ -264,6 +264,10 @@ async def resolve_downstream_references(
     """
     Find all node revisions with missing parent references to `node` and resolve them
     """
+    from datajunction_server.internal.validation import (  # pylint: disable=import-outside-toplevel
+        validate_node_data,
+    )
+
     missing_parents = (
         (
             await session.execute(
@@ -377,8 +381,10 @@ async def validate_cube(  # pylint: disable=too-many-locals
     # Verify that all metrics exist
     if len(metric_nodes) != len(metric_names):
         not_found = set(metric_names) - {metric.name for metric in metric_nodes}
+        message = f"The following metric nodes were not found: {', '.join(not_found)}"
         raise DJNodeNotFound(
-            f"The following metric nodes were not found: {', '.join(not_found)}",
+            message,
+            errors=[DJError(code=ErrorCode.UNKNOWN_NODE, message=message)],
         )
 
     # Verify that all metrics are in valid status
@@ -388,8 +394,12 @@ async def validate_cube(  # pylint: disable=too-many-locals
         if metric.current.status == NodeStatus.INVALID
     ]
     if invalid_metrics:
+        message = (
+            f"The following metric nodes are invalid: {', '.join(invalid_metrics)}"
+        )
         raise DJInvalidInputException(
-            f"The following metric nodes are invalid: {', '.join(invalid_metrics)}",
+            message,
+            errors=[DJError(code=ErrorCode.INVALID_METRIC, message=message)],
         )
 
     metrics: List[Column] = [metric.current.columns[0] for metric in metric_nodes]
@@ -404,14 +414,16 @@ async def validate_cube(  # pylint: disable=too-many-locals
         )
     non_metrics = [metric for metric in metric_nodes if metric.type != NodeType.METRIC]
     if non_metrics:
+        message = (
+            f"Node {non_metrics[0].name} of type {non_metrics[0].type} "  # type: ignore
+            f"cannot be added to a cube."
+            + " Did you mean to add a dimension attribute?"
+            if non_metrics[0].type == NodeType.DIMENSION  # type: ignore
+            else ""
+        )
         raise DJException(
-            message=(
-                f"Node {non_metrics[0].name} of type {non_metrics[0].type} "  # type: ignore
-                f"cannot be added to a cube."
-                + " Did you mean to add a dimension attribute?"
-                if non_metrics[0].type == NodeType.DIMENSION  # type: ignore
-                else ""
-            ),
+            message=message,
+            errors=[DJError(code=ErrorCode.NODE_TYPE_ERROR, message=message)],
             http_status_code=http.client.UNPROCESSABLE_ENTITY,
         )
 
@@ -443,9 +455,13 @@ async def validate_cube(  # pylint: disable=too-many-locals
                 if node_name in missing_dimensions
             ],
         )
-        raise DJException(  # pragma: no cover
+        message = (
             f"Please make sure that `{missing_dimension_attributes}` "
-            "is a dimensional attribute.",
+            "is a dimensional attribute."
+        )
+        raise DJException(  # pragma: no cover
+            message,
+            errors=[DJError(code=ErrorCode.INVALID_DIMENSION, message=message)],
         )
 
     dimension_mapping: Dict[str, Node] = {

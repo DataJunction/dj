@@ -16,7 +16,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 from starlette.requests import Request
 
-from datajunction_server.api.helpers import (  # revalidate_node,
+from datajunction_server.api.helpers import (
     get_catalog_by_name,
     get_column,
     get_node_by_name,
@@ -37,7 +37,8 @@ from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJDoesNotExistException,
     DJException,
-    DJInvalidInputException, DJError, ErrorCode,
+    DJInvalidInputException,
+    ErrorCode,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -46,21 +47,23 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.nodes import (
     _create_node_from_inactive,
+    activate_node,
     copy_to_new_node,
     create_cube_node_revision,
     create_node_revision,
+    deactivate_node,
     get_column_level_lineage,
     get_node_column,
+    hard_delete_node,
     remove_dimension_link,
     revalidate_node,
     save_column_level_lineage,
     save_node,
     set_node_column_attributes,
     update_any_node,
-    upsert_complex_dimension_link, deactivate_node, activate_node, hard_delete_node,
+    upsert_complex_dimension_link,
 )
 from datajunction_server.internal.validation import validate_node_data
-
 from datajunction_server.models import access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.dimensionlink import (
@@ -86,7 +89,6 @@ from datajunction_server.models.node import (
     NodeValidation,
     NodeValidationError,
     UpdateNode,
-    ValidationErrorType,
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import (
@@ -163,27 +165,9 @@ async def revalidate(
     return NodeStatusDetails(
         status=node_validator.status,
         errors=[
-            *(
-                [
-                    NodeValidationError(
-                        type=ErrorCode.MISSING_PARENT,
-                        message=f"This node references the following nodes that do not exist: "
-                        + str(
-                            ",".join(
-                                [
-                                    f"`{missing}`"
-                                    for missing in node_validator.missing_parents_map
-                                ],
-                            ),
-                        ),
-                    ),
-                ]
-                if node_validator.missing_parents_map
-                else []
-            ),
             *[
                 NodeValidationError(
-                    type=ErrorCode.TYPE_INFERENCE,
+                    type=ErrorCode.TYPE_INFERENCE.name,
                     message=failure,
                 )
                 for failure in node_validator.type_inference_failures
@@ -191,9 +175,9 @@ async def revalidate(
             *[
                 NodeValidationError(
                     type=(
-                        ErrorCode.TYPE_INFERENCE
+                        ErrorCode.TYPE_INFERENCE.name
                         if "Unable to infer type" in error.message
-                        else error.code
+                        else error.code.name
                     ),
                     message=error.message,
                 )
@@ -421,12 +405,14 @@ async def list_node_revisions(
 @router.post("/nodes/source/", response_model=NodeOutput, name="Create A Source Node")
 async def create_source(
     data: CreateSourceNode,
+    *,
     session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
+    background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
     Create a source node. If columns are not provided, the source node's schema
@@ -442,6 +428,7 @@ async def create_source(
         current_user=current_user,
         query_service_client=query_service_client,
         validate_access=validate_access,
+        background_tasks=background_tasks,
     ):
         return recreated_node
 
@@ -677,9 +664,11 @@ async def register_table(
     catalog: str,
     schema_: str,
     table: str,
+    *,
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
     Register a table. This creates a source node in the SOURCE_NODE_NAMESPACE and
@@ -723,6 +712,7 @@ async def register_table(
         ),
         session=session,
         current_user=current_user,
+        background_tasks=background_tasks,
     )
 
 

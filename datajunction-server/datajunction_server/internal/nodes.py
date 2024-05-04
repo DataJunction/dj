@@ -1,11 +1,10 @@
 # pylint: disable=too-many-lines,too-many-arguments
 """Nodes endpoint helper functions"""
 import logging
-import time
 from collections import defaultdict
 from datetime import datetime
 from http import HTTPStatus
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from fastapi import BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -21,7 +20,6 @@ from datajunction_server.api.helpers import (
     resolve_downstream_references,
     validate_cube,
 )
-from datajunction_server.database import User, History, Node, NodeRevision
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
@@ -44,8 +42,6 @@ from datajunction_server.internal.materializations import (
     schedule_materialization_jobs,
 )
 from datajunction_server.internal.validation import NodeValidator, validate_node_data
-
-# from datajunction_server.internal.node_validation import validate_node_data
 from datajunction_server.models import access
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
@@ -674,9 +670,8 @@ async def update_node_with_query(
         session,
         node,
         current_user=current_user,
-        validate_access=validate_access,
     )
-
+    await session.refresh(node, ["current"])
     await session.refresh(node.current, ["materializations"])  # type: ignore
     return node  # type: ignore
 
@@ -824,7 +819,7 @@ async def update_cube_node(  # pylint: disable=too-many-locals
     return new_cube_revision
 
 
-async def revalidate_node(
+async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statements
     name: str,
     session: AsyncSession,
     current_user: Optional[User] = None,
@@ -842,6 +837,8 @@ async def revalidate_node(
         raise_if_not_exists=True,
     )
     current_node_revision = node.current  # type: ignore
+
+    # Revalidate source node
     if current_node_revision.type == NodeType.SOURCE:
         if current_node_revision.status != NodeStatus.VALID:  # pragma: no cover
             current_node_revision.status = NodeStatus.VALID
@@ -856,8 +853,12 @@ async def revalidate_node(
             session.add(current_node_revision)
             await session.commit()
             await session.refresh(current_node_revision)
-        return NodeValidator(status=node.current.status, columns=node.current.columns)
+        return NodeValidator(
+            status=node.current.status,  # type: ignore
+            columns=node.current.columns,  # type: ignore
+        )
 
+    # Revalidate cube node
     if current_node_revision.type == NodeType.CUBE:
         cube_node = await Node.get_cube_by_name(session, name)
         current_node_revision = cube_node.current  # type: ignore
@@ -878,7 +879,7 @@ async def revalidate_node(
                 errors.extend(exc.errors)
             else:
                 errors.append(
-                    DJError(code=ErrorCode.UNKNOWN_ERROR, message=exc.message),
+                    DJError(code=ErrorCode.INVALID_DIMENSION, message=exc.message),
                 )
         session.add(current_node_revision)
         await session.commit()
@@ -887,23 +888,15 @@ async def revalidate_node(
             columns=current_node_revision.columns,
             errors=errors,
         )
-    previous_status = current_node_revision.status
+
+    # Revalidate all other node types
     node_validator = await validate_node_data(current_node_revision, session)
 
-    node = await Node.get_by_name(
-        session,
-        name,
-        options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
-            joinedload(Node.tags),
-        ],
-        raise_if_not_exists=True,
-    )
     # Update the status
     node.current.status = node_validator.status  # type: ignore
 
-    # Update the columns if any are different from the validation
-    existing_columns = {col.name: col for col in node.current.columns}
+    # Check if any columns have been updated
+    existing_columns = {col.name: col for col in node.current.columns}  # type: ignore
     updated_columns = False
     for col in node_validator.columns:
         if existing_col := existing_columns.get(col.name):
@@ -911,14 +904,14 @@ async def revalidate_node(
                 existing_col.type = col.type
                 updated_columns = True
         else:
-            node.current.columns.append(col)
+            node.current.columns.append(col)  # type: ignore
             updated_columns = True
 
-    # Only save the update if something has changed
-    if previous_status != node.current.status or updated_columns:  # type: ignore  # pragma: no cover
-        new_revision = copy_existing_node_revision(node.current)
+    # Only create a new revision if the columns have been updated
+    if updated_columns:  # type: ignore
+        new_revision = copy_existing_node_revision(node.current)  # type: ignore
         new_revision.version = str(
-            Version.parse(node.current.version).next_major_version(),
+            Version.parse(node.current.version).next_major_version(),  # type: ignore
         )
 
         new_revision.status = node_validator.status
@@ -928,31 +921,67 @@ async def revalidate_node(
         ]
 
         # Save which columns were modified and update the columns with the changes
-        updated_columns = node_validator.modified_columns(new_revision)
+        node_validator.updated_columns = node_validator.modified_columns(
+            new_revision,  # type: ignore
+        )
         new_revision.columns = node_validator.columns
 
         # Save the new revision of the child
-        new_revision.node_id = node.id
-        session.add(new_revision)
-        await session.commit()
-        await session.refresh(new_revision, ["node"])
-        new_revision.node.current_version = new_revision.version
-        session.add(new_revision.node)
+        node.current_version = new_revision.version  # type: ignore
+        new_revision.node_id = node.id  # type: ignore
         session.add(node)
-        session.add(node.current)
-        await session.commit()
+        session.add(new_revision)
+    await session.commit()
     await session.refresh(node.current)  # type: ignore
     await session.refresh(node, ["current"])
     return node_validator
+
+
+def topological_sort(nodes: List[Node]) -> List[Node]:
+    """
+    Sort a list of nodes into topological order
+    """
+    all_nodes = {node.name: node for node in nodes}
+
+    # Build adjacency list and calculate in-degrees
+    adjacency_list: Dict[str, List[Node]] = {}
+    in_degrees: Dict[str, int] = {}
+    for node in nodes:
+        adjacency_list[node.name] = [
+            parent for parent in node.current.parents if parent.name in all_nodes
+        ]
+        in_degrees[node.name] = 0
+    for parents in adjacency_list.values():
+        for parent in parents:
+            in_degrees[parent.name] += 1
+
+    # Initialize queue with nodes having in-degree 0
+    queue: List[Node] = [
+        all_nodes[name] for name, degree in in_degrees.items() if degree == 0
+    ]
+
+    # Perform topological sort using Kahn's algorithm
+    sorted_nodes: List[Node] = []
+    while queue:
+        current_node = queue.pop(0)
+        sorted_nodes.append(current_node)
+        for child in adjacency_list.get(current_node.name, []):
+            in_degrees[child.name] -= 1
+            if in_degrees[child.name] == 0:
+                queue.append(child)
+
+    # Check for cycles
+    if len(sorted_nodes) != len(in_degrees):
+        raise DJException("Graph has at least one cycle")
+
+    return sorted_nodes[::-1]
 
 
 async def propagate_update_downstream(  # pylint: disable=too-many-locals
     session: AsyncSession,
     node: Node,
     *,
-    query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
-    validate_access: access.ValidateAccessFn,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -961,22 +990,32 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
     - altered column types: may invalidate downstream nodes
     - new columns: won't affect downstream nodes
     """
-    start = time.time()
+    _logger.info("Propagating update of node %s downstream", node.name)
     downstreams = await get_downstream_nodes(
         session,
         node.name,
         include_deactivated=False,
-        include_cubes=True,
+        include_cubes=False,
     )
+    downstreams = topological_sort(downstreams)
+    _logger.info(
+        "Revalidating the following downstreams %s",
+        [downstream.name for downstream in downstreams],
+    )
+
+    # The downstreams need to be sorted topologically in order for the updates to be done
+    # in the right order. Otherwise it is possible for a leaf node like a metric to be updated
+    # before its upstreams are updated.
     for downstream in downstreams:
-        end = time.time()
-        print("Revalidating downstream:", downstream.name, "took", end - start)
         original_node_revision = downstream.current
+        previous_status = original_node_revision.status
         node_validator = await revalidate_node(downstream.name, session)
-        updated_columns = node_validator.modified_columns(original_node_revision)
 
         # Record history event
-        if original_node_revision.version != downstream.current_version:
+        if (
+            original_node_revision.version != downstream.current_version
+            or previous_status != node_validator.status
+        ):
             event = History(
                 entity_type=EntityType.NODE,
                 entity_name=downstream.name,
@@ -984,7 +1023,7 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
                 activity_type=ActivityType.UPSTREAM_UPDATE,
                 details={
                     "changes": {
-                        "updated_columns": updated_columns,
+                        "updated_columns": sorted(list(node_validator.updated_columns)),
                     },
                     "upstream": {
                         "node": node.name,
@@ -996,16 +1035,10 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
                 pre={
                     "status": original_node_revision.status,
                     "version": original_node_revision.version,
-                    "columns": {
-                        col.name: col.type for col in original_node_revision.columns
-                    },
                 },
                 post={
                     "status": node_validator.status,
                     "version": downstream.current_version,
-                    "columns": {
-                        col.name: col.type for col in downstream.current.columns
-                    },
                 },
                 user=current_user.username if current_user else None,
             )
@@ -1872,7 +1905,7 @@ async def hard_delete_node(
                 user=current_user.username if current_user else None,
             ),
         )
-        status = await revalidate_node(
+        node_validator = await revalidate_node(
             name=node.name,
             session=session,
             current_user=current_user,
@@ -1880,7 +1913,7 @@ async def hard_delete_node(
         impact.append(
             {
                 "name": node.name,
-                "status": status,
+                "status": node_validator.status,
                 "effect": "downstream node is now invalid",
             },
         )
@@ -1896,7 +1929,7 @@ async def hard_delete_node(
                 user=current_user.username if current_user else None,
             ),
         )
-        status = await revalidate_node(
+        node_validator = await revalidate_node(
             name=node.name,
             session=session,
             current_user=current_user,
@@ -1904,7 +1937,7 @@ async def hard_delete_node(
         impact.append(
             {
                 "name": node.name,
-                "status": status,
+                "status": node_validator.status,
                 "effect": "broken link",
             },
         )

@@ -8,6 +8,7 @@ import markdown from 'react-syntax-highlighter/dist/cjs/languages/hljs/markdown'
 import * as React from 'react';
 import { AlertMessage } from '../AddEditNodePage/AlertMessage';
 import AlertIcon from '../../icons/AlertIcon';
+import { labelize } from '../../../utils/form';
 
 SyntaxHighlighter.registerLanguage('markdown', markdown);
 
@@ -51,13 +52,20 @@ export default function NodeStatus({ node, revalidate = true }) {
           style={{
             display: codeAnchor === false ? 'none' : 'block',
             border: 'none',
-            paddingTop: '0px',
+            paddingTop: '0px !important',
             marginTop: '0px',
             backgroundColor: 'transparent',
           }}
         >
-          {validation?.errors?.map(error => (
+          {validation?.errors?.map((error, idx) => (
             <div className="validation_error">
+              <b
+                style={{
+                  color: '#b34b00',
+                }}
+              >
+                {labelize(error.type.toLowerCase())}:
+              </b>{' '}
               {error.message.length > MAX_ERROR_LENGTH
                 ? error.message.slice(0, MAX_ERROR_LENGTH - 1) + '...'
                 : error.message}

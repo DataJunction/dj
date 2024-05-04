@@ -9,10 +9,7 @@ from fastapi import Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api.helpers import (
-    get_node_namespace,
-)
-from datajunction_server.internal.nodes import deactivate_node, activate_node
+from datajunction_server.api.helpers import get_node_namespace
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException
@@ -31,6 +28,7 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_restored,
     validate_namespace,
 )
+from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
 from datajunction_server.models.node import NamespaceOutput, NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType

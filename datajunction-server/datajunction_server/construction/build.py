@@ -1,11 +1,10 @@
-"""Functions to add to an ast DJ node queries"""
+# pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
+# pylint: disable=too-many-lines,protected-access
+"""Functions for building DJ node queries"""
 import collections
 import logging
 import re
 import time
-
-# pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
-# pylint: disable=too-many-lines,protected-access
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +14,12 @@ from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.errors import (
+    DJError,
+    DJException,
+    DJInvalidInputException,
+    ErrorCode,
+)
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
@@ -1014,9 +1018,13 @@ async def validate_shared_dimensions(
     ]
     for dimension_attribute in dimensions:
         if dimension_attribute not in shared_dimensions:
-            raise DJInvalidInputException(
+            message = (
                 f"The dimension attribute `{dimension_attribute}` is not "
-                "available on every metric and thus cannot be included.",
+                "available on every metric and thus cannot be included."
+            )
+            raise DJInvalidInputException(
+                message,
+                errors=[DJError(code=ErrorCode.INVALID_DIMENSION, message=message)],
             )
 
     for filter_ in filters:
@@ -1033,10 +1041,14 @@ async def validate_shared_dimensions(
                     if str(col) in dims_without_prefix
                     else ""
                 )
-                raise DJInvalidInputException(
+                message = (
                     f"The filter `{filter_}` references the dimension attribute "
                     f"`{col}`, which is not available on every"
-                    f" metric and thus cannot be included.{potential_dimension_match}",
+                    f" metric and thus cannot be included.{potential_dimension_match}"
+                )
+                raise DJInvalidInputException(
+                    message,
+                    errors=[DJError(code=ErrorCode.INVALID_DIMENSION, message=message)],
                 )
 
 

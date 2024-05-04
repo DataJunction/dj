@@ -20,7 +20,10 @@ from datajunction_server.errors import (
     DJDoesNotExistException,
     DJInvalidInputException,
 )
-from datajunction_server.internal.nodes import get_cube_revision_metadata, hard_delete_node
+from datajunction_server.internal.nodes import (
+    get_cube_revision_metadata,
+    hard_delete_node,
+)
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.typing import UTCDatetime

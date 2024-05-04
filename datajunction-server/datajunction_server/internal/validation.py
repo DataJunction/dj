@@ -1,22 +1,23 @@
+"""Node validation functions."""
 from dataclasses import dataclass, field
-from typing import List, Dict, Union
+from typing import Dict, List, Set, Union
 
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import find_bound_dimensions
-from datajunction_server.database import Column, NodeRevision, Node
+from datajunction_server.database import Column, Node, NodeRevision
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.models.base import labelize
-from datajunction_server.models.node import NodeStatus, NodeRevisionBase
+from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
-from datajunction_server.sql.parsing.backends.antlr4 import parse, SqlSyntaxError
+from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
 @dataclass
-class NodeValidator:
+class NodeValidator:  # pylint: disable=too-many-instance-attributes
     """
     Node validation
     """
@@ -28,6 +29,7 @@ class NodeValidator:
     missing_parents_map: Dict[str, List[ast.Table]] = field(default_factory=dict)
     type_inference_failures: List[str] = field(default_factory=list)
     errors: List[DJError] = field(default_factory=list)
+    updated_columns: List[str] = field(default_factory=list)
 
     def differs_from(self, node_revision: NodeRevision):
         """
@@ -46,7 +48,7 @@ class NodeValidator:
                 return True  # pragma: no cover
         return False
 
-    def modified_columns(self, node_revision: NodeRevision):
+    def modified_columns(self, node_revision: NodeRevision) -> Set[str]:
         """
         Compared to the provided node revision, returns the modified columns
         """
@@ -189,13 +191,13 @@ async def validate_node_data(  # pylint: disable=too-many-locals,too-many-statem
             [
                 DJError(
                     code=ErrorCode.TYPE_INFERENCE,
-                    message=type_inference_failures[column],
+                    message=message,
                     debug={
                         "columns": [column],
                         "errors": ctx.exception.errors,
                     },
                 )
-                for column in type_inference_failures
+                for column, message in type_inference_failures.items()
             ]
             if type_inference_failures
             else []
