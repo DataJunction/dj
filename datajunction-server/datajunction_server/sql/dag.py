@@ -18,6 +18,7 @@ from datajunction_server.database.node import (
     NodeRelationship,
     NodeRevision,
 )
+from datajunction_server.errors import DJException
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import get_settings
@@ -678,3 +679,44 @@ async def get_nodes_with_common_dimensions(
             if not nodes_that_share_dimensions:
                 break
     return list(nodes_that_share_dimensions)
+
+
+def topological_sort(nodes: List[Node]) -> List[Node]:
+    """
+    Sort a list of nodes into topological order so that the nodes with the most dependencies
+    are later in the list, and the nodes with the fewest dependencies are earlier.
+    """
+    all_nodes = {node.name: node for node in nodes}
+
+    # Build adjacency list and calculate in-degrees
+    adjacency_list: Dict[str, List[Node]] = {}
+    in_degrees: Dict[str, int] = {}
+    for node in nodes:
+        adjacency_list[node.name] = [
+            parent for parent in node.current.parents if parent.name in all_nodes
+        ]
+        in_degrees[node.name] = 0
+    for parents in adjacency_list.values():
+        for parent in parents:
+            in_degrees[parent.name] += 1
+
+    # Initialize queue with nodes having in-degree 0
+    queue: List[Node] = [
+        all_nodes[name] for name, degree in in_degrees.items() if degree == 0
+    ]
+
+    # Perform topological sort using Kahn's algorithm
+    sorted_nodes: List[Node] = []
+    while queue:
+        current_node = queue.pop(0)
+        sorted_nodes.append(current_node)
+        for child in adjacency_list.get(current_node.name, []):
+            in_degrees[child.name] -= 1
+            if in_degrees[child.name] == 0:
+                queue.append(child)
+
+    # Check for cycles
+    if len(sorted_nodes) != len(in_degrees):
+        raise DJException("Graph has at least one cycle")
+
+    return sorted_nodes[::-1]
