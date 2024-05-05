@@ -1202,3 +1202,18 @@ pre {
   text-transform: uppercase;
   padding-left: 10px;
 }
+
+.validation_error {
+  border: #b34b0025 1px solid;
+  border-left: #b34b00 5px solid;
+  padding-left: 20px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  font-size: small;
+  width: 600px;
+  word-wrap: break-word;
+  margin-top: 3px;
+  background-color: #ffffff;
+  margin-bottom: 3px;
+  margin-left: -20px;
+}
