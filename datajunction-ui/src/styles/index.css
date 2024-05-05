@@ -1203,17 +1203,6 @@ pre {
   padding-left: 10px;
 }
 
-.operator {
-  background-color: #efefef;
-  border-radius: 2px;
-  border-style: none;
-  padding: 0.4rem;
-  font-family: Lato, "sans-serif";
-  font-size: 110%;
-  border-right: 16px solid transparent;
-  margin-left: 0.4rem;
-}
-
 .validation_error {
   border: #b34b0025 1px solid;
   border-left: #b34b00 5px solid;

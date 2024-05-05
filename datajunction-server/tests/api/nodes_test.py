@@ -1382,8 +1382,9 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         # Hard deleting a dimension creates broken links
         response = await client_with_roads.delete("/nodes/default.repair_order/hard/")
         assert response.status_code in (200, 201)
-        assert response.json() == {
-            "impact": [
+        data = response.json()
+        assert sorted(data["impact"], key=lambda x: x["name"]) == sorted(
+            [
                 {
                     "effect": "broken link",
                     "name": "default.repair_order_details",
@@ -1445,8 +1446,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "status": "invalid",
                 },
             ],
-            "message": "The node `default.repair_order` has been completely removed.",
-        }
+            key=lambda x: x["name"],
+        )
+        assert (
+            data["message"]
+            == "The node `default.repair_order` has been completely removed."
+        )
 
         # Hard deleting an unlinked node has no impact
         response = await client_with_roads.delete(

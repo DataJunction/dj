@@ -444,15 +444,6 @@ export const DataJunctionAPI = {
     ).json();
   },
 
-  nodeData: async function (nodeName) {
-    return await (
-      await fetch(`${DJ_URL}/data/${nodeName}?limit=1000&async_=true`, {
-        credentials: 'include',
-        headers: { 'Cache-Control': 'max-age=86400' },
-      })
-    ).json();
-  },
-
   stream: async function (metricSelection, dimensionSelection, filters) {
     const params = new URLSearchParams();
     metricSelection.map(metric => params.append('metrics', metric));
@@ -813,19 +804,13 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
-  runBackfill: async function (nodeName, materializationName, partitionValues) {
-    console.log(
-      'jsonnn',
-      JSON.stringify(
-        partitionValues.map(partitionValue => {
-          return {
-            column_name: partitionValue.columnName,
-            range: partitionValue.range,
-            values: partitionValue.values,
-          };
-        }),
-      ),
-    );
+  runBackfill: async function (
+    nodeName,
+    materializationName,
+    partitionColumn,
+    from,
+    to,
+  ) {
     const response = await fetch(
       `${DJ_URL}/nodes/${nodeName}/materializations/${materializationName}/backfill`,
       {
@@ -833,15 +818,10 @@ export const DataJunctionAPI = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(
-          partitionValues.map(partitionValue => {
-            return {
-              column_name: partitionValue.columnName,
-              range: partitionValue.range,
-              values: partitionValue.values,
-            };
-          }),
-        ),
+        body: JSON.stringify({
+          column_name: partitionColumn,
+          range: [from, to],
+        }),
         credentials: 'include',
       },
     );
