@@ -45,165 +45,93 @@ async def test_update_source_node(
     node_history_events = {
         "default.national_level_agg": [
             {
-                "activity_type": "status_change",
+                "activity_type": "update",
                 "created_at": mock.ANY,
                 "details": {
+                    "changes": {"updated_columns": []},
                     "reason": "Caused by update of `default.repair_order_details` to "
                     "v2.0",
-                    "upstreams": [
-                        {
-                            "current_version": "v2.0",
-                            "name": "default.repair_order_details",
-                            "previous_version": "v1.0",
-                            "updated_columns": [
-                                "repair_order_id",
-                                "price",
-                                "quantity_v2",
-                            ],
-                        },
-                        {
-                            "current_version": "v2.0",
-                            "name": "default.national_level_agg",
-                            "previous_version": "v1.0",
-                            "updated_columns": ["total_amount_nationwide"],
-                        },
-                    ],
+                    "upstream": {
+                        "node": "default.repair_order_details",
+                        "version": "v2.0",
+                    },
                 },
                 "entity_name": "default.national_level_agg",
                 "entity_type": "node",
                 "id": mock.ANY,
                 "node": "default.national_level_agg",
-                "post": {"status": "invalid"},
-                "pre": {"status": "valid"},
-                "user": "dj",
+                "post": {"status": "invalid", "version": "v1.0"},
+                "pre": {"status": "valid", "version": "v1.0"},
+                "user": mock.ANY,
             },
         ],
         "default.regional_level_agg": [
             {
-                "activity_type": "status_change",
+                "activity_type": "update",
                 "created_at": mock.ANY,
                 "details": {
-                    "reason": "Caused by update of `default.repair_order_details` to "
-                    "v2.0",
-                    "upstreams": [
-                        {
-                            "current_version": "v2.0",
-                            "name": "default.repair_order_details",
-                            "previous_version": "v1.0",
-                            "updated_columns": [
-                                "repair_order_id",
-                                "price",
-                                "quantity_v2",
-                            ],
-                        },
-                        {
-                            "current_version": "v2.0",
-                            "name": "default.regional_level_agg",
-                            "previous_version": "v1.0",
-                            "updated_columns": [
-                                "avg_repair_amount_in_region",
-                                "total_amount_in_region",
-                            ],
-                        },
-                    ],
+                    "changes": {
+                        "updated_columns": [],
+                    },
+                    "reason": "Caused by update of `default.repair_order_details` to v2.0",
+                    "upstream": {
+                        "node": "default.repair_order_details",
+                        "version": "v2.0",
+                    },
                 },
                 "entity_name": "default.regional_level_agg",
                 "entity_type": "node",
                 "id": mock.ANY,
                 "node": "default.regional_level_agg",
-                "post": {"status": "invalid"},
-                "pre": {"status": "valid"},
-                "user": "dj",
+                "post": {"status": "invalid", "version": "v1.0"},
+                "pre": {"status": "valid", "version": "v1.0"},
+                "user": mock.ANY,
             },
         ],
         "default.avg_repair_price": [
             {
-                "activity_type": "status_change",
+                "activity_type": "update",
                 "created_at": mock.ANY,
                 "details": {
+                    "changes": {"updated_columns": []},
                     "reason": "Caused by update of `default.repair_order_details` to "
                     "v2.0",
-                    "upstreams": [
-                        {
-                            "current_version": "v2.0",
-                            "name": "default.repair_order_details",
-                            "previous_version": "v1.0",
-                            "updated_columns": [
-                                "repair_order_id",
-                                "price",
-                                "quantity_v2",
-                            ],
-                        },
-                        {
-                            "current_version": "v2.0",
-                            "name": "default.repair_orders_fact",
-                            "previous_version": "v1.0",
-                            "updated_columns": [
-                                "price",
-                                "quantity",
-                                "total_repair_cost",
-                            ],
-                        },
-                        {
-                            "current_version": "v2.0",
-                            "name": "default.avg_repair_price",
-                            "previous_version": "v1.0",
-                            "updated_columns": ["default_DOT_avg_repair_price"],
-                        },
-                    ],
+                    "upstream": {
+                        "node": "default.repair_order_details",
+                        "version": "v2.0",
+                    },
                 },
                 "entity_name": "default.avg_repair_price",
                 "entity_type": "node",
                 "id": mock.ANY,
                 "node": "default.avg_repair_price",
-                "post": {"status": "invalid"},
-                "pre": {"status": "valid"},
-                "user": "dj",
+                "post": {"status": "invalid", "version": "v1.0"},
+                "pre": {"status": "valid", "version": "v1.0"},
+                "user": mock.ANY,
             },
         ],
         "default.regional_repair_efficiency": [
             {
-                "id": mock.ANY,
-                "entity_type": "node",
-                "entity_name": "default.regional_repair_efficiency",
-                "node": "default.regional_repair_efficiency",
-                "activity_type": "status_change",
-                "user": "dj",
-                "pre": {"status": "valid"},
-                "post": {"status": "invalid"},
-                "details": {
-                    "upstreams": [
-                        {
-                            "name": "default.repair_order_details",
-                            "current_version": "v2.0",
-                            "previous_version": "v1.0",
-                            "updated_columns": [
-                                "repair_order_id",
-                                "price",
-                                "quantity_v2",
-                            ],
-                        },
-                        {
-                            "name": "default.regional_level_agg",
-                            "current_version": "v2.0",
-                            "previous_version": "v1.0",
-                            "updated_columns": [
-                                "avg_repair_amount_in_region",
-                                "total_amount_in_region",
-                            ],
-                        },
-                        {
-                            "name": "default.regional_repair_efficiency",
-                            "current_version": "v2.0",
-                            "previous_version": "v1.0",
-                            "updated_columns": [
-                                "default_DOT_regional_repair_efficiency",
-                            ],
-                        },
-                    ],
-                    "reason": "Caused by update of `default.repair_order_details` to v2.0",
-                },
+                "activity_type": "update",
                 "created_at": mock.ANY,
+                "details": {
+                    "changes": {
+                        "updated_columns": [],
+                    },
+                    "reason": "Caused by update of `default.repair_order_details` to "
+                    "v2.0",
+                    "upstream": {
+                        "node": "default.repair_order_details",
+                        "version": "v2.0",
+                    },
+                },
+                "entity_name": "default.regional_repair_efficiency",
+                "entity_type": "node",
+                "id": mock.ANY,
+                "node": "default.regional_repair_efficiency",
+                "post": {"status": "invalid", "version": "v1.0"},
+                "pre": {"status": "valid", "version": "v1.0"},
+                "user": mock.ANY,
             },
         ],
     }
@@ -220,5 +148,26 @@ async def test_update_source_node(
                 assert [
                     event
                     for event in response.json()
-                    if event["activity_type"] == "status_change"
+                    if event["activity_type"] == "update"
                 ] == node_history_events.get(affected)
+
+    await client_with_roads.patch(
+        "/nodes/default.national_level_agg/",
+        json={
+            "query": "SELECT SUM(cast(rd.price AS float) * rd.quantity_v2) AS total_amount "
+            "FROM default.repair_order_details rd",
+        },
+    )
+    response = await client_with_roads.get("/nodes/default.national_level_agg")
+    data = response.json()
+    assert data["status"] == "valid"
+    assert data["columns"] == [
+        {
+            "attributes": [],
+            "dimension": None,
+            "display_name": "Total Amount",
+            "name": "total_amount",
+            "partition": None,
+            "type": "double",
+        },
+    ]

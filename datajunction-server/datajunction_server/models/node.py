@@ -76,6 +76,24 @@ class NodeStatus(StrEnum):
     INVALID = "invalid"
 
 
+class NodeValidationError(BaseModel):
+    """
+    Validation error
+    """
+
+    type: str
+    message: str
+
+
+class NodeStatusDetails(BaseModel):
+    """
+    Node status details. Contains a list of node errors or an empty list of the node status is valid
+    """
+
+    status: NodeStatus
+    errors: List[NodeValidationError]
+
+
 class NodeYAML(TypedDict, total=False):
     """
     Schema of a node in the YAML file.
