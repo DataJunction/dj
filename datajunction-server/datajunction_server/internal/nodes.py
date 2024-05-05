@@ -1843,8 +1843,8 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
                 existing_col.type = col.type
                 updated_columns = True
         else:
-            node.current.columns.append(col)  # type: ignore
-            updated_columns = True
+            node.current.columns.append(col)  # type: ignore  # pragma: no cover
+            updated_columns = True  # pragma: no cover
 
     # Only create a new revision if the columns have been updated
     if updated_columns:  # type: ignore

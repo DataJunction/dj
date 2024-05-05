@@ -844,4 +844,15 @@ export const DataJunctionAPI = {
       })
     ).json();
   },
+  revalidate: async function (node) {
+    return await (
+      await fetch(`${DJ_URL}/nodes/${node}/validate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      })
+    ).json();
+  },
 };
