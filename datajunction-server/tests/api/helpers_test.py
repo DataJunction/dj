@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.api import helpers
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJException
+from datajunction_server.internal.nodes import propagate_valid_status
 from datajunction_server.models.node import NodeStatus
 
 
@@ -40,7 +41,7 @@ async def test_propagate_valid_status(session: AsyncSession):
         status=NodeStatus.INVALID,
     )
     with pytest.raises(DJException) as exc_info:
-        await helpers.propagate_valid_status(
+        await propagate_valid_status(
             session=session,
             valid_nodes=[invalid_node],
             catalog_id=1,
