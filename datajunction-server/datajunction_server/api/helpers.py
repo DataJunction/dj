@@ -9,13 +9,10 @@ import logging
 import re
 import time
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime
 from http import HTTPStatus
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import select
-from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import and_, is_
@@ -32,7 +29,7 @@ from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
-from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.history import EntityType, History
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import (
     MissingParent,
@@ -44,29 +41,23 @@ from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJDoesNotExistException,
-    DJError,
     DJException,
     DJInvalidInputException,
     DJNodeNotFound,
-    ErrorCode,
 )
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
-from datajunction_server.models.base import labelize
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.history import status_change_history
 from datajunction_server.models.metric import TranslatedSQL
-from datajunction_server.models.node import BuildCriteria, NodeRevisionBase, NodeStatus
+from datajunction_server.models.node import BuildCriteria, NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import ColumnMetadata, QueryWithResults
 from datajunction_server.naming import LOOKUP_CHARS
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.sql.dag import get_downstream_nodes, get_nodes_with_dimension
 from datajunction_server.sql.parsing import ast
-from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
-from datajunction_server.sql.parsing.backends.exceptions import DJParseException
-from datajunction_server.typing import END_JOB_STATES, UTCDatetime
+from datajunction_server.typing import END_JOB_STATES
 from datajunction_server.utils import SEPARATOR
 
 _logger = logging.getLogger(__name__)
@@ -263,216 +254,6 @@ def find_bound_dimensions(
     return invalid_required_dimensions, matched_bound_columns  # type: ignore
 
 
-@dataclass
-class NodeValidator:
-    """
-    Node validation
-    """
-
-    status: NodeStatus = NodeStatus.VALID
-    columns: List[Column] = field(default_factory=list)
-    required_dimensions: List[Column] = field(default_factory=list)
-    dependencies_map: Dict[NodeRevision, List[ast.Table]] = field(default_factory=dict)
-    missing_parents_map: Dict[str, List[ast.Table]] = field(default_factory=dict)
-    type_inference_failures: List[str] = field(default_factory=list)
-    errors: List[DJError] = field(default_factory=list)
-
-    def differs_from(self, node_revision: NodeRevision):
-        """
-        Compared to the provided node revision, returns whether the validation
-        indicates that the nodes differ.
-        """
-        if node_revision.status != self.status:
-            return True
-        existing_columns_map = {col.name: col for col in self.columns}
-        for col in node_revision.columns:
-            if col.name not in existing_columns_map:
-                return True  # pragma: no cover
-            if existing_columns_map[col.name].type != col.type:
-                return True  # pragma: no cover
-        return False
-
-    def modified_columns(self, node_revision: NodeRevision):
-        """
-        Compared to the provided node revision, returns the modified columns
-        """
-        initial_node_columns = {col.name: col for col in node_revision.columns}
-        updated_columns = set(initial_node_columns.keys()).difference(
-            {n.name for n in self.columns},
-        )
-        for column in self.columns:
-            if column.name in initial_node_columns:
-                if initial_node_columns[column.name].type != column.type:
-                    updated_columns.add(column.name)  # pragma: no cover
-            else:  # pragma: no cover
-                updated_columns.add(column.name)  # pragma: no cover
-        return updated_columns
-
-
-async def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
-    data: Union[NodeRevisionBase, NodeRevision],
-    session: AsyncSession,
-) -> NodeValidator:
-    """
-    Validate a node. This function should never raise any errors.
-    It will build the lists of issues (including errors) and return them all
-    for the caller to decide what to do.
-    """
-    node_validator = NodeValidator()
-
-    if isinstance(data, NodeRevision):
-        validated_node = data
-    else:
-        node = Node(name=data.name, type=data.type)
-        validated_node = NodeRevision(**data.dict())
-        validated_node.node = node
-
-    ctx = ast.CompileContext(session=session, exception=DJException())
-
-    # Try to parse the node's query, extract dependencies and missing parents
-    try:
-        formatted_query = (
-            NodeRevision.format_metric_alias(
-                validated_node.query,  # type: ignore
-                validated_node.name,
-            )
-            if validated_node.type == NodeType.METRIC
-            else validated_node.query
-        )
-        query_ast = parse(formatted_query)  # type: ignore
-        (
-            dependencies_map,
-            missing_parents_map,
-        ) = await query_ast.bake_ctes().extract_dependencies(ctx)
-        node_validator.dependencies_map = dependencies_map
-        node_validator.missing_parents_map = missing_parents_map
-    except (DJParseException, ValueError, SqlSyntaxError) as raised_exceptions:
-        node_validator.status = NodeStatus.INVALID
-        node_validator.errors.append(
-            DJError(code=ErrorCode.INVALID_SQL_QUERY, message=str(raised_exceptions)),
-        )
-        return node_validator
-
-    # Add aliases for any unnamed columns and confirm that all column types can be inferred
-    query_ast.select.add_aliases_to_unnamed_columns()
-
-    # Invalid parents will invalidate this node
-    # Note: we include source nodes here because they sometimes appear to be invalid, but
-    # this is a bug that needs to be fixed
-    invalid_parents = {
-        parent.name
-        for parent in node_validator.dependencies_map
-        if parent.type != NodeType.SOURCE and parent.status == NodeStatus.INVALID
-    }
-    if invalid_parents:
-        node_validator.status = NodeStatus.INVALID
-
-    try:
-        column_mapping = {col.name: col for col in validated_node.columns}
-    except MissingGreenlet:
-        column_mapping = {}
-    node_validator.columns = []
-    type_inference_failures = {}
-    for idx, col in enumerate(query_ast.select.projection):
-        column = None
-        column_name = col.alias_or_name.name  # type: ignore
-        existing_column = column_mapping.get(column_name)
-        try:
-            column_type = str(col.type)  # type: ignore
-            column = Column(
-                name=column_name,
-                display_name=labelize(column_name),
-                type=column_type,
-                attributes=existing_column.attributes if existing_column else [],
-                dimension=existing_column.dimension if existing_column else None,
-                order=idx,
-            )
-        except DJParseException as parse_exc:
-            type_inference_failures[column_name] = parse_exc.message
-            node_validator.status = NodeStatus.INVALID
-        except TypeError:  # pragma: no cover
-            type_inference_failures[
-                column_name
-            ] = f"Unknown TypeError on column {column_name}."
-            node_validator.status = NodeStatus.INVALID
-        if column:
-            node_validator.columns.append(column)
-
-    # check that bound dimensions are from parent nodes
-    try:
-        invalid_required_dimensions, matched_bound_columns = find_bound_dimensions(
-            validated_node,
-            dependencies_map,
-        )
-        node_validator.required_dimensions = matched_bound_columns
-    except MissingGreenlet:
-        invalid_required_dimensions = set()
-        node_validator.required_dimensions = []
-
-    if missing_parents_map or type_inference_failures or invalid_required_dimensions:
-        # update status
-        node_validator.status = NodeStatus.INVALID
-        # build errors
-        missing_parents_error = (
-            [
-                DJError(
-                    code=ErrorCode.MISSING_PARENT,
-                    message=f"Node definition contains references to nodes that do not "
-                    f"exist: {','.join(missing_parents_map.keys())}",
-                    debug={"missing_parents": list(missing_parents_map.keys())},
-                ),
-            ]
-            if missing_parents_map
-            else []
-        )
-        type_inference_error = (
-            [
-                DJError(
-                    code=ErrorCode.TYPE_INFERENCE,
-                    message=(
-                        f"Unable to infer type for some columns on node `{data.name}`.\n"
-                        + ("\n\t* " if type_inference_failures else "")
-                        + "\n\t* ".join(
-                            [val[:103] for val in type_inference_failures.values()],
-                        )
-                    ),
-                    debug={
-                        "columns": type_inference_failures,
-                        "errors": ctx.exception.errors,
-                    },
-                ),
-            ]
-            if type_inference_failures
-            else []
-        )
-        invalid_required_dimensions_error = (
-            [
-                DJError(
-                    code=ErrorCode.INVALID_COLUMN,
-                    message=(
-                        "Node definition contains references to columns as "
-                        "required dimensions that are not on parent nodes."
-                    ),
-                    debug={
-                        "invalid_required_dimensions": list(
-                            invalid_required_dimensions,
-                        ),
-                    },
-                ),
-            ]
-            if invalid_required_dimensions
-            else []
-        )
-        errors = (
-            missing_parents_error
-            + type_inference_error
-            + invalid_required_dimensions_error
-        )
-        node_validator.errors.extend(errors)
-
-    return node_validator
-
-
 async def resolve_downstream_references(
     session: AsyncSession,
     node_revision: NodeRevision,
@@ -481,6 +262,10 @@ async def resolve_downstream_references(
     """
     Find all node revisions with missing parent references to `node` and resolve them
     """
+    from datajunction_server.internal.validation import (  # pylint: disable=import-outside-toplevel
+        validate_node_data,
+    )
+
     missing_parents = (
         (
             await session.execute(
@@ -554,53 +339,6 @@ async def resolve_downstream_references(
 
         await session.delete(missing_parent)  # Remove missing parent reference to node
     return newly_valid_nodes
-
-
-async def propagate_valid_status(
-    session: AsyncSession,
-    valid_nodes: List[NodeRevision],
-    catalog_id: int,
-    current_user: Optional[User] = None,
-) -> None:
-    """
-    Propagate a valid status by revalidating all downstream nodes
-    """
-    while valid_nodes:
-        resolved_nodes = []
-        for node_revision in valid_nodes:
-            if node_revision.status != NodeStatus.VALID:
-                raise DJException(
-                    f"Cannot propagate valid status: Node `{node_revision.name}` is not valid",
-                )
-            downstream_nodes = await get_downstream_nodes(
-                session=session,
-                node_name=node_revision.name,
-            )
-            newly_valid_nodes = []
-            for node in downstream_nodes:
-                node_validator = await validate_node_data(
-                    data=node.current,
-                    session=session,
-                )
-                node.current.status = node_validator.status
-                if node_validator.status == NodeStatus.VALID:
-                    node.current.columns = node_validator.columns or []
-                    node.current.status = NodeStatus.VALID
-                    node.current.catalog_id = catalog_id
-                    session.add(
-                        status_change_history(
-                            node.current,
-                            NodeStatus.INVALID,
-                            NodeStatus.VALID,
-                            current_user=current_user,
-                        ),
-                    )
-                    newly_valid_nodes.append(node.current)
-                session.add(node.current)
-                await session.commit()
-                await session.refresh(node.current)
-            resolved_nodes.extend(newly_valid_nodes)
-        valid_nodes = resolved_nodes
 
 
 def map_dimensions_to_roles(dimensions: List[str]) -> Dict[str, str]:
@@ -1093,299 +831,6 @@ async def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many
         engine,
         leading_metric_node.current.catalog,
     )
-
-
-async def deactivate_node(
-    session: AsyncSession,
-    name: str,
-    message: str = None,
-    current_user: Optional[User] = None,
-):
-    """
-    Deactivates a node and propagates to all downstreams.
-    """
-    node = await get_node_by_name(session, name, with_current=True)
-
-    # Find all downstream nodes and mark them as invalid
-    downstreams = await get_downstream_nodes(session, node.name)
-    for downstream in downstreams:
-        if downstream.current.status != NodeStatus.INVALID:
-            downstream.current.status = NodeStatus.INVALID
-            session.add(
-                status_change_history(
-                    downstream.current,
-                    NodeStatus.VALID,
-                    NodeStatus.INVALID,
-                    parent_node=node.name,
-                    current_user=current_user,
-                ),
-            )
-            session.add(downstream)
-
-    now = datetime.utcnow()
-    node.deactivated_at = UTCDatetime(
-        year=now.year,
-        month=now.month,
-        day=now.day,
-        hour=now.hour,
-        minute=now.minute,
-        second=now.second,
-    )
-    session.add(node)
-    session.add(
-        History(
-            entity_type=EntityType.NODE,
-            entity_name=node.name,
-            node=node.name,
-            activity_type=ActivityType.DELETE,
-            details={"message": message} if message else {},
-            user=current_user.username if current_user else None,
-        ),
-    )
-    await session.commit()
-    await session.refresh(node, ["current"])
-
-
-async def activate_node(
-    session: AsyncSession,
-    name: str,
-    message: str = None,
-    current_user: Optional[User] = None,
-):
-    """Restores node and revalidate all downstreams."""
-    node = await get_node_by_name(
-        session,
-        name,
-        with_current=True,
-        include_inactive=True,
-    )
-    if not node.deactivated_at:
-        raise DJException(
-            http_status_code=HTTPStatus.BAD_REQUEST,
-            message=f"Cannot restore `{name}`, node already active.",
-        )
-    node.deactivated_at = None  # type: ignore
-
-    # Find all downstream nodes and revalidate them
-    downstreams = await get_downstream_nodes(session, node.name)
-    for downstream in downstreams:
-        old_status = downstream.current.status
-        if downstream.type == NodeType.CUBE:
-            downstream.current.status = NodeStatus.VALID
-            for element in downstream.current.cube_elements:
-                await session.refresh(element, ["node_revisions"])
-                if (
-                    element.node_revisions
-                    and element.node_revisions[-1].status == NodeStatus.INVALID
-                ):  # pragma: no cover
-                    downstream.current.status = NodeStatus.INVALID
-        else:
-            # We should not fail node restoration just because of some nodes
-            # that have been invalid already and stay that way.
-            node_validator = await validate_node_data(downstream.current, session)
-            downstream.current.status = node_validator.status
-            if node_validator.errors:
-                downstream.current.status = NodeStatus.INVALID
-        session.add(downstream)
-        if old_status != downstream.current.status:
-            session.add(
-                status_change_history(
-                    downstream.current,
-                    old_status,
-                    downstream.current.status,
-                    parent_node=node.name,
-                    current_user=current_user,
-                ),
-            )
-
-    session.add(node)
-    session.add(
-        History(
-            entity_type=EntityType.NODE,
-            entity_name=node.name,
-            node=node.name,
-            activity_type=ActivityType.RESTORE,
-            details={"message": message} if message else {},
-            user=current_user.username if current_user else None,
-        ),
-    )
-    await session.commit()
-
-
-async def revalidate_node(
-    name: str,
-    session: AsyncSession,
-    parent_node: str = None,
-    current_user: Optional[User] = None,
-):
-    """
-    Revalidate a single existing node and update its status appropriately
-    """
-    node = await Node.get_by_name(
-        session,
-        name,
-        options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
-            joinedload(Node.tags),
-        ],
-        raise_if_not_exists=True,
-    )
-    current_node_revision = node.current  # type: ignore
-    if current_node_revision.type == NodeType.SOURCE:
-        if current_node_revision.status != NodeStatus.VALID:  # pragma: no cover
-            current_node_revision.status = NodeStatus.VALID
-            session.add(
-                status_change_history(
-                    current_node_revision,
-                    NodeStatus.INVALID,
-                    NodeStatus.VALID,
-                    current_user=current_user,
-                ),
-            )
-            session.add(current_node_revision)
-            await session.commit()
-            await session.refresh(current_node_revision)
-        return NodeStatus.VALID
-
-    if current_node_revision.type == NodeType.CUBE:
-        cube_node = await Node.get_cube_by_name(session, name)
-        current_node_revision = cube_node.current  # type: ignore
-        cube_metrics = [metric.name for metric in current_node_revision.cube_metrics()]
-        cube_dimensions = current_node_revision.cube_dimensions()
-        try:
-            await validate_cube(
-                session,
-                metric_names=cube_metrics,
-                dimension_names=cube_dimensions,
-                require_dimensions=True,
-            )
-            current_node_revision.status = NodeStatus.VALID
-        except DJException:  # pragma: no cover
-            current_node_revision.status = NodeStatus.INVALID
-        session.add(current_node_revision)
-        await session.commit()
-        return current_node_revision.status
-    previous_status = current_node_revision.status
-    node_validator = await validate_node_data(current_node_revision, session)
-
-    node = await Node.get_by_name(
-        session,
-        name,
-        options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
-            joinedload(Node.tags),
-        ],
-        raise_if_not_exists=True,
-    )
-    node.current.status = node_validator.status  # type: ignore
-    if previous_status != node.current.status:  # type: ignore  # pragma: no cover
-        session.add(node)
-        session.add(
-            status_change_history(
-                node.current,  # type: ignore
-                previous_status,
-                node.current.status,  # type: ignore
-                parent_node=parent_node,
-                current_user=current_user,
-            ),
-        )
-        await session.commit()
-    await session.refresh(node.current)  # type: ignore
-    await session.refresh(node, ["current"])
-    return node.current.status  # type: ignore
-
-
-async def hard_delete_node(
-    name: str,
-    session: AsyncSession,
-    current_user: Optional[User] = None,
-):
-    """
-    Hard delete a node, destroying all links and invalidating all downstream nodes.
-    This should be used with caution, deactivating a node is preferred.
-    """
-    node = await Node.get_by_name(
-        session,
-        name,
-        options=[joinedload(Node.current), joinedload(Node.revisions)],
-        include_inactive=True,
-        raise_if_not_exists=False,
-    )
-    downstream_nodes = await get_downstream_nodes(session=session, node_name=name)
-
-    linked_nodes = []
-    if node.type == NodeType.DIMENSION:  # type: ignore
-        linked_nodes = await get_nodes_with_dimension(
-            session=session,
-            dimension_node=node,  # type: ignore
-        )
-
-    await session.delete(node)
-    await session.commit()
-    impact = []  # Aggregate all impact of this deletion to include in response
-
-    # Revalidate all downstream nodes
-    for node in downstream_nodes:
-        session.add(  # Capture this in the downstream node's history
-            History(
-                entity_type=EntityType.DEPENDENCY,
-                entity_name=name,
-                node=node.name,
-                activity_type=ActivityType.DELETE,
-                user=current_user.username if current_user else None,
-            ),
-        )
-        status = await revalidate_node(
-            name=node.name,
-            session=session,
-            parent_node=name,
-            current_user=current_user,
-        )
-        impact.append(
-            {
-                "name": node.name,
-                "status": status,
-                "effect": "downstream node is now invalid",
-            },
-        )
-
-    # Revalidate all linked nodes
-    for node in linked_nodes:
-        session.add(  # Capture this in the downstream node's history
-            History(
-                entity_type=EntityType.LINK,
-                entity_name=name,
-                node=node.name,
-                activity_type=ActivityType.DELETE,
-                user=current_user.username if current_user else None,
-            ),
-        )
-        status = await revalidate_node(
-            name=node.name,
-            session=session,
-            current_user=current_user,
-        )
-        impact.append(
-            {
-                "name": node.name,
-                "status": status,
-                "effect": "broken link",
-            },
-        )
-    session.add(  # Capture this in the downstream node's history
-        History(
-            entity_type=EntityType.NODE,
-            entity_name=name,
-            node=name,
-            activity_type=ActivityType.DELETE,
-            details={
-                "impact": impact,
-            },
-            user=current_user.username if current_user else None,
-        ),
-    )
-    await session.commit()  # Commit the history events
-    return impact
 
 
 def assemble_column_metadata(
