@@ -1,11 +1,10 @@
+# pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
+# pylint: disable=too-many-lines,protected-access
 """Functions to add to an ast DJ node queries"""
 import collections
 import logging
 import re
 import time
-
-# pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
-# pylint: disable=too-many-lines,protected-access
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession

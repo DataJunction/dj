@@ -2,6 +2,7 @@
 """Nodes endpoint helper functions"""
 import logging
 from collections import defaultdict, deque
+from datetime import datetime
 from http import HTTPStatus
 from typing import Any, Dict, List, Optional, Union
 
@@ -13,14 +14,11 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.api.catalogs import UNKNOWN_CATALOG_ID
 from datajunction_server.api.helpers import (
-    activate_node,
     get_attribute_type,
     get_node_by_name,
     map_dimensions_to_roles,
-    propagate_valid_status,
     resolve_downstream_references,
     validate_cube,
-    validate_node_data,
 )
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
@@ -41,6 +39,7 @@ from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
 )
+from datajunction_server.internal.validation import validate_node_data
 from datajunction_server.models import access
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
@@ -71,10 +70,11 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.sql.dag import get_nodes_with_dimension
+from datajunction_server.sql.dag import get_downstream_nodes, get_nodes_with_dimension
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import Version, VersionUpgrade
 
 _logger = logging.getLogger(__name__)
@@ -1664,3 +1664,343 @@ async def remove_dimension_link(
             ),
         },
     )
+
+
+async def propagate_valid_status(
+    session: AsyncSession,
+    valid_nodes: List[NodeRevision],
+    catalog_id: int,
+    current_user: Optional[User] = None,
+) -> None:
+    """
+    Propagate a valid status by revalidating all downstream nodes
+    """
+    while valid_nodes:
+        resolved_nodes = []
+        for node_revision in valid_nodes:
+            if node_revision.status != NodeStatus.VALID:
+                raise DJException(
+                    f"Cannot propagate valid status: Node `{node_revision.name}` is not valid",
+                )
+            downstream_nodes = await get_downstream_nodes(
+                session=session,
+                node_name=node_revision.name,
+            )
+            newly_valid_nodes = []
+            for node in downstream_nodes:
+                node_validator = await validate_node_data(
+                    data=node.current,
+                    session=session,
+                )
+                node.current.status = node_validator.status
+                if node_validator.status == NodeStatus.VALID:
+                    node.current.columns = node_validator.columns or []
+                    node.current.status = NodeStatus.VALID
+                    node.current.catalog_id = catalog_id
+                    session.add(
+                        status_change_history(
+                            node.current,
+                            NodeStatus.INVALID,
+                            NodeStatus.VALID,
+                            current_user=current_user,
+                        ),
+                    )
+                    newly_valid_nodes.append(node.current)
+                session.add(node.current)
+                await session.commit()
+                await session.refresh(node.current)
+            resolved_nodes.extend(newly_valid_nodes)
+        valid_nodes = resolved_nodes
+
+
+async def deactivate_node(
+    session: AsyncSession,
+    name: str,
+    message: str = None,
+    current_user: Optional[User] = None,
+):
+    """
+    Deactivates a node and propagates to all downstreams.
+    """
+    node = await get_node_by_name(session, name, with_current=True)
+
+    # Find all downstream nodes and mark them as invalid
+    downstreams = await get_downstream_nodes(session, node.name)
+    for downstream in downstreams:
+        if downstream.current.status != NodeStatus.INVALID:
+            downstream.current.status = NodeStatus.INVALID
+            session.add(
+                status_change_history(
+                    downstream.current,
+                    NodeStatus.VALID,
+                    NodeStatus.INVALID,
+                    parent_node=node.name,
+                    current_user=current_user,
+                ),
+            )
+            session.add(downstream)
+
+    now = datetime.utcnow()
+    node.deactivated_at = UTCDatetime(
+        year=now.year,
+        month=now.month,
+        day=now.day,
+        hour=now.hour,
+        minute=now.minute,
+        second=now.second,
+    )
+    session.add(node)
+    session.add(
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.DELETE,
+            details={"message": message} if message else {},
+            user=current_user.username if current_user else None,
+        ),
+    )
+    await session.commit()
+    await session.refresh(node, ["current"])
+
+
+async def activate_node(
+    session: AsyncSession,
+    name: str,
+    message: str = None,
+    current_user: Optional[User] = None,
+):
+    """Restores node and revalidate all downstreams."""
+    node = await get_node_by_name(
+        session,
+        name,
+        with_current=True,
+        include_inactive=True,
+    )
+    if not node.deactivated_at:
+        raise DJException(
+            http_status_code=HTTPStatus.BAD_REQUEST,
+            message=f"Cannot restore `{name}`, node already active.",
+        )
+    node.deactivated_at = None  # type: ignore
+
+    # Find all downstream nodes and revalidate them
+    downstreams = await get_downstream_nodes(session, node.name)
+    for downstream in downstreams:
+        old_status = downstream.current.status
+        if downstream.type == NodeType.CUBE:
+            downstream.current.status = NodeStatus.VALID
+            for element in downstream.current.cube_elements:
+                await session.refresh(element, ["node_revisions"])
+                if (
+                    element.node_revisions
+                    and element.node_revisions[-1].status == NodeStatus.INVALID
+                ):  # pragma: no cover
+                    downstream.current.status = NodeStatus.INVALID
+        else:
+            # We should not fail node restoration just because of some nodes
+            # that have been invalid already and stay that way.
+            node_validator = await validate_node_data(downstream.current, session)
+            downstream.current.status = node_validator.status
+            if node_validator.errors:
+                downstream.current.status = NodeStatus.INVALID
+        session.add(downstream)
+        if old_status != downstream.current.status:
+            session.add(
+                status_change_history(
+                    downstream.current,
+                    old_status,
+                    downstream.current.status,
+                    parent_node=node.name,
+                    current_user=current_user,
+                ),
+            )
+
+    session.add(node)
+    session.add(
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.RESTORE,
+            details={"message": message} if message else {},
+            user=current_user.username if current_user else None,
+        ),
+    )
+    await session.commit()
+
+
+async def revalidate_node(
+    name: str,
+    session: AsyncSession,
+    parent_node: str = None,
+    current_user: Optional[User] = None,
+):
+    """
+    Revalidate a single existing node and update its status appropriately
+    """
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.tags),
+        ],
+        raise_if_not_exists=True,
+    )
+    current_node_revision = node.current  # type: ignore
+    if current_node_revision.type == NodeType.SOURCE:
+        if current_node_revision.status != NodeStatus.VALID:  # pragma: no cover
+            current_node_revision.status = NodeStatus.VALID
+            session.add(
+                status_change_history(
+                    current_node_revision,
+                    NodeStatus.INVALID,
+                    NodeStatus.VALID,
+                    current_user=current_user,
+                ),
+            )
+            session.add(current_node_revision)
+            await session.commit()
+            await session.refresh(current_node_revision)
+        return NodeStatus.VALID
+
+    if current_node_revision.type == NodeType.CUBE:
+        cube_node = await Node.get_cube_by_name(session, name)
+        current_node_revision = cube_node.current  # type: ignore
+        cube_metrics = [metric.name for metric in current_node_revision.cube_metrics()]
+        cube_dimensions = current_node_revision.cube_dimensions()
+        try:
+            await validate_cube(
+                session,
+                metric_names=cube_metrics,
+                dimension_names=cube_dimensions,
+                require_dimensions=True,
+            )
+            current_node_revision.status = NodeStatus.VALID
+        except DJException:  # pragma: no cover
+            current_node_revision.status = NodeStatus.INVALID
+        session.add(current_node_revision)
+        await session.commit()
+        return current_node_revision.status
+    previous_status = current_node_revision.status
+    node_validator = await validate_node_data(current_node_revision, session)
+
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.tags),
+        ],
+        raise_if_not_exists=True,
+    )
+    node.current.status = node_validator.status  # type: ignore
+    if previous_status != node.current.status:  # type: ignore  # pragma: no cover
+        session.add(node)
+        session.add(
+            status_change_history(
+                node.current,  # type: ignore
+                previous_status,
+                node.current.status,  # type: ignore
+                parent_node=parent_node,
+                current_user=current_user,
+            ),
+        )
+        await session.commit()
+    await session.refresh(node.current)  # type: ignore
+    await session.refresh(node, ["current"])
+    return node.current.status  # type: ignore
+
+
+async def hard_delete_node(
+    name: str,
+    session: AsyncSession,
+    current_user: Optional[User] = None,
+):
+    """
+    Hard delete a node, destroying all links and invalidating all downstream nodes.
+    This should be used with caution, deactivating a node is preferred.
+    """
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[joinedload(Node.current), joinedload(Node.revisions)],
+        include_inactive=True,
+        raise_if_not_exists=False,
+    )
+    downstream_nodes = await get_downstream_nodes(session=session, node_name=name)
+
+    linked_nodes = []
+    if node.type == NodeType.DIMENSION:  # type: ignore
+        linked_nodes = await get_nodes_with_dimension(
+            session=session,
+            dimension_node=node,  # type: ignore
+        )
+
+    await session.delete(node)
+    await session.commit()
+    impact = []  # Aggregate all impact of this deletion to include in response
+
+    # Revalidate all downstream nodes
+    for node in downstream_nodes:
+        session.add(  # Capture this in the downstream node's history
+            History(
+                entity_type=EntityType.DEPENDENCY,
+                entity_name=name,
+                node=node.name,
+                activity_type=ActivityType.DELETE,
+                user=current_user.username if current_user else None,
+            ),
+        )
+        status = await revalidate_node(
+            name=node.name,
+            session=session,
+            parent_node=name,
+            current_user=current_user,
+        )
+        impact.append(
+            {
+                "name": node.name,
+                "status": status,
+                "effect": "downstream node is now invalid",
+            },
+        )
+
+    # Revalidate all linked nodes
+    for node in linked_nodes:
+        session.add(  # Capture this in the downstream node's history
+            History(
+                entity_type=EntityType.LINK,
+                entity_name=name,
+                node=node.name,
+                activity_type=ActivityType.DELETE,
+                user=current_user.username if current_user else None,
+            ),
+        )
+        status = await revalidate_node(
+            name=node.name,
+            session=session,
+            current_user=current_user,
+        )
+        impact.append(
+            {
+                "name": node.name,
+                "status": status,
+                "effect": "broken link",
+            },
+        )
+    session.add(  # Capture this in the downstream node's history
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=name,
+            node=name,
+            activity_type=ActivityType.DELETE,
+            details={
+                "impact": impact,
+            },
+            user=current_user.username if current_user else None,
+        ),
+    )
+    await session.commit()  # Commit the history events
+    return impact
