@@ -94,7 +94,7 @@ export function NamespacePage() {
         </span>
       </td>
       <td>
-        <NodeStatus node={node} />
+        <NodeStatus node={node} revalidate={false} />
       </td>
       <td>
         <span className="status">{node.mode}</span>
