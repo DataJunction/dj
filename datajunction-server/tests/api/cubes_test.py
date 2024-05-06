@@ -118,7 +118,15 @@ async def test_create_invalid_cube(client_with_account_revenue: AsyncClient):
     assert data == {
         "message": "Node default.account_type of type dimension cannot be added to a cube. "
         "Did you mean to add a dimension attribute?",
-        "errors": [],
+        "errors": [
+            {
+                "code": 204,
+                "context": "",
+                "debug": None,
+                "message": "Node default.account_type of type dimension cannot be added to a "
+                "cube. Did you mean to add a dimension attribute?",
+            },
+        ],
         "warnings": [],
     }
 
@@ -138,7 +146,15 @@ async def test_create_invalid_cube(client_with_account_revenue: AsyncClient):
     assert data == {
         "message": "The dimension attribute `default.payment_type.payment_type_name` "
         "is not available on every metric and thus cannot be included.",
-        "errors": [],
+        "errors": [
+            {
+                "code": 601,
+                "context": "",
+                "debug": None,
+                "message": "The dimension attribute `default.payment_type.payment_type_name` "
+                "is not available on every metric and thus cannot be included.",
+            },
+        ],
         "warnings": [],
     }
 
@@ -517,7 +533,15 @@ async def test_create_cube_failures(
     assert response.status_code == 404
     assert response.json() == {
         "message": "The following metric nodes were not found: default.metric_that_doesnt_exist",
-        "errors": [],
+        "errors": [
+            {
+                "code": 203,
+                "context": "",
+                "debug": None,
+                "message": "The following metric nodes were not found: "
+                "default.metric_that_doesnt_exist",
+            },
+        ],
         "warnings": [],
     }
 

@@ -1382,8 +1382,9 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         # Hard deleting a dimension creates broken links
         response = await client_with_roads.delete("/nodes/default.repair_order/hard/")
         assert response.status_code in (200, 201)
-        assert response.json() == {
-            "impact": [
+        data = response.json()
+        assert sorted(data["impact"], key=lambda x: x["name"]) == sorted(
+            [
                 {
                     "effect": "broken link",
                     "name": "default.repair_order_details",
@@ -1445,8 +1446,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "status": "invalid",
                 },
             ],
-            "message": "The node `default.repair_order` has been completely removed.",
-        }
+            key=lambda x: x["name"],
+        )
+        assert (
+            data["message"]
+            == "The node `default.repair_order` has been completely removed."
+        )
 
         # Hard deleting an unlinked node has no impact
         response = await client_with_roads.delete(
@@ -2013,27 +2018,18 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data == {
             "message": (
-                "Unable to infer type for some columns on node "
-                "`default.avg_length_of_employment_plus_one`.\n\n"
-                "\t* Incompatible types in binary operation NOW() - "
-                "foo.bar.hard_hats.hire_date + 1. Got left timestamp, rig"
+                "Incompatible types in binary operation NOW() - "
+                "foo.bar.hard_hats.hire_date + 1. Got left timestamp, right int."
             ),
             "errors": [
                 {
                     "code": 302,
                     "message": (
-                        "Unable to infer type for some columns on node "
-                        "`default.avg_length_of_employment_plus_one`.\n\n"
-                        "\t* Incompatible types in binary operation NOW() - "
-                        "foo.bar.hard_hats.hire_date + 1. Got left timestamp, rig"
+                        "Incompatible types in binary operation NOW() - "
+                        "foo.bar.hard_hats.hire_date + 1. Got left timestamp, right int."
                     ),
                     "debug": {
-                        "columns": {
-                            "default_DOT_avg_length_of_employment_plus_one": (
-                                "Incompatible types in binary operation NOW() - "
-                                "foo.bar.hard_hats.hire_date + 1. Got left timestamp, right int."
-                            ),
-                        },
+                        "columns": ["default_DOT_avg_length_of_employment_plus_one"],
                         "errors": [],
                     },
                     "context": "",

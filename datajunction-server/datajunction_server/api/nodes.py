@@ -38,6 +38,7 @@ from datajunction_server.errors import (
     DJDoesNotExistException,
     DJException,
     DJInvalidInputException,
+    ErrorCode,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -84,7 +85,9 @@ from datajunction_server.models.node import (
     NodeRevisionBase,
     NodeRevisionOutput,
     NodeStatus,
+    NodeStatusDetails,
     NodeValidation,
+    NodeValidationError,
     UpdateNode,
 )
 from datajunction_server.models.node_type import NodeType
@@ -144,26 +147,43 @@ async def validate_node(
     )
 
 
-@router.post("/nodes/{name}/validate/", response_model=NodeValidation)
+@router.post("/nodes/{name}/validate/", response_model=NodeStatusDetails)
 async def revalidate(
     name: str,
     session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
-) -> JSONResponse:
+) -> NodeStatusDetails:
     """
     Revalidate a single existing node and update its status appropriately
     """
-    status = await revalidate_node(
+    node_validator = await revalidate_node(
         name=name,
         session=session,
         current_user=current_user,
     )
-    return JSONResponse(
-        status_code=HTTPStatus.OK,
-        content={
-            "message": f"Node `{name}` has been set to {status}",
-            "status": status,
-        },
+
+    return NodeStatusDetails(
+        status=node_validator.status,
+        errors=[
+            *[
+                NodeValidationError(
+                    type=ErrorCode.TYPE_INFERENCE.name,
+                    message=failure,
+                )
+                for failure in node_validator.type_inference_failures
+            ],
+            *[
+                NodeValidationError(
+                    type=(
+                        ErrorCode.TYPE_INFERENCE.name
+                        if "Unable to infer type" in error.message
+                        else error.code.name
+                    ),
+                    message=error.message,
+                )
+                for error in node_validator.errors
+            ],
+        ],
     )
 
 
@@ -385,12 +405,14 @@ async def list_node_revisions(
 @router.post("/nodes/source/", response_model=NodeOutput, name="Create A Source Node")
 async def create_source(
     data: CreateSourceNode,
+    *,
     session: AsyncSession = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
+    background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
     Create a source node. If columns are not provided, the source node's schema
@@ -406,6 +428,7 @@ async def create_source(
         current_user=current_user,
         query_service_client=query_service_client,
         validate_access=validate_access,
+        background_tasks=background_tasks,
     ):
         return recreated_node
 
@@ -641,9 +664,11 @@ async def register_table(
     catalog: str,
     schema_: str,
     table: str,
+    *,
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
     Register a table. This creates a source node in the SOURCE_NODE_NAMESPACE and
@@ -687,6 +712,7 @@ async def register_table(
         ),
         session=session,
         current_user=current_user,
+        background_tasks=background_tasks,
     )
 
 
