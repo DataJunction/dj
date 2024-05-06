@@ -234,6 +234,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
             engine_version=engine_version,
             limit=limit,
             orderby=orderby,
+            other_args=other_args,
         )
         if query_request:  # pragma: no cover
             query_request.query = query
