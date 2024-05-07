@@ -51,7 +51,6 @@ class DruidMaterializationJob(MaterializationJob):
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
-        node_revision: NodeRevision = None,
     ) -> MaterializationInfo:
         """
         Use the query service to kick off the materialization setup.
@@ -60,29 +59,27 @@ class DruidMaterializationJob(MaterializationJob):
             raise DJInvalidInputException(  # pragma: no cover
                 "The materialization job config class must be defined!",
             )
-        if not node_revision:
-            node_revision = materialization.node_revision
         cube_config = self.config_class.parse_obj(materialization.config)
         druid_spec = cube_config.build_druid_spec(
-            node_revision,
+            materialization.node_revision,
         )
         temporal_partition = cube_config.temporal_partition(
-            node_revision,
+            materialization.node_revision,
         )
         categorical_partitions = cube_config.categorical_partitions(
-            node_revision,
+            materialization.node_revision,
         )
         final_query = build_materialization_query(
             cube_config.query,
             materialization,
-            node_revision,
+            materialization.node_revision,
         )
         return query_service_client.materialize(
             DruidMaterializationInput(
                 name=materialization.name,
-                node_name=node_revision.name,
-                node_version=node_revision.version,
-                node_type=node_revision.type,
+                node_name=materialization.node_revision.name,
+                node_version=materialization.node_revision.version,
+                node_type=materialization.node_revision.type,
                 schedule=materialization.schedule,
                 query=str(final_query),
                 spark_conf=cube_config.spark.__root__ if cube_config.spark else {},
@@ -150,6 +147,7 @@ def build_materialization_query(
         )
 
         categorical_partitions = node_revision.categorical_partition_columns()
+        print("categorical_partitions", categorical_partitions)
         if categorical_partitions:
             categorical_partition_col = [
                 col
@@ -183,4 +181,5 @@ def build_materialization_query(
     final_query.select.from_ = ast.From(
         relations=[ast.Relation(primary=ast.Table(name=ast.Name("combiner_query")))],
     )
+    print("final_queryfinal_query", final_query)
     return final_query
