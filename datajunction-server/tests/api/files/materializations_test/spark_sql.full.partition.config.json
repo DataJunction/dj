@@ -118,7 +118,7 @@
       ]
    },
    "job":"SparkSqlMaterializationJob",
-   "name":"spark_sql__full__birth_date",
+   "name":"spark_sql__full__birth_date__country",
    "schedule":"0 * * * *",
    "strategy":"full"
 }

@@ -804,13 +804,7 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
-  runBackfill: async function (
-    nodeName,
-    materializationName,
-    partitionColumn,
-    from,
-    to,
-  ) {
+  runBackfill: async function (nodeName, materializationName, partitionValues) {
     const response = await fetch(
       `${DJ_URL}/nodes/${nodeName}/materializations/${materializationName}/backfill`,
       {
@@ -818,10 +812,15 @@ export const DataJunctionAPI = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          column_name: partitionColumn,
-          range: [from, to],
-        }),
+        body: JSON.stringify(
+          partitionValues.map(partitionValue => {
+            return {
+              column_name: partitionValue.columnName,
+              range: partitionValue.range,
+              values: partitionValue.values,
+            };
+          }),
+        ),
         credentials: 'include',
       },
     );

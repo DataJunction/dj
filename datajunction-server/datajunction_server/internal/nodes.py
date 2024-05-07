@@ -807,7 +807,7 @@ async def update_cube_node(  # pylint: disable=too-many-locals
                 ),
             )
         if background_tasks:
-            background_tasks.add_task(
+            background_tasks.add_task(  # pragma: no cover
                 schedule_materialization_jobs,
                 session=session,
                 node_revision_id=new_cube_revision.id,

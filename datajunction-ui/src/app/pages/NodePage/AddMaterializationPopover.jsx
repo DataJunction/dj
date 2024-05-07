@@ -39,6 +39,9 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
     const config = {};
     config.spark = values.spark_config;
     config.lookback_window = values.lookback_window;
+    if (!values.job_type) {
+      values.job_type = 'spark_sql';
+    }
     const { status, json } = await djClient.materialize(
       values.node,
       values.job_type,
@@ -111,36 +114,41 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
               <Form>
                 <h2>Configure Materialization</h2>
                 {displayMessageAfterSubmit(status)}
-                <span data-testid="job-type">
-                  <label htmlFor="job_type">Job Type</label>
-                  <Field as="select" name="job_type">
-                    <>
-                      <option
-                        key={'druid_measures_cube'}
-                        value={'druid_measures_cube'}
-                      >
-                        Druid Measures Cube (Pre-Agg Cube)
-                      </option>
-                      <option
-                        key={'druid_metrics_cube'}
-                        value={'druid_metrics_cube'}
-                      >
-                        Druid Metrics Cube (Post-Agg Cube)
-                      </option>
-                      <option key={'spark_sql'} value={'spark_sql'}>
-                        Iceberg Table
-                      </option>
-                    </>
-                  </Field>
-                </span>
+                {node.type === 'cube' ? (
+                  <span data-testid="job-type">
+                    <label htmlFor="job_type">Job Type</label>
+
+                    <Field as="select" name="job_type">
+                      <>
+                        <option
+                          key={'druid_measures_cube'}
+                          value={'druid_measures_cube'}
+                        >
+                          Druid Measures Cube (Pre-Agg Cube)
+                        </option>
+                        <option
+                          key={'druid_metrics_cube'}
+                          value={'druid_metrics_cube'}
+                        >
+                          Druid Metrics Cube (Post-Agg Cube)
+                        </option>
+                        <option key={'spark_sql'} value={'spark_sql'}>
+                          Iceberg Table
+                        </option>
+                      </>
+                    </Field>
+                    <br />
+                    <br />
+                  </span>
+                ) : (
+                  ''
+                )}
                 <input
                   hidden={true}
                   name="node"
                   value={node?.name}
                   readOnly={true}
                 />
-                <br />
-                <br />
                 <span data-testid="edit-partition">
                   <label htmlFor="strategy">Strategy</label>
                   <Field as="select" name="strategy">

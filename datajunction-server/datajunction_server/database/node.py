@@ -731,16 +731,6 @@ class NodeRevision(
             if col.partition and col.partition.type_ == PartitionType.TEMPORAL
         ]
 
-    def temporal_partition_expression(self) -> List[Column]:
-        """
-        The node's temporal partition columns, if any
-        """
-        return [
-            col
-            for col in self.columns  # pylint: disable=not-an-iterable
-            if col.partition and col.partition.type_ == PartitionType.TEMPORAL
-        ]
-
     def categorical_partition_columns(self) -> List[Column]:
         """
         The node's categorical partition columns, if any

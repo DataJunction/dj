@@ -233,6 +233,7 @@ async def create_new_materialization(
             upsert,
         )
 
+    categorical_partitions = current_revision.categorical_partition_columns()
     if current_revision.type == NodeType.CUBE:
         if not temporal_partition and not timestamp_columns:
             raise DJInvalidInputException(
@@ -249,6 +250,8 @@ async def create_new_materialization(
     materialization_name = (
         f"{upsert.job.name.lower()}__{upsert.strategy.name.lower()}"
         + (f"__{temporal_partition[0].name}" if temporal_partition else "")
+        + ("__" if categorical_partitions else "")
+        + ("__".join([partition.name for partition in categorical_partitions]))
     )
     return Materialization(
         name=materialization_name,

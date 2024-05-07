@@ -1,6 +1,5 @@
 import React from 'react';
-import { render, fireEvent, waitFor, screen } from '@testing-library/react';
-import EditColumnPopover from '../EditColumnPopover';
+import { render, fireEvent, waitFor } from '@testing-library/react';
 import DJClientContext from '../../../providers/djclient';
 import AddBackfillPopover from '../AddBackfillPopover';
 import { mocks } from '../../../../mocks/mockNodes';
@@ -10,6 +9,17 @@ const mockDjClient = {
     runBackfill: jest.fn(),
   },
 };
+
+let reloadMock = jest.fn();
+
+beforeEach(() => {
+  delete window.location;
+  window.location = { reload: reloadMock };
+});
+
+afterEach(() => {
+  reloadMock.mockClear();
+});
 
 describe('<AddBackfillPopover />', () => {
   it('renders correctly and handles form submission', async () => {
@@ -25,7 +35,7 @@ describe('<AddBackfillPopover />', () => {
     const { getByLabelText, getByText } = render(
       <DJClientContext.Provider value={mockDjClient}>
         <AddBackfillPopover
-          node={mocks.mockMetricNode}
+          node={mocks.mockTransformNode}
           materialization={mocks.nodeMaterializations}
           onSubmit={onSubmitMock}
         />
