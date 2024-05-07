@@ -99,7 +99,7 @@ class BackfillOutput(BaseModel):
     Output model for backfills
     """
 
-    spec: Optional[PartitionBackfill]
+    spec: Optional[List[PartitionBackfill]]
     urls: Optional[List[str]]
 
     class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods

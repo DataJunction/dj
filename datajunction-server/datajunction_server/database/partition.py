@@ -1,4 +1,5 @@
 """Partition database schema."""
+import re
 from typing import Optional
 
 from sqlalchemy import BigInteger, Enum, ForeignKey, Integer
@@ -7,6 +8,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.naming import amenable_name
+from datajunction_server.sql.functions import Function, function_registry
 from datajunction_server.sql.parsing.types import TimestampType
 
 
@@ -94,3 +97,35 @@ class Partition(Base):  # type: ignore  # pylint: disable=too-few-public-methods
                 data_type=self.column.type,  # pylint: disable=no-member
             )
         return None  # pragma: no cover
+
+    def categorical_expression(self):
+        """
+        Expression for the categorical partition
+        """
+        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
+            ast,
+        )
+
+        # Register a DJ function (inherits the `datajunction_server.sql.functions.Function` class)
+        # that has the partition column name as the function name. This will be substituted at
+        # runtime with the partition column name
+        amenable_partition_name = amenable_name(self.column.name)
+        clazz = type(
+            amenable_partition_name,
+            (Function,),
+            {
+                "is_runtime": True,
+                "substitute": staticmethod(lambda: f"${{{amenable_partition_name}}}"),
+            },
+        )
+        snake_cased = re.sub(r"(?<!^)(?=[A-Z])", "_", clazz.__name__)
+        function_registry[clazz.__name__.upper()] = clazz
+        function_registry[snake_cased.upper()] = clazz
+
+        return ast.Cast(
+            expression=ast.Function(
+                name=ast.Name(amenable_partition_name),
+                args=[],
+            ),
+            data_type=self.column.type,
+        )

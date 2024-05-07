@@ -2,7 +2,17 @@
 from typing import TYPE_CHECKING, List, Optional, Union
 
 import sqlalchemy as sa
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Enum,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    and_,
+    select,
+)
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.backfill import Backfill
@@ -84,3 +94,22 @@ class Materialization(Base):  # pylint: disable=too-few-public-methods
         cascade="all, delete",
         lazy="selectin",
     )
+
+    @classmethod
+    async def get_by_names(
+        cls,
+        session: AsyncSession,
+        node_revision_id: int,
+        materialization_names: List[str],
+    ) -> List["Materialization"]:
+        """
+        Get materializations by name and node revision id.
+        """
+        statement = select(cls).where(
+            and_(
+                cls.name.in_(materialization_names),
+                cls.node_revision_id == node_revision_id,
+            ),
+        )
+        result = await session.execute(statement)
+        return result.scalars().all()

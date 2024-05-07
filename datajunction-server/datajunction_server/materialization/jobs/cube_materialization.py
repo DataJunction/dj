@@ -51,6 +51,7 @@ class DruidMaterializationJob(MaterializationJob):
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
+        node_revision: NodeRevision = None,
     ) -> MaterializationInfo:
         """
         Use the query service to kick off the materialization setup.
@@ -59,27 +60,29 @@ class DruidMaterializationJob(MaterializationJob):
             raise DJInvalidInputException(  # pragma: no cover
                 "The materialization job config class must be defined!",
             )
+        if not node_revision:
+            node_revision = materialization.node_revision
         cube_config = self.config_class.parse_obj(materialization.config)
         druid_spec = cube_config.build_druid_spec(
-            materialization.node_revision,
+            node_revision,
         )
         temporal_partition = cube_config.temporal_partition(
-            materialization.node_revision,
+            node_revision,
         )
         categorical_partitions = cube_config.categorical_partitions(
-            materialization.node_revision,
+            node_revision,
         )
         final_query = build_materialization_query(
             cube_config.query,
             materialization,
-            materialization.node_revision,
+            node_revision,
         )
         return query_service_client.materialize(
             DruidMaterializationInput(
                 name=materialization.name,
-                node_name=materialization.node_revision.name,
-                node_version=materialization.node_revision.version,
-                node_type=materialization.node_revision.type,
+                node_name=node_revision.name,
+                node_version=node_revision.version,
+                node_type=node_revision.type,
                 schedule=materialization.schedule,
                 query=str(final_query),
                 spark_conf=cube_config.spark.__root__ if cube_config.spark else {},
@@ -130,6 +133,7 @@ def build_materialization_query(
         ),
         ctes=cube_materialization_query_ast.ctes,
     )
+
     if materialization.strategy == MaterializationStrategy.INCREMENTAL_TIME:
         temporal_partitions = node_revision.temporal_partition_columns()
         temporal_partition_col = [
@@ -137,13 +141,37 @@ def build_materialization_query(
             for col in cube_materialization_query_ast.select.projection
             if col.alias_or_name.name == amenable_name(temporal_partitions[0].name)  # type: ignore
         ]
-        final_query.select.where = ast.BinaryOp(
+        temporal_op = ast.BinaryOp(
             left=ast.Column(
                 name=ast.Name(temporal_partition_col[0].alias_or_name.name),  # type: ignore
             ),
             right=temporal_partitions[0].partition.temporal_expression(),
             op=ast.BinaryOpKind.Eq,
         )
+
+        categorical_partitions = node_revision.categorical_partition_columns()
+        if categorical_partitions:
+            categorical_partition_col = [
+                col
+                for col in cube_materialization_query_ast.select.projection
+                if col.alias_or_name.name  # type: ignore
+                == amenable_name(categorical_partitions[0].name)  # type: ignore
+            ]
+            categorical_op = ast.BinaryOp(
+                left=ast.Column(
+                    name=ast.Name(categorical_partition_col[0].alias_or_name.name),  # type: ignore
+                ),
+                right=categorical_partitions[0].partition.categorical_expression(),
+                op=ast.BinaryOpKind.Eq,
+            )
+            final_query.select.where = ast.BinaryOp(
+                left=temporal_op,
+                right=categorical_op,
+                op=ast.BinaryOpKind.And,
+            )
+        else:
+            final_query.select.where = temporal_op
+
     combiner_cte = ast.Query(select=cube_materialization_query_ast.select).set_alias(
         ast.Name("combiner_query"),
     )
