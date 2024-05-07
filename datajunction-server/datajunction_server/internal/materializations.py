@@ -260,13 +260,20 @@ async def create_new_materialization(
     )
 
 
-def schedule_materialization_jobs(
-    materializations: List[Materialization],
+async def schedule_materialization_jobs(
+    session: AsyncSession,
+    node_revision_id: int,
+    materialization_names: List[str],
     query_service_client: QueryServiceClient,
 ) -> Dict[str, MaterializationInfo]:
     """
     Schedule recurring materialization jobs
     """
+    materializations = await Materialization.get_by_names(
+        session,
+        node_revision_id,
+        materialization_names,
+    )
     materialization_jobs = {
         cls.__name__: cls for cls in MaterializationJob.__subclasses__()
     }

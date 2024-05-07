@@ -504,7 +504,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
 
     def test_run_backfill(self, mocker: MockerFixture) -> None:
         """
-        Test get materialization info with errors
+        Test running backfill on temporal partitions and categorical partitions
         """
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -513,7 +513,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "output_tables": [],
         }
 
-        mocker.patch(
+        mocked_call = mocker.patch(
             "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
             return_value=mock_response,
         )
@@ -521,13 +521,64 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         query_service_client = QueryServiceClient(uri=self.endpoint)
         response = query_service_client.run_backfill(
             node_name="default.hard_hat",
-            backfill=PartitionBackfill(
-                column_name="hire_date",
-                range=["20230101", "20230201"],
-            ),
+            partitions=[
+                PartitionBackfill(
+                    column_name="hire_date",
+                    range=["20230101", "20230201"],
+                ),
+            ],
             materialization_name="default",
         )
         assert response == {
             "urls": ["http://fake.url/job"],
             "output_tables": [],
         }
+        mocked_call.assert_called_with(
+            "/materialization/run/default.hard_hat/default/",
+            json=[
+                {
+                    "column_name": "hire_date",
+                    "range": ["20230101", "20230201"],
+                    "values": None,
+                },
+            ],
+            timeout=20,
+        )
+
+        mocked_call.reset_mock()
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        response = query_service_client.run_backfill(
+            node_name="default.hard_hat",
+            partitions=[
+                PartitionBackfill(
+                    column_name="hire_date",
+                    range=["20230101", "20230201"],
+                ),
+                PartitionBackfill(
+                    column_name="state",
+                    values=["CA", "DE"],
+                ),
+            ],
+            materialization_name="default",
+        )
+        assert response == {
+            "urls": ["http://fake.url/job"],
+            "output_tables": [],
+        }
+        mocked_call.assert_called_with(
+            "/materialization/run/default.hard_hat/default/",
+            json=[
+                {
+                    "column_name": "hire_date",
+                    "range": ["20230101", "20230201"],
+                    "values": None,
+                },
+                {
+                    "column_name": "state",
+                    "range": None,
+                    "values": ["CA", "DE"],
+                },
+            ],
+            timeout=20,
+        )

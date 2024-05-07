@@ -540,7 +540,6 @@ async def update_any_node(
             data,
             query_service_client=query_service_client,
             current_user=current_user,
-            background_tasks=background_tasks,
             validate_access=validate_access,  # type: ignore
         )
         return node_revision.node if node_revision else node
@@ -641,7 +640,11 @@ async def update_node_with_query(
             )
         background_tasks.add_task(
             schedule_materialization_jobs,
-            materializations=node.current.materializations,  # type: ignore
+            session=session,
+            node_revision_id=node.current.id,  # type: ignore
+            materialization_names=[
+                mat.name for mat in node.current.materializations  # type: ignore
+            ],
             query_service_client=query_service_client,
         )
         session.add(new_revision)
@@ -806,12 +809,20 @@ async def update_cube_node(  # pylint: disable=too-many-locals
         if background_tasks:
             background_tasks.add_task(
                 schedule_materialization_jobs,
-                materializations=new_cube_revision.materializations,
+                session=session,
+                node_revision_id=new_cube_revision.id,
+                materialization_names=[
+                    mat.name for mat in new_cube_revision.materializations
+                ],
                 query_service_client=query_service_client,
             )
         else:
-            schedule_materialization_jobs(  # pragma: no cover
-                materializations=new_cube_revision.materializations,
+            await schedule_materialization_jobs(  # pragma: no cover
+                session=session,
+                node_revision_id=new_cube_revision.id,
+                materialization_names=[
+                    mat.name for mat in new_cube_revision.materializations
+                ],
                 query_service_client=query_service_client,
             )
     session.add(new_cube_revision)
@@ -991,7 +1002,6 @@ async def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 previous_inactive_node.current,
                 data,
                 query_service_client=query_service_client,
-                background_tasks=background_tasks,
                 validate_access=validate_access,  # type: ignore
             )
         try:
