@@ -305,6 +305,7 @@ async def create_cube_node_revision(  # pylint: disable=too-many-locals
         session,
         data.metrics,
         data.dimensions,
+        require_dimensions=True,
     )
     status = (
         NodeStatus.VALID
