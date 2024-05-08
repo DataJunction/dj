@@ -359,7 +359,7 @@ async def validate_cube(  # pylint: disable=too-many-locals
     session: AsyncSession,
     metric_names: List[str],
     dimension_names: List[str],
-    require_dimensions: bool = True,
+    require_dimensions: bool = False,
 ) -> Tuple[List[Column], List[Node], List[Node], List[Column], Optional[Catalog]]:
     """
     Validate that a set of metrics and dimensions can be built together.
