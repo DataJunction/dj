@@ -93,8 +93,8 @@ export function NodePage() {
       },
       {
         id: 'sql',
-        name: 'SQL',
-        display: node?.type !== 'dimension' && node?.type !== 'source',
+        name: 'Run',
+        display: node?.type !== 'source',
       },
       {
         id: 'materializations',
@@ -135,8 +135,7 @@ export function NodePage() {
       tabToDisplay = <NodeHistory node={node} djClient={djClient} />;
       break;
     case 'sql':
-      tabToDisplay =
-        node?.type === 'metric' ? <NodeSQLTab djNode={node} /> : <br />;
+      tabToDisplay = <NodeSQLTab node={node} djClient={djClient} />;
       break;
     case 'materializations':
       tabToDisplay = <NodeMaterializationTab node={node} djClient={djClient} />;
