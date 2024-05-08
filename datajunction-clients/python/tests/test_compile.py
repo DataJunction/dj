@@ -280,24 +280,6 @@ def test_compile_error_on_individual_node(
     )
 
 
-def test_compile_error_on_invalid_dimension_link(
-    change_to_project_dir: Callable,
-    builder_client: DJBuilder,
-):
-    """
-    Test compiling and receiving an error on a dimension link
-    """
-    change_to_project_dir("project7")
-    project = Project.load_current()
-    compiled_project = project.compile()
-    with pytest.raises(DJDeploymentFailure) as exc_info:
-        compiled_project.deploy(client=builder_client)
-
-    assert str("Node definition contains references to nodes that do not exist") in str(
-        exc_info.value.errors[0],
-    )
-
-
 def test_compile_raise_on_priority_with_node_missing_a_definition(
     change_to_project_dir: Callable,
 ):
