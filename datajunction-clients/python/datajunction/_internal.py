@@ -106,19 +106,10 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
             response.raise_for_status()
             return response
         except requests.exceptions.RequestException as exc:
-            error_message = None
-            if not exc.response:
-                error_message = str(exc)
-                print(error_message)
-            if (
-                exc.response
-                and exc.response.headers.get("Content-Type") == "application/json"
-            ):
+            if exc.response.headers.get("Content-Type") == "application/json":
                 error_message = exc.response.json().get("message")
-            if not error_message:
-                error_message = (
-                    f"Request failed with status code {exc.response.status_code}"
-                )
+            else:
+                error_message = f"Request failed with status code {exc.response.status_code}: {str(exc)}"
             raise DJClientException(error_message) from exc
 
     def prepare_request(self, request, *args, **kwargs):
