@@ -469,10 +469,10 @@ async def _build_tables_on_select(
                                     col.name = (
                                         key.name
                                         if isinstance(key, ast.Named)
-                                        else key.alias_or_name
+                                        else key.alias_or_name  # type: ignore
                                     )
                             filter_asts.append(
-                                temp_select.where,  # type:ignore
+                                temp_select.where,  # type: ignore
                             )
                     if filter_asts:
                         node_query.select.where = ast.BinaryOp.And(*filter_asts)
