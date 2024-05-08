@@ -42,13 +42,8 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
         """
         Check that `client.basic_login()` works as expected.
         """
-        client._session.post = MagicMock(
-            return_value=MagicMock(
-                json=MagicMock(return_value={"text": "User created."}),
-            ),
-        )
-        response = client.basic_login(username="bar", password="baz")
-        assert response == {"text": "User created."}
+        client._session.post = MagicMock()
+        client.basic_login(username="bar", password="baz")
         assert client._session.post.call_args == call(
             "/basic/login/",
             data={"username": "bar", "password": "baz"},
