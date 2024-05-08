@@ -363,13 +363,18 @@ export const DataJunctionAPI = {
   },
 
   sql: async function (metric_name, selection) {
+    const params = new URLSearchParams(selection);
+    for (const [key, value] of Object.entries(selection)) {
+      if (Array.isArray(value)) {
+        params.delete(key);
+        value.forEach(v => params.append(key, v));
+      }
+    }
+
     return await (
-      await fetch(
-        `${DJ_URL}/sql/${metric_name}?` + new URLSearchParams(selection),
-        {
-          credentials: 'include',
-        },
-      )
+      await fetch(`${DJ_URL}/sql/${metric_name}?${params}`, {
+        credentials: 'include',
+      })
     ).json();
   },
 
@@ -428,6 +433,31 @@ export const DataJunctionAPI = {
     return await (
       await fetch(`${DJ_URL}/data/?` + params + '&limit=10000', {
         credentials: 'include',
+      })
+    ).json();
+  },
+
+  nodeData: async function (nodeName, selection = null) {
+    if (selection === null) {
+      selection = {
+        dimensions: [],
+        filters: [],
+      };
+    }
+    const params = new URLSearchParams(selection);
+    for (const [key, value] of Object.entries(selection)) {
+      if (Array.isArray(value)) {
+        params.delete(key);
+        value.forEach(v => params.append(key, v));
+      }
+    }
+    params.append('limit', '1000');
+    params.append('async_', 'true');
+
+    return await (
+      await fetch(`${DJ_URL}/data/${nodeName}?${params}`, {
+        credentials: 'include',
+        headers: { 'Cache-Control': 'max-age=86400' },
       })
     ).json();
   },
