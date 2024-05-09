@@ -188,7 +188,7 @@ class DJClient:
             "/basic/login/",
             data={"username": username, "password": password},
         )
-        return response.json()
+        return response
 
     @staticmethod
     def _primary_key_from_columns(columns) -> List[str]:
