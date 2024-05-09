@@ -540,6 +540,7 @@ async def update_any_node(
             data,
             query_service_client=query_service_client,
             current_user=current_user,
+            background_tasks=background_tasks,
             validate_access=validate_access,  # type: ignore
         )
         return node_revision.node if node_revision else node
@@ -806,28 +807,30 @@ async def update_cube_node(  # pylint: disable=too-many-locals
                     user=current_user.username if current_user else None,
                 ),
             )
-        if background_tasks:
-            background_tasks.add_task(  # pragma: no cover
-                schedule_materialization_jobs,
-                session=session,
-                node_revision_id=new_cube_revision.id,
-                materialization_names=[
-                    mat.name for mat in new_cube_revision.materializations
-                ],
-                query_service_client=query_service_client,
-            )
-        else:
-            await schedule_materialization_jobs(  # pragma: no cover
-                session=session,
-                node_revision_id=new_cube_revision.id,
-                materialization_names=[
-                    mat.name for mat in new_cube_revision.materializations
-                ],
-                query_service_client=query_service_client,
-            )
     session.add(new_cube_revision)
     session.add(new_cube_revision.node)
     await session.commit()
+
+    await session.refresh(new_cube_revision, ["materializations"])
+    if background_tasks:
+        background_tasks.add_task(  # pragma: no cover
+            schedule_materialization_jobs,
+            session=session,
+            node_revision_id=new_cube_revision.id,
+            materialization_names=[
+                mat.name for mat in new_cube_revision.materializations
+            ],
+            query_service_client=query_service_client,
+        )
+    else:
+        await schedule_materialization_jobs(  # pragma: no cover
+            session=session,
+            node_revision_id=new_cube_revision.id,
+            materialization_names=[
+                mat.name for mat in new_cube_revision.materializations
+            ],
+            query_service_client=query_service_client,
+        )
 
     await session.refresh(new_cube_revision)
     await session.refresh(new_cube_revision.node)
@@ -1002,6 +1005,7 @@ async def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 previous_inactive_node.current,
                 data,
                 query_service_client=query_service_client,
+                background_tasks=background_tasks,
                 validate_access=validate_access,  # type: ignore
             )
         try:

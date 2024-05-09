@@ -1,5 +1,4 @@
-# pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
-# pylint: disable=too-many-lines,protected-access
+# pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401,too-many-lines,protected-access,line-too-long
 """Functions for building DJ node queries"""
 import collections
 import logging

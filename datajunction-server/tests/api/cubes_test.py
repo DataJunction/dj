@@ -1618,6 +1618,7 @@ async def test_updating_cube_with_existing_materialization(
     assert result["version"] == "v2.0"
 
     # Check that the query service was called to materialize
+    assert len(query_service_client.materialize.call_args_list) == 3  # type: ignore
     last_call_args = (
         query_service_client.materialize.call_args_list[-1].args[0].dict()  # type: ignore
     )
@@ -1626,7 +1627,7 @@ async def test_updating_cube_with_existing_materialization(
         == "druid_measures_cube__incremental_time__default.hard_hat.hire_date"
     )
     assert last_call_args["node_name"] == "default.repairs_cube"
-    # assert last_call_args["node_version"] == "v2.0"
+    assert last_call_args["node_version"] == "v2.0"
     assert last_call_args["node_type"] == "cube"
     assert last_call_args["schedule"] == "@daily"
     assert last_call_args["druid_spec"]["dataSchema"]["parser"]["parseSpec"][
