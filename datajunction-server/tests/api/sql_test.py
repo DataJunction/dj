@@ -1516,6 +1516,45 @@ async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statemen
                 ],
             ],
         ),
+        # metric without any dimensions or filters should return single aggregate value
+        (
+            ["ROADS"],
+            "default.num_repair_orders",
+            [],
+            [],
+            """
+                SELECT  count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders
+                 FROM (SELECT  default_DOT_repair_orders.repair_order_id,
+                    default_DOT_repair_orders.municipality_id,
+                    default_DOT_repair_orders.hard_hat_id,
+                    default_DOT_repair_orders.dispatcher_id,
+                    default_DOT_repair_orders.order_date,
+                    default_DOT_repair_orders.dispatched_date,
+                    default_DOT_repair_orders.required_date,
+                    default_DOT_repair_order_details.discount,
+                    default_DOT_repair_order_details.price,
+                    default_DOT_repair_order_details.quantity,
+                    default_DOT_repair_order_details.repair_type_id,
+                    default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost,
+                    default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
+                    default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay
+                 FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id)
+                 AS default_DOT_repair_orders_fact
+                """,
+            [
+                {
+                    "column": "default_DOT_num_repair_orders",
+                    "name": "default_DOT_num_repair_orders",
+                    "node": "default.num_repair_orders",
+                    "type": "bigint",
+                    "semantic_type": None,
+                    "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
+                },
+            ],
+            [
+                [25],
+            ],
+        ),
     ],
 )
 @pytest.mark.asyncio
