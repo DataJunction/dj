@@ -12,12 +12,10 @@ from sqlalchemy.orm import joinedload, selectinload
 from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import (
-    assemble_column_metadata,
     build_sql_for_multiple_metrics,
-    get_query,
     query_event_stream,
-    validate_orderby,
 )
+from datajunction_server.api.sql import get_sql
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.node import Node, NodeRevision
@@ -34,7 +32,6 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
-from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import AvailabilityStateBase
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate, QueryWithResults
@@ -188,6 +185,18 @@ async def get_data(  # pylint: disable=too-many-locals
     """
     Gets data for a node
     """
+    query = await get_sql(
+        node_name,
+        dimensions,
+        filters,
+        orderby,
+        limit,
+        session=session,
+        engine_name=engine_name,
+        engine_version=engine_version,
+        current_user=current_user,
+        validate_access=validate_access,
+    )
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     available_engines = node.current.catalog.engines  # type: ignore
     engine = (
@@ -200,34 +209,6 @@ async def get_data(  # pylint: disable=too-many-locals
             f"The selected engine is not available for the node {node_name}. "
             f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
         )
-    validate_orderby(orderby, [node_name], dimensions)
-
-    access_control = access.AccessControlStore(
-        validate_access=validate_access,
-        user=current_user,
-        base_verb=access.ResourceRequestVerb.EXECUTE,
-    )
-
-    query_ast = await get_query(
-        session=session,
-        node_name=node_name,
-        dimensions=dimensions,
-        filters=filters,
-        orderby=orderby,
-        limit=limit,
-        engine=engine,
-        access_control=access_control,
-    )
-
-    columns = [
-        assemble_column_metadata(col)  # type: ignore
-        for col in query_ast.select.projection
-    ]
-
-    query = TranslatedSQL(
-        sql=str(query_ast),
-        columns=columns,
-    )
 
     query_create = QueryCreate(
         engine_name=engine.name,
@@ -242,7 +223,7 @@ async def get_data(  # pylint: disable=too-many-locals
     )
     # Inject column info if there are results
     if result.results.__root__:  # pragma: no cover
-        result.results.__root__[0].columns = columns
+        result.results.__root__[0].columns = query.columns
     return result
 
 

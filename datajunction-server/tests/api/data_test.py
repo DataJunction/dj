@@ -40,8 +40,11 @@ class TestDataForNode:
             },
         )
         data = response.json()
-        assert response.status_code == 500
-        assert "Cannot resolve type of column something" in data["message"]
+        assert response.status_code == 422
+        assert (
+            "something are not available dimensions on default.payment_type"
+            in data["message"]
+        )
 
     @pytest.mark.asyncio
     async def test_get_dimension_data(
@@ -467,7 +470,7 @@ class TestDataForNode:
         data = response.json()
         assert data["message"] == (
             "Authorization of User `dj` for this request failed."
-            "\nThe following requests were denied:\nexecute:node/basic.num_comments."
+            "\nThe following requests were denied:\nread:node/basic.num_comments."
         )
         assert response.status_code == 403
         app.dependency_overrides.clear()

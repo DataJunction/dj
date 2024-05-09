@@ -131,6 +131,7 @@ async def get_sql(  # pylint: disable=too-many-locals
     """
     Return SQL for a node.
     """
+    dimensions = [dim for dim in dimensions if dim and dim != ""]
     access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=UserOutput.from_orm(current_user) if current_user else None,

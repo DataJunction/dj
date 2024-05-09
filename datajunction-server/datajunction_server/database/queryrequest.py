@@ -319,7 +319,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
         invalid_dimensions = sorted(
             list(set(dimensions).difference(available_dimensions)),
         )
-        if invalid_dimensions:
+        if dimensions and invalid_dimensions:
             raise DJInvalidInputException(
                 f"{', '.join(invalid_dimensions)} are not available "
                 f"dimensions on {', '.join(nodes)}",

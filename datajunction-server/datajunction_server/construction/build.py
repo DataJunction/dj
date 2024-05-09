@@ -463,11 +463,16 @@ async def _build_tables_on_select(
                                 if (  # pragma: no cover
                                     col.alias_or_name.name in foreign_keys_alias_map
                                 ):
-                                    col.name = foreign_keys_alias_map[  # type: ignore
+                                    key = foreign_keys_alias_map[  # type: ignore
                                         col.alias_or_name.name
-                                    ].name
+                                    ]
+                                    col.name = (
+                                        key.name
+                                        if isinstance(key, ast.Named)
+                                        else key.alias_or_name  # type: ignore
+                                    )
                             filter_asts.append(
-                                temp_select.where,  # type:ignore
+                                temp_select.where,  # type: ignore
                             )
                     if filter_asts:
                         node_query.select.where = ast.BinaryOp.And(*filter_asts)
