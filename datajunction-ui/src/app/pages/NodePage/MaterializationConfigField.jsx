@@ -53,7 +53,8 @@ export const ConfigField = ({ djClient, value }) => {
             }}
           />
         </div>
-      </details>
+      </details>{' '}
+      <></>
     </div>
   );
 };
