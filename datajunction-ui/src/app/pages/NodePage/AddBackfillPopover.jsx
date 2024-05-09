@@ -4,6 +4,7 @@ import DJClientContext from '../../providers/djclient';
 import { Field, Form, Formik } from 'formik';
 import { displayMessageAfterSubmit } from '../../../utils/form';
 import PartitionValueForm from './PartitionValueForm';
+import LoadingIcon from '../../icons/LoadingIcon';
 
 export default function AddBackfillPopover({
   node,
@@ -44,8 +45,7 @@ export default function AddBackfillPopover({
     }
   }
 
-  const savePartition = async (values, { setSubmitting, setStatus }) => {
-    setSubmitting(false);
+  const runBackfill = async (values, setStatus) => {
     const response = await djClient.runBackfill(
       values.node,
       values.materializationName,
@@ -69,8 +69,13 @@ export default function AddBackfillPopover({
         failure: `${response.json.message}`,
       });
     }
-    onSubmit();
-    window.location.reload();
+  };
+
+  const submitBackfill = async (values, { setSubmitting, setStatus }) => {
+    await runBackfill(values, setStatus).then(_ => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+      setSubmitting(false);
+    });
   };
 
   return (
@@ -101,7 +106,7 @@ export default function AddBackfillPopover({
         }}
         ref={ref}
       >
-        <Formik initialValues={initialValues} onSubmit={savePartition}>
+        <Formik initialValues={initialValues} onSubmit={submitBackfill}>
           {function Render({ isSubmitting, status, setFieldValue }) {
             return (
               <Form>
@@ -147,8 +152,9 @@ export default function AddBackfillPopover({
                   type="submit"
                   aria-label="SaveEditColumn"
                   aria-hidden="false"
+                  disabled={isSubmitting}
                 >
-                  Save
+                  {isSubmitting ? <LoadingIcon /> : 'Save'}
                 </button>
               </Form>
             );
