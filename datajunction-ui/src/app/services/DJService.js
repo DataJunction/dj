@@ -388,19 +388,7 @@ export const DataJunctionAPI = {
       })
     ).json();
 
-    return await Promise.all(
-      data.map(async materialization => {
-        materialization.clientCode = await (
-          await fetch(
-            `${DJ_URL}/datajunction-clients/python/add_materialization/${node}/${materialization.name}`,
-            {
-              credentials: 'include',
-            },
-          )
-        ).json();
-        return materialization;
-      }),
-    );
+    return data;
   },
 
   columns: async function (node) {

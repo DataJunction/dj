@@ -457,8 +457,8 @@ describe('DataJunctionAPI', () => {
   it('calls materializations correctly', async () => {
     const nodeName = 'default.sample_node';
     const mockMaterializations = [
-      { name: 'materialization1', clientCode: 'from dj import DJClient' },
-      { name: 'materialization2', clientCode: 'from dj import DJClient' },
+      { name: 'materialization1' },
+      { name: 'materialization2' },
     ];
 
     // Mock the first fetch call to return the list of materializations
@@ -480,14 +480,6 @@ describe('DataJunctionAPI', () => {
         credentials: 'include',
       },
     );
-
-    // Check the subsequent fetch calls for clientCode
-    mockMaterializations.forEach(mat => {
-      expect(fetch).toHaveBeenCalledWith(
-        `${DJ_URL}/datajunction-clients/python/add_materialization/${nodeName}/${mat.name}`,
-        { credentials: 'include' },
-      );
-    });
 
     // Ensure the result contains the clientCode for each materialization
     expect(result).toEqual(mockMaterializations);

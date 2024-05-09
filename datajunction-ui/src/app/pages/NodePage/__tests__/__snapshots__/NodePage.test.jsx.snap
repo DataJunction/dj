@@ -152,7 +152,7 @@ exports[`<NodePage /> renders the NodeMaterialization tab with materializations 
                 style="margin: 0px 0px 23px 0px; flex: 1; font-size: 150%; text-align: left;"
               >
                 <div
-                  class="cm-editor ͼ1 ͼ2 ͼ4 ͼ1a ͼ15"
+                  class="cm-editor ͼ1 ͼ2 ͼ4 ͼ1g ͼ15"
                 >
                   <div
                     aria-live="polite"
@@ -285,6 +285,7 @@ exports[`<NodePage /> renders the NodeMaterialization tab with materializations 
               </div>
             </div>
           </details>
+           
         </div>
         <button
           aria-hidden="false"
