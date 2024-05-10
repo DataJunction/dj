@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, call
 import pytest
 
 from datajunction._internal import DJClient
-from datajunction.exceptions import DJTagDoesNotExist
+from datajunction.exceptions import DJClientException, DJTagDoesNotExist
 
 
 class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
@@ -48,6 +48,18 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
             "/basic/login/",
             data={"username": "bar", "password": "baz"},
         )
+
+    def test__verify_node_exists(self, client):
+        """
+        Check that `client._verify_node_exists()` works as expected.
+        """
+        client._session.get = MagicMock(
+            return_value=MagicMock(
+                json=MagicMock(return_value={"name": "_", "type": "foo"}),
+            ),
+        )
+        with pytest.raises(DJClientException):
+            client._verify_node_exists(node_name="_", type_="bar")
 
     def test__list_nodes_with_tag(self, client):
         """

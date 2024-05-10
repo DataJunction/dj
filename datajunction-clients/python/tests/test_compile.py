@@ -249,6 +249,24 @@ def test_compile_raising_on_invalid_file_name(
     ) in str(exc_info.value)
 
 
+def test_compile_error_on_invalid_dimension_link(
+    change_to_project_dir: Callable,
+    builder_client: DJBuilder,
+):
+    """
+    Test compiling and receiving an error on a dimension link
+    """
+    change_to_project_dir("project7")
+    project = Project.load_current()
+    compiled_project = project.compile()
+    with pytest.raises(DJDeploymentFailure) as exc_info:
+        compiled_project.deploy(client=builder_client)
+
+    assert str("Node definition contains references to nodes that do not exist") in str(
+        exc_info.value.errors[0],
+    )
+
+
 def test_compile_deeply_nested_namespace(
     change_to_project_dir: Callable,
     builder_client: DJBuilder,
@@ -270,24 +288,6 @@ def test_compile_error_on_individual_node(
     Test compiling and receiving an error on an individual node definition
     """
     change_to_project_dir("project6")
-    project = Project.load_current()
-    compiled_project = project.compile()
-    with pytest.raises(DJDeploymentFailure) as exc_info:
-        compiled_project.deploy(client=builder_client)
-
-    assert str("Node definition contains references to nodes that do not exist") in str(
-        exc_info.value.errors[0],
-    )
-
-
-def test_compile_error_on_invalid_dimension_link(
-    change_to_project_dir: Callable,
-    builder_client: DJBuilder,
-):
-    """
-    Test compiling and receiving an error on a dimension link
-    """
-    change_to_project_dir("project7")
     project = Project.load_current()
     compiled_project = project.compile()
     with pytest.raises(DJDeploymentFailure) as exc_info:
