@@ -38,6 +38,7 @@ from datajunction_server.errors import DJError, DJErrorException, DJException, E
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType as DJNodeType
+from datajunction_server.naming import SEPARATOR
 from datajunction_server.sql.functions import function_registry, table_function_registry
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import (
@@ -1102,7 +1103,6 @@ class Wildcard(Named, Expression):
     Wildcard or '*' expression
     """
 
-    name: Name = field(init=False, repr=False, default=Name("*"))
     _table: Optional["Table"] = field(repr=False, default=None)
 
     @property
@@ -1121,11 +1121,64 @@ class Wildcard(Named, Expression):
         return self
 
     def __str__(self) -> str:
-        return "*"
+        return (self.namespace[0].name + SEPARATOR if self.namespace else "") + "*"
 
     @property
     def type(self) -> ColumnType:
         return WildcardType()
+
+    async def compile(self, ctx: CompileContext):
+        """
+        Compile a Wildcard AST node. If the wildcard is used in a SELECT statement, we
+        replace it with the equivalent of explicitly selecting all upstream columns.
+        """
+        if not isinstance(self.parent, Select):
+            return super().compile(ctx)
+
+        wildcard_parent = cast(Select, self.parent)
+
+        # If a wildcard is used in a SELECT statement, we pull the columns that it
+        # represents by scanning all relations in the FROM clause (both the primary table
+        # and any joined tables)
+        wildcard_table_namespace = (
+            self.namespace[0].name
+            if self.namespace and isinstance(self.namespace, list)
+            else None
+        )
+        from_relations = [
+            wildcard_parent.from_.relations[0].primary,
+            *[ext.right for ext in wildcard_parent.from_.relations[0].extensions],
+        ]
+
+        for relation in from_relations:
+            await relation.compile(ctx)
+            if (
+                not wildcard_table_namespace
+                or relation.alias_or_name.name == wildcard_table_namespace
+            ):
+                # Figure out where the relation's columns are stored depending on the relation type
+                if isinstance(relation, Table):
+                    wildcard_origin = cast(Table, relation)
+                    if wildcard_origin_node := wildcard_origin.dj_node:
+                        relation_columns = wildcard_origin_node.columns
+                    else:
+                        relation_columns = wildcard_origin._cte_columns
+                else:
+                    wildcard_origin = cast(Query, relation)
+                    relation_columns = wildcard_origin.select.projection
+
+                # Use these columns to replace the wildcard
+                for col in relation_columns:
+                    wildcard_parent.projection.append(
+                        Column(
+                            name=Name(col.name)
+                            if isinstance(col.name, str)
+                            else col.name,
+                            _table=wildcard_origin,
+                            _type=col.type,
+                        ),
+                    )
+        wildcard_parent.projection.remove(self)
 
 
 @dataclass(eq=False)
@@ -1140,6 +1193,7 @@ class TableExpression(Aliasable, Expression):
     )  # all those expressions that can be had from the table; usually derived from dj node metadata for Table
     # ref (referenced) columns are columns used elsewhere from this table
     _ref_columns: List[Column] = field(init=False, repr=False, default_factory=list)
+    _cte_columns: List[Expression] = field(default_factory=list)
 
     @property
     def columns(self) -> List[Expression]:
@@ -1345,8 +1399,12 @@ class Table(TableExpression, Named):
         return self
 
     async def compile(self, ctx: CompileContext):
-        # things we can validate here:
-        # - if the node is a dimension in a groupby, is it joinable?
+        """
+        Compile a Table AST node by finding and saving the columns it references
+        """
+        if self._is_compiled:
+            return
+
         self._is_compiled = True
         try:
             if not self.dj_node:
@@ -1356,12 +1414,26 @@ class Table(TableExpression, Named):
                     {DJNodeType.SOURCE, DJNodeType.TRANSFORM, DJNodeType.DIMENSION},
                 )
                 self.set_dj_node(dj_node)
+        except DJErrorException as exc:
+            ctx.exception.errors.append(exc.dj_error)
+
+        if self.dj_node:
+            # If the Table object is a reference to a DJ node, save the columns of the
+            # DJ node into self._columns for later use
             self._columns = [
                 Column(Name(col.name), _type=col.type, _table=self)
                 for col in self.dj_node.columns
             ]
-        except DJErrorException as exc:
-            ctx.exception.errors.append(exc.dj_error)
+        elif query := self.get_nearest_parent_of_type(Query):
+            # If the Table object is a reference to a CTE, save the columns output by
+            # the CTE into self._columns for later use
+            for cte in query.ctes:
+                if self.alias_or_name.name == cte.alias_or_name.name:
+                    await cte.compile(ctx)
+                    self._cte_columns = [
+                        Column(col.alias_or_name, _type=col.type, _table=self)
+                        for col in cte._columns
+                    ]
 
 
 class Operation(Expression):
@@ -2565,6 +2637,9 @@ class Select(SelectExpression):
                 ),
             )
         await super().compile(ctx)
+        for child in self.projection:
+            if isinstance(child, Wildcard):
+                await child.compile(ctx)
 
 
 @dataclass(eq=False)

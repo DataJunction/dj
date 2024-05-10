@@ -1,12 +1,12 @@
 """Node validation functions."""
 from dataclasses import dataclass, field
-from typing import Dict, List, Set, Union
+from typing import Dict, List, Optional, Set, Union
 
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import find_bound_dimensions
-from datajunction_server.database import Column, Node, NodeRevision
+from datajunction_server.database import Column, ColumnAttribute, Node, NodeRevision
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
@@ -22,6 +22,7 @@ class NodeValidator:  # pylint: disable=too-many-instance-attributes
     Node validation
     """
 
+    query_ast: Optional[ast.Query] = None
     status: NodeStatus = NodeStatus.VALID
     columns: List[Column] = field(default_factory=list)
     required_dimensions: List[Column] = field(default_factory=list)
@@ -128,7 +129,12 @@ async def validate_node_data(  # pylint: disable=too-many-locals,too-many-statem
                 name=column_name,
                 display_name=labelize(column_name),
                 type=column_type,
-                attributes=existing_column.attributes if existing_column else [],
+                attributes=[
+                    ColumnAttribute(attribute_type=col_attr.attribute_type)
+                    for col_attr in existing_column.attributes
+                ]
+                if existing_column
+                else [],
                 dimension=existing_column.dimension if existing_column else None,
                 order=idx,
             )

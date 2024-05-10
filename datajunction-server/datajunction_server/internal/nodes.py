@@ -868,7 +868,7 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
     )
 
     # The downstreams need to be sorted topologically in order for the updates to be done
-    # in the right order. Otherwise it is possible for a leaf node like a metric to be updated
+    # in the right order. Otherwise, it is possible for a leaf node like a metric to be updated
     # before its upstreams are updated.
     for downstream in downstreams:
         original_node_revision = downstream.current
@@ -1866,14 +1866,13 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
 
     # Check if any columns have been updated
     existing_columns = {col.name: col for col in node.current.columns}  # type: ignore
-    updated_columns = False
+    updated_columns = len(current_node_revision.columns) != len(node_validator.columns)
     for col in node_validator.columns:
         if existing_col := existing_columns.get(col.name):
             if existing_col.type != col.type:
                 existing_col.type = col.type
                 updated_columns = True
         else:
-            node.current.columns.append(col)  # type: ignore  # pragma: no cover
             updated_columns = True  # pragma: no cover
 
     # Only create a new revision if the columns have been updated
@@ -1893,16 +1892,16 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
         node_validator.updated_columns = node_validator.modified_columns(
             new_revision,  # type: ignore
         )
-        new_revision.columns = node_validator.columns
 
         # Save the new revision of the child
+        new_revision.columns = node_validator.columns
         node.current_version = new_revision.version  # type: ignore
         new_revision.node_id = node.id  # type: ignore
-        session.add(node)
         session.add(new_revision)
-    await session.commit()
-    await session.refresh(node.current)  # type: ignore
-    await session.refresh(node, ["current"])
+        session.add(node)
+        await session.commit()
+        await session.refresh(node.current)  # type: ignore
+        await session.refresh(node, ["current"])
     return node_validator
 
 
@@ -1918,7 +1917,14 @@ async def hard_delete_node(
     node = await Node.get_by_name(
         session,
         name,
-        options=[joinedload(Node.current), joinedload(Node.revisions)],
+        options=[
+            joinedload(Node.current),
+            joinedload(Node.revisions).options(
+                selectinload(NodeRevision.columns).options(
+                    joinedload(Column.attributes),
+                ),
+            ),
+        ],
         include_inactive=True,
         raise_if_not_exists=False,
     )
@@ -1946,42 +1952,50 @@ async def hard_delete_node(
                 user=current_user.username if current_user else None,
             ),
         )
-        node_validator = await revalidate_node(
-            name=node.name,
-            session=session,
-            current_user=current_user,
-        )
-        impact.append(
-            {
-                "name": node.name,
-                "status": node_validator.status,
-                "effect": "downstream node is now invalid",
-            },
-        )
+        try:
+            node_validator = await revalidate_node(
+                name=node.name,
+                session=session,
+                current_user=current_user,
+            )
+            impact.append(
+                {
+                    "name": node.name,
+                    "status": node_validator.status,
+                    "effect": "downstream node is now invalid",
+                },
+            )
+        except DJNodeNotFound:
+            _logger.warning("Node not found %s", node.name)
 
     # Revalidate all linked nodes
     for node in linked_nodes:
-        session.add(  # Capture this in the downstream node's history
-            History(
-                entity_type=EntityType.LINK,
-                entity_name=name,
-                node=node.name,
-                activity_type=ActivityType.DELETE,
-                user=current_user.username if current_user else None,
-            ),
-        )
-        node_validator = await revalidate_node(
-            name=node.name,
-            session=session,
-            current_user=current_user,
-        )
-        impact.append(
-            {
-                "name": node.name,
-                "status": node_validator.status,
-                "effect": "broken link",
-            },
-        )
+        if node:
+            session.add(  # Capture this in the downstream node's history
+                History(
+                    entity_type=EntityType.LINK,
+                    entity_name=name,
+                    node=node.name,
+                    activity_type=ActivityType.DELETE,
+                    user=current_user.username if current_user else None,
+                ),
+            )
+            try:
+                node_validator = await revalidate_node(
+                    name=node.name,
+                    session=session,
+                    current_user=current_user,
+                    # update=False,
+                )
+                impact.append(
+                    {
+                        "name": node.name,
+                        "status": node_validator.status,
+                        "effect": "broken link",
+                    },
+                )
+            except DJNodeNotFound:
+                _logger.warning("Node not found %s", node.name)
     session.add(  # Capture this in the downstream node's history
         History(
             entity_type=EntityType.NODE,

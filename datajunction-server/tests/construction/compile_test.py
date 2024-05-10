@@ -218,3 +218,165 @@ async def test_having(construction_session: AsyncSession):
     query_ast = parse(node_a_rev.query)
     ctx = CompileContext(session=construction_session, exception=DJException())
     await query_ast.compile(ctx)
+
+
+@pytest.mark.asyncio
+async def test_wildcard_handling(
+    construction_session: AsyncSession,
+):
+    """
+    Test that it handles wildcards by replacing them with the explicit columns
+    that the wildcard references on the parent node.
+    """
+    query = parse("SELECT * FROM dbt.source.jaffle_shop.orders")
+    context = CompileContext(
+        session=construction_session,
+        exception=DJException(),
+    )
+    await query.compile(context)
+    assert str(query) == str(
+        parse(
+            "SELECT dbt.source.jaffle_shop.orders.id,"
+            "dbt.source.jaffle_shop.orders.user_id,"
+            "dbt.source.jaffle_shop.orders.order_date,"
+            "dbt.source.jaffle_shop.orders.status,"
+            "dbt.source.jaffle_shop.orders._etl_loaded_at "
+            "FROM dbt.source.jaffle_shop.orders",
+        ),
+    )
+
+    expected_nested_select_star = """SELECT
+      country,
+      num_users
+    FROM (
+      SELECT
+        basic.transform.country_agg.country,
+        basic.transform.country_agg.num_users
+      FROM basic.transform.country_agg
+    )"""
+    query = parse(
+        "SELECT * FROM (SELECT * FROM basic.transform.country_agg)",
+    )
+
+    context = CompileContext(
+        session=construction_session,
+        exception=DJException(),
+    )
+    await query.compile(context)
+    assert str(query) == str(parse(expected_nested_select_star))
+
+    query = parse(
+        "SELECT country, num_users FROM (SELECT * FROM basic.transform.country_agg)",
+    )
+
+    context = CompileContext(
+        session=construction_session,
+        exception=DJException(),
+    )
+    await query.compile(context)
+    assert str(query) == str(parse(expected_nested_select_star))
+
+    query = parse(
+        "SELECT * FROM (SELECT country, num_users FROM basic.transform.country_agg)",
+    )
+
+    context = CompileContext(
+        session=construction_session,
+        exception=DJException(),
+    )
+    await query.compile(context)
+    assert str(query) == str(parse(expected_nested_select_star))
+
+    query = parse(
+        "SELECT *, blah FROM "
+        "(SELECT country, num_users FROM basic.transform.country_agg)",
+    )
+
+    context = CompileContext(
+        session=construction_session,
+        exception=DJException(),
+    )
+    await query.compile(context)
+    with pytest.raises(DJParseException) as exc_info:
+        query.select.projection[  # type: ignore  # pylint: disable=pointless-statement
+            0
+        ].type
+    assert "Cannot resolve type of column blah" in str(exc_info.value)
+
+    query = parse(
+        "WITH a AS (SELECT * FROM basic.transform.country_agg),"
+        "b AS (SELECT * FROM dbt.source.jaffle_shop.orders)"
+        "SELECT * FROM a JOIN b ON a.country = b.user_id",
+    )
+
+    context = CompileContext(
+        session=construction_session,
+        exception=DJException(),
+    )
+    await query.compile(context)
+    assert str(query) == str(
+        parse(
+            """
+    WITH a AS (
+      SELECT
+        basic.transform.country_agg.country,
+        basic.transform.country_agg.num_users
+      FROM basic.transform.country_agg
+    ), b AS (
+      SELECT
+        dbt.source.jaffle_shop.orders.id,
+        dbt.source.jaffle_shop.orders.user_id,
+        dbt.source.jaffle_shop.orders.order_date,
+        dbt.source.jaffle_shop.orders.status,
+        dbt.source.jaffle_shop.orders._etl_loaded_at
+      FROM dbt.source.jaffle_shop.orders
+    )
+    SELECT
+      a.country,
+      a.num_users,
+      b.id,
+      b.user_id,
+      b.order_date,
+      b.status,
+      b._etl_loaded_at
+    FROM a JOIN b ON a.country = b.user_id
+    """,
+        ),
+    )
+
+    query = parse(
+        "WITH a AS (SELECT * FROM basic.transform.country_agg),"
+        "b AS (SELECT * FROM dbt.source.jaffle_shop.orders)"
+        "SELECT a.*, b.* FROM a JOIN b ON a.country = b.user_id",
+    )
+
+    await query.compile(context)
+    assert str(query) == str(
+        parse(
+            """
+    WITH a AS (
+      SELECT
+        basic.transform.country_agg.country,
+        basic.transform.country_agg.num_users
+      FROM basic.transform.country_agg
+    ), b AS (
+      SELECT
+        dbt.source.jaffle_shop.orders.id,
+        dbt.source.jaffle_shop.orders.user_id,
+        dbt.source.jaffle_shop.orders.order_date,
+        dbt.source.jaffle_shop.orders.status,
+        dbt.source.jaffle_shop.orders._etl_loaded_at
+      FROM dbt.source.jaffle_shop.orders
+    )
+    SELECT
+      a.country,
+      a.num_users,
+      b.id,
+      b.user_id,
+      b.order_date,
+      b.status,
+      b._etl_loaded_at
+    FROM a JOIN b ON a.country = b.user_id
+    """,
+        ),
+    )

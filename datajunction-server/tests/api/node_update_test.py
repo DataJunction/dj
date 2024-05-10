@@ -48,7 +48,7 @@ async def test_update_source_node(
                 "activity_type": "update",
                 "created_at": mock.ANY,
                 "details": {
-                    "changes": {"updated_columns": []},
+                    "changes": {"updated_columns": ["total_amount_nationwide"]},
                     "reason": "Caused by update of `default.repair_order_details` to "
                     "v2.0",
                     "upstream": {
@@ -60,7 +60,7 @@ async def test_update_source_node(
                 "entity_type": "node",
                 "id": mock.ANY,
                 "node": "default.national_level_agg",
-                "post": {"status": "invalid", "version": "v1.0"},
+                "post": {"status": "invalid", "version": "v2.0"},
                 "pre": {"status": "valid", "version": "v1.0"},
                 "user": mock.ANY,
             },
@@ -71,7 +71,10 @@ async def test_update_source_node(
                 "created_at": mock.ANY,
                 "details": {
                     "changes": {
-                        "updated_columns": [],
+                        "updated_columns": [
+                            "avg_repair_amount_in_region",
+                            "total_amount_in_region",
+                        ],
                     },
                     "reason": "Caused by update of `default.repair_order_details` to v2.0",
                     "upstream": {
@@ -83,7 +86,7 @@ async def test_update_source_node(
                 "entity_type": "node",
                 "id": mock.ANY,
                 "node": "default.regional_level_agg",
-                "post": {"status": "invalid", "version": "v1.0"},
+                "post": {"status": "invalid", "version": "v2.0"},
                 "pre": {"status": "valid", "version": "v1.0"},
                 "user": mock.ANY,
             },
@@ -93,7 +96,7 @@ async def test_update_source_node(
                 "activity_type": "update",
                 "created_at": mock.ANY,
                 "details": {
-                    "changes": {"updated_columns": []},
+                    "changes": {"updated_columns": ["default_DOT_avg_repair_price"]},
                     "reason": "Caused by update of `default.repair_order_details` to "
                     "v2.0",
                     "upstream": {
@@ -105,7 +108,7 @@ async def test_update_source_node(
                 "entity_type": "node",
                 "id": mock.ANY,
                 "node": "default.avg_repair_price",
-                "post": {"status": "invalid", "version": "v1.0"},
+                "post": {"status": "invalid", "version": "v2.0"},
                 "pre": {"status": "valid", "version": "v1.0"},
                 "user": mock.ANY,
             },
@@ -116,7 +119,7 @@ async def test_update_source_node(
                 "created_at": mock.ANY,
                 "details": {
                     "changes": {
-                        "updated_columns": [],
+                        "updated_columns": ["default_DOT_regional_repair_efficiency"],
                     },
                     "reason": "Caused by update of `default.repair_order_details` to "
                     "v2.0",
@@ -129,7 +132,7 @@ async def test_update_source_node(
                 "entity_type": "node",
                 "id": mock.ANY,
                 "node": "default.regional_repair_efficiency",
-                "post": {"status": "invalid", "version": "v1.0"},
+                "post": {"status": "invalid", "version": "v2.0"},
                 "pre": {"status": "valid", "version": "v1.0"},
                 "user": mock.ANY,
             },
@@ -170,4 +173,102 @@ async def test_update_source_node(
             "partition": None,
             "type": "double",
         },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_crud_with_wildcards(
+    client_with_roads: AsyncClient,
+):
+    """
+    Test creating and updating nodes with SELECT * in their queries
+    """
+    response = await client_with_roads.get("/nodes/default.hard_hat")
+    old_columns = response.json()["columns"]
+
+    # Using a wildcard should result in a node revision with the same columns
+    await client_with_roads.patch(
+        "/nodes/default.hard_hat",
+        json={"query": "SELECT * FROM default.hard_hats"},
+    )
+    response = await client_with_roads.get("/nodes/default.hard_hat")
+    data = response.json()
+    assert data["columns"] == old_columns
+    assert data["version"] == "v2.0"
+
+    # Create a transform with wildcards
+    response = await client_with_roads.post(
+        "/nodes/transform",
+        json={
+            "name": "default.ny_hard_hats",
+            "display_name": "NY Hard Hats",
+            "description": "Blah",
+            "query": """SELECT
+                        hh.*,
+                        hhs.*
+                        FROM default.hard_hat hh
+                        LEFT JOIN default.hard_hat_state hhs
+                        ON hh.hard_hat_id = hhs.hard_hat_id
+                        WHERE hh.state_id = 'NY'""",
+            "mode": "published",
+        },
+    )
+    data = response.json()
+    joined_columns = [
+        "hard_hat_id",
+        "last_name",
+        "first_name",
+        "title",
+        "birth_date",
+        "hire_date",
+        "address",
+        "city",
+        "state",
+        "postal_code",
+        "country",
+        "manager",
+        "contractor_id",
+        "hard_hat_id",
+        "state_id",
+    ]
+    assert [col["name"] for col in data["columns"]] == joined_columns
+
+    # Create a transform based on the earlier transform
+    response = await client_with_roads.post(
+        "/nodes/transform",
+        json={
+            "name": "default.ny_hard_hats_2",
+            "display_name": "NY Hard Hats 2",
+            "description": "Blah",
+            "query": "SELECT * FROM default.ny_hard_hats",
+            "mode": "published",
+        },
+    )
+    data = response.json()
+    assert [col["name"] for col in data["columns"]] == joined_columns
+
+    # Update original hard_hat, which should trigger cascading updates of the children
+    await client_with_roads.patch(
+        "/nodes/default.hard_hat",
+        json={
+            "query": "SELECT last_name, first_name, birth_date FROM default.hard_hats",
+        },
+    )
+    response = await client_with_roads.get("/nodes/default.ny_hard_hats")
+    data = response.json()
+    assert [col["name"] for col in data["columns"]] == [
+        "last_name",
+        "first_name",
+        "birth_date",
+        "hard_hat_id",
+        "state_id",
+    ]
+    response = await client_with_roads.get("/nodes/default.ny_hard_hats_2")
+    data = response.json()
+    assert [col["name"] for col in data["columns"]] == [
+        "last_name",
+        "first_name",
+        "birth_date",
+        "hard_hat_id",
+        "state_id",
     ]
