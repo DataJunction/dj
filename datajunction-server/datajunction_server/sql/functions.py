@@ -1395,13 +1395,23 @@ def infer_type(arg: Union[ct.StringType, ct.TimestampType]) -> ct.ColumnType:
 
 class DateAdd(Function):
     """
-    Adds a specified number of days to a date.
+    date_add(date|timestamp|str, int) - Adds a specified number of days to a date.
     """
+
+    dialects = [Dialect.SPARK]
 
 
 @DateAdd.register  # type: ignore
 def infer_type(
     start_date: ct.DateType,
+    days: ct.IntegerBase,
+) -> ct.DateType:
+    return ct.DateType()
+
+
+@DateAdd.register  # type: ignore
+def infer_type(
+    start_date: ct.TimestampType,
     days: ct.IntegerBase,
 ) -> ct.DateType:
     return ct.DateType()
@@ -3686,6 +3696,24 @@ def infer_type(_: ct.ColumnType) -> ct.IntegerType:
     return ct.IntegerType()
 
 
+class RegexpExtract(Function):
+    """
+    regexp_extract(str, regexp[, idx]) - Extract the first string in the str that
+    match the regexp expression and corresponding to the regex group index.
+    """
+
+    dialects = [Dialect.SPARK, Dialect.DRUID]
+
+
+@RegexpExtract.register
+def infer_type(  # type: ignore
+    str_: ct.StringType,
+    regexp: ct.StringType,
+    idx: Optional[ct.IntegerType] = 1,
+) -> ct.StringType:
+    return ct.StringType()
+
+
 class RegexpLike(Function):
     """
     regexp_like(str, regexp) - Returns true if str matches regexp, or false otherwise
@@ -3700,6 +3728,25 @@ def infer_type(  # type: ignore
     arg2: ct.StringType,
 ) -> ct.BooleanType:
     return ct.BooleanType()
+
+
+class RegexpReplace(Function):
+    """
+    regexp_replace(str, regexp, rep[, position]) - Replaces all substrings of str that
+    match regexp with rep.
+    """
+
+    dialects = [Dialect.SPARK, Dialect.DRUID]
+
+
+@RegexpReplace.register
+def infer_type(  # type: ignore
+    str_: ct.StringType,
+    regexp: ct.StringType,
+    rep: ct.StringType,
+    position: Optional[ct.IntegerType] = 1,
+) -> ct.StringType:
+    return ct.StringType()
 
 
 class Replace(Function):

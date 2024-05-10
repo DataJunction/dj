@@ -34,16 +34,6 @@ class DJTagDoesNotExist(DJClientException):
         super().__init__(self.message, *args)
 
 
-class DJNodeAlreadyExists(DJClientException):
-    """
-    Raised when a node to be created already exists.
-    """
-
-    def __init__(self, node_name: str, *args) -> None:
-        self.message = f"Node `{node_name}` already exists."
-        super().__init__(self.message, *args)
-
-
 class DJDeploymentFailure(DJClientException):
     """
     Raised when a deployment of a project includes any errors
