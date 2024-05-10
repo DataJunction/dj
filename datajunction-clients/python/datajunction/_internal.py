@@ -24,7 +24,6 @@ from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 from datajunction import models
 from datajunction.exceptions import (
     DJClientException,
-    DJNodeAlreadyExists,
     DJTagAlreadyExists,
     DJTagDoesNotExist,
 )
@@ -290,9 +289,6 @@ class DJClient:
         Helper function to create a node.
         Raises an error if node already exists and is active.
         """
-        existing_node = self._get_node(node_name=node.name)
-        if "name" in existing_node:
-            raise DJNodeAlreadyExists(node_name=node.name)
         node.mode = mode
         response = self._session.post(
             f"/nodes/{node.type}/",
@@ -318,41 +314,29 @@ class DJClient:
         """
         Retrieves a node.
         """
-        try:
-            response = self._session.get(f"/nodes/{node_name}/")
-            return response.json()
-        except DJClientException as exc:  # pragma: no cover
-            return exc.__dict__
+        response = self._session.get(f"/nodes/{node_name}/")
+        return response.json()
 
     def _get_node_upstreams(self, node_name: str):
         """
         Retrieves a node's upstreams
         """
-        try:
-            response = self._session.get(f"/nodes/{node_name}/upstream")
-            return response.json()
-        except DJClientException as exc:  # pragma: no cover
-            return exc.__dict__
+        response = self._session.get(f"/nodes/{node_name}/upstream")
+        return response.json()
 
     def _get_node_downstreams(self, node_name: str):
         """
         Retrieves a node's downstreams
         """
-        try:
-            response = self._session.get(f"/nodes/{node_name}/downstream")
-            return response.json()
-        except DJClientException as exc:  # pragma: no cover
-            return exc.__dict__
+        response = self._session.get(f"/nodes/{node_name}/downstream")
+        return response.json()
 
     def _get_node_dimensions(self, node_name: str):
         """
         Retrieves a node's dimensions
         """
-        try:
-            response = self._session.get(f"/nodes/{node_name}/dimensions")
-            return response.json()
-        except DJClientException as exc:  # pragma: no cover
-            return exc.__dict__
+        response = self._session.get(f"/nodes/{node_name}/dimensions")
+        return response.json()
 
     def _get_cube(self, node_name: str):
         """
