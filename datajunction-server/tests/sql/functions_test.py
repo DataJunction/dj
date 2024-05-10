@@ -3109,14 +3109,14 @@ async def test_regexp_extract(session: AsyncSession):
     Test `regexp_extract`
     """
     # w/o position arg
-    query = parse("SELECT regexp_replace('100-200', '(\\d+)', 'num')")
+    query = parse("SELECT regexp_extract('100-200', '(\\d+)')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     # w/ position arg
-    query = parse("SELECT regexp_replace('100-200', '(\\d+)', 'num', 42)")
+    query = parse("SELECT regexp_extract('100-200', '(\\d+)', 42)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
