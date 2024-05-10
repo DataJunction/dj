@@ -6,6 +6,7 @@ import DJClientContext from '../../providers/djclient';
 import Explorer from '../NamespacePage/Explorer';
 import NodeListActions from '../../components/NodeListActions';
 import AddNamespacePopover from './AddNamespacePopover';
+import 'styles/node-list.css';
 
 export function NamespacePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
