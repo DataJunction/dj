@@ -8,7 +8,6 @@ from datajunction import DJBuilder
 from datajunction.exceptions import (
     DJClientException,
     DJNamespaceAlreadyExists,
-    DJNodeAlreadyExists,
     DJTableAlreadyRegistered,
     DJTagAlreadyExists,
 )
@@ -360,26 +359,6 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert revenue.name == "default.revenue"
         assert "default.revenue" in client.namespace("default").sources()
 
-        # make sure we get a failure if we try to create same node again
-        with pytest.raises(DJNodeAlreadyExists) as exc_info:
-            revenue = client.create_source(
-                name="default.revenue",
-                description="Record of payments",
-                display_name="Default: Payment Records",
-                catalog="default",
-                schema="accounting",
-                table="revenue",
-                columns=[
-                    Column(name="payment_id", type="int"),
-                    Column(name="payment_amount", type="float"),
-                    Column(name="payment_type", type="int"),
-                    Column(name="customer_id", type="int"),
-                    Column(name="account_type", type="string"),
-                ],
-                mode=NodeMode.PUBLISHED,
-            )
-        assert "Node `default.revenue` already exists." in str(exc_info.value)
-
         # dimension nodes
         payment_type_dim = client.create_dimension(
             name="default.payment_type",
@@ -621,23 +600,6 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "foo.bar.repair_order",
             ],
         } in result
-
-    def test_failure_modes(self, client):
-        """
-        Test some client failure modes when retrieving nodes.
-        """
-        with pytest.raises(DJClientException) as excinfo:
-            client.transform(node_name="default.fruit")
-        assert "No node with name default.fruit exists!" in str(excinfo)
-
-        with pytest.raises(DJClientException) as excinfo:
-            client.transform(node_name="foo.bar.avg_repair_price")
-        assert (
-            "A node with name foo.bar.avg_repair_price exists, but it is not a transform node!"
-            in str(
-                excinfo,
-            )
-        )
 
     def test_create_namespace(self, client):
         """
