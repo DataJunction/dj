@@ -3104,6 +3104,27 @@ async def test_rank(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_regexp_extract(session: AsyncSession):
+    """
+    Test `regexp_extract`
+    """
+    # w/o position arg
+    query = parse("SELECT regexp_replace('100-200', '(\\d+)', 'num')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    # w/ position arg
+    query = parse("SELECT regexp_replace('100-200', '(\\d+)', 'num', 42)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_regexp_like(session: AsyncSession):
     """
     Test `regexp_like`
@@ -3116,6 +3137,61 @@ async def test_regexp_like(session: AsyncSession):
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_regexp_replace(session: AsyncSession):
+    """
+    Test `regexp_replace`
+    """
+    # w/o position arg
+    query = parse("SELECT regexp_replace('100-200', '(\\d+)', 'num')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    # w/ position arg
+    query = parse("SELECT regexp_replace('100-200', '(\\d+)', 'num', 42)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_date_add(session: AsyncSession):
+    """
+    Test `date_add`
+    """
+    # first arg: date
+    query = parse(
+        "SELECT date_add(CURRENT_DATE(), 42)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DateType()  # type: ignore
+    # first arg: timestamp
+    query = parse(
+        "SELECT date_add(CURRENT_TIMESTAMP(), 42)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DateType()  # type: ignore
+    # first arg: string
+    query = parse(
+        "SELECT date_add('2020-01-01', 42)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DateType()  # type: ignore
 
 
 @pytest.mark.asyncio
