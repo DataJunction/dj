@@ -3,6 +3,8 @@ import * as React from 'react';
 import DJClientContext from '../../providers/djclient';
 import { Field, Form, Formik } from 'formik';
 import { displayMessageAfterSubmit } from '../../../utils/form';
+import PartitionValueForm from './PartitionValueForm';
+import LoadingIcon from '../../icons/LoadingIcon';
 
 export default function AddBackfillPopover({
   node,
@@ -26,30 +28,39 @@ export default function AddBackfillPopover({
   }, [setPopoverAnchor]);
 
   const partitionColumns = node.columns.filter(col => col.partition !== null);
-
-  const temporalPartitionColumns = partitionColumns.filter(
-    col => col.partition.type_ === 'temporal',
-  );
-
   const initialValues = {
     node: node.name,
     materializationName: materialization.name,
-    partitionColumn:
-      temporalPartitionColumns.length > 0
-        ? temporalPartitionColumns[0].name
-        : '',
-    from: '',
-    to: '',
+    partitionValues: {},
   };
 
-  const savePartition = async (values, { setSubmitting, setStatus }) => {
-    setSubmitting(false);
+  for (const partitionCol of partitionColumns) {
+    if (partitionCol.partition.type_ === 'temporal') {
+      initialValues.partitionValues[partitionCol.name] = {
+        from: '',
+        to: '',
+      };
+    } else {
+      initialValues.partitionValues[partitionCol.name] = '';
+    }
+  }
+
+  const runBackfill = async (values, setStatus) => {
     const response = await djClient.runBackfill(
       values.node,
       values.materializationName,
-      values.partitionColumn,
-      values.from,
-      values.to,
+      Object.entries(values.partitionValues).map(entry => {
+        if (typeof entry[1] === 'object' && entry[1] !== null) {
+          return {
+            columnName: entry[0],
+            range: [entry[1].from, entry[1].to],
+          };
+        }
+        return {
+          columnName: entry[0],
+          values: [entry[1]],
+        };
+      }),
     );
     if (response.status === 200 || response.status === 201) {
       setStatus({ success: 'Saved!' });
@@ -58,21 +69,26 @@ export default function AddBackfillPopover({
         failure: `${response.json.message}`,
       });
     }
-    onSubmit();
-    window.location.reload();
+  };
+
+  const submitBackfill = async (values, { setSubmitting, setStatus }) => {
+    await runBackfill(values, setStatus).then(_ => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+      setSubmitting(false);
+    });
   };
 
   return (
     <>
       <button
-        className="edit_button"
+        className="edit_button add_button"
         aria-label="AddBackfill"
         tabIndex="0"
         onClick={() => {
           setPopoverAnchor(!popoverAnchor);
         }}
       >
-        <span className="add_node">+ Add Backfill</span>
+        <span className="add_button">+ Run Backfill</span>
       </button>
       <div
         className="fade modal-backdrop in"
@@ -85,10 +101,12 @@ export default function AddBackfillPopover({
         style={{
           display: popoverAnchor === false ? 'none' : 'block',
           width: '50%',
+          minWidth: '800px',
+          left: '-25%',
         }}
         ref={ref}
       >
-        <Formik initialValues={initialValues} onSubmit={savePartition}>
+        <Formik initialValues={initialValues} onSubmit={submitBackfill}>
           {function Render({ isSubmitting, status, setFieldValue }) {
             return (
               <Form>
@@ -115,41 +133,17 @@ export default function AddBackfillPopover({
                 <br />
                 <br />
                 <label htmlFor="partition" style={{ paddingBottom: '1rem' }}>
-                  Partition Range
+                  Partition
                 </label>
                 {node.columns
                   .filter(col => col.partition !== null)
                   .map(col => {
                     return (
-                      <div
-                        className="partition__full"
+                      <PartitionValueForm
+                        col={col}
+                        materialization={materialization}
                         key={col.name}
-                        style={{ width: '50%' }}
-                      >
-                        <div className="partition__header">
-                          {col.display_name}
-                        </div>
-                        <div className="partition__body">
-                          <span style={{ padding: '0.5rem' }}>From</span>{' '}
-                          <Field
-                            type="text"
-                            name="from"
-                            id={`${col.name}__from`}
-                            placeholder="20230101"
-                            default="20230101"
-                            style={{ width: '7rem', paddingRight: '1rem' }}
-                          />{' '}
-                          <span style={{ padding: '0.5rem' }}>To</span>
-                          <Field
-                            type="text"
-                            name="to"
-                            id={`${col.name}__to`}
-                            placeholder="20230102"
-                            default="20230102"
-                            style={{ width: '7rem' }}
-                          />
-                        </div>
-                      </div>
+                      />
                     );
                   })}
                 <br />
@@ -158,8 +152,9 @@ export default function AddBackfillPopover({
                   type="submit"
                   aria-label="SaveEditColumn"
                   aria-hidden="false"
+                  disabled={isSubmitting}
                 >
-                  Save
+                  {isSubmitting ? <LoadingIcon /> : 'Save'}
                 </button>
               </Form>
             );

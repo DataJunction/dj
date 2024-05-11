@@ -208,7 +208,7 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
                 type_=PartitionType.CATEGORICAL,
             )
             for col in self.columns  # type: ignore
-            if col.column in user_defined_categorical_columns
+            if col.semantic_entity in user_defined_categorical_columns
         ]
 
 

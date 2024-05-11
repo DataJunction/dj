@@ -3166,10 +3166,12 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         # Kick off backfill for non-existent materalization
         response = await client_with_query_service.post(
             "/nodes/default.hard_hat/materializations/non_existent/backfill",
-            json={
-                "column_name": "birth_date",
-                "range": ["20230101", "20230201"],
-            },
+            json=[
+                {
+                    "column_name": "birth_date",
+                    "range": ["20230101", "20230201"],
+                },
+            ],
         )
         assert (
             response.json()["message"]

@@ -224,12 +224,12 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         self,
         node_name: str,
         materialization_name: str,
-        backfill: PartitionBackfill,
+        partitions: List[PartitionBackfill],
     ) -> MaterializationInfo:
         """Kicks off a backfill with the given backfill spec"""
         response = self.requests_session.post(
             f"/materialization/run/{node_name}/{materialization_name}/",
-            json=backfill.dict(),
+            json=[partition.dict() for partition in partitions],
             timeout=20,
         )
         if response.status_code not in (200, 201):

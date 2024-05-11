@@ -593,6 +593,12 @@ tbody th {
   color: #777777;
 }
 
+.strategy {
+  background-color: rgb(255, 239, 215) !important;
+  color: #6c3b21;
+  font-size: 1rem;
+}
+
 .status__valid {
   color: #00b368;
 }
@@ -1018,17 +1024,19 @@ pre {
 }
 
 .add_button {
-  background-color: #f0f8ff !important;
-  color: #24518f;
-  text-transform: uppercase;
+  background-color: #2f7986 !important;
+  color: #fff;
+  text-transform: none;
   vertical-align: middle;
-  padding: 0.2rem 0.5rem 0.1rem 0.5rem;
-  border: 1px solid #819bc0;
-  font-size: 1.2rem;
+  padding-right: 1rem;
+  padding-left: 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem !important;
+  font-size: 1rem;
   border-radius: 0.5rem;
   word-wrap: break-word;
   white-space: break-spaces;
-  margin-left: 1rem;
 }
 
 .edit_button {
@@ -1088,10 +1096,6 @@ pre {
   -webkit-transition: opacity 0.15s linear;
   -o-transition: opacity 0.15s linear;
   transition: opacity 0.15s linear;
-}
-
-.partitionLink:hover {
-  text-decoration: none;
 }
 
 .dimensionsList {
@@ -1216,4 +1220,102 @@ pre {
   background-color: #ffffff;
   margin-bottom: 3px;
   margin-left: -20px;
+}
+
+.partitionLink {
+  /*border: 1px solid #ccc4d5;*/
+  padding: 12px;
+  margin: 5px;
+  border-radius: 0.375rem;
+  background-color: #ccc4d525;
+}
+.partitionLink:hover {
+  background-color: rgba(157, 147, 168, 0.15);
+}
+.partitionLink a:hover {
+  text-decoration: none;
+}
+
+.backfills {
+  margin-left: -4rem;
+  --spacing : 1.5rem;
+  --radius  : 10px;
+}
+
+.backfills li{
+  display      : block;
+  position     : relative;
+  padding-left : calc(2 * var(--spacing) - var(--radius) - 2px);
+}
+
+.backfills ul{
+  margin-left  : calc(var(--radius) - var(--spacing));
+  padding-left : 2rem;
+}
+
+.backfills ul li{
+  border-left : 2px solid #ddd;
+}
+
+.backfills ul li:last-child{
+  border-color : transparent;
+}
+
+.backfills ul li::before{
+  content      : '';
+  display      : block;
+  position     : absolute;
+  top          : calc(var(--spacing) / -2);
+  left         : -2px;
+  width        : calc(var(--spacing) + 2px);
+  height       : calc(var(--spacing) + 1px);
+  border       : solid #ddd;
+  border-width : 0 0 2px 2px;
+}
+
+.backfills summary{
+  display : block;
+  cursor  : pointer;
+  margin-bottom: 10px;
+}
+
+.backfills summary::marker,
+.backfills summary::-webkit-details-marker{
+  display : none;
+}
+
+.backfills summary:focus{
+  outline : none;
+}
+
+.backfills summary:focus-visible{
+  outline : 1px dotted #000;
+}
+
+.backfills summary::before{
+  z-index    : 1;
+  /*background : #696 url('expand-collapse.svg') 0 0;*/
+}
+
+.backfills details[open] > summary::before{
+  background-position : calc(-2 * var(--radius)) 0;
+}
+
+.backfills_header {
+  font-size: 16px;
+  margin-left: 18px;
+  border-left: 2px solid #ddd;
+  padding-left: 40px;
+  margin-bottom: 10px;
+}
+
+.tr {
+  display: inline-flex;
+}
+.tr li {
+  padding-right: 10px;
+}
+.td {
+  display: table-cell;
+  padding: 8px;
 }

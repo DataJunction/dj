@@ -29,6 +29,7 @@ describe('<NodePage />', () => {
         history: jest.fn(),
         revisions: jest.fn(),
         materializations: jest.fn(),
+        materializationInfo: jest.fn(),
         sql: jest.fn(),
         cube: jest.fn(),
         compiledSql: jest.fn(),
@@ -604,11 +605,15 @@ describe('<NodePage />', () => {
 
   it('renders the NodeMaterialization tab with materializations correctly', async () => {
     const djClient = mockDJClient();
-    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
-    djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockTransformNode);
+    // djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
     djClient.DataJunctionAPI.materializations.mockReturnValue(
       mocks.nodeMaterializations,
+    );
+
+    djClient.DataJunctionAPI.materializationInfo.mockReturnValue(
+      mocks.materializationInfo,
     );
 
     const element = (
@@ -618,7 +623,9 @@ describe('<NodePage />', () => {
     );
     render(
       <MemoryRouter
-        initialEntries={['/nodes/default.num_repair_orders/materializations']}
+        initialEntries={[
+          '/nodes/default.repair_order_transform/materializations',
+        ]}
       >
         <Routes>
           <Route path="nodes/:name/:tab" element={element} />
@@ -631,10 +638,10 @@ describe('<NodePage />', () => {
           screen.getByRole('button', { name: 'Materializations' }),
         );
         expect(djClient.DataJunctionAPI.node).toHaveBeenCalledWith(
-          mocks.mockMetricNode.name,
+          mocks.mockTransformNode.name,
         );
         expect(djClient.DataJunctionAPI.materializations).toHaveBeenCalledWith(
-          mocks.mockMetricNode.name,
+          mocks.mockTransformNode.name,
         );
 
         expect(

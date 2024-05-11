@@ -24,7 +24,7 @@ class Backfill(Base):  # type: ignore  # pylint: disable=too-few-public-methods
         primary_key=True,
     )
 
-    # The column reference that this partition is defined on
+    # The column reference that this backfill is defined on
     materialization_id: Mapped[int] = mapped_column(
         ForeignKey(
             "materialization.id",
@@ -37,9 +37,9 @@ class Backfill(Base):  # type: ignore  # pylint: disable=too-few-public-methods
     )
 
     # Backfilled values and range
-    spec: Mapped[Optional[PartitionBackfill]] = mapped_column(
+    spec: Mapped[List[PartitionBackfill]] = mapped_column(
         JSON,
-        default={},
+        default=[],
     )
 
     urls: Mapped[Optional[List[str]]] = mapped_column(

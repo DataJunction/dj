@@ -41,7 +41,9 @@ export const mocks = {
         type: 'string',
         attributes: [],
         dimension: null,
-        partition: null,
+        partition: {
+          type_: 'categorical',
+        },
       },
     ],
     updated_at: '2024-01-24T16:39:14.029366+00:00',
@@ -461,12 +463,14 @@ export const mocks = {
     {
       backfills: [
         {
-          spec: {
-            column_name: 'default_DOT_hard_hat_DOT_hire_date',
-            values: null,
-            range: ['20230101', '20230102'],
-          },
-          urls: [],
+          spec: [
+            {
+              column_name: 'default_DOT_hard_hat_DOT_hire_date',
+              values: null,
+              range: ['20230101', '20230102'],
+            },
+          ],
+          urls: ['a', 'b'],
         },
       ],
       name: 'country_birth_date_contractor_id_379232101',
@@ -477,6 +481,7 @@ export const mocks = {
           "SELECT  default_DOT_hard_hats.address,\n\tdefault_DOT_hard_hats.birth_date,\n\tdefault_DOT_hard_hats.city,\n\tdefault_DOT_hard_hats.contractor_id,\n\tdefault_DOT_hard_hats.country,\n\tdefault_DOT_hard_hats.first_name,\n\tdefault_DOT_hard_hats.hard_hat_id,\n\tdefault_DOT_hard_hats.hire_date,\n\tdefault_DOT_hard_hats.last_name,\n\tdefault_DOT_hard_hats.manager,\n\tdefault_DOT_hard_hats.postal_code,\n\tdefault_DOT_hard_hats.state,\n\tdefault_DOT_hard_hats.title \n FROM roads.hard_hats AS default_DOT_hard_hats \n WHERE  default_DOT_hard_hats.country IN ('DE', 'MY') AND default_DOT_hard_hats.contractor_id BETWEEN 1 AND 10\n\n",
         upstream_tables: ['default.roads.hard_hats'],
       },
+      strategy: 'incremental_time',
       schedule: '0 * * * *',
       job: 'SparkSqlMaterializationJob',
       output_tables: ['common.a', 'common.b'],
@@ -1553,4 +1558,53 @@ export const mocks = {
       tag_type: 'reports',
     },
   ],
+  materializationInfo: {
+    job_types: [
+      {
+        name: 'spark_sql',
+        label: 'Spark SQL',
+        description: 'Spark SQL materialization job',
+        allowed_node_types: ['transform', 'dimension', 'cube'],
+        job_class: 'SparkSqlMaterializationJob',
+      },
+      {
+        name: 'druid_measures_cube',
+        label: 'Druid Measures Cube (Pre-Agg Cube)',
+        description:
+          "Used to materialize a cube's measures to Druid for low-latency access to a set of metrics and dimensions. While the logical cube definition is at the level of metrics and dimensions, this materialized Druid cube will contain measures and dimensions, with rollup configured on the measures where appropriate.",
+        allowed_node_types: ['cube'],
+        job_class: 'DruidMeasuresCubeMaterializationJob',
+      },
+      {
+        name: 'druid_metrics_cube',
+        label: 'Druid Metrics Cube (Post-Agg Cube)',
+        description:
+          "Used to materialize a cube of metrics and dimensions to Druid for low-latency access. The materialized cube is at the metric level, meaning that all metrics will be aggregated to the level of the cube's dimensions.",
+        allowed_node_types: ['cube'],
+        job_class: 'DruidMetricsCubeMaterializationJob',
+      },
+    ],
+    strategies: [
+      {
+        name: 'full',
+        label: 'Full',
+      },
+      {
+        name: 'snapshot',
+        label: 'Snapshot',
+      },
+      {
+        name: 'snapshot_partition',
+        label: 'Snapshot Partition',
+      },
+      {
+        name: 'incremental_time',
+        label: 'Incremental Time',
+      },
+      {
+        name: 'view',
+        label: 'View',
+      },
+    ],
+  },
 };
