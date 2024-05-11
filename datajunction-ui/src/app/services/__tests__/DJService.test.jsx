@@ -457,8 +457,8 @@ describe('DataJunctionAPI', () => {
   it('calls materializations correctly', async () => {
     const nodeName = 'default.sample_node';
     const mockMaterializations = [
-      { name: 'materialization1', clientCode: 'from dj import DJClient' },
-      { name: 'materialization2', clientCode: 'from dj import DJClient' },
+      { name: 'materialization1' },
+      { name: 'materialization2' },
     ];
 
     // Mock the first fetch call to return the list of materializations
@@ -480,14 +480,6 @@ describe('DataJunctionAPI', () => {
         credentials: 'include',
       },
     );
-
-    // Check the subsequent fetch calls for clientCode
-    mockMaterializations.forEach(mat => {
-      expect(fetch).toHaveBeenCalledWith(
-        `${DJ_URL}/datajunction-clients/python/add_materialization/${nodeName}/${mat.name}`,
-        { credentials: 'include' },
-      );
-    });
 
     // Ensure the result contains the clientCode for each materialization
     expect(result).toEqual(mockMaterializations);
@@ -981,13 +973,12 @@ describe('DataJunctionAPI', () => {
 
   it('calls runBackfill correctly', async () => {
     fetch.mockResponseOnce(JSON.stringify({}));
-    await DataJunctionAPI.runBackfill(
-      'default.hard_hat',
-      'spark',
-      'hire_date',
-      '20230101',
-      '20230202',
-    );
+    await DataJunctionAPI.runBackfill('default.hard_hat', 'spark', [
+      {
+        columnName: 'hire_date',
+        range: ['20230101', '20230202'],
+      },
+    ]);
     expect(fetch).toHaveBeenCalledWith(
       `${DJ_URL}/nodes/default.hard_hat/materializations/spark/backfill`,
       {
@@ -995,11 +986,36 @@ describe('DataJunctionAPI', () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          column_name: 'hire_date',
-          range: ['20230101', '20230202'],
-        }),
+        body: JSON.stringify([
+          {
+            column_name: 'hire_date',
+            range: ['20230101', '20230202'],
+          },
+        ]),
         method: 'POST',
+      },
+    );
+  });
+
+  it('calls materializationInfo correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.materializationInfo();
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/materialization/info`, {
+      credentials: 'include',
+    });
+  });
+
+  it('calls revalidate correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.revalidate('default.hard_hat');
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/default.hard_hat/validate`,
+      {
+        credentials: 'include',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       },
     );
   });

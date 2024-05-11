@@ -36,6 +36,7 @@ from datajunction_server.models.materialization import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
+from datajunction_server.naming import amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
@@ -105,7 +106,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
 
     if data.strategy == MaterializationStrategy.INCREMENTAL_TIME:
         if not node.current.temporal_partition_columns():  # type: ignore
-            raise DJException(  # pragma: no cover
+            raise DJException(
                 http_status_code=HTTPStatus.BAD_REQUEST,
                 message="Cannot create materialization with strategy "
                 f"`{data.strategy}` without specifying a time partition column!",
@@ -201,9 +202,11 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
     )
     await session.commit()
 
-    materialization_response = schedule_materialization_jobs(
-        [new_materialization],
-        query_service_client,
+    materialization_response = await schedule_materialization_jobs(
+        session,
+        node_revision_id=current_revision.id,
+        materialization_names=[new_materialization.name],
+        query_service_client=query_service_client,
     )
     return JSONResponse(
         status_code=200,
@@ -319,7 +322,7 @@ async def deactivate_node_materializations(
 async def run_materialization_backfill(  # pylint: disable=too-many-locals
     node_name: str,
     materialization_name: str,
-    backfill_spec: PartitionBackfill,
+    backfill_partitions: List[PartitionBackfill],
     *,
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -359,11 +362,17 @@ async def run_materialization_backfill(  # pylint: disable=too-many-locals
     temporal_partitions = {
         col.name: col for col in node_revision.temporal_partition_columns()
     }
-    if backfill_spec.column_name not in temporal_partitions:
-        raise DJDoesNotExistException(  # pragma: no cover
-            f"Partition with name {backfill_spec.column_name} does not exist on node",
-        )
-
+    categorical_partitions = {
+        col.name: col for col in node_revision.categorical_partition_columns()
+    }
+    for backfill_spec in backfill_partitions:
+        if backfill_spec.column_name not in set(temporal_partitions).union(
+            set(categorical_partitions),
+        ):
+            raise DJDoesNotExistException(  # pragma: no cover
+                f"Partition with name {backfill_spec.column_name} does not exist on node",
+            )
+        backfill_spec.column_name = amenable_name(backfill_spec.column_name)
     materialization_jobs = {
         cls.__name__: cls for cls in MaterializationJob.__subclasses__()
     }
@@ -375,12 +384,12 @@ async def run_materialization_backfill(  # pylint: disable=too-many-locals
 
     materialization_output = clazz().run_backfill(  # type: ignore
         materialization,
-        backfill_spec,
+        backfill_partitions,
         query_service_client,
     )
     backfill = Backfill(
         materialization=materialization,
-        spec=backfill_spec.dict(),
+        spec=[backfill_partition.dict() for backfill_partition in backfill_partitions],
         urls=materialization_output.urls,
     )
     materialization.backfills.append(backfill)
@@ -391,7 +400,9 @@ async def run_materialization_backfill(  # pylint: disable=too-many-locals
         activity_type=ActivityType.CREATE,
         details={
             "materialization": materialization_name,
-            "partition": backfill_spec.dict(),
+            "partition": [
+                backfill_partition.dict() for backfill_partition in backfill_partitions
+            ],
         },
         user=current_user.username if current_user else None,
     )

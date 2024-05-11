@@ -233,6 +233,7 @@ async def create_new_materialization(
             upsert,
         )
 
+    categorical_partitions = current_revision.categorical_partition_columns()
     if current_revision.type == NodeType.CUBE:
         if not temporal_partition and not timestamp_columns:
             raise DJInvalidInputException(
@@ -249,6 +250,8 @@ async def create_new_materialization(
     materialization_name = (
         f"{upsert.job.name.lower()}__{upsert.strategy.name.lower()}"
         + (f"__{temporal_partition[0].name}" if temporal_partition else "")
+        + ("__" if categorical_partitions else "")
+        + ("__".join([partition.name for partition in categorical_partitions]))
     )
     return Materialization(
         name=materialization_name,
@@ -260,13 +263,20 @@ async def create_new_materialization(
     )
 
 
-def schedule_materialization_jobs(
-    materializations: List[Materialization],
+async def schedule_materialization_jobs(
+    session: AsyncSession,
+    node_revision_id: int,
+    materialization_names: List[str],
     query_service_client: QueryServiceClient,
 ) -> Dict[str, MaterializationInfo]:
     """
     Schedule recurring materialization jobs
     """
+    materializations = await Materialization.get_by_names(
+        session,
+        node_revision_id,
+        materialization_names,
+    )
     materialization_jobs = {
         cls.__name__: cls for cls in MaterializationJob.__subclasses__()
     }

@@ -641,7 +641,11 @@ async def update_node_with_query(
             )
         background_tasks.add_task(
             schedule_materialization_jobs,
-            materializations=node.current.materializations,  # type: ignore
+            session=session,
+            node_revision_id=node.current.id,  # type: ignore
+            materialization_names=[
+                mat.name for mat in node.current.materializations  # type: ignore
+            ],
             query_service_client=query_service_client,
         )
         session.add(new_revision)
@@ -803,20 +807,30 @@ async def update_cube_node(  # pylint: disable=too-many-locals
                     user=current_user.username if current_user else None,
                 ),
             )
-        if background_tasks:
-            background_tasks.add_task(
-                schedule_materialization_jobs,
-                materializations=new_cube_revision.materializations,
-                query_service_client=query_service_client,
-            )
-        else:
-            schedule_materialization_jobs(  # pragma: no cover
-                materializations=new_cube_revision.materializations,
-                query_service_client=query_service_client,
-            )
     session.add(new_cube_revision)
     session.add(new_cube_revision.node)
     await session.commit()
+
+    await session.refresh(new_cube_revision, ["materializations"])
+    if background_tasks:
+        background_tasks.add_task(  # pragma: no cover
+            schedule_materialization_jobs,
+            session=session,
+            node_revision_id=new_cube_revision.id,
+            materialization_names=[
+                mat.name for mat in new_cube_revision.materializations
+            ],
+            query_service_client=query_service_client,
+        )
+    else:
+        await schedule_materialization_jobs(  # pragma: no cover
+            session=session,
+            node_revision_id=new_cube_revision.id,
+            materialization_names=[
+                mat.name for mat in new_cube_revision.materializations
+            ],
+            query_service_client=query_service_client,
+        )
 
     await session.refresh(new_cube_revision)
     await session.refresh(new_cube_revision.node)

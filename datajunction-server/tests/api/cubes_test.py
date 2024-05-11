@@ -1618,6 +1618,7 @@ async def test_updating_cube_with_existing_materialization(
     assert result["version"] == "v2.0"
 
     # Check that the query service was called to materialize
+    assert len(query_service_client.materialize.call_args_list) == 3  # type: ignore
     last_call_args = (
         query_service_client.materialize.call_args_list[-1].args[0].dict()  # type: ignore
     )

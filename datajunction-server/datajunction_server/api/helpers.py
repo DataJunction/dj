@@ -371,7 +371,9 @@ async def validate_cube(  # pylint: disable=too-many-locals
             metric_names,
             options=[
                 joinedload(Node.current).options(
-                    selectinload(NodeRevision.columns),
+                    selectinload(NodeRevision.columns).options(
+                        selectinload(Column.node_revisions),
+                    ),
                     joinedload(NodeRevision.catalog),
                     selectinload(NodeRevision.parents),
                 ),

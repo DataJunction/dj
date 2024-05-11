@@ -130,6 +130,7 @@ def build_materialization_query(
         ),
         ctes=cube_materialization_query_ast.ctes,
     )
+
     if materialization.strategy == MaterializationStrategy.INCREMENTAL_TIME:
         temporal_partitions = node_revision.temporal_partition_columns()
         temporal_partition_col = [
@@ -137,13 +138,38 @@ def build_materialization_query(
             for col in cube_materialization_query_ast.select.projection
             if col.alias_or_name.name == amenable_name(temporal_partitions[0].name)  # type: ignore
         ]
-        final_query.select.where = ast.BinaryOp(
+        temporal_op = ast.BinaryOp(
             left=ast.Column(
                 name=ast.Name(temporal_partition_col[0].alias_or_name.name),  # type: ignore
             ),
             right=temporal_partitions[0].partition.temporal_expression(),
             op=ast.BinaryOpKind.Eq,
         )
+
+        categorical_partitions = node_revision.categorical_partition_columns()
+        print("categorical_partitions", categorical_partitions)
+        if categorical_partitions:
+            categorical_partition_col = [
+                col
+                for col in cube_materialization_query_ast.select.projection
+                if col.alias_or_name.name  # type: ignore
+                == amenable_name(categorical_partitions[0].name)  # type: ignore
+            ]
+            categorical_op = ast.BinaryOp(
+                left=ast.Column(
+                    name=ast.Name(categorical_partition_col[0].alias_or_name.name),  # type: ignore
+                ),
+                right=categorical_partitions[0].partition.categorical_expression(),
+                op=ast.BinaryOpKind.Eq,
+            )
+            final_query.select.where = ast.BinaryOp(
+                left=temporal_op,
+                right=categorical_op,
+                op=ast.BinaryOpKind.And,
+            )
+        else:
+            final_query.select.where = temporal_op
+
     combiner_cte = ast.Query(select=cube_materialization_query_ast.select).set_alias(
         ast.Name("combiner_query"),
     )
@@ -155,4 +181,5 @@ def build_materialization_query(
     final_query.select.from_ = ast.From(
         relations=[ast.Relation(primary=ast.Table(name=ast.Name("combiner_query")))],
     )
+    print("final_queryfinal_query", final_query)
     return final_query
