@@ -12,7 +12,7 @@ export const DataJunctionAPI = {
   },
 
   logout: async function () {
-    await await fetch(`${DJ_URL}/logout/`, {
+    return await fetch(`${DJ_URL}/logout/`, {
       credentials: 'include',
       method: 'POST',
     });
@@ -809,6 +809,20 @@ export const DataJunctionAPI = {
             };
           }),
         ),
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
+  deleteMaterialization: async function (nodeName, materializationName) {
+    console.log('deleting materialization', nodeName, materializationName);
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/materializations?materialization_name=${materializationName}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         credentials: 'include',
       },
     );

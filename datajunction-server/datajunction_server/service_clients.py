@@ -192,11 +192,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         Deactivates the specified node materialization
         """
         response = self.requests_session.delete(
-            "/materialization/",
-            params={
-                "node_name": node_name,
-                "materialization_name": materialization_name,
-            },
+            f"/materialization/{node_name}/{materialization_name}/",
         )
         if response.status_code not in (200, 201):  # pragma: no cover
             return MaterializationInfo(urls=[], output_tables=[])

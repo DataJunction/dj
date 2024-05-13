@@ -88,7 +88,7 @@ export default function AddBackfillPopover({
           setPopoverAnchor(!popoverAnchor);
         }}
       >
-        <span className="add_button">+ Run Backfill</span>
+        <span className="add_button">+ Run</span>
       </button>
       <div
         className="fade modal-backdrop in"

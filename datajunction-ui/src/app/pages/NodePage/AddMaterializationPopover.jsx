@@ -51,6 +51,7 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
     );
     if (status === 200 || status === 201) {
       setStatus({ success: json.message });
+      window.location.reload();
     } else {
       setStatus({
         failure: `${json.message}`,
