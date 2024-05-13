@@ -332,11 +332,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         )
 
         mock_request.assert_called_with(
-            "/materialization/",
-            params={
-                "node_name": "default.hard_hat",
-                "materialization_name": "default",
-            },
+            "/materialization/default.hard_hat/default/",
         )
 
     def test_query_service_client_raising_error(self, mocker: MockerFixture) -> None:

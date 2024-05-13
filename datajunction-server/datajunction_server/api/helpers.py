@@ -728,7 +728,11 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
             upstream_tables=[
                 f"{leading_metric_node.current.catalog.name}.{tbl.identifier()}"  # type: ignore
                 for tbl in query_ast.find_all(ast.Table)
-                if tbl.dj_node and tbl.dj_node.type == NodeType.SOURCE
+                # If a table has a corresponding node, then we can use it as dependency.
+                # It must be either a Source node or some type of Materialized node.
+                # Even if there is no availability state for it right now, this qery may be built
+                # for future execution, so we don't need to check for availability state here.
+                if tbl.dj_node
             ],
         ),
         engine,
