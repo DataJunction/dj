@@ -149,6 +149,9 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
             current_revision.version,  # type: ignore
             new_materialization.name,  # type: ignore
         )
+        # refresh existing materialization job
+        # FIXME: this worked before this method was switched to use node revision id  # pylint: disable=fixme
+        # materialization_response = schedule_materialization_jobs(...)
         return JSONResponse(
             status_code=HTTPStatus.CREATED,
             content={

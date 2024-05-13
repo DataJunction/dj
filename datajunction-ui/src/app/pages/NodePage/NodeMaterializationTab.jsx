@@ -4,6 +4,7 @@ import AddMaterializationPopover from './AddMaterializationPopover';
 import * as React from 'react';
 import AddBackfillPopover from './AddBackfillPopover';
 import { labelize } from '../../../utils/form';
+import NodeMaterializationDelete from '../../components/NodeMaterializationDelete';
 
 const cronstrue = require('cronstrue');
 
@@ -48,7 +49,12 @@ export default function NodeMaterializationTab({ node, djClient }) {
                 .match(/[A-Z][a-z]+/g)
                 .join(' ')}
             </div>
-
+            <div className="td">
+              <NodeMaterializationDelete
+                nodeName={node.name}
+                materializationName={materialization.name}
+              />
+            </div>
             <div className="td">
               <span className={`badge cron`}>{materialization.schedule}</span>
               <div className={`cron-description`}>{cron(materialization)} </div>
@@ -93,8 +99,13 @@ export default function NodeMaterializationTab({ node, djClient }) {
                         className="partitionLink"
                         style={{ fontSize: 'revert' }}
                       >
-                        <a href={url} key={`url-${idx}`} className="">
-                          {idx === 0 ? 'scheduled' : 'adhoc'}
+                        <a
+                          href={url}
+                          key={`url-${idx}`}
+                          className=""
+                          target="blank"
+                        >
+                          {idx === 0 ? 'main' : 'backfill'}
                         </a>
                       </div>
                     </li>
@@ -109,9 +120,9 @@ export default function NodeMaterializationTab({ node, djClient }) {
               <li className="backfill">
                 <details open>
                   <summary>
-                    <span className="backfills_header">Backfills</span>{' '}
+                    <span className="backfills_header">Backfill</span>{' '}
                   </summary>
-                  {materializations[0].strategy === 'incremental_time' ? (
+                  {materialization.strategy === 'incremental_time' ? (
                     <ul>
                       <li>
                         <AddBackfillPopover
@@ -163,7 +174,9 @@ export default function NodeMaterializationTab({ node, djClient }) {
                       ))}
                     </ul>
                   ) : (
-                    <></>
+                    <ul>
+                      <li>N/A</li>
+                    </ul>
                   )}
                 </details>
               </li>
