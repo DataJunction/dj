@@ -124,7 +124,7 @@ class NodeRevisionBase(BaseModel):
     name: str
     display_name: Optional[str]
     type: NodeType
-    description: str = ""
+    description: Optional[str] = ""
     query: Optional[str] = None
     mode: NodeMode = NodeMode.PUBLISHED
 
