@@ -149,6 +149,13 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
             current_revision.version,  # type: ignore
             new_materialization.name,  # type: ignore
         )
+        # refresh existing materialization job
+        await schedule_materialization_jobs(
+            session,
+            node_revision_id=current_revision.id,
+            materialization_names=[new_materialization.name],
+            query_service_client=query_service_client,
+        )
         return JSONResponse(
             status_code=HTTPStatus.CREATED,
             content={
