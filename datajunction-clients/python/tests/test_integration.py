@@ -30,7 +30,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     assert matching_namespace
 
     # Create a sources
-    dj.create_source(
+    dj.upsert_source(
         name=f"{namespace}.repair_orders",
         description="Repair orders",
         catalog="warehouse",
@@ -47,7 +47,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
         ],
     )
 
-    repair_order_details = dj.create_source(
+    repair_order_details = dj.upsert_source(
         name=f"{namespace}.repair_order_details",
         description="Details on repair orders",
         display_name="Default: Repair Order Details",
@@ -111,7 +111,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     dj.transform(f"{namespace}.repair_orders_w_dispatchers")
 
     # Create a source and dimension nodes
-    dj.create_source(
+    dj.upsert_source(
         name=f"{namespace}.dispatchers",
         description="Different third party dispatcher companies that coordinate repairs",
         catalog="warehouse",

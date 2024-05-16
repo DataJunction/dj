@@ -105,20 +105,34 @@ class Node(ClientEntity):  # pylint: disable=protected-access
                 f"Error updating tags for node {self.name}, {self.tags}",
             )
 
-    def save(self, mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED) -> dict:
+    def save(self, mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED, if_exists="update") -> dict:
         """
         Saves the node to DJ, whether it existed before or not.
+
+        Parameters:
+        - if_exists (str): Either 'fail' or 'update'.
+            If 'fail', raise an error if a node with the same name already exists.
+            If 'update', update the existing node.
         """
+        if if_exists not in ["fail", "update"]:
+            raise DJClientException(
+                f"Invalid if_exists parameter: {if_exists}. Must be 'fail' or 'update'.",
+            )
         existing_node = self.dj_client._get_node(node_name=self.name)
         if "name" in existing_node:
-            # update
-            self._update_tags()
-            response = self._update()
-            if not response.status_code < 400:  # pragma: no cover
+            if if_exists == "fail":
                 raise DJClientException(
-                    f"Error updating node `{self.name}`: {response.text}",
+                    f"Node `{self.name}` already exists. Use if_exists='update' to update.",
                 )
-            self.refresh()
+            elif if_exists == "update":
+                # update
+                self._update_tags()
+                response = self._update()
+                if not response.status_code < 400:  # pragma: no cover
+                    raise DJClientException(
+                        f"Error updating node `{self.name}`: {response.text}",
+                    )
+                self.refresh()
         else:
             # create
             response = self.dj_client._create_node(

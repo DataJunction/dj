@@ -107,7 +107,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     #
     # Nodes: SOURCE
     #
-    def create_source(  # pylint: disable=too-many-arguments
+    def upsert_source(  # pylint: disable=too-many-arguments
         self,
         name: str,
         catalog: str,
@@ -119,6 +119,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         primary_key: Optional[List[str]] = None,
         tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
+        if_exists: Optional[str] = "update",
     ) -> "Source":
         """
         Creates a new Source node with given parameters.
@@ -135,7 +136,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             table=table,
             columns=columns,
         )
-        self._create_node(node=new_node, mode=mode)
+        new_node.save(if_exists=if_exists)
         new_node.refresh()
         return new_node
 
