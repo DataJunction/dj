@@ -39,7 +39,7 @@ async def test_generated_python_client_code_new_source(client_with_roads: AsyncC
         response.json()
         == """dj = DJBuilder(DJ_URL)
 
-repair_order_details = dj.create_source(
+repair_order_details = dj.upsert_source(
     description="Details on repair orders",
     display_name="default.roads.repair_order_details",
     mode="published",

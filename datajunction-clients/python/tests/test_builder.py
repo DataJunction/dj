@@ -278,7 +278,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         Verifies that creating nodes works.
         """
         # create it
-        account_type_table = client.create_source(
+        account_type_table = client.upsert_source(
             name="default.account_type_table",
             description="A source table for account type data",
             display_name="Default: Account Type Table",
@@ -302,10 +302,10 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
 
     def test_create_nodes(self, client):  # pylint: disable=unused-argument
         """
-        Verifies that creating nodes works.
+        Verifies that upserting nodes works.
         """
         # source nodes
-        account_type_table = client.create_source(
+        account_type_table = client.upsert_source(
             name="default.account_type_table",
             description="A source table for account type data",
             display_name="Default: Account Type Table",
@@ -323,7 +323,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert account_type_table.name == "default.account_type_table"
         assert "default.account_type_table" in client.namespace("default").sources()
 
-        payment_type_table = client.create_source(
+        payment_type_table = client.upsert_source(
             name="default.payment_type_table",
             description="A source table for payment type data",
             display_name="Default: Payment Type Table",
@@ -340,7 +340,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert payment_type_table.name == "default.payment_type_table"
         assert "default.payment_type_table" in client.namespace("default").sources()
 
-        revenue = client.create_source(
+        revenue = client.upsert_source(
             name="default.revenue",
             description="Record of payments",
             display_name="Default: Payment Records",
