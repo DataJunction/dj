@@ -7,7 +7,11 @@ from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import build_sql_for_multiple_metrics
-from datajunction_server.construction.build import build_node, get_measures_query
+from datajunction_server.construction.build import (
+    build_node,
+    get_default_criteria,
+    get_measures_query,
+)
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.errors import DJException, DJInvalidInputException
@@ -183,11 +187,15 @@ async def build_non_cube_materialization_config(
     """
     Build materialization config for non-cube nodes (transforms and dimensions).
     """
+    build_criteria = get_default_criteria(
+        node=current_revision,
+    )
     materialization_ast = await build_node(
         session=session,
         node=current_revision,
         dimensions=[],
         orderby=[],
+        build_criteria=build_criteria,
     )
     generic_config = GenericMaterializationConfig(
         lookback_window=upsert.config.lookback_window,
