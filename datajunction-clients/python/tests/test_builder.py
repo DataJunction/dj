@@ -297,8 +297,20 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert "default.account_type_table" in client.namespace("default").sources()
 
         # update it
-        account_type_table = client.source(node_name="default.account_type_table")
-        account_type_table.save(mode=NodeMode.PUBLISHED)
+        # ... should fail without changing the default update_if_exists = False
+        with pytest.raises(DJClientException):
+            account_type_table = client.create_source(
+                name="default.account_type_table",
+                description="New description",
+            )
+
+        # ... should work by setting update_if_exists = True
+        account_type_table = client.create_source(
+            name="default.account_type_table",
+            description="new description",
+            update_if_exists=True,
+        )
+        assert account_type_table.description == "new description"
 
     def test_create_nodes(self, client):  # pylint: disable=unused-argument
         """
