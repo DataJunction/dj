@@ -18,7 +18,7 @@ docker-run:
 	docker compose up
 
 test:
-	pdm run pytest -n auto --cov=datajunction_server --cov-report=html -vv tests/ --doctest-modules datajunction_server --without-integration --without-slow-integration ${PYTEST_ARGS}
+	pdm run pytest -n auto --cov=datajunction_server -vv tests/ --doctest-modules datajunction_server --without-integration --without-slow-integration ${PYTEST_ARGS}
 
 integration:
 	pdm run pytest --cov=dj -vv tests/ --doctest-modules datajunction_server --with-integration --with-slow-integration

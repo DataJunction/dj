@@ -70,7 +70,9 @@ class AvailabilityState(Base):  # pylint: disable=too-few-public-methods
         """
         Determine whether an availability state is useable given criteria
         """
-        # Criteria to determine if an availability state should be used needs to be added
+        # If we are materializing, we should not use this availability state
+        if criteria and criteria.for_materialization:
+            return False
         return True
 
 

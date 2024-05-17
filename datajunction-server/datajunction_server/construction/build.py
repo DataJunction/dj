@@ -822,6 +822,23 @@ def _get_node_table(
     return table
 
 
+def get_default_criteria(
+    node: NodeRevision,
+    for_materialization: bool = False,
+) -> BuildCriteria:
+    """
+    Get the default build criteria for a node.
+    """
+    return BuildCriteria(
+        dialect=(
+            node.catalog.engines[0].dialect
+            if node.catalog and node.catalog.engines and node.catalog.engines[0].dialect
+            else Dialect.SPARK
+        ),
+        for_materialization=for_materialization,
+    )
+
+
 async def build_node(  # pylint: disable=too-many-arguments
     session: AsyncSession,
     node: NodeRevision,
@@ -844,15 +861,7 @@ async def build_node(  # pylint: disable=too-many-arguments
 
     # Set the dialect by finding available engines for this node, or default to Spark
     if not build_criteria:
-        build_criteria = BuildCriteria(
-            dialect=(
-                node.catalog.engines[0].dialect
-                if node.catalog
-                and node.catalog.engines
-                and node.catalog.engines[0].dialect
-                else Dialect.SPARK
-            ),
-        )
+        build_criteria = get_default_criteria(node)
 
     # get dimension columns which are required
     # in the stated bound dimensions on the metric node
