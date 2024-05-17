@@ -106,7 +106,7 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
             return response
         except requests.exceptions.RequestException as exc:
             if exc.response.headers.get("Content-Type") == "application/json":
-                error_message = exc.response.json().get("message")
+                error_message = exc.response.json()
             else:
                 error_message = f"Request failed {exc.response.status_code}: {str(exc)}"
             raise DJClientException(error_message) from exc
