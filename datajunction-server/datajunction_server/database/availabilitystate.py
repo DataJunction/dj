@@ -70,7 +70,8 @@ class AvailabilityState(Base):  # pylint: disable=too-few-public-methods
         """
         Determine whether an availability state is useable given criteria
         """
-        # Criteria to determine if an availability state should be used needs to be added
+        # TODO: we should evaluate this availability state against the criteria. # pylint: disable=fixme
+        #       Remember that VTTS can be also evaluated at runtime dependency.
         return True
 
 
