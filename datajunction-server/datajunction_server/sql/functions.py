@@ -278,28 +278,50 @@ class Aggregate(Function):
             ast,
         )
 
-        expr, start, merge = args
+        # aggregate's lambda function can take three or four arguments, depending on whether
+        # an optional finish function is provided
+        if len(args) == 4:
+            expr, start, merge, finish = args
+        else:
+            expr, start, merge = args
+            finish = None
+
         available_identifiers = {
             identifier.name: idx for idx, identifier in enumerate(merge.identifiers)
         }
-        columns = list(
+        merge_columns = list(
             merge.expr.filter(
                 lambda x: isinstance(x, ast.Column)
                 and x.alias_or_name.name in available_identifiers,
             ),
         )
-        for col in columns:
+        finish_columns = (
+            list(
+                finish.expr.filter(
+                    lambda x: isinstance(x, ast.Column)
+                    and x.alias_or_name.name in available_identifiers,
+                ),
+            )
+            if finish
+            else []
+        )
+        for col in merge_columns:
             if available_identifiers.get(col.alias_or_name.name) == 0:
                 col.add_type(start.type)
             if available_identifiers.get(col.alias_or_name.name) == 1:
                 col.add_type(expr.type.element.type)
+        for col in finish_columns:
+            if (
+                available_identifiers.get(col.alias_or_name.name) == 0
+            ):  # pragma: no cover
+                col.add_type(start.type)
 
 
 @Aggregate.register  # type: ignore
 def infer_type(
     expr: ct.ListType,
-    start: ct.PrimitiveType,
-    merge: ct.PrimitiveType,
+    start: ct.ColumnType,
+    merge: ct.ColumnType,
 ) -> ct.ColumnType:
     return merge.expr.type
 
@@ -1026,6 +1048,13 @@ def infer_type(
     *arrays: ct.ListType,
 ) -> ct.ListType:
     return arrays[0].type
+
+
+@Concat.register  # type: ignore
+def infer_type(
+    *maps: ct.MapType,
+) -> ct.MapType:
+    return maps[0].type
 
 
 class ConcatWs(Function):
@@ -3130,19 +3159,48 @@ def infer_type(map_: ct.MapType) -> ct.ColumnType:
     return ct.ListType(element_type=map_.type.value.type)
 
 
-# TODO  # pylint: disable=fixme
-# class MapZipWith(Function):
-#     """
-#     map_zip_with(map1, map2, function) - Returns a merged map of two given maps by
-#     applying function to the pair of values with the same key.
-#     """
-#
-#
-# @MapZipWith.register  # type: ignore
-# def infer_type(
-#     map1: ct.MapType, map2: ct.MapType, function: ct.ColumnType
-# ) -> ct.ColumnType:
-#     return ct.MapType()
+class MapZipWith(Function):
+    """
+    map_zip_with(map1, map2, function) - Returns a merged map of two given maps by
+    applying function to the pair of values with the same key.
+    """
+
+    @staticmethod
+    def compile_lambda(*args):
+        """
+        Compiles the lambda function used by the `map_zip_with` Spark function so that
+        the lambda's expression can be evaluated to determine the result's type.
+        """
+        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
+            ast,
+        )
+
+        map1, map2, func = args
+        available_identifiers = {
+            identifier.name: idx for idx, identifier in enumerate(func.identifiers)
+        }
+        columns = list(
+            func.expr.filter(
+                lambda x: isinstance(x, ast.Column)
+                and x.alias_or_name.name in available_identifiers,
+            ),
+        )
+        for col in columns:
+            if available_identifiers.get(col.alias_or_name.name) == 0:
+                col.add_type(map1.type.key.type)  # pragma: no cover
+            if available_identifiers.get(col.alias_or_name.name) == 1:
+                col.add_type(map1.type)
+            if available_identifiers.get(col.alias_or_name.name) == 2:
+                col.add_type(map2.type)
+
+
+@MapZipWith.register  # type: ignore
+def infer_type(
+    map1: ct.MapType,
+    map2: ct.MapType,
+    function: ct.ColumnType,
+) -> ct.ColumnType:
+    return map1.type
 
 
 class Mask(Function):
@@ -4150,6 +4208,92 @@ def infer_type(
     func: ct.PrimitiveType,
 ) -> ct.ColumnType:
     return ct.ListType(element_type=func.expr.type)
+
+
+class TransformKeys(Function):
+    """
+    transform_keys(expr, func) - Transforms keys in a map using the function
+    """
+
+    @staticmethod
+    def compile_lambda(*args):
+        """
+        Compiles the lambda function used by the `transform_keys` Spark function so that
+        the lambda's expression can be evaluated to determine the result's type.
+        """
+        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
+            ast,
+        )
+
+        expr, func = args
+        available_identifiers = {
+            identifier.name: idx for idx, identifier in enumerate(func.identifiers)
+        }
+        columns = list(
+            func.expr.filter(
+                lambda x: isinstance(x, ast.Column)
+                and x.alias_or_name.name in available_identifiers,
+            ),
+        )
+        for col in columns:
+            # The map key arg
+            if available_identifiers.get(col.alias_or_name.name) == 0:
+                col.add_type(expr.type.key.type)
+
+            # The map value arg
+            if available_identifiers.get(col.alias_or_name.name) == 1:
+                col.add_type(expr.type.value.type)
+
+
+@TransformKeys.register  # type: ignore
+def infer_type(
+    expr: ct.MapType,
+    func: ct.ColumnType,
+) -> ct.MapType:
+    return ct.MapType(key_type=func.expr.type, value_type=expr.type.value.type)
+
+
+class TransformValues(Function):
+    """
+    transform_values(expr, func) - Transforms values in a map using the function
+    """
+
+    @staticmethod
+    def compile_lambda(*args):
+        """
+        Compiles the lambda function used by the `transform_values` Spark function so that
+        the lambda's expression can be evaluated to determine the result's type.
+        """
+        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
+            ast,
+        )
+
+        expr, func = args
+        available_identifiers = {
+            identifier.name: idx for idx, identifier in enumerate(func.identifiers)
+        }
+        columns = list(
+            func.expr.filter(
+                lambda x: isinstance(x, ast.Column)
+                and x.alias_or_name.name in available_identifiers,
+            ),
+        )
+        for col in columns:
+            # The map key arg
+            if available_identifiers.get(col.alias_or_name.name) == 0:
+                col.add_type(expr.type.key.type)
+
+            # The map value arg
+            if available_identifiers.get(col.alias_or_name.name) == 1:
+                col.add_type(expr.type.value.type)
+
+
+@TransformValues.register  # type: ignore
+def infer_type(
+    expr: ct.MapType,
+    func: ct.ColumnType,
+) -> ct.MapType:
+    return ct.MapType(key_type=expr.type.key.type, value_type=func.expr.type)
 
 
 class Trim(Function):

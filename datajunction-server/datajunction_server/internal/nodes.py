@@ -732,6 +732,8 @@ async def update_cube_node(  # pylint: disable=too-many-locals
     """
     Update cube node based on changes
     """
+    node = await Node.get_cube_by_name(session, node_revision.name)
+    node_revision = node.current  # type: ignore
     minor_changes = has_minor_changes(node_revision, data)
     old_metrics = [m.name for m in node_revision.cube_metrics()]
     old_dimensions = node_revision.cube_dimensions()
