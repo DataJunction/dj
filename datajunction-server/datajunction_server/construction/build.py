@@ -773,6 +773,9 @@ def _get_node_table(
     If a node has a materialization available, return the materialized table
     """
     table = None
+    can_use_materialization = (
+        build_criteria and node.name != build_criteria.target_node_name
+    )
     if node.type == NodeType.SOURCE:
         if node.table:
             name = ast.Name(
@@ -796,8 +799,12 @@ def _get_node_table(
             ],
             _dj_node=node,
         )
-    elif node.availability and node.availability.is_available(
-        criteria=build_criteria,
+    elif (
+        can_use_materialization
+        and node.availability
+        and node.availability.is_available(
+            criteria=build_criteria,
+        )
     ):  # pragma: no cover
         table = ast.Table(
             ast.Name(
@@ -822,6 +829,23 @@ def _get_node_table(
     return table
 
 
+def get_default_criteria(
+    node: NodeRevision,
+) -> BuildCriteria:
+    """
+    Get the default build criteria for a node.
+    """
+    return BuildCriteria(
+        # set the dialect by finding available engines for this node, or default to Spark
+        dialect=(
+            node.catalog.engines[0].dialect
+            if node.catalog and node.catalog.engines and node.catalog.engines[0].dialect
+            else Dialect.SPARK
+        ),
+        target_node_name=node.name,
+    )
+
+
 async def build_node(  # pylint: disable=too-many-arguments
     session: AsyncSession,
     node: NodeRevision,
@@ -844,15 +868,7 @@ async def build_node(  # pylint: disable=too-many-arguments
 
     # Set the dialect by finding available engines for this node, or default to Spark
     if not build_criteria:
-        build_criteria = BuildCriteria(
-            dialect=(
-                node.catalog.engines[0].dialect
-                if node.catalog
-                and node.catalog.engines
-                and node.catalog.engines[0].dialect
-                else Dialect.SPARK
-            ),
-        )
+        build_criteria = get_default_criteria(node)
 
     # get dimension columns which are required
     # in the stated bound dimensions on the metric node

@@ -70,7 +70,9 @@ export function Root() {
         ) : (
           <span className="menu-link">
             <span className="menu-title">
-              <a onClick={handleLogout}>Logout</a>
+              <a href={'/'} onClick={handleLogout}>
+                Logout
+              </a>
             </span>
           </span>
         )}
