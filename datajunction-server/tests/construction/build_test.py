@@ -7,11 +7,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import datajunction_server.sql.parsing.types as ct
-from datajunction_server.construction.build import build_node
+from datajunction_server.construction.build import build_node, get_default_criteria
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJException
+from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.naming import amenable_name
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -278,3 +279,10 @@ async def test_build_node_with_unnamed_column(construction_session: AsyncSession
 def test_amenable_name():
     """testing for making an amenable name"""
     assert amenable_name("hello.名") == "hello_DOT__UNK"
+
+
+def test_get_default_criteria():
+    """Test getting default criteria for a node revision"""
+    result = get_default_criteria(node=NodeRevision(type=NodeType.TRANSFORM))
+    assert result.dialect == Dialect.SPARK
+    assert result.target_node_name is None

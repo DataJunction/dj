@@ -45,7 +45,7 @@ class BuildCriteria:
 
     timestamp: Optional[UTCDatetime] = None
     dialect: Dialect = Dialect.SPARK
-    for_materialization: bool = False
+    target_node_name: Optional[str] = None
 
 
 class NodeMode(StrEnum):

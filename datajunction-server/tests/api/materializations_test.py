@@ -1058,3 +1058,150 @@ async def test_spark_sql_incremental(
             .replace("${country}", "DJ_COUNTRY()"),
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_spark_with_availablity(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Verify that we build the Query correctly with or without the materialization availability.
+    """
+    # add one transform node
+    response = await client_with_repairs_cube.post(
+        "/nodes/transform/",
+        json={
+            "query": ("SELECT first_name, birth_date FROM default.hard_hats"),
+            "description": "test transform",
+            "mode": "published",
+            "name": "default.test_transform",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    # add another transform node on top of the 1st one
+    response = await client_with_repairs_cube.post(
+        "/nodes/transform/",
+        json={
+            "query": ("SELECT first_name, birth_date FROM default.test_transform"),
+            "description": "test transform two",
+            "mode": "published",
+            "name": "default.test_transform_two",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    # create a materialization on the 1st node (w/o availability)
+    response = await client_with_repairs_cube.post(
+        "/nodes/default.test_transform/materialization/",
+        json={
+            "job": "spark_sql",
+            "strategy": "full",
+            "config": {},
+            "schedule": "0 * * * *",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    # check the materialization on 1st node
+    query_one = (
+        "SELECT  default_DOT_test_transform.first_name,"
+        "\n\tdefault_DOT_test_transform.birth_date "
+        "\n FROM (SELECT  default_DOT_hard_hats.first_name,"
+        "\n\tdefault_DOT_hard_hats.birth_date "
+        "\n FROM roads.hard_hats AS default_DOT_hard_hats)"
+        "\n AS default_DOT_test_transform\n\n"
+    )
+    response = await client_with_repairs_cube.get(
+        "/nodes/default.test_transform/materializations/",
+    )
+    assert response.status_code in (200, 201)
+    assert response.json()[0]["config"]["query"] == query_one
+
+    # create a materialization on the 2nd node (w/o availability)
+    response = await client_with_repairs_cube.post(
+        "/nodes/default.test_transform_two/materialization/",
+        json={
+            "job": "spark_sql",
+            "strategy": "full",
+            "config": {},
+            "schedule": "0 * * * *",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    # check the materialization on 2nd node
+    query_two = (
+        "SELECT  default_DOT_test_transform_two.first_name,"
+        "\n\tdefault_DOT_test_transform_two.birth_date "
+        "\n FROM (SELECT  default_DOT_test_transform.first_name,"
+        "\n\tdefault_DOT_test_transform.birth_date "
+        "\n FROM (SELECT  default_DOT_hard_hats.first_name,"
+        "\n\tdefault_DOT_hard_hats.birth_date "
+        "\n FROM roads.hard_hats AS default_DOT_hard_hats)"
+        "\n AS default_DOT_test_transform)"
+        "\n AS default_DOT_test_transform_two\n\n"
+    )
+    response = await client_with_repairs_cube.get(
+        "/nodes/default.test_transform_two/materializations/",
+    )
+    assert response.status_code in (200, 201)
+    assert response.json()[0]["config"]["query"] == query_two
+
+    # add some availability to the 1st node
+    response = await client_with_repairs_cube.post(
+        "/data/default.test_transform/availability/",
+        json={
+            "catalog": "default",
+            "schema_": "accounting",
+            "table": "test_transform_materialized",
+            "valid_through_ts": 20230125,
+            "max_temporal_partition": ["2023", "01", "25"],
+            "min_temporal_partition": ["2022", "01", "01"],
+            "url": "http://some.catalog.com/default.accounting.pmts",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    # refresh the materialization on 1st node now with availability (query should be the same)
+    response = await client_with_repairs_cube.post(
+        "/nodes/default.test_transform/materialization/",
+        json={
+            "job": "spark_sql",
+            "strategy": "full",
+            "config": {},
+            "schedule": "0 * * * *",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    # check the materialization query again (query should be the same)
+    response = await client_with_repairs_cube.get(
+        "/nodes/default.test_transform/materializations/",
+    )
+    assert response.status_code in (200, 201)
+    assert response.json()[0]["config"]["query"] == query_one
+
+    # refresh the materialization on 2nd node now with availability
+    # (query should now include availability of the 1st node)
+    response = await client_with_repairs_cube.post(
+        "/nodes/default.test_transform_two/materialization/",
+        json={
+            "job": "spark_sql",
+            "strategy": "full",
+            "config": {},
+            "schedule": "0 * * * *",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    # check the materialization query again (query should be the same)
+    response = await client_with_repairs_cube.get(
+        "/nodes/default.test_transform_two/materializations/",
+    )
+    assert response.status_code in (200, 201)
+    assert response.json()[0]["config"]["query"] != query_two
+    assert (
+        "FROM accounting.test_transform_materialized "
+        in response.json()[0]["config"]["query"]
+    )
