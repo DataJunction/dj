@@ -141,6 +141,69 @@ async def test_aggregate(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_complex_nested_functions(session: AsyncSession):
+    """
+    Test that the CAST(...) workaround works for complex nested lambda functions
+    """
+    query = parse(
+        """
+    SELECT
+      CAST(
+        AGGREGATE(
+          MAP_VALUES(
+            AGGREGATE(
+              COLLECT_LIST(
+                MAP(
+                  x,
+                  NAMED_STRUCT(
+                    'a1',
+                    CASE
+                      WHEN y = 'apples'
+                      THEN z ELSE 0
+                    END,
+                    'b1',
+                    COALESCE(y, 0)
+                  )
+                )
+              ),
+              CAST(MAP() AS MAP<STRING, STRUCT<z: BIGINT, y: BIGINT>>),
+              (acc, x) -> MAP_ZIP_WITH(
+                acc, x,
+                (k, v1, v2) -> NAMED_STRUCT(
+                        'z',
+                        COALESCE(v1['z'], 0) + COALESCE(v2['z'], 0),
+                        'y',
+                        COALESCE(v1['y'], 0) + COALESCE(v2['y'], 0)
+
+                    )
+                ),
+                acc -> TRANSFORM_VALUES(acc, (_, v) -> v['z']/(20.0*v['y']))
+             )
+          ),
+          NAMED_STRUCT(
+              'z1',
+              CAST(0 AS DOUBLE),
+              'y1',
+              CAST(0 AS DOUBLE)
+          ),
+          (acc, x) -> NAMED_STRUCT('y1', acc['z1'] + x, 'y1', acc['y1'] + 1),
+          acc -> acc['y1']/acc['z1']
+      ) AS STRING
+    ) AS etc
+FROM (
+  SELECT '124345' as x,
+  'something' as y,
+  29109 as z
+)
+        """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert query.select.projection[0].type == StringType()  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_any_value(session: AsyncSession):
     """
     Test the `any_value` function
@@ -826,7 +889,9 @@ async def test_concat_func(session: AsyncSession):
     Test the `concat` function
     """
     query = parse(
-        "SELECT concat('hello', '+', 'world'), concat(array(1, 2), array(3))",
+        "SELECT concat('hello', '+', 'world'), "
+        "concat(array(1, 2), array(3)), "
+        "concat(map(1, 'a'), map(2, 'b'))",
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
@@ -834,6 +899,10 @@ async def test_concat_func(session: AsyncSession):
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.ListType(ct.IntegerType())  # type: ignore
+    assert query.select.projection[2].type == ct.MapType(  # type: ignore
+        key_type=ct.IntegerType(),
+        value_type=ct.StringType(),
+    )
 
 
 @pytest.mark.asyncio
@@ -2634,20 +2703,23 @@ async def test_max() -> None:
     )
 
 
-# TODO
-# @pytest.mark.asyncio
-# async def test_map_zip_with_func(session: AsyncSession):
-#     """
-#     Test the `map_zip_with` function
-#     """
-#     # The third argument to map_zip_with is a function, which needs special handling
-#     # Assuming that we have a function "func" defined elsewhere in the code
-#     query = parse("SELECT map_zip_with(map_col1, map_col2, func) FROM table")
-#     exc = DJException()
-#     ctx = ast.CompileContext(session=session, exception=exc)
-#     await query.compile(ctx)
-#     assert not exc.errors
-#     assert isinstance(query.select.projection[0].type, ct.MapType)  # type: ignore
+@pytest.mark.asyncio
+async def test_map_zip_with_func(session: AsyncSession):
+    """
+    Test the `map_zip_with` function
+    """
+    # The third argument to map_zip_with is a function, which needs special handling
+    # Assuming that we have a function "func" defined elsewhere in the code
+    query = parse(
+        "SELECT map_zip_with(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), (k, v1, v2) -> concat(v1, v2))",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.MapType(  # type: ignore
+        key_type=ct.IntegerType(),
+        value_type=ct.StringType(),
+    )
 
 
 @pytest.mark.asyncio
@@ -3400,6 +3472,66 @@ async def test_transform(session: AsyncSession):
     ctx = ast.CompileContext(session=session, exception=DJException())
     await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_transform_keys(session: AsyncSession):
+    """
+    Test the `transform_keys` Spark function
+    """
+    query = parse(
+        """
+        SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + 1.1);
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.MapType(  # type: ignore
+        key_type=ct.FloatType(),
+        value_type=ct.IntegerType(),
+    )
+
+    query = parse(
+        """
+        SELECT transform_keys(map_from_arrays(array('1', '2', '3'), array('1', '2', '3')), (k, v) -> k + v)
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.MapType(  # type: ignore
+        key_type=ct.StringType(),
+        value_type=ct.StringType(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_transform_values(session: AsyncSession):
+    """
+    Test the `transform_values` Spark function
+    """
+    query = parse(
+        """
+        SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> v*1.0)
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.MapType(  # type: ignore
+        key_type=ct.IntegerType(),
+        value_type=ct.FloatType(),
+    )
+
+    query = parse(
+        """
+        SELECT transform_values(map_from_arrays(array('1', '2', '3'), array('1', '2', '3')), (k, v) -> k + v)
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.MapType(  # type: ignore
+        key_type=ct.StringType(),
+        value_type=ct.StringType(),
+    )
 
 
 @pytest.mark.asyncio

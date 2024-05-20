@@ -3,6 +3,7 @@
 # mypy: ignore-errors
 import collections
 import decimal
+import logging
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
@@ -63,6 +64,7 @@ from datajunction_server.sql.parsing.types import (
 )
 
 PRIMITIVES = {int, float, str, bool, type(None)}
+logger = logging.getLogger(__name__)
 
 
 def flatten(maybe_iterables: Any) -> Iterator:
@@ -1661,6 +1663,7 @@ class Function(Named, Operation):
     args: List[Expression] = field(default_factory=list)
     quantifier: str = ""
     over: Optional[Over] = None
+    args_compiled: bool = False
 
     def __new__(
         cls,
@@ -1724,7 +1727,17 @@ class Function(Named, Operation):
                 await arg.compile(ctx)
                 arg._is_compiled = True
 
-        self.function().compile_lambda(*self.args)
+        # FIXME: We currently catch this exception because we are unable  # pylint: disable=fixme
+        # to infer types for nested lambda functions. For the time being, an easy workaround is to
+        # add a CAST(...) wrapper around the nested lambda function so that the type hard-coded by
+        # the argument to CAST
+        try:
+            self.function().compile_lambda(*self.args)
+        except DJParseException as parse_exc:
+            if "Cannot resolve type of column" in parse_exc.message:
+                logger.warning(parse_exc)
+            else:
+                raise parse_exc
 
         for child in self.children:
             if not child.is_compiled():

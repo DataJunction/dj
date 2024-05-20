@@ -268,7 +268,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             name=name,
             metrics=metrics,
             dimensions=dimensions,
-            filters=filters,
+            filters=filters or [],
             description=description,
             display_name=display_name,
         )
