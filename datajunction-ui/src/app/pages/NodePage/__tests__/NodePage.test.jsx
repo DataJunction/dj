@@ -23,6 +23,7 @@ describe('<NodePage />', () => {
       DataJunctionAPI: {
         node: jest.fn(),
         metric: jest.fn(),
+        revalidate: jest.fn().mockReturnValue({ status: 'valid' }),
         node_dag: jest.fn().mockReturnValue(mocks.mockNodeDAG),
         clientCode: jest.fn().mockReturnValue('dj_client = DJClient()'),
         columns: jest.fn(),
@@ -39,6 +40,8 @@ describe('<NodePage />', () => {
         dimensions: jest.fn(),
         setPartition: jest.fn(),
         engines: jest.fn(),
+        streamNodeData: jest.fn(),
+        nodeDimensions: jest.fn(),
       },
     };
   };
@@ -652,31 +655,102 @@ describe('<NodePage />', () => {
     );
   }, 60000);
 
-  it('renders the NodeSQL tab', async () => {
+  it('renders the NodeValidate tab', async () => {
     const djClient = mockDJClient();
+    window.scrollTo = jest.fn();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.nodeDimensions.mockReturnValue(
+      mocks.mockMetricNodeJson.dimensions,
+    );
     djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
-    djClient.DataJunctionAPI.sql.mockReturnValue(mocks.metricNodeColumns);
+    djClient.DataJunctionAPI.sql.mockReturnValue({
+      sql: 'SELECT * FROM testNode',
+    });
+    const streamNodeData = {
+      onmessage: jest.fn(),
+      onerror: jest.fn(),
+      close: jest.fn(),
+    };
+    djClient.DataJunctionAPI.streamNodeData.mockResolvedValue(streamNodeData);
+    djClient.DataJunctionAPI.streamNodeData.mockResolvedValueOnce({
+      state: 'FINISHED',
+      results: [
+        {
+          columns: [{ name: 'column1' }, { name: 'column2' }],
+          rows: [
+            [1, 'value1'],
+            [2, 'value2'],
+          ],
+        },
+      ],
+    });
+
     const element = (
       <DJClientContext.Provider value={djClient}>
         <NodePage />
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders/sql']}>
+      <MemoryRouter
+        initialEntries={['/nodes/default.num_repair_orders/validate']}
+      >
         <Routes>
           <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );
+
     await waitFor(() => {
-      const sqlButton = screen.getByRole('button', { name: 'SQL' });
-      sqlButton.click();
+      expect(screen.getByText('Group By')).toBeInTheDocument();
+      expect(screen.getByText('Add Filters')).toBeInTheDocument();
+      expect(screen.getByText('Generated Query')).toBeInTheDocument();
+      expect(screen.getByText('Results')).toBeInTheDocument();
+
+      // Click on the 'Validate' tab
+      fireEvent.click(screen.getByRole('button', { name: '► Validate' }));
+      expect(djClient.DataJunctionAPI.node).toHaveBeenCalledWith(
+        mocks.mockMetricNode.name,
+      );
       expect(djClient.DataJunctionAPI.sql).toHaveBeenCalledWith(
-        'default.num_repair_orders',
+        mocks.mockMetricNode.name,
         { dimensions: [], filters: [] },
       );
+      expect(djClient.DataJunctionAPI.nodeDimensions).toHaveBeenCalledWith(
+        mocks.mockMetricNode.name,
+      );
+
+      // Click on 'Run' to run the node query
+      const runButton = screen.getByText('► Run');
+      fireEvent.click(runButton);
+
+      expect(djClient.DataJunctionAPI.streamNodeData).toHaveBeenCalledWith(
+        mocks.mockMetricNode.name,
+        { dimensions: [], filters: [] },
+      );
+      expect(streamNodeData.onmessage).toBeDefined();
+      expect(streamNodeData.onerror).toBeDefined();
+
+      const infoTab = screen.getByRole('button', { name: 'QueryInfo' });
+      const resultsTab = screen.getByText('Results');
+
+      // Initially, the Results tab should be active
+      expect(resultsTab).toHaveClass('active');
+      expect(infoTab).not.toHaveClass('active');
+
+      // Click on the Info tab first
+      fireEvent.click(infoTab);
+
+      // Now, the Info tab should be active
+      expect(infoTab).toHaveClass('active');
+      expect(resultsTab).not.toHaveClass('active');
+
+      // Click on the Results tab
+      fireEvent.click(resultsTab);
+
+      // Now, the Results tab should be active again
+      expect(resultsTab).toHaveClass('active');
+      expect(infoTab).not.toHaveClass('active');
     });
   });
 

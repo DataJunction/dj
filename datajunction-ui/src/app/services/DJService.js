@@ -363,13 +363,18 @@ export const DataJunctionAPI = {
   },
 
   sql: async function (metric_name, selection) {
+    const params = new URLSearchParams(selection);
+    for (const [key, value] of Object.entries(selection)) {
+      if (Array.isArray(value)) {
+        params.delete(key);
+        value.forEach(v => params.append(key, v));
+      }
+    }
+
     return await (
-      await fetch(
-        `${DJ_URL}/sql/${metric_name}?` + new URLSearchParams(selection),
-        {
-          credentials: 'include',
-        },
-      )
+      await fetch(`${DJ_URL}/sql/${metric_name}?${params}`, {
+        credentials: 'include',
+      })
     ).json();
   },
 
@@ -432,6 +437,31 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  nodeData: async function (nodeName, selection = null) {
+    if (selection === null) {
+      selection = {
+        dimensions: [],
+        filters: [],
+      };
+    }
+    const params = new URLSearchParams(selection);
+    for (const [key, value] of Object.entries(selection)) {
+      if (Array.isArray(value)) {
+        params.delete(key);
+        value.forEach(v => params.append(key, v));
+      }
+    }
+    params.append('limit', '1000');
+    params.append('async_', 'true');
+
+    return await (
+      await fetch(`${DJ_URL}/data/${nodeName}?${params}`, {
+        credentials: 'include',
+        headers: { 'Cache-Control': 'max-age=86400' },
+      })
+    ).json();
+  },
+
   stream: async function (metricSelection, dimensionSelection, filters) {
     const params = new URLSearchParams();
     metricSelection.map(metric => params.append('metrics', metric));
@@ -443,6 +473,28 @@ export const DataJunctionAPI = {
         withCredentials: true,
       },
     );
+  },
+
+  streamNodeData: async function (nodeName, selection = null) {
+    if (selection === null) {
+      selection = {
+        dimensions: [],
+        filters: [],
+      };
+    }
+    const params = new URLSearchParams(selection);
+    for (const [key, value] of Object.entries(selection)) {
+      if (Array.isArray(value)) {
+        params.delete(key);
+        value.forEach(v => params.append(key, v));
+      }
+    }
+    params.append('limit', '1000');
+    params.append('async_', 'true');
+
+    return new EventSource(`${DJ_URL}/stream/${nodeName}?${params}`, {
+      withCredentials: true,
+    });
   },
 
   lineage: async function (node) {},
@@ -815,7 +867,6 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
   deleteMaterialization: async function (nodeName, materializationName) {
-    console.log('deleting materialization', nodeName, materializationName);
     const response = await fetch(
       `${DJ_URL}/nodes/${nodeName}/materializations?materialization_name=${materializationName}`,
       {
