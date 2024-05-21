@@ -159,6 +159,8 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
         DateTime(timezone=True),
         default=partial(datetime.now, timezone.utc),
     )
+    # External identifier for the query
+    query_id: Mapped[Optional[str]]
 
     @classmethod
     async def get_query_request(
@@ -220,7 +222,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
         query: str,
         columns: List[Dict[str, Any]],
         other_args: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> "QueryRequest":
         """
         Retrieves saved query for a node SQL request
         """
@@ -266,6 +268,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
             )
             session.add(query_request)
             await session.commit()
+        return query_request
 
     @classmethod
     async def to_versioned_query_request(  # pylint: disable=too-many-locals

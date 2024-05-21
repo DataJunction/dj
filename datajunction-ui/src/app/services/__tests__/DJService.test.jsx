@@ -605,6 +605,50 @@ describe('DataJunctionAPI', () => {
     );
   });
 
+  it('calls streamNodeData correctly', () => {
+    const nodes = ['transform1'];
+    const dimensionSelection = ['dimension1', 'dimension2'];
+    const filters = 'sampleFilter';
+
+    DataJunctionAPI.streamNodeData(nodes[0], {
+      dimensions: dimensionSelection,
+      filters: filters,
+    });
+
+    const params = new URLSearchParams();
+    params.append('dimensions', dimensionSelection, 'filters', filters);
+
+    expect(global.EventSource).toHaveBeenCalledWith(
+      `${DJ_URL}/stream/transform1?filters=sampleFilter&dimensions=dimension1&dimensions=dimension2&limit=1000&async_=true`,
+      { withCredentials: true },
+    );
+  });
+
+  it('calls nodeData correctly', () => {
+    const nodes = ['transform1'];
+    const dimensionSelection = ['dimension1', 'dimension2'];
+    const filters = 'sampleFilter';
+    fetch.mockResponseOnce(JSON.stringify({}));
+
+    DataJunctionAPI.nodeData(nodes[0], {
+      dimensions: dimensionSelection,
+      filters: filters,
+    });
+
+    const params = new URLSearchParams();
+    params.append('dimensions', dimensionSelection, 'filters', filters);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/data/transform1?filters=sampleFilter&dimensions=dimension1&dimensions=dimension2&limit=1000&async_=true`,
+      {
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'max-age=86400',
+        },
+      },
+    );
+  });
+
   it('calls dag correctly and processes response', async () => {
     const mockResponse = [
       {
@@ -1013,6 +1057,24 @@ describe('DataJunctionAPI', () => {
       {
         credentials: 'include',
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+  });
+
+  it('calls deleteMaterialization correctly', () => {
+    const nodeName = 'transform1';
+    const materializationName = 'sampleMaterialization';
+    fetch.mockResponseOnce(JSON.stringify({}));
+
+    DataJunctionAPI.deleteMaterialization(nodeName, materializationName);
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/${nodeName}/materializations?materialization_name=${materializationName}`,
+      {
+        method: 'DELETE',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },

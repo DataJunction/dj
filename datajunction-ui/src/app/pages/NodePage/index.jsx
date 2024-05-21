@@ -8,7 +8,7 @@ import NodeColumnTab from './NodeColumnTab';
 import NodeLineage from './NodeGraphTab';
 import NodeHistory from './NodeHistory';
 import DJClientContext from '../../providers/djclient';
-import NodeSQLTab from './NodeSQLTab';
+import NodeValidateTab from './NodeValidateTab';
 import NodeMaterializationTab from './NodeMaterializationTab';
 import ClientCodePopover from './ClientCodePopover';
 import NodesWithDimension from './NodesWithDimension';
@@ -92,9 +92,9 @@ export function NodePage() {
         display: true,
       },
       {
-        id: 'sql',
-        name: 'SQL',
-        display: node?.type !== 'dimension' && node?.type !== 'source',
+        id: 'validate',
+        name: '► Validate',
+        display: node?.type !== 'source',
       },
       {
         id: 'materializations',
@@ -134,9 +134,8 @@ export function NodePage() {
     case 'history':
       tabToDisplay = <NodeHistory node={node} djClient={djClient} />;
       break;
-    case 'sql':
-      tabToDisplay =
-        node?.type === 'metric' ? <NodeSQLTab djNode={node} /> : <br />;
+    case 'validate':
+      tabToDisplay = <NodeValidateTab node={node} djClient={djClient} />;
       break;
     case 'materializations':
       tabToDisplay = <NodeMaterializationTab node={node} djClient={djClient} />;

@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from datajunction_server.api.main import app
+from datajunction_server.database import QueryRequest
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
 from datajunction_server.models.node import AvailabilityStateBase
@@ -552,10 +554,13 @@ class TestDataForNode:
     @pytest.mark.asyncio
     async def test_stream_multiple_metrics_and_dimensions_data(
         self,
+        session: AsyncSession,
         client_with_query_service_example_loader,
     ) -> None:
         """
-        Test streaming query status for multiple metrics and dimensions
+        Test streaming query status for
+        (a) multiple metrics and dimensions and
+        (b) node data
         """
         custom_client = await client_with_query_service_example_loader(["ROADS"])
         async with custom_client.stream(
@@ -567,6 +572,64 @@ class TestDataForNode:
             },
         ) as response:
             assert response.status_code == 200
+            full_text = "".join([text async for text in response.aiter_text()])
+            assert "event: message" in full_text
+            assert "avg(repair_order_details.price)" in full_text
+
+        # Test streaming of node data for a metric
+        async with custom_client.stream(
+            "GET",
+            "/stream/default.num_repair_orders?dimensions=default.dispatcher.company_name&limit=10",
+            headers={
+                "Accept": "text/event-stream",
+            },
+        ) as response:
+            assert response.status_code == 200
+            full_text = "".join([text async for text in response.aiter_text()])
+            assert "event: message" in full_text
+            assert "count(default_DOT_repair_orders_fact.repair_order_id)" in full_text
+
+        # Test streaming of node data for a transform
+        async with custom_client.stream(
+            "GET",
+            "/stream/default.repair_orders_fact?"
+            "dimensions=default.dispatcher.company_name&limit=10",
+            headers={
+                "Accept": "text/event-stream",
+            },
+        ) as response:
+            assert response.status_code == 200
+            full_text = "\n".join([text async for text in response.aiter_lines()])
+            assert "event: message" in full_text
+            assert "SELECT  default_DOT_repair_orders_fact.repair_order_id" in full_text
+
+        # Check that the query request for the above transform has an external query id saved
+        query_request = await QueryRequest.get_query_request(
+            session=session,
+            query_type=QueryBuildType.NODE,
+            nodes=["default.repair_orders_fact"],
+            dimensions=["default.dispatcher.company_name"],
+            engine_name=None,
+            engine_version=None,
+            filters=[],
+            limit=10,
+            orderby=[],
+        )
+        assert query_request.query_id == "bd98d6be-e2d2-413e-94c7-96d9411ddee2"  # type: ignore
+
+        # Hit the same SSE stream again
+        async with custom_client.stream(
+            "GET",
+            "/stream/default.repair_orders_fact?"
+            "dimensions=default.dispatcher.company_name&limit=10",
+            headers={
+                "Accept": "text/event-stream",
+            },
+        ) as response:
+            assert response.status_code == 200
+            full_text = "\n".join([text async for text in response.aiter_lines()])
+            assert "event: message" in full_text
+            assert "SELECT  default_DOT_repair_orders_fact.repair_order_id" in full_text
 
     @pytest.mark.asyncio
     async def test_get_data_for_query_id(
