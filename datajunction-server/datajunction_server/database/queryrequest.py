@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
 from typing import Any, Dict, List, Optional
+from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     and_,
     select,
     text,
+    ForeignKey,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +32,8 @@ from datajunction_server.sql.dag import (
 )
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.typing import UTCDatetime
+from datajunction_server.sql.parsing.types import UUIDType
+from datajunction_server.typing import UTCDatetime, QueryState
 
 
 class QueryBuildType(StrEnum):
@@ -159,6 +162,8 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
         DateTime(timezone=True),
         default=partial(datetime.now, timezone.utc),
     )
+    # External identifier for the query
+    query_id: Mapped[Optional[str]]
 
     @classmethod
     async def get_query_request(
