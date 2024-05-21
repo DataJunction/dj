@@ -15,7 +15,7 @@ from datajunction_server.api.helpers import (
     build_sql_for_multiple_metrics,
     query_event_stream,
 )
-from datajunction_server.api.sql import get_sql
+from datajunction_server.api.sql import get_sql, get_node_sql
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.node import Node, NodeRevision
@@ -221,10 +221,104 @@ async def get_data(  # pylint: disable=too-many-locals
         query_create,
         headers={"Cache-Control": cache_control},
     )
+    query_request.query_id = result.id
+
     # Inject column info if there are results
     if result.results.__root__:  # pragma: no cover
         result.results.__root__[0].columns = query.columns
     return result
+
+
+@router.get("/stream/{node_name}", response_model=QueryWithResults)
+async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
+    node_name: str,
+    *,
+    dimensions: List[str] = Query([], description="Dimensional attributes to group by"),
+    filters: List[str] = Query([], description="Filters on dimensional attributes"),
+    orderby: List[str] = Query([], description="Expression to order by"),
+    limit: Optional[int] = Query(
+        None,
+        description="Number of rows to limit the data retrieved to",
+    ),
+    cache_control: Annotated[str, Header()] = "",
+    session: AsyncSession = Depends(get_session),
+    request: Request,
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
+) -> QueryWithResults:
+    """
+    Return data for a set of metrics with dimensions and filters using server side events
+    """
+    query, query_request = await get_node_sql(
+        node_name,
+        dimensions,
+        filters,
+        orderby,
+        limit,
+        session=session,
+        engine_name=engine_name,
+        engine_version=engine_version,
+        current_user=current_user,
+        validate_access=validate_access,
+    )
+    if query_request.query_id:
+        return EventSourceResponse(
+            query_event_stream(
+                query=QueryWithResults(
+                    id=query_request.query_id,
+                    submitted_query=query_request.query,
+                    results=[],
+                    errors=[],
+                ),
+                query_service_client=query_service_client,
+                columns=query.columns,  # type: ignore
+                request=request,
+            ),
+        )
+
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
+    available_engines = node.current.catalog.engines  # type: ignore
+    engine = (
+        await get_engine(session, engine_name, engine_version)  # type: ignore
+        if engine_name
+        else available_engines[0]
+    )
+    if engine not in available_engines:
+        raise DJInvalidInputException(  # pragma: no cover
+            f"The selected engine is not available for the node {node_name}. "
+            f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
+        )
+
+    query_create = QueryCreate(
+        engine_name=engine.name,
+        catalog_name=node.current.catalog.name,  # type: ignore
+        engine_version=engine.version,
+        submitted_query=query.sql,
+        async_=True,
+    )
+    initial_query_info = query_service_client.submit_query(
+        query_create,
+        headers={"Cache-Control": cache_control or "max-age=86400"},
+    )
+
+    # Save the external query id reference
+    query_request.query_id = initial_query_info.id
+    session.add(query_request)
+    await session.commit()
+
+    return EventSourceResponse(
+        query_event_stream(
+            query=initial_query_info,
+            query_service_client=query_service_client,
+            columns=query.columns,  # type: ignore
+            request=request,
+        ),
+    )
 
 
 @router.get(
