@@ -247,7 +247,7 @@ exports[`<NodePage /> renders the NodeMaterialization tab with materializations 
                       <div
                         class="cm-line"
                       >
-                            "spark.executor.memory":
+                            "spark.executor.memory": 
                         <span
                           class="ͼe"
                         >
@@ -258,7 +258,7 @@ exports[`<NodePage /> renders the NodeMaterialization tab with materializations 
                       <div
                         class="cm-line"
                       >
-                            "spark.memory.fraction":
+                            "spark.memory.fraction": 
                         <span
                           class="ͼe"
                         >
@@ -285,7 +285,7 @@ exports[`<NodePage /> renders the NodeMaterialization tab with materializations 
               </div>
             </div>
           </details>
-
+           
         </div>
         <button
           aria-hidden="false"

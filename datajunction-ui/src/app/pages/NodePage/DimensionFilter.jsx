@@ -2,17 +2,17 @@ import { useContext, useEffect, useState } from 'react';
 import * as React from 'react';
 import DJClientContext from '../../providers/djclient';
 import CreatableSelect from 'react-select/creatable';
-import { Field } from 'formik';
-import EditIcon from '../../icons/EditIcon';
 
 export default function DimensionFilter({ dimension, onChange }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [dimensionValues, setDimensionValues] = useState([]);
-  const [selected, setSelected] = useState([]);
 
   useEffect(() => {
     const fetchData = async () => {
       const dimensionNode = await djClient.node(dimension.metadata.node_name);
+
+      // Only include the primary keys as filterable dimensions for now, until we figure out how
+      // to build a manageable UI experience around all dimensional attributes
       if (dimensionNode && dimensionNode.type === 'dimension') {
         const primaryKey =
           dimensionNode.name +
@@ -32,7 +32,16 @@ export default function DimensionFilter({ dimension, onChange }) {
               col.attributes.some(attr => attr.attribute_type.name === 'label'),
             )
             .map(col => col.name);
-        const data = { results: [] }; //await djClient.nodeData(dimension.metadata.node_name);
+
+        // TODO: we're disabling this for now because it's unclear how performant the dimensions node
+        // data endpoints are. To re-enable, uncomment the following line:
+        // const data = await djClient.nodeData(dimension.metadata.node_name);
+        const data = { results: [] };
+
+        // TODO: when the above is enabled, this will use each dimension node's 'Label' column
+        // to build the display label for the dropdown, while continuing to pass the primary
+        // key in for filtering
+        /* istanbul ignore if */
         if (dimensionNode && data.results && data.results.length > 0) {
           const columnNames = data.results[0].columns.map(
             column => column.semantic_entity,
@@ -51,7 +60,6 @@ export default function DimensionFilter({ dimension, onChange }) {
             });
             return rowData;
           });
-          console.log('dimensionValues', dimValues);
           setDimensionValues(dimValues);
         }
       }
@@ -60,36 +68,20 @@ export default function DimensionFilter({ dimension, onChange }) {
   }, [dimension.metadata.node_name, djClient]);
 
   return (
-    <div>
+    <div key={dimension.metadata.node_name}>
       {dimension.label.split('[').slice(0)[0]} (
       {
         <a href={`/nodes/${dimension.metadata.node_name}`}>
           {dimension.metadata.node_display_name}
         </a>
       }
-      ){/*<code className="DimensionAttribute">{dimension.value}</code>*/}
-      {/*{*/}
-      {/*  <div className="tooltip">*/}
-      {/*    <EditIcon />*/}
-      {/*    <span className="tooltiptext">*/}
-      {/*      <code className="DimensionAttribute">*/}
-      {/*      {dimension.value}*/}
-      {/*      </code>*/}
-      {/*      comes from the dimension link on{' '}*/}
-      {/*      {dimension.metadata.path.map(path => {*/}
-      {/*        return <a href={`/nodes/${path}`}>{path}</a>;*/}
-      {/*      })}*/}
-      {/*      /!*{console.log('metadata', dimension.metadata)}*!/*/}
-      {/*    </span>*/}
-      {/*  </div>*/}
-      {/*}*/}
+      )
       <CreatableSelect
         name="dimensions"
         options={dimensionValues}
         isMulti
         isClearable
         onChange={event => {
-          setSelected(event);
           onChange({
             dimension: dimension.value,
             values: event,

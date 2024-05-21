@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
 from typing import Any, Dict, List, Optional
-from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
@@ -14,7 +13,6 @@ from sqlalchemy import (
     and_,
     select,
     text,
-    ForeignKey,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,8 +30,7 @@ from datajunction_server.sql.dag import (
 )
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.sql.parsing.types import UUIDType
-from datajunction_server.typing import UTCDatetime, QueryState
+from datajunction_server.typing import UTCDatetime
 
 
 class QueryBuildType(StrEnum):
@@ -225,7 +222,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
         query: str,
         columns: List[Dict[str, Any]],
         other_args: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> "QueryRequest":
         """
         Retrieves saved query for a node SQL request
         """
@@ -271,6 +268,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
             )
             session.add(query_request)
             await session.commit()
+        return query_request
 
     @classmethod
     async def to_versioned_query_request(  # pylint: disable=too-many-locals

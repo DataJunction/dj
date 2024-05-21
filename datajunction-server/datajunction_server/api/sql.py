@@ -108,7 +108,7 @@ async def get_measures_sql_for_cube(
     return measures_query
 
 
-async def get_node_sql(
+async def get_node_sql(  # pylint: disable=too-many-locals
     node_name: str,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
@@ -119,7 +119,7 @@ async def get_node_sql(
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User],
-    validate_access: access.ValidateAccessFn,
+    validate_access: access.ValidateAccessFn,  # pylint: disable=redefined-outer-name
 ) -> Tuple[TranslatedSQL, QueryRequest]:
     """
     Return SQL for a node.
@@ -149,11 +149,14 @@ async def get_node_sql(
         engine_version=engine.version if engine else None,
         query_type=QueryBuildType.NODE,
     ):
-        return TranslatedSQL(
-            sql=query_request.query,
-            columns=query_request.columns,
-            dialect=engine.dialect if engine else None,
-        ), query_request
+        return (
+            TranslatedSQL(
+                sql=query_request.query,
+                columns=query_request.columns,
+                dialect=engine.dialect if engine else None,
+            ),
+            query_request,
+        )
 
     query_ast = await get_query(
         session=session,
@@ -170,7 +173,7 @@ async def get_node_sql(
         for col in query_ast.select.projection
     ]
     query = str(query_ast)
-    await QueryRequest.save_query_request(
+    query_request = await QueryRequest.save_query_request(
         session=session,
         nodes=[node_name],
         dimensions=dimensions,
@@ -183,11 +186,14 @@ async def get_node_sql(
         query=query,
         columns=[col.dict() for col in columns],
     )
-    return TranslatedSQL(
-        sql=query,
-        columns=columns,
-        dialect=engine.dialect if engine else None,
-    ), query_request
+    return (
+        TranslatedSQL(
+            sql=query,
+            columns=columns,
+            dialect=engine.dialect if engine else None,
+        ),
+        query_request,
+    )
 
 
 @router.get(
@@ -213,9 +219,16 @@ async def get_sql(  # pylint: disable=too-many-locals
     """
     Return SQL for a node.
     """
-    translated_sql, query_request = await get_node_sql(
-        node_name, dimensions, filters, orderby, limit,
-        session=session, engine_name=engine_name, engine_version=engine_version, current_user=current_user,
+    translated_sql, _ = await get_node_sql(
+        node_name,
+        dimensions,
+        filters,
+        orderby,
+        limit,
+        session=session,
+        engine_name=engine_name,
+        engine_version=engine_version,
+        current_user=current_user,
         validate_access=validate_access,
     )
     return translated_sql

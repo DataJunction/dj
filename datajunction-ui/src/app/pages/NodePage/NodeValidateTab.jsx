@@ -8,70 +8,50 @@ import DimensionFilter from './DimensionFilter';
 import QueryInfo from '../../components/QueryInfo';
 import LoadingIcon from '../../icons/LoadingIcon';
 
-export default function NodeSQLTab({ node, djClient }) {
+export default function NodeValidateTab({ node, djClient }) {
   const [query, setQuery] = useState('');
   const [lookup, setLookup] = useState([]);
+  const [running, setRunning] = useState(false);
 
+  // These are a list of dimensions that are available for this node
   const [dimensions, setDimensions] = useState([]);
-  const [selectedDimensions, setSelectedDimensions] = useState([]);
+
+  // A separate structure used to store the selected dimensions to filter by and their values
   const [selectedFilters, setSelectedFilters] = useState({});
 
+  // The set of dimensions and filters to pass to the /sql or /data endpoints for the node
   const [selection, setSelection] = useState({
     dimensions: [],
     filters: [],
   });
 
-  const [queryInfo, setQueryInfo] = useState({});
-  const [data, setData] = useState(null);
-  const [displayedRows, setDisplayedRows] = useState(<></>);
+  // Any query result info retrieved when a node query is run
+  const [queryInfo, setQueryInfo] = useState(null);
 
-  // Set number of rows to display
-  useEffect(() => {
-    if (data) {
-      setDisplayedRows(
-        data[0]?.rows.slice(0, 100).map((rowData, index) => (
-          <tr key={`data-row:${index}`}>
-            {rowData.map(rowValue => (
-              <td key={rowValue}>{rowValue}</td>
-            ))}
-          </tr>
-        )),
-      );
-    }
-  }, [data]);
+  const initialValues = {};
 
-  // Get data for the current selection of metrics and dimensions
-  const getData = () => {
-    // setLoadingData(true);
-    setQueryInfo({});
-    const fetchData = async () => {
-      const response = await djClient.nodeData(node.name, selection);
-      setQueryInfo(response);
-      console.log('respon!!!', response);
-      if (response.results) {
-        // setLoadingData(false);
-        setData(response.results);
-        response.numRows = response.results?.length
-          ? response.results[0].rows.length
-          : [];
-        // setViewData(true);
-        // setShowNumRows(DEFAULT_NUM_ROWS);
-      }
-    };
-    fetchData().catch(console.error);
+  const [state, setState] = useState({
+    selectedTab: 'results',
+  });
+
+  const switchTab = tabName => {
+    setState({ selectedTab: tabName });
   };
 
   useEffect(() => {
     const fetchData = async () => {
       if (node) {
+        // Find all the dimensions for this node
         const dimensions = await djClient.nodeDimensions(node.name);
 
+        // Create a dimensions lookup object
         const lookup = {};
         dimensions.forEach(dimension => {
           lookup[dimension.name] = dimension;
         });
         setLookup(lookup);
 
+        // Group the dimensions by dimension node
         const grouped = Object.entries(
           dimensions.reduce((group, dimension) => {
             group[dimension.node_name + dimension.path] =
@@ -82,7 +62,7 @@ export default function NodeSQLTab({ node, djClient }) {
         );
         setDimensions(grouped);
 
-        console.log('selection', selection);
+        // Build the query for this node based on the user-provided dimensions and filters
         const query = await djClient.sql(node.name, selection);
         setQuery(query.sql);
       }
@@ -107,30 +87,36 @@ export default function NodeSQLTab({ node, djClient }) {
       });
   });
 
-  const runQuery = async (values, setStatus) => {
-    const response = await djClient.nodeData(node.name, selection);
-    setQueryInfo(response);
-    console.log('respon!!!', response);
-    if (response.results) {
-      // setLoadingData(false);
-      setData(response.results);
-      response.numRows = response.results?.length
-        ? response.results[0].rows.length
-        : [];
-      // setViewData(true);
-      // setShowNumRows(DEFAULT_NUM_ROWS);
-    }
+  // Run the query and use SSE to stream the status of the query execution results
+  const runQuery = async (values, setStatus, setSubmitting) => {
+    setRunning(true);
+    const sse = await djClient.streamNodeData(node?.name, selection);
+    sse.onmessage = e => {
+      const messageData = JSON.parse(JSON.parse(e.data));
+      if (messageData.results && messageData.results?.length > 0) {
+        messageData.numRows = messageData.results?.length
+          ? messageData.results[0].rows.length
+          : [];
+        switchTab('results');
+      } else {
+        switchTab('info');
+      }
+      setQueryInfo(messageData);
+    };
+    sse.onerror = () => sse.close();
+    setRunning(false);
   };
 
+  // Handle form submission (runs the query)
   const handleSubmit = async (values, { setSubmitting, setStatus }) => {
-    await runQuery(values, setStatus).then(_ => {
+    await runQuery(values, setStatus, setSubmitting).then(_ => {
       window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
       setSubmitting(false);
     });
   };
 
-  const handleChange = event => {
-    // handle filters change
+  // Handle when filter values are updated. This is available for all nodes.
+  const handleAddFilters = event => {
     const updatedFilters = selectedFilters;
     if (event.dimension in updatedFilters) {
       updatedFilters[event.dimension].operator = event.operator;
@@ -161,6 +147,18 @@ export default function NodeSQLTab({ node, djClient }) {
     });
   };
 
+  // Handle when one or more dimensions are selected from the dropdown
+  // Note that this is only available to metrics
+  const handleAddDimensions = event => {
+    const updatedDimensions = event.map(
+      selectedDimension => selectedDimension.value,
+    );
+    setSelection({
+      filters: selection.filters,
+      dimensions: updatedDimensions,
+    });
+  };
+
   const filters = dimensions.map(grouping => {
     const dimensionsInGroup = grouping[1];
     const dimensionGroupOptions = dimensionsInGroup
@@ -177,7 +175,10 @@ export default function NodeSQLTab({ node, djClient }) {
         <div className="dimensionsList">
           {dimensionGroupOptions.map(dimension => {
             return (
-              <DimensionFilter dimension={dimension} onChange={handleChange} />
+              <DimensionFilter
+                dimension={dimension}
+                onChange={handleAddFilters}
+              />
             );
           })}
         </div>
@@ -185,42 +186,11 @@ export default function NodeSQLTab({ node, djClient }) {
     );
   });
 
-  const initialValues = {};
-
-  const [state, setState] = useState({
-    selectedTab: 'results',
-  });
-
-  const switchTab = (event, tabName) => {
-    setState({ selectedTab: tabName });
-  };
-
   return (
-    // <form
-    //   id="retrieve-sql"
-    //   name="retrieve-sql"
-    //   onSubmit={handleSubmit.bind(this)}
-    // >
-
-    <Formik
-      initialValues={initialValues}
-      // validate={validator}
-      onSubmit={handleSubmit}
-    >
+    <Formik initialValues={initialValues} onSubmit={handleSubmit}>
       {function Render({ isSubmitting, status, setFieldValue }) {
         return (
           <Form>
-            {/*<h2 style={{ display: 'inline-flex', paddingRight: '20px' }}>*/}
-            {/*  Test Query*/}
-            {/*</h2>*/}
-
-            {/*<button*/}
-            {/*  type="submit"*/}
-            {/*  disabled={isSubmitting}*/}
-            {/*  className="button-3 execute-button"*/}
-            {/*>*/}
-            {/*  {isSubmitting ? <LoadingIcon /> : 'ⓘ Explain'}*/}
-            {/*</button>*/}
             <div className={'queryrunner'}>
               <div className="queryrunner-filters left">
                 {node?.type === 'metric' ? (
@@ -233,7 +203,7 @@ export default function NodeSQLTab({ node, djClient }) {
                       options={dimensionsList}
                       isMulti
                       isClearable
-                      onChange={handleChange}
+                      onChange={handleAddDimensions}
                     />
                     <br />
                   </>
@@ -244,7 +214,6 @@ export default function NodeSQLTab({ node, djClient }) {
                 {filters}
               </div>
               <div className={'righttop'}>
-                {/*<h6 className="mb-0 w-100">Query</h6>*/}
                 <label>Generated Query</label>
                 <div
                   style={{
@@ -256,17 +225,35 @@ export default function NodeSQLTab({ node, djClient }) {
                   }}
                   className="queryrunner-query"
                 >
-                  <SyntaxHighlighter language="sql" style={foundation}>
+                  <SyntaxHighlighter
+                    language="sql"
+                    style={foundation}
+                    wrapLines={true}
+                  >
                     {query}
                   </SyntaxHighlighter>
                 </div>
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={
+                    running ||
+                    (queryInfo !== null &&
+                      queryInfo?.state !== 'FINISHED' &&
+                      queryInfo?.state !== 'CANCELED' &&
+                      queryInfo?.state !== 'FAILED')
+                  }
                   className="button-3 execute-button"
                   style={{ marginTop: '1rem' }}
                 >
-                  {isSubmitting ? <LoadingIcon /> : '► Run'}
+                  {running ||
+                  (queryInfo !== null &&
+                    queryInfo?.state !== 'FINISHED' &&
+                    queryInfo?.state !== 'CANCELED' &&
+                    queryInfo?.state !== 'FAILED') ? (
+                    <LoadingIcon />
+                  ) : (
+                    '► Run'
+                  )}
                 </button>
               </div>
               <div
@@ -290,7 +277,7 @@ export default function NodeSQLTab({ node, djClient }) {
                       'tab-item' +
                       (state.selectedTab === 'results' ? ' active' : '')
                     }
-                    onClick={ev => switchTab(ev, 'results')}
+                    onClick={_ => switchTab('results')}
                   >
                     Results
                   </div>
@@ -299,7 +286,9 @@ export default function NodeSQLTab({ node, djClient }) {
                       'tab-item' +
                       (state.selectedTab === 'info' ? ' active' : '')
                     }
-                    onClick={ev => switchTab(ev, 'info')}
+                    aria-label={'QueryInfo'}
+                    role={'button'}
+                    onClick={_ => switchTab('info')}
                   >
                     Info
                   </div>
@@ -315,7 +304,20 @@ export default function NodeSQLTab({ node, djClient }) {
                 ) : null}
                 {state.selectedTab === 'results' ? (
                   <div>
-                    {data ? (
+                    {queryInfo !== null && queryInfo.state !== 'FINISHED' ? (
+                      <div style={{ padding: '2rem' }}>
+                        The query has status {queryInfo.state}! Check the INFO
+                        tab for more details.
+                      </div>
+                    ) : queryInfo !== null &&
+                      queryInfo.results !== null &&
+                      queryInfo.results.length === 0 ? (
+                      <div style={{ padding: '2rem' }}>
+                        The query finished but output no results.
+                      </div>
+                    ) : queryInfo !== null &&
+                      queryInfo.results !== null &&
+                      queryInfo.results.length > 0 ? (
                       <div
                         className="table-responsive"
                         style={{
@@ -331,24 +333,35 @@ export default function NodeSQLTab({ node, djClient }) {
                         >
                           <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
                             <tr>
-                              {data[0]?.columns.map(columnName => (
+                              {queryInfo.results[0]?.columns.map(columnName => (
                                 <th key={columnName.name}>
                                   {columnName.column}
                                 </th>
                               ))}
                             </tr>
                           </thead>
-                          <tbody>{displayedRows}</tbody>
+                          <tbody>
+                            {queryInfo.results[0]?.rows
+                              .slice(0, 100)
+                              .map((rowData, index) => (
+                                <tr key={`data-row:${index}`}>
+                                  {rowData.map(rowValue => (
+                                    <td key={rowValue}>{rowValue}</td>
+                                  ))}
+                                </tr>
+                              ))}
+                          </tbody>
                         </table>
                       </div>
                     ) : (
-                      <></>
+                      <div style={{ padding: '2rem' }}>
+                        Click "Run" to execute the query.
+                      </div>
                     )}
                   </div>
                 ) : null}
               </div>
             </div>
-            {/*</form>*/}
           </Form>
         );
       }}

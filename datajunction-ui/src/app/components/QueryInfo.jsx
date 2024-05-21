@@ -1,3 +1,7 @@
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { solarizedDark } from 'react-syntax-highlighter/src/styles/hljs';
+import React from 'react';
+
 export default function QueryInfo({
   id,
   state,
@@ -8,6 +12,7 @@ export default function QueryInfo({
   output_table,
   scheduled,
   started,
+  finished,
   numRows,
   isList = false,
 }) {
@@ -78,35 +83,64 @@ export default function QueryInfo({
     <div className="rightbottom">
       <ul style={{ padding: '20px' }}>
         <li className={'query-info'}>
-          <label>Query ID:</label>{' '}
-          <span className="rounded-pill badge bg-secondary-soft">{id}</span>
+          <label>Query ID</label>{' '}
+          <span className="tag_value rounded-pill badge">
+            {links?.length ? (
+              <a
+                href={links[links.length - 1]}
+                target={'_blank'}
+                rel="noreferrer"
+              >
+                {id}
+              </a>
+            ) : (
+              id
+            )}
+          </span>
         </li>
         <li className={'query-info'}>
-          <label>Engine:</label>{' '}
-          <span className="rounded-pill badge bg-secondary-soft">
+          <label>State</label>
+          <span className="tag_value rounded-pill badge">{state}</span>
+        </li>
+        <li className={'query-info'}>
+          <label>Engine</label>{' '}
+          <span className="tag_value rounded-pill badge">
             {engine_name}
             {' - '}
             {engine_version}
           </span>
         </li>
         <li className={'query-info'}>
-          <label>State:</label> {state}
+          <label>Scheduled</label> {scheduled}
         </li>
         <li className={'query-info'}>
-          <label>Scheduled:</label> {scheduled}
+          <label>Started</label> {started}
         </li>
         <li className={'query-info'}>
-          <label>Started:</label> {started}
+          <label>Finished</label> {finished}
         </li>
         <li className={'query-info'}>
-          <label>Errors:</label>{' '}
+          <label>Logs</label>{' '}
           {errors?.length ? (
-            errors.map((e, idx) => (
-              <p key={`error-${idx}`}>
-                <span className="rounded-pill badge bg-secondary-error">
-                  {e}
-                </span>
-              </p>
+            errors.map(error => (
+              <div
+                style={{
+                  height: '800px',
+                  width: '80%',
+                  overflow: 'scroll',
+                  borderRadius: '0',
+                  border: '1px solid #ccc',
+                }}
+                className="queryrunner-query"
+              >
+                <SyntaxHighlighter
+                  language="javascript"
+                  style={solarizedDark}
+                  wrapLines={true}
+                >
+                  {error}
+                </SyntaxHighlighter>
+              </div>
             ))
           ) : (
             <></>
