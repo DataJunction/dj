@@ -51,6 +51,7 @@ button.nav-link {
   font: inherit;
   cursor: pointer;
   outline: inherit;
+  width: max-content;
 }
 code {
   font-family: Consolas, source-code-pro, Menlo, Monaco, Consolas, 'Courier New',

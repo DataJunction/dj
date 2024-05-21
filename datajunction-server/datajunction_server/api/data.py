@@ -15,7 +15,7 @@ from datajunction_server.api.helpers import (
     build_sql_for_multiple_metrics,
     query_event_stream,
 )
-from datajunction_server.api.sql import get_sql, get_node_sql
+from datajunction_server.api.sql import get_node_sql
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.node import Node, NodeRevision
@@ -185,7 +185,7 @@ async def get_data(  # pylint: disable=too-many-locals
     """
     Gets data for a node
     """
-    query = await get_sql(
+    query, query_request = await get_node_sql(
         node_name,
         dimensions,
         filters,
@@ -225,7 +225,7 @@ async def get_data(  # pylint: disable=too-many-locals
 
     # Inject column info if there are results
     if result.results.__root__:  # pragma: no cover
-        result.results.__root__[0].columns = query.columns
+        result.results.__root__[0].columns = query.columns  # type: ignore
     return result
 
 
@@ -252,7 +252,7 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
     ),
 ) -> QueryWithResults:
     """
-    Return data for a set of metrics with dimensions and filters using server side events
+    Return data for a node using server side events
     """
     query, query_request = await get_node_sql(
         node_name,
@@ -266,7 +266,7 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
         current_user=current_user,
         validate_access=validate_access,
     )
-    if query_request.query_id:
+    if query_request and query_request.query_id:
         return EventSourceResponse(
             query_event_stream(
                 query=QueryWithResults(

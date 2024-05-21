@@ -962,6 +962,9 @@ export const mocks = {
     dimensions: [
       {
         name: 'default.date_dim.dateint',
+        node_name: 'default.date_dim',
+        node_display_name: 'Date Dim',
+        is_primary_key: true,
         type: 'timestamp',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -971,6 +974,9 @@ export const mocks = {
       },
       {
         name: 'default.date_dim.dateint',
+        node_name: 'default.date_dim',
+        node_display_name: 'Date Dim',
+        is_primary_key: true,
         type: 'timestamp',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -980,6 +986,9 @@ export const mocks = {
       },
       {
         name: 'default.date_dim.day',
+        node_name: 'default.date_dim',
+        node_display_name: 'Date Dim',
+        is_primary_key: false,
         type: 'int',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -989,6 +998,9 @@ export const mocks = {
       },
       {
         name: 'default.date_dim.day',
+        node_name: 'default.date_dim',
+        node_display_name: 'Date Dim',
+        is_primary_key: false,
         type: 'int',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -998,6 +1010,9 @@ export const mocks = {
       },
       {
         name: 'default.date_dim.month',
+        node_name: 'default.date_dim',
+        node_display_name: 'Date Dim',
+        is_primary_key: false,
         type: 'int',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1007,6 +1022,9 @@ export const mocks = {
       },
       {
         name: 'default.date_dim.month',
+        node_name: 'default.date_dim',
+        node_display_name: 'Date Dim',
+        is_primary_key: false,
         type: 'int',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1016,6 +1034,9 @@ export const mocks = {
       },
       {
         name: 'default.date_dim.year',
+        node_name: 'default.date_dim',
+        node_display_name: 'Date Dim',
+        is_primary_key: false,
         type: 'int',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1025,6 +1046,9 @@ export const mocks = {
       },
       {
         name: 'default.date_dim.year',
+        node_name: 'default.date_dim',
+        node_display_name: 'Date Dim',
+        is_primary_key: false,
         type: 'int',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1034,6 +1058,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.address',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: false,
         type: 'string',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1042,6 +1069,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.birth_date',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: false,
         type: 'date',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1050,6 +1080,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.city',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: false,
         type: 'string',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1058,6 +1091,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.contractor_id',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: false,
         type: 'int',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1066,6 +1102,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.country',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: false,
         type: 'string',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1074,6 +1113,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.first_name',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: false,
         type: 'string',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1082,6 +1124,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.hard_hat_id',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: true,
         type: 'int',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1090,6 +1135,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.hire_date',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: false,
         type: 'date',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1098,6 +1146,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.last_name',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: false,
         type: 'string',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1106,6 +1157,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.manager',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: false,
         type: 'int',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1114,6 +1168,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.postal_code',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: false,
         type: 'string',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1122,6 +1179,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.state',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: false,
         type: 'string',
         path: [
           'default.repair_order_details.repair_order_id',
@@ -1130,6 +1190,9 @@ export const mocks = {
       },
       {
         name: 'default.hard_hat.title',
+        node_name: 'default.hard_hat',
+        node_display_name: 'Hard hat',
+        is_primary_key: false,
         type: 'string',
         path: [
           'default.repair_order_details.repair_order_id',
