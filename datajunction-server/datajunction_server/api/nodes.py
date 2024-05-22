@@ -23,6 +23,8 @@ from datajunction_server.api.helpers import (
     get_node_namespace,
     raise_if_node_exists,
 )
+
+from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.constants import NODE_LIST_MAX
@@ -967,7 +969,7 @@ async def refresh_source_node(
     if new_columns:
         # check if any of the columns have changed (only continue with update if they have)
         column_changes = {col.identifier() for col in current_revision.columns} != {
-            col.identifier() for col in new_columns
+            (col.name, str(parse_rule(str(col.type), "dataType"))) for col in new_columns
         }
 
         # FIXME: there is a bug with type translation (bigint != long) - fix it. # pylint: disable=fixme
