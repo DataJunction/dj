@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from datajunction_server.construction.utils import to_namespaced_name
+from datajunction_server.database import Engine
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
@@ -831,17 +832,24 @@ def _get_node_table(
 
 def get_default_criteria(
     node: NodeRevision,
+    engine: Optional[Engine] = None,
 ) -> BuildCriteria:
     """
     Get the default build criteria for a node.
     """
-    return BuildCriteria(
-        # set the dialect by finding available engines for this node, or default to Spark
-        dialect=(
+    # Set the dialect by using the provided engine, if any. If no engine is specified,
+    # set the dialect by finding available engines for this node, or default to Spark
+    dialect = (
+        engine.dialect
+        if engine
+        else (
             node.catalog.engines[0].dialect
             if node.catalog and node.catalog.engines and node.catalog.engines[0].dialect
             else Dialect.SPARK
-        ),
+        )
+    )
+    return BuildCriteria(
+        dialect=dialect,
         target_node_name=node.name,
     )
 
