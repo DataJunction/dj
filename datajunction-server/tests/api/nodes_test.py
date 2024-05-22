@@ -2692,11 +2692,11 @@ GROUP BY
             "attributes": [],
             "dimension": None,
             "name": "measures",
-            "type": "struct<completed_repairs: bigint, "
-            "total_repairs_dispatched: bigint, "
-            "total_amount_in_region: double, "
-            "avg_repair_amount_in_region: double, "
-            "avg_dispatch_delay: double, unique_contractors: "
+            "type": "struct<completed_repairs bigint,"
+            "total_repairs_dispatched bigint,"
+            "total_amount_in_region double,"
+            "avg_repair_amount_in_region double,"
+            "avg_dispatch_delay double,unique_contractors "
             "bigint>",
             "display_name": "Measures",
             "partition": None,
