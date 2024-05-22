@@ -1,5 +1,7 @@
-name: "Manual : Bump version of all components."
+name: "@Weekly + Manual: Bump version of all components."
 on:
+  schedule:
+    - cron: '0 3 * * MON'  # each Monday at 3am
   workflow_dispatch:
     inputs:
       bump:
@@ -16,6 +18,8 @@ on:
 
 jobs:
   bump:
+    env:
+      bump-type: ${{ github.event.inputs.bump || 'alpha' }}  # Default to alpha
     strategy:
       fail-fast: false
       matrix:
@@ -49,23 +53,23 @@ jobs:
       - name: Bump version for DJ Server 
         working-directory: ./datajunction-server
         run: |
-          hatch version ${{ github.event.inputs.bump }}
+          hatch version ${{ env.bump-type }}
           echo "NEW_VERSION=`hatch version`" >> $GITHUB_ENV
 
       - name: Bump version for DJ Query service 
         working-directory: ./datajunction-query
         run: |
-          hatch version ${{ github.event.inputs.bump }}
+          hatch version ${{ env.bump-type }}
 
       - name: Bump version for DJ Reflection service 
         working-directory: ./datajunction-reflection
         run: |
-          hatch version ${{ github.event.inputs.bump }}
+          hatch version ${{ env.bump-type }}
   
       - name: Bump version for DJ Python client 
         working-directory: ./datajunction-clients/python
         run: |
-          hatch version ${{ github.event.inputs.bump }}
+          hatch version ${{ env.bump-type }}
   
       #
       # Javascript / npm
@@ -85,7 +89,7 @@ jobs:
       # 
       - name: Update docs (for major, minor or patch release)
         working-directory: ./docs
-        if: ${{github.event.inputs.bump == 'major' || github.event.inputs.bump == 'minor' || github.event.inputs.bump == 'patch'}}
+        if: ${{ env.bump-type == 'major' || env.bump-type == 'minor' || env.bump-type == 'patch'}}
         run: |
           ./build-docs.sh $NEW_VERSION true
   
