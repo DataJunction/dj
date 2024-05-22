@@ -103,7 +103,7 @@ from datajunction_server.sql.dag import (
     get_downstream_nodes,
     get_upstream_nodes,
 )
-from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
 from datajunction_server.utils import (
     Version,
     get_current_user,
@@ -967,10 +967,9 @@ async def refresh_source_node(
     if new_columns:
         # check if any of the columns have changed (only continue with update if they have)
         column_changes = {col.identifier() for col in current_revision.columns} != {
-            col.identifier() for col in new_columns
+            (col.name, str(parse_rule(str(col.type), "dataType")))
+            for col in new_columns
         }
-
-        # FIXME: there is a bug with type translation (bigint != long) - fix it. # pylint: disable=fixme
 
         # if the columns haven't changed and the node has a table, we can skip the update
         if not column_changes:

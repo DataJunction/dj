@@ -291,7 +291,7 @@ class NestedField(ColumnType):
             doc_string = "" if doc is None else f", doc={repr(doc)}"
             super().__init__(
                 (
-                    f"{name}: {field_type}"
+                    f"{name} {field_type}"
                     f"{' NOT NULL' if not is_optional else ''}"
                     + ("" if doc is None else f" {doc}")
                 ),
@@ -364,7 +364,7 @@ field_type=IntegerType(), is_optional=True, doc='an optional field'))
     def __init__(self, *fields: NestedField):
         if not self._initialized:
             super().__init__(
-                f"struct<{', '.join(map(str, fields))}>",
+                f"struct<{','.join(map(str, fields))}>",
                 f"StructType{repr(fields)}",
             )
             self._fields = fields
