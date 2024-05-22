@@ -5,7 +5,7 @@ Data related APIs.
 from http import HTTPStatus
 from typing import Annotated, Dict, List, Optional
 
-from fastapi import Depends, Header, Query, Request
+from fastapi import BackgroundTasks, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -181,6 +181,7 @@ async def get_data(  # pylint: disable=too-many-locals
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
+    background_tasks: BackgroundTasks,
 ) -> QueryWithResults:
     """
     Gets data for a node
@@ -196,6 +197,7 @@ async def get_data(  # pylint: disable=too-many-locals
         engine_version=engine_version,
         current_user=current_user,
         validate_access=validate_access,
+        background_tasks=background_tasks,
     )
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     available_engines = node.current.catalog.engines  # type: ignore
@@ -250,6 +252,7 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
+    background_tasks: BackgroundTasks,
 ) -> QueryWithResults:
     """
     Return data for a node using server side events
@@ -265,6 +268,7 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
         engine_version=engine_version,
         current_user=current_user,
         validate_access=validate_access,
+        background_tasks=background_tasks,
     )
     if query_request and query_request.query_id:
         return EventSourceResponse(

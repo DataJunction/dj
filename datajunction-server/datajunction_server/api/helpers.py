@@ -21,6 +21,7 @@ from datajunction_server.construction.build import (
     build_materialized_cube_node,
     build_metric_nodes,
     build_node,
+    get_default_criteria,
     rename_columns,
     validate_shared_dimensions,
 )
@@ -50,10 +51,9 @@ from datajunction_server.errors import (
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
-from datajunction_server.models.engine import Dialect
 from datajunction_server.models.history import status_change_history
 from datajunction_server.models.metric import TranslatedSQL
-from datajunction_server.models.node import BuildCriteria, NodeStatus
+from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import ColumnMetadata, QueryWithResults
 from datajunction_server.naming import LOOKUP_CHARS
@@ -204,19 +204,7 @@ async def get_query(  # pylint: disable=too-many-arguments
     Get a query for a metric, dimensions, and filters
     """
     node = await Node.get_by_name(session, node_name)
-
-    # Builds the node for the engine's dialect if one is set or defaults to Spark
-    if (
-        not engine
-        and node.current  # type: ignore
-        and node.current.catalog  # type: ignore
-        and node.current.catalog.engines  # type: ignore
-    ):
-        engine = node.current.catalog.engines[0]  # type: ignore
-    build_criteria = BuildCriteria(
-        dialect=(engine.dialect if engine and engine.dialect else Dialect.SPARK),
-    )
-
+    build_criteria = get_default_criteria(node.current, engine)  # type: ignore
     query_ast = await build_node(
         session=session,
         node=node.current,  # type: ignore
