@@ -1,4 +1,4 @@
-name: "PR merge : Publish all components to Pypi/NPM"
+name: "PR Merge : Publish all components to Pypi/NPM"
 on:
   workflow_dispatch:
   push:
