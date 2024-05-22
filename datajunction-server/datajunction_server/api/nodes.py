@@ -970,8 +970,6 @@ async def refresh_source_node(
             col.identifier() for col in new_columns
         }
 
-        # FIXME: there is a bug with type translation (bigint != long) - fix it. # pylint: disable=fixme
-
         # if the columns haven't changed and the node has a table, we can skip the update
         if not column_changes:
             if not source_node.missing_table:  # type: ignore
