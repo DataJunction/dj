@@ -1,17 +1,23 @@
 [[main]]
   name = "Docs"
-  url = "/docs/0.1.0/introduction/"
+  url = "/docs/0.1.0/getting-started/introduction/"
   weight = 10
 
 [[main]]
   name = "Get Started"
   weight = 30
   identifier = "get-started"
-  url = "/docs/0.1.0/getting-started/clients/"
+
+[[main]]
+  name = "Data Modeling"
+  weight = 20
+  identifier = "data-modeling"
+  url = "/docs/0.1.0/data-modeling/overview/"
+  parent = "get-started"
 
 [[main]]
   name = "Concepts"
-  weight = 40
+  weight = 30
   identifier = "concepts"
   url = "/docs/0.1.0/dj-concepts/nodes/"
   parent = "get-started"
@@ -20,7 +26,14 @@
   name = "Clients"
   weight = 40
   identifier = "clients"
-  url = "/docs/0.1.0/getting-started/clients/"
+  url = "/docs/0.1.0/developers/clients/"
+  parent = "get-started"
+
+[[main]]
+  name = "Deployment"
+  weight = 50
+  identifier = "deploying"
+  url = "/docs/0.1.0/deploying-dj/overview/"
   parent = "get-started"
 
 [[social]]
