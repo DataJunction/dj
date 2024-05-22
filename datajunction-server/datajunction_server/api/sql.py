@@ -5,7 +5,7 @@ SQL related APIs.
 import logging
 from typing import List, Optional, Tuple
 
-from fastapi import Depends, Query
+from fastapi import BackgroundTasks, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import (
@@ -15,12 +15,14 @@ from datajunction_server.api.helpers import (
     validate_orderby,
 )
 from datajunction_server.construction.build import get_measures_query
+from datajunction_server.database import Engine
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
+from datajunction_server.models.access import AccessControlStore
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.user import UserOutput
 from datajunction_server.utils import get_current_user, get_session, get_settings
@@ -108,6 +110,51 @@ async def get_measures_sql_for_cube(
     return measures_query
 
 
+async def build_and_save_node_sql(  # pylint: disable=too-many-locals
+    node_name: str,
+    dimensions: List[str] = Query([]),
+    filters: List[str] = Query([]),
+    orderby: List[str] = Query([]),
+    limit: Optional[int] = None,
+    *,
+    session: AsyncSession = Depends(get_session),
+    engine: Engine,
+    access_control: AccessControlStore,
+) -> QueryRequest:
+    """
+    Build node SQL and save it to query requests
+    """
+    query_ast = await get_query(
+        session=session,
+        node_name=node_name,
+        dimensions=dimensions,
+        filters=filters,
+        orderby=orderby,
+        limit=limit,
+        engine=engine,
+        access_control=access_control,
+    )
+    columns = [
+        assemble_column_metadata(col)  # type: ignore
+        for col in query_ast.select.projection
+    ]
+    query = str(query_ast)
+    query_request = await QueryRequest.save_query_request(
+        session=session,
+        nodes=[node_name],
+        dimensions=dimensions,
+        filters=filters,
+        orderby=orderby,
+        limit=limit,
+        engine_name=engine.name if engine else None,
+        engine_version=engine.version if engine else None,
+        query_type=QueryBuildType.NODE,
+        query=query,
+        columns=[col.dict() for col in columns],
+    )
+    return query_request
+
+
 async def get_node_sql(  # pylint: disable=too-many-locals
     node_name: str,
     dimensions: List[str] = Query([]),
@@ -120,6 +167,7 @@ async def get_node_sql(  # pylint: disable=too-many-locals
     engine_version: Optional[str] = None,
     current_user: Optional[User],
     validate_access: access.ValidateAccessFn,  # pylint: disable=redefined-outer-name
+    background_tasks: BackgroundTasks,
 ) -> Tuple[TranslatedSQL, QueryRequest]:
     """
     Return SQL for a node.
@@ -149,6 +197,18 @@ async def get_node_sql(  # pylint: disable=too-many-locals
         engine_version=engine.version if engine else None,
         query_type=QueryBuildType.NODE,
     ):
+        # Update the node SQL in a background task to keep it up-to-date
+        background_tasks.add_task(
+            build_and_save_node_sql,
+            node_name=node_name,
+            dimensions=dimensions,
+            filters=filters,
+            orderby=orderby,
+            limit=limit,
+            session=session,
+            engine=engine,
+            access_control=access_control,
+        )
         return (
             TranslatedSQL(
                 sql=query_request.query,
@@ -158,38 +218,20 @@ async def get_node_sql(  # pylint: disable=too-many-locals
             query_request,
         )
 
-    query_ast = await get_query(
-        session=session,
+    query_request = await build_and_save_node_sql(
         node_name=node_name,
         dimensions=dimensions,
         filters=filters,
         orderby=orderby,
         limit=limit,
-        engine=engine,
-        access_control=access_control,
-    )
-    columns = [
-        assemble_column_metadata(col)  # type: ignore
-        for col in query_ast.select.projection
-    ]
-    query = str(query_ast)
-    query_request = await QueryRequest.save_query_request(
         session=session,
-        nodes=[node_name],
-        dimensions=dimensions,
-        filters=filters,
-        orderby=orderby,
-        limit=limit,
-        engine_name=engine.name if engine else None,
-        engine_version=engine.version if engine else None,
-        query_type=QueryBuildType.NODE,
-        query=query,
-        columns=[col.dict() for col in columns],
+        engine=engine,  # type: ignore
+        access_control=access_control,
     )
     return (
         TranslatedSQL(
-            sql=query,
-            columns=columns,
+            sql=query_request.query,
+            columns=query_request.columns,
             dialect=engine.dialect if engine else None,
         ),
         query_request,
@@ -215,6 +257,7 @@ async def get_sql(  # pylint: disable=too-many-locals
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
+    background_tasks: BackgroundTasks,
 ) -> TranslatedSQL:
     """
     Return SQL for a node.
@@ -230,6 +273,7 @@ async def get_sql(  # pylint: disable=too-many-locals
         engine_version=engine_version,
         current_user=current_user,
         validate_access=validate_access,
+        background_tasks=background_tasks,
     )
     return translated_sql
 
