@@ -33,14 +33,7 @@ export default function DimensionFilter({ dimension, onChange }) {
             )
             .map(col => col.name);
 
-        // TODO: we're disabling this for now because it's unclear how performant the dimensions node
-        // data endpoints are. To re-enable, uncomment the following line:
-        // const data = await djClient.nodeData(dimension.metadata.node_name);
-        const data = { results: [] };
-
-        // TODO: when the above is enabled, this will use each dimension node's 'Label' column
-        // to build the display label for the dropdown, while continuing to pass the primary
-        // key in for filtering
+        const data = await djClient.nodeData(dimension.metadata.node_name);
         /* istanbul ignore if */
         if (dimensionNode && data.results && data.results.length > 0) {
           const columnNames = data.results[0].columns.map(
