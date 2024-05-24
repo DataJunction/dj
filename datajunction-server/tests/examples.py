@@ -697,6 +697,16 @@ CROSS JOIN
         },
     ),
     (
+        "/nodes/default.repair_orders/link",
+        {
+            "dimension_node": "default.dispatcher",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_orders.dispatcher_id = default.dispatcher.dispatcher_id"
+            ),
+        },
+    ),
+    (
         "/nodes/default.hard_hat/link",
         {
             "dimension_node": "default.us_state",

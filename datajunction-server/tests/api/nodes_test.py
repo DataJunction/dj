@@ -1639,7 +1639,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
-        ] == [("refresh", "node"), ("create", "link"), ("create", "node")]
+        ] == [
+            ("refresh", "node"),
+            ("create", "link"),
+            ("create", "link"),
+            ("create", "node"),
+        ]
 
         # Refresh it again, but this time no columns will have changed so
         # verify that the node revision stays the same
@@ -1684,7 +1689,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
-        ] == [("refresh", "node"), ("create", "link"), ("create", "node")]
+        ] == [
+            ("refresh", "node"),
+            ("create", "link"),
+            ("create", "link"),
+            ("create", "node"),
+        ]
 
         # Refresh it again, but this time no columns are found
         mocker.patch.object(

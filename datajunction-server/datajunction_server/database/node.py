@@ -741,6 +741,17 @@ class NodeRevision(
             if col.partition and col.partition.type_ == PartitionType.CATEGORICAL
         ]
 
+    def dimensions_to_columns_map(self):
+        """
+        A mapping between each of the dimension attributes linked to this node to the columns
+        that they're linked to.
+        """
+        return {
+            left.identifier(): right
+            for link in self.dimension_links
+            for left, right in link.foreign_key_mapping().items()
+        }
+
     def __deepcopy__(self, memo):
         """
         Note: We should not use copy or deepcopy to copy any SQLAlchemy objects.

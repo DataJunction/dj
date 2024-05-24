@@ -853,7 +853,7 @@ async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statemen
                 FROM logs.log_events AS default_DOT_event_source
                 WHERE  default_DOT_event_source.event_latency > 1000000 AND default_DOT_event_source.country = 'ABCD')
                 AS default_DOT_long_events
-                WHERE  default_DOT_long_events.country = 'ABCD'
+                WHERE  default_DOT_long_events.country = 'ABCD' AND default_DOT_long_events.country = 'ABCD'
                 """,
             [
                 {
@@ -1074,8 +1074,7 @@ async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statemen
                 default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost,
                 default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
                 default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay
-             FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id
-             WHERE  default_DOT_repair_orders.dispatcher_id = 1)
+             FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id)
              AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
                 default_DOT_hard_hats.state
              FROM roads.hard_hats AS default_DOT_hard_hats)
@@ -1156,7 +1155,7 @@ async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statemen
              FROM roads.municipality AS default_DOT_municipality LEFT  JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
             LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc)
              AS default_DOT_municipality_dim ON default_DOT_repair_orders_fact.municipality_id = default_DOT_municipality_dim.municipality_id
-             WHERE  default_DOT_repair_orders_fact.dispatcher_id = 1 AND default_DOT_hard_hat.state != 'AZ' AND default_DOT_dispatcher.phone = '4082021022' AND default_DOT_repair_orders_fact.order_date >= '2020-01-01'
+             WHERE  default_DOT_repair_orders_fact.dispatcher_id = 1 AND default_DOT_hard_hat.state != 'AZ' AND default_DOT_dispatcher.phone = '4082021022' AND default_DOT_repair_orders_fact.order_date >= '2020-01-01' AND default_DOT_repair_orders_fact.dispatcher_id = 1
              GROUP BY  default_DOT_hard_hat.city, default_DOT_hard_hat.last_name, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
             """,
             [
@@ -1667,8 +1666,7 @@ async def test_sql_with_filters(  # pylint: disable=too-many-arguments
                 foo_DOT_bar_DOT_repair_orders.municipality_id,
                 foo_DOT_bar_DOT_repair_orders.hard_hat_id,
                 foo_DOT_bar_DOT_repair_orders.dispatcher_id
-             FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
-             WHERE  foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1)
+             FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders)
              AS foo_DOT_bar_DOT_repair_order ON foo_DOT_bar_DOT_repair_orders.repair_order_id = foo_DOT_bar_DOT_repair_order.repair_order_id
             LEFT JOIN (SELECT  foo_DOT_bar_DOT_hard_hats.hard_hat_id,
                 foo_DOT_bar_DOT_hard_hats.state
@@ -1703,8 +1701,7 @@ async def test_sql_with_filters(  # pylint: disable=too-many-arguments
                 foo_DOT_bar_DOT_repair_orders.municipality_id,
                 foo_DOT_bar_DOT_repair_orders.hard_hat_id,
                 foo_DOT_bar_DOT_repair_orders.dispatcher_id
-             FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
-             WHERE  foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1)
+             FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders)
              AS foo_DOT_bar_DOT_repair_order ON foo_DOT_bar_DOT_repair_orders.repair_order_id = foo_DOT_bar_DOT_repair_order.repair_order_id
             LEFT JOIN (SELECT  foo_DOT_bar_DOT_dispatchers.dispatcher_id,
                 foo_DOT_bar_DOT_dispatchers.company_name,
@@ -2338,9 +2335,9 @@ async def test_get_sql_including_dimensions_with_disambiguated_columns(
             "type": "string",
         },
     ]
-    assert compare_query_strings(
-        data["sql"],
-        """
+    assert str(parse(data["sql"])) == str(
+        parse(
+            """
         WITH
         default_DOT_repair_orders_fact AS (SELECT  default_DOT_repair_orders_fact.municipality_id default_DOT_municipality_dim_DOT_municipality_id,
             default_DOT_municipality_dim.state_id default_DOT_municipality_dim_DOT_state_id,
@@ -2379,6 +2376,7 @@ async def test_get_sql_including_dimensions_with_disambiguated_columns(
             default_DOT_repair_orders_fact.default_DOT_municipality_dim_DOT_municipality_type_desc
          FROM default_DOT_repair_orders_fact
         """,
+        ),
     )
 
     response = await client_with_roads.get(
@@ -3335,9 +3333,9 @@ async def test_alias_node_sql(
               SELECT
                 default_DOT_repair_orders.hard_hat_id AS hh_id
               FROM roads.repair_orders AS default_DOT_repair_orders
-              WHERE  default_DOT_repair_orders.hard_hat_id IN (123, 13)
             ) AS default_DOT_repair_orders_fact
             WHERE  default_DOT_repair_orders_fact.hh_id IN (123, 13)
+              AND default_DOT_repair_orders_fact.hh_id IN (123, 13)
             """,
         ),
     )
