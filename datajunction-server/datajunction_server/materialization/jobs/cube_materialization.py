@@ -147,7 +147,6 @@ def build_materialization_query(
         )
 
         categorical_partitions = node_revision.categorical_partition_columns()
-        print("categorical_partitions", categorical_partitions)
         if categorical_partitions:
             categorical_partition_col = [
                 col
@@ -181,5 +180,4 @@ def build_materialization_query(
     final_query.select.from_ = ast.From(
         relations=[ast.Relation(primary=ast.Table(name=ast.Name("combiner_query")))],
     )
-    print("final_queryfinal_query", final_query)
     return final_query

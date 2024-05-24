@@ -437,7 +437,6 @@ async def _build_tables_on_select(
         await session.refresh(node, ["dimension_links"])
         # Save any existing filters on the query
         filter_asts = [select.where] if select.where else []
-        print("initial filter_asts", [str(filter_) for filter_ in filter_asts])
 
         # Try to find a physical table attached to this node, if one exists.
         physical_table = cast(
@@ -449,7 +448,7 @@ async def _build_tables_on_select(
         if physical_table is None:
             node_query = parse(cast(str, node.query))
             if hash(node_query) in memoized_queries:  # pragma: no cover
-                node_ast = memoized_queries[hash(node_query)].select  # type: ignore
+                query_ast = memoized_queries[hash(node_query)]  # type: ignore
             else:
                 query_ast = await build_ast(  # type: ignore
                     session,
@@ -460,23 +459,25 @@ async def _build_tables_on_select(
                     dimensions,
                     access_control,
                 )
-                alias = amenable_name(node.name)
-                node_ast = ast.Alias(ast.Name(alias), child=query_ast.select, as_=True)  # type: ignore
-                query_ast.select.parenthesized = True  # type: ignore
-
-                filter_asts.extend(build_filters(node, node_ast, filters))  # type: ignore
                 memoized_queries[hash(node_query)] = query_ast
+
+            alias = amenable_name(node.name)
+            node_ast = ast.Alias(ast.Name(alias), child=query_ast.select, as_=True)  # type: ignore
+            query_ast.select.parenthesized = True  # type: ignore
+
+            filter_asts.extend(build_filters(node, node_ast, filters))  # type: ignore
         else:
             alias = amenable_name(node.name)
             node_ast = ast.Alias(ast.Name(alias), child=physical_table, as_=True)  # type: ignore
             filter_asts.extend(build_filters(node, physical_table, filters))
 
         if filter_asts:
-            print("filter_asts", [str(filter_) for filter_ in filter_asts])
+            print("filter_asts", node.name, filter_asts, select)
             select.where = ast.BinaryOp.And(*filter_asts)
             await select.compile(context)
 
         for tbl in tbls:
+            print("node_ast", type(node_ast), node_ast)
             if isinstance(node_ast.child, ast.Select) and isinstance(tbl, ast.Alias):  # type: ignore
                 node_ast.child.projection = [
                     col
@@ -755,7 +756,6 @@ def _get_node_table(
     """
     If a node has a materialization available, return the materialized table
     """
-    print("_get_node_table", node.name)
     table = None
     can_use_materialization = (
         build_criteria and node.name != build_criteria.target_node_name
