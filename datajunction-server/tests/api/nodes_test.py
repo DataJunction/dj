@@ -1656,6 +1656,33 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data_second["node_revision_id"] == data["node_revision_id"]
         assert data_second["columns"] == new_columns
 
+        # The refreshed source node should retain the existing dimension links
+        response = await custom_client.get("/nodes/default.repair_orders")
+        assert response.json()["dimension_links"] == [
+            {
+                "dimension": {"name": "default.repair_order"},
+                "foreign_keys": {
+                    "default.repair_orders.repair_order_id": "default.repair_order.repair_order_id",
+                },
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.repair_orders.repair_order_id = "
+                "default.repair_order.repair_order_id",
+                "join_type": "left",
+                "role": None,
+            },
+            {
+                "dimension": {"name": "default.dispatcher"},
+                "foreign_keys": {
+                    "default.repair_orders.dispatcher_id": "default.dispatcher.dispatcher_id",
+                },
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.repair_orders.dispatcher_id = "
+                "default.dispatcher.dispatcher_id",
+                "join_type": "left",
+                "role": None,
+            },
+        ]
+
     @pytest.mark.asyncio
     async def test_refresh_source_node_with_problems(
         self,

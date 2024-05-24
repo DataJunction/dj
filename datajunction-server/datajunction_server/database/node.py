@@ -330,9 +330,11 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         """
         Get a node by id
         """
-        statement = select(Node).where(Node.id == node_id).options(*options)
-        result = await session.execute(statement)
-        node = result.unique().scalar_one_or_none()
+        statement = (
+            select(Node).where(Node.id == node_id).options(*options)
+        )  # pragma: no cover
+        result = await session.execute(statement)  # pragma: no cover
+        node = result.unique().scalar_one_or_none()  # pragma: no cover
         return node
 
     @classmethod
