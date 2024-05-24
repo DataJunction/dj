@@ -4,7 +4,7 @@ Tests for the djsql API.
 import pytest
 from httpx import AsyncClient
 
-from tests.sql.utils import compare_query_strings
+from tests.sql.utils import assert_query_strings_equal, compare_query_strings
 
 # pylint: disable=too-many-lines,C0301
 
@@ -128,42 +128,39 @@ async def test_get_djsql_data_only_nested_metrics(
      FROM (SELECT  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
         default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
         avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price
-     FROM (SELECT  default_DOT_repair_orders.repair_order_id,
-        default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.hard_hat_id,
-        default_DOT_repair_orders.dispatcher_id,
-        default_DOT_repair_orders.order_date,
-        default_DOT_repair_orders.dispatched_date,
-        default_DOT_repair_orders.required_date,
-        default_DOT_repair_order_details.discount,
-        default_DOT_repair_order_details.price,
-        default_DOT_repair_order_details.quantity,
-        default_DOT_repair_order_details.repair_type_id,
-        default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost,
-        default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
-        default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay
-     FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id)
+     FROM (SELECT  repair_orders.repair_order_id,
+        repair_orders.municipality_id,
+        repair_orders.hard_hat_id,
+        repair_orders.dispatcher_id,
+        repair_orders.order_date,
+        repair_orders.dispatched_date,
+        repair_orders.required_date,
+        repair_order_details.discount,
+        repair_order_details.price,
+        repair_order_details.quantity,
+        repair_order_details.repair_type_id,
+        repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+        repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+        repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+     FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id)
      AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
         default_DOT_hard_hats.city,
         default_DOT_hard_hats.state,
         default_DOT_hard_hats.country
      FROM roads.hard_hats AS default_DOT_hard_hats)
      AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-     GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
-    ) AS default_DOT_repair_orders_fact
+    GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city) AS default_DOT_repair_orders_fact
 
-    LIMIT 5
-    )
+    LIMIT 5)
 
     SELECT  Sum(avg_repair_price),
         city
      FROM (SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
         metric_query_0.default_DOT_hard_hat_DOT_country AS country,
         metric_query_0.default_DOT_hard_hat_DOT_city AS city
-     FROM metric_query_0
-    )
+     FROM metric_query_0)
      GROUP BY  city"""
-    assert compare_query_strings(query, expected_query)
+    assert_query_strings_equal(query, expected_query)
 
 
 @pytest.mark.asyncio
@@ -213,38 +210,34 @@ async def test_get_djsql_data_only_multiple_metrics(
         default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
         avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
         sum(default_DOT_repair_orders_fact.total_repair_cost) default_DOT_total_repair_cost
-     FROM (SELECT  default_DOT_repair_orders.repair_order_id,
-        default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.hard_hat_id,
-        default_DOT_repair_orders.dispatcher_id,
-        default_DOT_repair_orders.order_date,
-        default_DOT_repair_orders.dispatched_date,
-        default_DOT_repair_orders.required_date,
-        default_DOT_repair_order_details.discount,
-        default_DOT_repair_order_details.price,
-        default_DOT_repair_order_details.quantity,
-        default_DOT_repair_order_details.repair_type_id,
-        default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost,
-        default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
-        default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay
-     FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id)
+     FROM (SELECT  repair_orders.repair_order_id,
+        repair_orders.municipality_id,
+        repair_orders.hard_hat_id,
+        repair_orders.dispatcher_id,
+        repair_orders.order_date,
+        repair_orders.dispatched_date,
+        repair_orders.required_date,
+        repair_order_details.discount,
+        repair_order_details.price,
+        repair_order_details.quantity,
+        repair_order_details.repair_type_id,
+        repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+        repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+        repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+     FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id)
      AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
         default_DOT_hard_hats.city,
         default_DOT_hard_hats.state,
         default_DOT_hard_hats.country
      FROM roads.hard_hats AS default_DOT_hard_hats)
      AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-     GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
-    ) AS default_DOT_repair_orders_fact
-
-    )
+     GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city) AS default_DOT_repair_orders_fact)
 
     SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
         metric_query_0.default_DOT_total_repair_cost AS total_cost,
         metric_query_0.default_DOT_hard_hat_DOT_country,
         metric_query_0.default_DOT_hard_hat_DOT_city
      FROM metric_query_0"""
-
     assert compare_query_strings(query, expected_query)
 
 

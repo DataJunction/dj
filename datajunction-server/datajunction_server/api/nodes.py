@@ -26,6 +26,7 @@ from datajunction_server.api.helpers import (
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.constants import NODE_LIST_MAX
+from datajunction_server.database import DimensionLink
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.history import ActivityType, EntityType, History
@@ -997,6 +998,16 @@ async def refresh_source_node(
         schema_=current_revision.schema_,
         table=current_revision.table,
         status=current_revision.status,
+        dimension_links=[
+            DimensionLink(
+                dimension_id=link.dimension_id,
+                join_sql=link.join_sql,
+                join_type=link.join_type,
+                join_cardinality=link.join_cardinality,
+                materialization_conf=link.materialization_conf,
+            )
+            for link in current_revision.dimension_links
+        ],
     )
     new_revision.version = str(old_version.next_major_version())
     new_revision.columns = [

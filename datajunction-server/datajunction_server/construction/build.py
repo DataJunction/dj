@@ -384,7 +384,7 @@ async def join_tables_for_dimensions(
 
 def build_filters(
     node: NodeRevision,
-    node_table: Optional[ast.Table],
+    node_table: Optional[ast.TableExpression],
     filters: Optional[List[str]],
 ) -> List[ast.Expression]:
     """
@@ -410,7 +410,7 @@ def build_filters(
             for dim in referenced_dimensions:
                 col_name = dimensions_to_columns_map[dim.identifier()].alias_or_name
                 dim.name = ast.Name(name=col_name)
-                if node_table:
+                if node_table:  # pragma: no cover
                     dim.add_table(node_table)
             filter_asts.append(
                 temp_select.where,  # type: ignore
@@ -435,8 +435,6 @@ async def _build_tables_on_select(
 
     for node, tbls in tables.items():
         await session.refresh(node, ["dimension_links"])
-        # Save any existing filters on the query
-        filter_asts = [select.where] if select.where else []
 
         # Try to find a physical table attached to this node, if one exists.
         physical_table = cast(
@@ -465,31 +463,51 @@ async def _build_tables_on_select(
             node_ast = ast.Alias(ast.Name(alias), child=query_ast.select, as_=True)  # type: ignore
             query_ast.select.parenthesized = True  # type: ignore
 
-            filter_asts.extend(build_filters(node, node_ast, filters))  # type: ignore
+            filter_asts = build_filters(node, node_ast, filters)  # type: ignore
         else:
             alias = amenable_name(node.name)
             node_ast = ast.Alias(ast.Name(alias), child=physical_table, as_=True)  # type: ignore
-            filter_asts.extend(build_filters(node, physical_table, filters))
-
-        if filter_asts:
-            print("filter_asts", node.name, filter_asts, select)
-            select.where = ast.BinaryOp.And(*filter_asts)
-            await select.compile(context)
+            filter_asts = build_filters(node, physical_table, filters)
 
         for tbl in tbls:
-            print("node_ast", type(node_ast), node_ast)
             if isinstance(node_ast.child, ast.Select) and isinstance(tbl, ast.Alias):  # type: ignore
                 node_ast.child.projection = [
                     col
                     for col in node_ast.child.projection
                     if col in set(tbl.child.select.projection)
                 ]
+            if (
+                isinstance(node_ast.child, ast.Table)
+                and isinstance(tbl, ast.Aliasable)
+                and hasattr(tbl, "alias")
+                and tbl.alias
+            ):
+                node_ast.alias.name = tbl.alias
+
             await node_ast.compile(context)
+
+            # This will push down the filter expression to CTEs, subqueries, and top-level queries.
+            # Each `tbl` is a TableExpression that references the node in question, where the
+            # provided filters might apply. We find the table reference's nearest parent SELECT
+            # clause and populate its WHERE clause with the filters.
+            if filter_asts:
+                if nearest_select := tbl.get_nearest_parent_of_type(
+                    ast.Select,
+                ):  # pragma: no cover
+                    if nearest_select.where:
+                        filter_asts.append(nearest_select.where)
+                    nearest_select.where = (
+                        ast.BinaryOp.And(  # pylint: disable=no-value-for-parameter
+                            *filter_asts
+                        )
+                    )
+
             select.replace(
                 tbl,
                 node_ast,
                 copy=False,
             )
+        await select.compile(context)
         for col in select.find_all(ast.Column):
             if (
                 col._table
