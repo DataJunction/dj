@@ -218,7 +218,6 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         secondary="tagnoderelationship",
         primaryjoin="TagNodeRelationship.node_id==Node.id",
         secondaryjoin="TagNodeRelationship.tag_id==Tag.id",
-        # lazy="selectin",
     )
 
     missing_table: Mapped[bool] = mapped_column(sa.Boolean, default=False)
@@ -335,7 +334,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         )  # pragma: no cover
         result = await session.execute(statement)  # pragma: no cover
         node = result.unique().scalar_one_or_none()  # pragma: no cover
-        return node
+        return node  # pragma: no cover
 
     @classmethod
     async def find(
