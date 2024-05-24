@@ -74,6 +74,17 @@ export default function NodeHistory({ node, djClient }) {
         </div>
       );
     }
+    if (event.activity_type === 'refresh') {
+      return (
+        <div className="history-left">
+          <b style={{ textTransform: 'capitalize' }}>{event.activity_type}</b>{' '}
+          {event.entity_type}{' '}
+          <b>
+            <a href={'/nodes/' + event.entity_name}>{event.entity_name}</a>
+          </b>
+        </div>
+      );
+    }
     if (event.activity_type === 'update' && event.entity_type === 'node') {
       return (
         <div className="history-left">
