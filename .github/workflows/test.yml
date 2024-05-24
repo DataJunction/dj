@@ -23,6 +23,7 @@ jobs:
     env:
       PDM_DEPS: 'urllib3<2'
     runs-on: self-hosted
+    # foo test
 
     strategy:
       fail-fast: false
