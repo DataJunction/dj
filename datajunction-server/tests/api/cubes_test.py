@@ -1371,12 +1371,13 @@ GROUP BY
 
 
 @pytest.mark.asyncio
-async def test_unlink_node_column_dimension(
+async def test_remove_dimension_link_invalidate_cube(
     client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
 ):
     """
-    When a node column link to a dimension is removed, the cube should be invalidated
+    Verify that removing a dimension link can invalidate a cube.
     """
+    # Delete an irrelevant dimension link
     response = await client_with_repairs_cube.request(
         "DELETE",
         "/nodes/default.repair_order/link/",
@@ -1389,9 +1390,46 @@ async def test_unlink_node_column_dimension(
         "message": "Dimension link default.hard_hat to node default.repair_order has "
         "been removed.",
     }
+    # The cube remains valid
     response = await client_with_repairs_cube.get("/nodes/default.repairs_cube")
     data = response.json()
-    assert data["status"] == "invalid"
+    assert data["status"] == "valid"
+
+    # Add an unaffected cube
+    await client_with_repairs_cube.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": [
+                "default.dispatcher.company_name",
+                "default.municipality_dim.local_region",
+            ],
+            "filters": ["default.dispatcher.company_name='Pothole Pete'"],
+            "description": "Cube of various metrics related to repairs",
+            "mode": "published",
+            "name": "default.repairs_cube_unaffected",
+        },
+    )
+
+    # Delete the link between default.repair_orders_fact and default.hard_hat
+    response = await client_with_repairs_cube.request(
+        "DELETE",
+        "/nodes/default.repair_orders_fact/link",
+        json={
+            "dimension_node": "default.hard_hat",
+        },
+    )
+    assert response.status_code == 201
+
+    # The cube that has default.hard_hat dimensions should be invalid
+    response = await client_with_repairs_cube.get("/nodes/default.repairs_cube")
+    assert response.json()["status"] == "invalid"
+
+    # The cube without default.hard_hat dimensions should remain valid
+    response = await client_with_repairs_cube.get(
+        "/nodes/default.repairs_cube_unaffected",
+    )
+    assert response.json()["status"] == "valid"
 
 
 @pytest.mark.asyncio

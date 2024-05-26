@@ -1538,26 +1538,31 @@ async def remove_dimension_link(
     removed = False
 
     # Find cubes that are affected by this dimension link removal and update their statuses
-    affected_cubes = (
-        await get_nodes_with_dimension(
-            session,
-            dimension_node,
-            [NodeType.CUBE],
-        )
-        or []
+    downstream_cubes = await get_downstream_nodes(
+        session,
+        node_name,
+        node_type=NodeType.CUBE,
     )
-    for cube in affected_cubes:
-        if cube.status != NodeStatus.INVALID:  # pragma: no cover
-            cube.status = NodeStatus.INVALID
+    for cube in downstream_cubes:
+        for elem in cube.current.cube_elements:
+            await session.refresh(elem, ["node_revisions"])
+        cube_dimension_nodes = [
+            cube_elem_node.name
+            for (element, cube_elem_node) in cube.current.cube_elements_with_nodes()
+            if cube_elem_node.type == NodeType.DIMENSION
+        ]
+        if dimension_node.name in cube_dimension_nodes:
+            cube.current.status = NodeStatus.INVALID
             session.add(cube)
             session.add(
                 status_change_history(
-                    node,  # type: ignore
+                    cube.current,  # type: ignore
                     NodeStatus.VALID,
                     NodeStatus.INVALID,
                     current_user=current_user,
                 ),
             )
+        await session.commit()
 
     # Delete the dimension link if one exists
     for link in node.current.dimension_links:  # type: ignore
