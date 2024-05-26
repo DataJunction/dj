@@ -26,7 +26,7 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_upstream_nodes
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
-from tests.sql.utils import compare_query_strings
+from tests.sql.utils import assert_query_strings_equal, compare_query_strings
 
 
 def materialization_compare(response, expected):
@@ -1639,7 +1639,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
-        ] == [("refresh", "node"), ("create", "link"), ("create", "node")]
+        ] == [
+            ("refresh", "node"),
+            ("create", "link"),
+            ("create", "link"),
+            ("create", "node"),
+        ]
 
         # Refresh it again, but this time no columns will have changed so
         # verify that the node revision stays the same
@@ -1650,6 +1655,33 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data_second["version"] == "v2.0"
         assert data_second["node_revision_id"] == data["node_revision_id"]
         assert data_second["columns"] == new_columns
+
+        # The refreshed source node should retain the existing dimension links
+        response = await custom_client.get("/nodes/default.repair_orders")
+        assert response.json()["dimension_links"] == [
+            {
+                "dimension": {"name": "default.repair_order"},
+                "foreign_keys": {
+                    "default.repair_orders.repair_order_id": "default.repair_order.repair_order_id",
+                },
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.repair_orders.repair_order_id = "
+                "default.repair_order.repair_order_id",
+                "join_type": "left",
+                "role": None,
+            },
+            {
+                "dimension": {"name": "default.dispatcher"},
+                "foreign_keys": {
+                    "default.repair_orders.dispatcher_id": "default.dispatcher.dispatcher_id",
+                },
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.repair_orders.dispatcher_id = "
+                "default.dispatcher.dispatcher_id",
+                "join_type": "left",
+                "role": None,
+            },
+        ]
 
     @pytest.mark.asyncio
     async def test_refresh_source_node_with_problems(
@@ -1684,7 +1716,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
-        ] == [("refresh", "node"), ("create", "link"), ("create", "node")]
+        ] == [
+            ("refresh", "node"),
+            ("create", "link"),
+            ("create", "link"),
+            ("create", "node"),
+        ]
 
         # Refresh it again, but this time no columns are found
         mocker.patch.object(
@@ -2722,27 +2759,27 @@ GROUP BY
     default_DOT_total_amount_in_region_from_struct_transform.col0 default_DOT_total_amount_in_region_from_struct_transform_DOT_col0
  FROM (SELECT  default_DOT_regional_level_agg_structs.location_hierarchy,
     SUM(IF(default_DOT_regional_level_agg_structs.order_year = 2020, default_DOT_regional_level_agg_structs.measures.total_amount_in_region, 0)) col0
- FROM (SELECT  default_DOT_us_region.us_region_id,
-    default_DOT_us_states.state_name,
-    CONCAT(default_DOT_us_states.state_name, '-', default_DOT_us_region.us_region_description) AS location_hierarchy,
-    EXTRACT(YEAR, default_DOT_repair_orders.order_date) AS order_year,
-    EXTRACT(MONTH, default_DOT_repair_orders.order_date) AS order_month,
-    EXTRACT(DAY, default_DOT_repair_orders.order_date) AS order_day,
+ FROM (SELECT  usr.us_region_id,
+    us.state_name,
+    CONCAT(us.state_name, '-', usr.us_region_description) AS location_hierarchy,
+    EXTRACT(YEAR, ro.order_date) AS order_year,
+    EXTRACT(MONTH, ro.order_date) AS order_month,
+    EXTRACT(DAY, ro.order_date) AS order_day,
     struct(COUNT( DISTINCT CASE
-        WHEN default_DOT_repair_orders.dispatched_date IS NOT NULL THEN default_DOT_repair_orders.repair_order_id
+        WHEN ro.dispatched_date IS NOT NULL THEN ro.repair_order_id
         ELSE NULL
-    END) AS completed_repairs, COUNT( DISTINCT default_DOT_repair_orders.repair_order_id) AS total_repairs_dispatched, SUM(default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity) AS total_amount_in_region, AVG(default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity) AS avg_repair_amount_in_region, AVG(DATEDIFF(default_DOT_repair_orders.dispatched_date, default_DOT_repair_orders.order_date)) AS avg_dispatch_delay, COUNT( DISTINCT default_DOT_contractors.contractor_id) AS unique_contractors) AS measures
- FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.municipality AS default_DOT_municipality ON default_DOT_repair_orders.municipality_id = default_DOT_municipality.municipality_id
-JOIN roads.us_states AS default_DOT_us_states ON default_DOT_municipality.state_id = default_DOT_us_states.state_id
-JOIN roads.us_states AS default_DOT_us_states ON default_DOT_municipality.state_id = default_DOT_us_states.state_id
-JOIN roads.us_region AS default_DOT_us_region ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_id
-JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id
-JOIN roads.repair_type AS default_DOT_repair_type ON default_DOT_repair_order_details.repair_type_id = default_DOT_repair_type.repair_type_id
-JOIN roads.contractors AS default_DOT_contractors ON default_DOT_repair_type.contractor_id = default_DOT_contractors.contractor_id
- GROUP BY  default_DOT_us_region.us_region_id, EXTRACT(YEAR, default_DOT_repair_orders.order_date), EXTRACT(MONTH, default_DOT_repair_orders.order_date), EXTRACT(DAY, default_DOT_repair_orders.order_date))
+    END) AS completed_repairs, COUNT( DISTINCT ro.repair_order_id) AS total_repairs_dispatched, SUM(rd.price * rd.quantity) AS total_amount_in_region, AVG(rd.price * rd.quantity) AS avg_repair_amount_in_region, AVG(DATEDIFF(ro.dispatched_date, ro.order_date)) AS avg_dispatch_delay, COUNT( DISTINCT c.contractor_id) AS unique_contractors) AS measures
+ FROM roads.repair_orders AS ro JOIN roads.municipality AS m ON ro.municipality_id = m.municipality_id
+JOIN roads.us_states AS us ON m.state_id = us.state_id
+JOIN roads.us_states AS us ON m.state_id = us.state_id
+JOIN roads.us_region AS usr ON us.state_region = usr.us_region_id
+JOIN roads.repair_order_details AS rd ON ro.repair_order_id = rd.repair_order_id
+JOIN roads.repair_type AS rt ON rd.repair_type_id = rt.repair_type_id
+JOIN roads.contractors AS c ON rt.contractor_id = c.contractor_id
+ GROUP BY  usr.us_region_id, EXTRACT(YEAR, ro.order_date), EXTRACT(MONTH, ro.order_date), EXTRACT(DAY, ro.order_date))
  AS default_DOT_regional_level_agg_structs)
  AS default_DOT_total_amount_in_region_from_struct_transform"""
-        assert compare_query_strings(response.json()["sql"], expected)
+        assert_query_strings_equal(response.json()["sql"], expected)
 
         # Check that this query request has been saved
         query_request = (await session.execute(select(QueryRequest))).scalars().all()

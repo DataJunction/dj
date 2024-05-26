@@ -7,7 +7,6 @@ import time
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
@@ -383,6 +382,42 @@ async def join_tables_for_dimensions(
                     )
 
 
+def build_filters(
+    node: NodeRevision,
+    node_table: Optional[ast.TableExpression],
+    filters: Optional[List[str]],
+) -> List[ast.Expression]:
+    """
+    Returns a list of built filter expressions based on the provided node
+    and its table expression.
+    """
+    filter_asts: List[ast.Expression] = []
+    if not filters:
+        return filter_asts
+    dimensions_to_columns_map = node.dimensions_to_columns_map()
+    for filter_ in filters:
+        temp_select = parse(f"select * where {filter_}").select
+        referenced_dimensions = list(temp_select.find_all(ast.Column))
+        # We can only push down the filter if all dimensions referenced by the filter
+        # are available as foreign key columns on the node
+        all_referenced_dimensions_available_on_node = all(
+            dim.identifier() in dimensions_to_columns_map
+            for dim in referenced_dimensions
+        )
+        if all_referenced_dimensions_available_on_node:
+            # Renames the columns from dimension attributes to columns that match those
+            # dimension attributes on the node
+            for dim in referenced_dimensions:
+                col_name = dimensions_to_columns_map[dim.identifier()].alias_or_name
+                dim.name = ast.Name(name=col_name)
+                if node_table:  # pragma: no cover
+                    dim.add_table(node_table)
+            filter_asts.append(
+                temp_select.where,  # type: ignore
+            )
+    return filter_asts
+
+
 async def _build_tables_on_select(
     session: AsyncSession,
     select: ast.SelectExpression,
@@ -396,87 +431,23 @@ async def _build_tables_on_select(
     """
     Add all nodes not agg or filter dimensions to the select
     """
+    context = CompileContext(session=session, exception=DJException())
+
     for node, tbls in tables.items():
-        node_table = cast(
+        await session.refresh(node, ["dimension_links"])
+
+        # Try to find a physical table attached to this node, if one exists.
+        physical_table = cast(
             Optional[ast.Table],
             _get_node_table(node, build_criteria),
-        )  # got a materialization
-        fk_column_mapping = {}
-        for col in node.columns:
-            if col.dimension_id:
-                col_dimension = await Node.get_by_id(
-                    session,
-                    col.dimension_id,
-                    joinedload(Node.current).options(
-                        *NodeRevision.default_load_options()
-                    ),
-                )
-                fk_column_mapping[
-                    ",".join(
-                        sorted(
-                            [
-                                pk.name for pk in col_dimension.current.primary_key()  # type: ignore  # pylint: disable=line-too-long
-                            ],
-                        ),
-                    )
-                ] = col
+        )
 
-        if node_table is None:  # no materialization - recurse to node first
+        # If no attached physical table was found, recursively build the node
+        if physical_table is None:
             node_query = parse(cast(str, node.query))
             if hash(node_query) in memoized_queries:  # pragma: no cover
-                node_table = memoized_queries[hash(node_query)].select  # type: ignore
+                query_ast = memoized_queries[hash(node_query)]  # type: ignore
             else:
-                if filters:
-                    filter_asts = (  # pylint: disable=consider-using-ternary
-                        node_query.select.where and [node_query.select.where] or []
-                    )
-                    foreign_keys_map = {
-                        left.alias_or_name.name: right
-                        for link in node.dimension_links
-                        for left, right in link.foreign_key_mapping().items()
-                    }
-                    foreign_keys_alias_map = {
-                        col.alias_or_name.name: col  # type: ignore
-                        for col in node_query.select.projection
-                    }
-                    for filter_ in filters:
-                        temp_select = parse(f"select * where {filter_}").select
-                        referenced_cols = list(temp_select.find_all(ast.Column))
-
-                        # We can only push down the filter if all columns referenced by the filter
-                        # are available as foreign key columns on the node
-                        if all(
-                            col.alias_or_name.name in fk_column_mapping
-                            or col.alias_or_name.name in foreign_keys_map
-                            for col in referenced_cols
-                        ):
-                            # Renames the columns to the foreign key columns
-                            for col in referenced_cols:
-                                ref_col_name = (
-                                    fk_column_mapping[col.alias_or_name.name].name
-                                    if col.alias_or_name.name in fk_column_mapping
-                                    else foreign_keys_map[
-                                        col.alias_or_name.name
-                                    ].alias_or_name
-                                )
-                                col.name = ast.Name(name=ref_col_name)
-                                if (  # pragma: no cover
-                                    col.alias_or_name.name in foreign_keys_alias_map
-                                ):
-                                    key = foreign_keys_alias_map[  # type: ignore
-                                        col.alias_or_name.name
-                                    ]
-                                    col.name = (
-                                        key.name
-                                        if isinstance(key, ast.Named)
-                                        else key.alias_or_name  # type: ignore
-                                    )
-                            filter_asts.append(
-                                temp_select.where,  # type: ignore
-                            )
-                    if filter_asts:
-                        node_query.select.where = ast.BinaryOp.And(*filter_asts)
-
                 query_ast = await build_ast(  # type: ignore
                     session,
                     node_query,
@@ -486,27 +457,57 @@ async def _build_tables_on_select(
                     dimensions,
                     access_control,
                 )
-                node_table = query_ast.select  # type: ignore
-                node_table.parenthesized = True  # type: ignore
                 memoized_queries[hash(node_query)] = query_ast
 
-        alias = amenable_name(node.name)
-        context = CompileContext(session=session, exception=DJException())
+            alias = amenable_name(node.name)
+            node_ast = ast.Alias(ast.Name(alias), child=query_ast.select, as_=True)  # type: ignore
+            query_ast.select.parenthesized = True  # type: ignore
 
-        node_ast = ast.Alias(ast.Name(alias), child=node_table, as_=True)  # type: ignore
+            filter_asts = build_filters(node, node_ast, filters)  # type: ignore
+        else:
+            alias = amenable_name(node.name)
+            node_ast = ast.Alias(ast.Name(alias), child=physical_table, as_=True)  # type: ignore
+            filter_asts = build_filters(node, physical_table, filters)
+
         for tbl in tbls:
-            if isinstance(node_ast.child, ast.Select) and isinstance(tbl, ast.Alias):
+            if isinstance(node_ast.child, ast.Select) and isinstance(tbl, ast.Alias):  # type: ignore
                 node_ast.child.projection = [
                     col
                     for col in node_ast.child.projection
                     if col in set(tbl.child.select.projection)
                 ]
+            if (
+                isinstance(node_ast.child, ast.Table)
+                and isinstance(tbl, ast.Aliasable)
+                and hasattr(tbl, "alias")
+                and tbl.alias
+            ):
+                node_ast.alias.name = tbl.alias
+
             await node_ast.compile(context)
+
+            # This will push down the filter expression to CTEs, subqueries, and top-level queries.
+            # Each `tbl` is a TableExpression that references the node in question, where the
+            # provided filters might apply. We find the table reference's nearest parent SELECT
+            # clause and populate its WHERE clause with the filters.
+            if filter_asts:
+                if nearest_select := tbl.get_nearest_parent_of_type(
+                    ast.Select,
+                ):  # pragma: no cover
+                    if nearest_select.where:
+                        filter_asts.append(nearest_select.where)
+                    nearest_select.where = (
+                        ast.BinaryOp.And(  # pylint: disable=no-value-for-parameter
+                            *filter_asts
+                        )
+                    )
+
             select.replace(
                 tbl,
                 node_ast,
                 copy=False,
             )
+        await select.compile(context)
         for col in select.find_all(ast.Column):
             if (
                 col._table

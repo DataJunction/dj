@@ -43,6 +43,7 @@ async def test_build_node(
             construction_session,
             node.current,  # type: ignore
         )
+        print("QUERYY", str(ast))
         assert compare_query_strings(str(ast), expected)
     else:
         with pytest.raises(Exception) as exc:

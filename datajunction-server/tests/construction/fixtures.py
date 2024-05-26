@@ -179,12 +179,12 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
     dbt_DOT_transform_DOT_customer_agg.first_name,
     dbt_DOT_transform_DOT_customer_agg.last_name,
     dbt_DOT_transform_DOT_customer_agg.order_cnt
- FROM (SELECT  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id,
-    dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name,
-    dbt_DOT_source_DOT_jaffle_shop_DOT_customers.last_name,
+ FROM (SELECT  c.id,
+    c.first_name,
+    c.last_name,
     COUNT(1) AS order_cnt
- FROM dbt.source.jaffle_shop.orders AS dbt_DOT_source_DOT_jaffle_shop_DOT_orders JOIN dbt.source.jaffle_shop.customers AS dbt_DOT_source_DOT_jaffle_shop_DOT_customers ON dbt_DOT_source_DOT_jaffle_shop_DOT_orders.user_id = dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id
- GROUP BY  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id, dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name, dbt_DOT_source_DOT_jaffle_shop_DOT_customers.last_name)
+ FROM dbt.source.jaffle_shop.orders AS o JOIN dbt.source.jaffle_shop.customers AS c ON o.user_id = c.id
+ GROUP BY  c.id, c.first_name, c.last_name)
  AS dbt_DOT_transform_DOT_customer_agg""",
             ),
         },
