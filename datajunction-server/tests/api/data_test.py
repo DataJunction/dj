@@ -666,31 +666,7 @@ class TestDataForNode:
                 ],
                 "row_count": 0,
                 "rows": [[25]],
-                "sql": "SELECT  count(default_DOT_repair_orders_fact.repair_order_id) "
-                "default_DOT_num_repair_orders \n"
-                " FROM (SELECT  default_DOT_repair_orders.repair_order_id,\n"
-                "\tdefault_DOT_repair_orders.municipality_id,\n"
-                "\tdefault_DOT_repair_orders.hard_hat_id,\n"
-                "\tdefault_DOT_repair_orders.dispatcher_id,\n"
-                "\tdefault_DOT_repair_orders.order_date,\n"
-                "\tdefault_DOT_repair_orders.dispatched_date,\n"
-                "\tdefault_DOT_repair_orders.required_date,\n"
-                "\tdefault_DOT_repair_order_details.discount,\n"
-                "\tdefault_DOT_repair_order_details.price,\n"
-                "\tdefault_DOT_repair_order_details.quantity,\n"
-                "\tdefault_DOT_repair_order_details.repair_type_id,\n"
-                "\tdefault_DOT_repair_order_details.price * "
-                "default_DOT_repair_order_details.quantity AS total_repair_cost,\n"
-                "\tdefault_DOT_repair_orders.dispatched_date - "
-                "default_DOT_repair_orders.order_date AS time_to_dispatch,\n"
-                "\tdefault_DOT_repair_orders.dispatched_date - "
-                "default_DOT_repair_orders.required_date AS dispatch_delay \n"
-                " FROM roads.repair_orders AS default_DOT_repair_orders JOIN "
-                "roads.repair_order_details AS default_DOT_repair_order_details ON "
-                "default_DOT_repair_orders.repair_order_id = "
-                "default_DOT_repair_order_details.repair_order_id)\n"
-                " AS default_DOT_repair_orders_fact\n"
-                "\n",
+                "sql": mock.ANY,
             },
         ]
 

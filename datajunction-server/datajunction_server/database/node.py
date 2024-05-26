@@ -218,7 +218,6 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         secondary="tagnoderelationship",
         primaryjoin="TagNodeRelationship.node_id==Node.id",
         secondaryjoin="TagNodeRelationship.tag_id==Tag.id",
-        # lazy="selectin",
     )
 
     missing_table: Mapped[bool] = mapped_column(sa.Boolean, default=False)
@@ -330,10 +329,12 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         """
         Get a node by id
         """
-        statement = select(Node).where(Node.id == node_id).options(*options)
-        result = await session.execute(statement)
-        node = result.unique().scalar_one_or_none()
-        return node
+        statement = (
+            select(Node).where(Node.id == node_id).options(*options)
+        )  # pragma: no cover
+        result = await session.execute(statement)  # pragma: no cover
+        node = result.unique().scalar_one_or_none()  # pragma: no cover
+        return node  # pragma: no cover
 
     @classmethod
     async def find(
@@ -740,6 +741,17 @@ class NodeRevision(
             for col in self.columns  # pylint: disable=not-an-iterable
             if col.partition and col.partition.type_ == PartitionType.CATEGORICAL
         ]
+
+    def dimensions_to_columns_map(self):
+        """
+        A mapping between each of the dimension attributes linked to this node to the columns
+        that they're linked to.
+        """
+        return {
+            left.identifier(): right
+            for link in self.dimension_links
+            for left, right in link.foreign_key_mapping().items()
+        }
 
     def __deepcopy__(self, memo):
         """

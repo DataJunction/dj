@@ -345,6 +345,7 @@ async def test_druid_measures_cube_full(
         "for node `default.repairs_cube`"
     )
     args, _ = query_service_client.materialize.call_args_list[0]  # type: ignore
+    print("args[0].query", args[0].query)
     assert str(parse(args[0].query)) == str(
         parse(load_expected_file("druid_measures_cube.full.query.sql")),
     )
@@ -570,6 +571,7 @@ WHERE repair_orders.order_date = DJ_LOGICAL_TIMESTAMP()""",
         "for node `default.repairs_cube`"
     )
     args, _ = query_service_client.materialize.call_args_list[2]  # type: ignore
+    print("args[0]", args[0].query)
     assert str(
         parse(
             args[0]
