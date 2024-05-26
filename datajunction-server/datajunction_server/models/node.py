@@ -941,3 +941,12 @@ class NamespaceOutput(BaseModel):
 
     namespace: str
     num_nodes: int
+
+
+class NodeIndegreeOutput(BaseModel):
+    """
+    Node indegree output
+    """
+
+    name: str
+    indegree: int
