@@ -1,9 +1,10 @@
 """Dimension links table."""
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
-from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Integer
+from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Integer, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
@@ -142,3 +143,21 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
             right.identifier(): left.identifier()
             for left, right in self.foreign_key_mapping().items()
         }
+
+    @classmethod
+    async def get_links_for_dimension_id(
+        cls,
+        session: AsyncSession,
+        dimension_id: int,
+    ) -> List["DimensionLink"]:
+        """
+        Get dimension links by dimension node id
+        """
+        statement = (
+            select(cls)
+            .where(cls.dimension_id == dimension_id)
+            .options(joinedload(DimensionLink.node_revision))
+        )
+        result = await session.execute(statement)
+        links = result.unique().scalars().all()
+        return links

@@ -720,3 +720,20 @@ def topological_sort(nodes: List[Node]) -> List[Node]:
         raise DJException("Graph has at least one cycle")
 
     return sorted_nodes[::-1]
+
+
+async def get_dimension_dag_indegree(session, node_name: str):
+    """
+    For a given node, calculate the indegrees for its dimensions graph by finding the number
+    of dimension links that reference this node. Non-dimension nodes will always have an
+    indegree of 0.
+    """
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
+    dimension_dag_indegree = 0
+    if node.type == NodeType.DIMENSION:  # type: ignore
+        links = await DimensionLink.get_links_for_dimension_id(
+            session,
+            dimension_id=node.id,  # type: ignore
+        )
+        dimension_dag_indegree = len({link.node_revision.name for link in links})
+    return dimension_dag_indegree

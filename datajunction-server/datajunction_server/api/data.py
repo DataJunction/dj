@@ -260,7 +260,7 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
     query, query_request = await get_node_sql(
         node_name,
         dimensions,
-        filters,
+        [filter_ for filter_ in filters if filter_],
         orderby,
         limit,
         session=session,
