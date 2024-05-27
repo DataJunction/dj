@@ -1,10 +1,11 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import * as React from 'react';
 import DJClientContext from '../../providers/djclient';
-import { Form, Formik } from 'formik';
+import { Field, Form, Formik } from 'formik';
 import { FormikSelect } from '../AddEditNodePage/FormikSelect';
 import EditIcon from '../../icons/EditIcon';
 import { displayMessageAfterSubmit } from '../../../utils/form';
+import LoadingIcon from '../../icons/LoadingIcon';
 
 export default function LinkDimensionPopover({
   column,
@@ -35,11 +36,17 @@ export default function LinkDimensionPopover({
     { node, column, dimension },
     { setSubmitting, setStatus },
   ) => {
-    setSubmitting(false);
     if (referencedDimensionNode && dimension === 'Remove') {
-      await unlinkDimension(node, column, referencedDimensionNode, setStatus);
+      await unlinkDimension(
+        node,
+        column,
+        referencedDimensionNode,
+        setStatus,
+      ).then(_ => setSubmitting(false));
     } else {
-      await linkDimension(node, column, dimension, setStatus);
+      await linkDimension(node, column, dimension, setStatus).then(_ =>
+        setSubmitting(false),
+      );
     }
     onSubmit();
   };
@@ -137,8 +144,9 @@ export default function LinkDimensionPopover({
                   type="submit"
                   aria-label="SaveLinkDimension"
                   aria-hidden="false"
+                  disabled={isSubmitting}
                 >
-                  Save
+                  {isSubmitting ? <LoadingIcon /> : 'Save'}
                 </button>
               </Form>
             );

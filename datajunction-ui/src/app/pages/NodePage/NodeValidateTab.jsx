@@ -93,26 +93,31 @@ export default function NodeValidateTab({ node, djClient }) {
     const sse = await djClient.streamNodeData(node?.name, selection);
     sse.onmessage = e => {
       const messageData = JSON.parse(JSON.parse(e.data));
+      if (
+        messageData !== null &&
+        messageData?.state !== 'FINISHED' &&
+        messageData?.state !== 'CANCELED' &&
+        messageData?.state !== 'FAILED'
+      ) {
+        setRunning(false);
+      }
       if (messageData.results && messageData.results?.length > 0) {
         messageData.numRows = messageData.results?.length
           ? messageData.results[0].rows.length
           : [];
         switchTab('results');
+        setRunning(false);
       } else {
         switchTab('info');
       }
       setQueryInfo(messageData);
     };
     sse.onerror = () => sse.close();
-    setRunning(false);
   };
 
   // Handle form submission (runs the query)
   const handleSubmit = async (values, { setSubmitting, setStatus }) => {
-    await runQuery(values, setStatus, setSubmitting).then(_ => {
-      window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
-      setSubmitting(false);
-    });
+    await runQuery(values, setStatus, setSubmitting);
   };
 
   // Handle when filter values are updated. This is available for all nodes.
@@ -245,15 +250,7 @@ export default function NodeValidateTab({ node, djClient }) {
                   className="button-3 execute-button"
                   style={{ marginTop: '1rem' }}
                 >
-                  {running ||
-                  (queryInfo !== null &&
-                    queryInfo?.state !== 'FINISHED' &&
-                    queryInfo?.state !== 'CANCELED' &&
-                    queryInfo?.state !== 'FAILED') ? (
-                    <LoadingIcon />
-                  ) : (
-                    '► Run'
-                  )}
+                  {isSubmitting || running === true ? <LoadingIcon /> : '► Run'}
                 </button>
               </div>
               <div
