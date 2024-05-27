@@ -6,7 +6,7 @@ import 'reactflow/dist/style.css';
 import DJClientContext from '../../providers/djclient';
 import LayoutFlow from '../../components/djgraph/LayoutFlow';
 
-const NodeLineage = djNode => {
+const NodeGraphTab = djNode => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
   const createNode = node => {
@@ -134,4 +134,4 @@ const NodeLineage = djNode => {
   };
   return LayoutFlow(djNode, dagFetch);
 };
-export default NodeLineage;
+export default NodeGraphTab;

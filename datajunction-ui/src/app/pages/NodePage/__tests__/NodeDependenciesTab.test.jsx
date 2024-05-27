@@ -1,11 +1,13 @@
 import React from 'react';
 import { render, waitFor, screen } from '@testing-library/react';
-import NodeDimensionsTab from '../NodeDimensionsTab';
+import NodeDependenciesTab from '../NodeDependenciesTab';
 
-describe('<NodeDimensionsTab />', () => {
+describe('<NodeDependenciesTab />', () => {
   const mockDjClient = {
     node: jest.fn(),
     nodeDimensions: jest.fn(),
+    upstreams: jest.fn(),
+    downstreams: jest.fn(),
   };
 
   const mockNode = {
@@ -129,11 +131,15 @@ describe('<NodeDimensionsTab />', () => {
   beforeEach(() => {
     // Reset the mocks before each test
     mockDjClient.nodeDimensions.mockReset();
+    mockDjClient.upstreams.mockReset();
+    mockDjClient.downstreams.mockReset();
   });
 
   it('renders nodes with dimensions', async () => {
     mockDjClient.nodeDimensions.mockReturnValue(mockDimensions);
-    render(<NodeDimensionsTab node={mockNode} djClient={mockDjClient} />);
+    mockDjClient.upstreams.mockReturnValue([mockNode]);
+    mockDjClient.downstreams.mockReturnValue([mockNode]);
+    render(<NodeDependenciesTab node={mockNode} djClient={mockDjClient} />);
     await waitFor(() => {
       for (const dimension of mockDimensions) {
         const link = screen.getByText(dimension.node_display_name).closest('a');

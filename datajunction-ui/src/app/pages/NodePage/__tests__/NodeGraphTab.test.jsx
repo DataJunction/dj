@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-import NodeLineage from '../NodeGraphTab';
+import NodeGraphTab from '../NodeGraphTab';
 import DJClientContext from '../../../providers/djclient';
 
 describe('<NodeLineage />', () => {
@@ -564,7 +564,7 @@ describe('<NodeLineage />', () => {
     // const layoutFlowMock = jest.spyOn(LayoutFlow);
     const { container } = render(
       <DJClientContext.Provider value={djClient}>
-        <NodeLineage {...defaultProps} />
+        <NodeGraphTab {...defaultProps} />
       </DJClientContext.Provider>,
     );
 
