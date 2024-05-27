@@ -58,7 +58,6 @@ describe('<LinkDimensionPopover />', () => {
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
     fireEvent.click(screen.getByText('Dimension 1'));
     fireEvent.click(getByText('Save'));
-    getByText('Save').click();
 
     // Expect linkDimension to be called
     await waitFor(() => {
@@ -74,7 +73,6 @@ describe('<LinkDimensionPopover />', () => {
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
     fireEvent.click(screen.getByText('[Remove dimension link]'));
     fireEvent.click(getByText('Save'));
-    getByText('Save').click();
 
     // Expect unlinkDimension to be called
     await waitFor(() => {
@@ -133,7 +131,6 @@ describe('<LinkDimensionPopover />', () => {
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
     fireEvent.click(screen.getByText('Dimension 1'));
     fireEvent.click(getByText('Save'));
-    getByText('Save').click();
 
     // Expect linkDimension to be called
     await waitFor(() => {
@@ -151,7 +148,6 @@ describe('<LinkDimensionPopover />', () => {
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
     fireEvent.click(screen.getByText('[Remove Dimension]'));
     fireEvent.click(getByText('Save'));
-    getByText('Save').click();
 
     // Expect unlinkDimension to be called
     await waitFor(() => {

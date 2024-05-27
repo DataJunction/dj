@@ -706,9 +706,11 @@ describe('<NodePage />', () => {
       expect(screen.getByText('Add Filters')).toBeInTheDocument();
       expect(screen.getByText('Generated Query')).toBeInTheDocument();
       expect(screen.getByText('Results')).toBeInTheDocument();
+    });
+    // Click on the 'Validate' tab
+    fireEvent.click(screen.getByRole('button', { name: '► Validate' }));
 
-      // Click on the 'Validate' tab
-      fireEvent.click(screen.getByRole('button', { name: '► Validate' }));
+    await waitFor(() => {
       expect(djClient.DataJunctionAPI.node).toHaveBeenCalledWith(
         mocks.mockMetricNode.name,
       );
@@ -719,35 +721,41 @@ describe('<NodePage />', () => {
       expect(djClient.DataJunctionAPI.nodeDimensions).toHaveBeenCalledWith(
         mocks.mockMetricNode.name,
       );
+    });
 
-      // Click on 'Run' to run the node query
-      const runButton = screen.getByText('► Run');
-      fireEvent.click(runButton);
+    // Click on 'Run' to run the node query
+    const runButton = screen.getByText('► Run');
+    fireEvent.click(runButton);
 
+    await waitFor(() => {
       expect(djClient.DataJunctionAPI.streamNodeData).toHaveBeenCalledWith(
         mocks.mockMetricNode.name,
         { dimensions: [], filters: [] },
       );
       expect(streamNodeData.onmessage).toBeDefined();
       expect(streamNodeData.onerror).toBeDefined();
+    });
 
-      const infoTab = screen.getByRole('button', { name: 'QueryInfo' });
-      const resultsTab = screen.getByText('Results');
+    const infoTab = screen.getByRole('button', { name: 'QueryInfo' });
+    const resultsTab = screen.getByText('Results');
 
-      // Initially, the Results tab should be active
-      expect(resultsTab).toHaveClass('active');
-      expect(infoTab).not.toHaveClass('active');
+    // Initially, the Results tab should be active
+    expect(resultsTab).toHaveClass('active');
+    expect(infoTab).not.toHaveClass('active');
 
-      // Click on the Info tab first
-      fireEvent.click(infoTab);
+    // Click on the Info tab first
+    fireEvent.click(infoTab);
 
+    await waitFor(() => {
       // Now, the Info tab should be active
       expect(infoTab).toHaveClass('active');
       expect(resultsTab).not.toHaveClass('active');
+    });
 
-      // Click on the Results tab
-      fireEvent.click(resultsTab);
+    // Click on the Results tab
+    fireEvent.click(resultsTab);
 
+    await waitFor(() => {
       // Now, the Results tab should be active again
       expect(resultsTab).toHaveClass('active');
       expect(infoTab).not.toHaveClass('active');
