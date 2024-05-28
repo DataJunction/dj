@@ -1,7 +1,8 @@
 """DataJunction builder client module."""
-
+# pylint: disable=protected-access
+import re
 from http import HTTPStatus
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Type
 
 from datajunction import models
 from datajunction.client import DJClient
@@ -10,7 +11,15 @@ from datajunction.exceptions import (
     DJNamespaceAlreadyExists,
     DJTableAlreadyRegistered,
 )
-from datajunction.nodes import Cube, Dimension, Metric, Namespace, Source, Transform
+from datajunction.nodes import (
+    Cube,
+    Dimension,
+    Metric,
+    Namespace,
+    Node,
+    Source,
+    Transform,
+)
 from datajunction.tags import Tag
 
 
@@ -76,6 +85,66 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     #
     # Nodes: all
     #
+    def create_node(
+        self,
+        type_: models.NodeType,
+        name: str,
+        data: Dict,
+        update_if_exists: bool = False,
+    ) -> "Node":
+        """
+        Create or update a new node
+        """
+
+        node_type_to_class: dict[models.NodeType, Type[Node]] = {
+            models.NodeType.METRIC: Metric,
+            models.NodeType.CUBE: Cube,
+            models.NodeType.TRANSFORM: Transform,
+            models.NodeType.SOURCE: Source,
+            models.NodeType.DIMENSION: Dimension,
+        }
+
+        data = {
+            k: v
+            for k, v in data.items()
+            if k not in ["dj_client", "type"] and v is not None
+        }
+
+        try:
+            existing_node_dict = self._get_node(name)
+        except DJClientException as e:  # pragma: no cover # pytest fixture doesn't raise
+            if re.search(r"node .* does not exist", str(e)):
+                existing_node_dict = None
+            else:
+                raise
+
+        node_cls = node_type_to_class[type_]
+        # pylint: disable=fixme
+        # TODO: checking for "name" in existing_node_dict is a workaround
+        #   to accommodate pytest mock client, which return a error message dict (no "name")
+        #   instead of raising like the real client.
+        if existing_node_dict and "name" in existing_node_dict:
+            # update
+            if update_if_exists:
+                existing_node = node_cls(dj_client=self, **existing_node_dict)
+                new_node = existing_node.copy(update=data)
+                # dj_client is an Pydantic-excluded field and doesn't survive .copy()
+                #   so we need to set it again
+                new_node.dj_client = self
+                new_node._update_tags()
+                new_node._update()
+            else:
+                raise DJClientException(
+                    f"Node `{name}` already exists. "
+                    f"Use `update_if_exists=True` to update the node.",
+                )
+        else:
+            # create
+            new_node = node_cls(dj_client=self, **data)
+            self._create_node(node=new_node, mode=data.get("mode"))
+        new_node.refresh()
+        return new_node
+
     def delete_node(self, node_name: str) -> None:
         """
         Delete (aka deactivate) this node.
@@ -107,37 +176,42 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     #
     # Nodes: SOURCE
     #
+
     def create_source(  # pylint: disable=too-many-arguments
         self,
         name: str,
-        catalog: str,
-        schema: str,
-        table: str,
-        description: Optional[str] = None,
+        catalog: Optional[str] = None,
+        schema: Optional[str] = None,
+        table: Optional[str] = None,
         display_name: Optional[str] = None,
+        description: Optional[str] = None,
         columns: Optional[List[models.Column]] = None,
         primary_key: Optional[List[str]] = None,
         tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
+        update_if_exists: bool = False,
     ) -> "Source":
         """
         Creates a new Source node with given parameters.
         """
-        new_node = Source(
-            dj_client=self,
+
+        return self.create_node(
+            type_=models.NodeType.SOURCE,
             name=name,
-            description=description,
-            display_name=display_name,
-            tags=tags,
-            primary_key=primary_key,
-            catalog=catalog,
-            schema_=schema,
-            table=table,
-            columns=columns,
+            data={
+                "name": name,
+                "catalog": catalog,
+                "schema_": schema,
+                "table": table,
+                "display_name": display_name,
+                "description": description,
+                "columns": columns,
+                "primary_key": primary_key,
+                "tags": tags,
+                "mode": mode,
+            },
+            update_if_exists=update_if_exists,
         )
-        self._create_node(node=new_node, mode=mode)
-        new_node.refresh()
-        return new_node
 
     def register_table(self, catalog: str, schema: str, table: str) -> Source:
         """
@@ -166,28 +240,31 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def create_transform(  # pylint: disable=too-many-arguments
         self,
         name: str,
-        query: str,
+        query: Optional[str] = None,
         description: Optional[str] = None,
         display_name: Optional[str] = None,
         primary_key: Optional[List[str]] = None,
         tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
+        update_if_exists: bool = False,
     ) -> "Transform":
         """
-        Creates a new Transform node with given parameters.
+        Creates or update a Transform node with given parameters.
         """
-        new_node = Transform(
-            dj_client=self,
+        return self.create_node(
+            type_=models.NodeType.TRANSFORM,
             name=name,
-            description=description,
-            display_name=display_name,
-            tags=tags,
-            primary_key=primary_key,
-            query=query,
+            data={
+                "name": name,
+                "query": query,
+                "description": description,
+                "display_name": display_name,
+                "primary_key": primary_key,
+                "tags": tags,
+                "mode": mode,
+            },
+            update_if_exists=update_if_exists,
         )
-        self._create_node(node=new_node, mode=mode)
-        new_node.refresh()
-        return new_node
 
     #
     # Nodes: DIMENSION
@@ -195,28 +272,31 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def create_dimension(  # pylint: disable=too-many-arguments
         self,
         name: str,
-        query: str,
-        primary_key: Optional[List[str]],
+        query: Optional[str] = None,
+        primary_key: Optional[List[str]] = None,
         description: Optional[str] = None,
         display_name: Optional[str] = None,
         tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-    ) -> "Transform":
+        update_if_exists: bool = False,
+    ) -> "Dimension":
         """
-        Creates a new Dimension node with given parameters.
+        Creates or update a Dimension node with given parameters.
         """
-        new_node = Dimension(
-            dj_client=self,
+        return self.create_node(
+            type_=models.NodeType.DIMENSION,
             name=name,
-            description=description,
-            display_name=display_name,
-            tags=tags,
-            primary_key=primary_key,
-            query=query,
+            data={
+                "name": name,
+                "query": query,
+                "description": description,
+                "display_name": display_name,
+                "primary_key": primary_key,
+                "tags": tags,
+                "mode": mode,
+            },
+            update_if_exists=update_if_exists,
         )
-        self._create_node(node=new_node, mode=mode)
-        new_node.refresh()
-        return new_node
 
     #
     # Nodes: METRIC
@@ -224,28 +304,31 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def create_metric(  # pylint: disable=too-many-arguments
         self,
         name: str,
-        query: str,
+        query: Optional[str] = None,
         description: Optional[str] = None,
         display_name: Optional[str] = None,
         primary_key: Optional[List[str]] = None,
         tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-    ) -> "Transform":
+        update_if_exists: bool = False,
+    ) -> "Metric":
         """
-        Creates a new Metric node with given parameters.
+        Creates or update a Metric node with given parameters.
         """
-        new_node = Metric(
-            dj_client=self,
+        return self.create_node(
+            type_=models.NodeType.METRIC,
             name=name,
-            description=description,
-            display_name=display_name,
-            tags=tags,
-            primary_key=primary_key,
-            query=query,
+            data={
+                "name": name,
+                "query": query,
+                "description": description,
+                "display_name": display_name,
+                "primary_key": primary_key,
+                "tags": tags,
+                "mode": mode,
+            },
+            update_if_exists=update_if_exists,
         )
-        self._create_node(node=new_node, mode=mode)
-        new_node.refresh()
-        return new_node
 
     #
     # Nodes: CUBE
@@ -253,28 +336,31 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def create_cube(  # pylint: disable=too-many-arguments
         self,
         name: str,
-        metrics: List[str],
-        dimensions: List[str],
+        metrics: Optional[List[str]] = None,
+        dimensions: Optional[List[str]] = None,
         filters: Optional[List[str]] = None,
         description: Optional[str] = None,
         display_name: Optional[str] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
+        update_if_exists: bool = False,
     ) -> "Cube":
         """
-        Instantiates a new cube with the given parameters.
+        Create or update a cube with the given parameters.
         """
-        new_node = Cube(  # pragma: no cover
-            dj_client=self,
+        return self.create_node(
+            type_=models.NodeType.CUBE,
             name=name,
-            metrics=metrics,
-            dimensions=dimensions,
-            filters=filters or [],
-            description=description,
-            display_name=display_name,
+            data={
+                "name": name,
+                "metrics": metrics,
+                "dimensions": dimensions,
+                "filters": filters or [],
+                "description": description,
+                "display_name": display_name,
+                "mode": mode,
+            },
+            update_if_exists=update_if_exists,
         )
-        self._create_node(node=new_node, mode=mode)  # pragma: no cover
-        new_node.refresh()
-        return new_node  # pragma: no cover
 
     #
     # Tag
