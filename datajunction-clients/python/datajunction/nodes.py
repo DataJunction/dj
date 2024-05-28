@@ -309,9 +309,6 @@ class Source(Node):
             description=self.description,
             mode=self.mode,
             primary_key=self.primary_key,
-            catalog=self.catalog,
-            schema_=self.schema_,
-            table=self.table,
             columns=self.columns,
         )
         return self.dj_client._update_node(self.name, update_node)
