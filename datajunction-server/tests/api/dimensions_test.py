@@ -18,7 +18,18 @@ async def test_list_dimension(client_with_roads: AsyncClient) -> None:
     data = response.json()
 
     assert response.status_code == 200
-    assert len(data) > 5
+    assert {(dim["name"], dim["indegree"]) for dim in data} == {
+        (dim["name"], dim["indegree"])
+        for dim in [
+            {"indegree": 3, "name": "default.dispatcher"},
+            {"indegree": 2, "name": "default.repair_order"},
+            {"indegree": 2, "name": "default.hard_hat"},
+            {"indegree": 2, "name": "default.municipality_dim"},
+            {"indegree": 1, "name": "default.contractor"},
+            {"indegree": 1, "name": "default.us_state"},
+            {"indegree": 0, "name": "default.local_hard_hats"},
+        ]
+    }
 
 
 @pytest.mark.asyncio
