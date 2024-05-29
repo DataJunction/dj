@@ -5,7 +5,7 @@ import Tab from '../../components/Tab';
 import NamespaceHeader from '../../components/NamespaceHeader';
 import NodeInfoTab from './NodeInfoTab';
 import NodeColumnTab from './NodeColumnTab';
-import NodeLineage from './NodeGraphTab';
+import NodeGraphTab from './NodeGraphTab';
 import NodeHistory from './NodeHistory';
 import DJClientContext from '../../providers/djclient';
 import NodeValidateTab from './NodeValidateTab';
@@ -15,7 +15,7 @@ import NodesWithDimension from './NodesWithDimension';
 import NodeColumnLineage from './NodeLineageTab';
 import EditIcon from '../../icons/EditIcon';
 import AlertIcon from '../../icons/AlertIcon';
-import NodeDimensionsTab from './NodeDimensionsTab';
+import NodeDependenciesTab from './NodeDependenciesTab';
 import { useNavigate } from 'react-router-dom';
 
 export function NodePage() {
@@ -112,8 +112,8 @@ export function NodePage() {
         display: node?.type === 'metric',
       },
       {
-        id: 'dimensions',
-        name: 'Dimensions',
+        id: 'dependencies',
+        name: 'Dependencies',
         display: node?.type !== 'cube',
       },
     ];
@@ -129,7 +129,7 @@ export function NodePage() {
       tabToDisplay = <NodeColumnTab node={node} djClient={djClient} />;
       break;
     case 'graph':
-      tabToDisplay = <NodeLineage djNode={node} djClient={djClient} />;
+      tabToDisplay = <NodeGraphTab djNode={node} djClient={djClient} />;
       break;
     case 'history':
       tabToDisplay = <NodeHistory node={node} djClient={djClient} />;
@@ -146,8 +146,8 @@ export function NodePage() {
     case 'lineage':
       tabToDisplay = <NodeColumnLineage djNode={node} djClient={djClient} />;
       break;
-    case 'dimensions':
-      tabToDisplay = <NodeDimensionsTab node={node} djClient={djClient} />;
+    case 'dependencies':
+      tabToDisplay = <NodeDependenciesTab node={node} djClient={djClient} />;
       break;
     default: /* istanbul ignore next */
       tabToDisplay = <NodeInfoTab node={node} />;
