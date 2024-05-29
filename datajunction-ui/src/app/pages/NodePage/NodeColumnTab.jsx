@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import ClientCodePopover from './ClientCodePopover';
 import * as React from 'react';
 import EditColumnPopover from './EditColumnPopover';
 import LinkDimensionPopover from './LinkDimensionPopover';
@@ -35,8 +34,11 @@ export default function NodeColumnTab({ node, djClient }) {
   useEffect(() => {
     const fetchData = async () => {
       const dimensions = await djClient.dimensions();
-      const options = dimensions.map(name => {
-        return { value: name, label: name };
+      const options = dimensions.map(dim => {
+        return {
+          value: dim.name,
+          label: `${dim.name} (${dim.indegree} links)`,
+        };
       });
       setDimensions(options);
     };

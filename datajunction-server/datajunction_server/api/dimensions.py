@@ -17,9 +17,10 @@ from datajunction_server.internal.access.authorization import (
     validate_access_requests,
 )
 from datajunction_server.models import access
-from datajunction_server.models.node import NodeRevisionOutput
+from datajunction_server.models.node import NodeIndegreeOutput, NodeRevisionOutput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import (
+    get_dimension_dag_indegree,
     get_nodes_with_common_dimensions,
     get_nodes_with_dimension,
 )
@@ -30,7 +31,7 @@ _logger = logging.getLogger(__name__)
 router = SecureAPIRouter(tags=["dimensions"])
 
 
-@router.get("/dimensions/", response_model=List[str])
+@router.get("/dimensions/", response_model=List[NodeIndegreeOutput])
 async def list_dimensions(
     prefix: Optional[str] = None,
     *,
@@ -39,16 +40,24 @@ async def list_dimensions(
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
-) -> List[str]:
+) -> List[NodeIndegreeOutput]:
     """
     List all available dimensions.
     """
-    return await list_nodes(
+    node_names = await list_nodes(
         node_type=NodeType.DIMENSION,
         prefix=prefix,
         session=session,
         current_user=current_user,
         validate_access=validate_access,
+    )
+    node_indegrees = await get_dimension_dag_indegree(session, node_names)
+    return sorted(
+        [
+            NodeIndegreeOutput(name=node, indegree=node_indegrees[node])
+            for node in node_names
+        ],
+        key=lambda n: -n.indegree,
     )
 
 
