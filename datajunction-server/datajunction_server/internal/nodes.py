@@ -71,6 +71,7 @@ from datajunction_server.models.node import (
     UpdateNode,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.naming import from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
@@ -1389,7 +1390,14 @@ async def get_cube_revision_metadata(session: AsyncSession, name: str):
             http_status_code=404,
         )
     cube = result[0]
-    cube.cube_elements = sorted(cube.cube_elements, key=lambda elem: elem.order)
+
+    # Preserve the ordering of elements
+    element_ordering = {col.name: col.order for col in cube.columns}
+    cube.cube_elements = sorted(
+        cube.cube_elements,
+        key=lambda elem: element_ordering.get(from_amenable_name(elem.name), 0),
+    )
+
     cube_metadata = CubeRevisionMetadata.from_orm(cube)
     cube_metadata.tags = cube.node.tags
     return cube_metadata
