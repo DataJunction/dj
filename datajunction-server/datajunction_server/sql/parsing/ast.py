@@ -2404,6 +2404,17 @@ class Cast(Expression):
         """
         return self.data_type
 
+    async def compile(self, ctx: CompileContext):
+        """
+        In most cases we can short-circuit the CAST expression's compilation, since the output
+        type is determined directly by `data_type`, so evaluating the expression is unnecessary.
+        """
+        for child in self.find_all(Column):
+            await child.compile(ctx)
+
+        if self.data_type:
+            return
+
 
 @dataclass(eq=False)
 class SortItem(Node):
@@ -2532,7 +2543,6 @@ class Select(SelectExpression):
                     context=str(self),
                 ),
             )
-
         await super().compile(ctx)
 
 
