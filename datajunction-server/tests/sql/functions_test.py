@@ -128,7 +128,11 @@ async def test_aggregate(session: AsyncSession):
       aggregate(items, '', (acc, x) -> (case
         when acc = '' then element_at(split(x, '::'), 1)
         when acc = 'a' then acc
-        else element_at(split(x, '::'), 1) end)) as item
+        else element_at(split(x, '::'), 1) end)) as item,
+      aggregate(items, '', (acc, x) -> (case
+        when acc = '' then element_at(split(x, '::'), 1)
+        when acc = 'a' then acc
+        else element_at(split(x, '::'), 1) end), acc -> acc) as item1
     from (
       select 1 as id, ARRAY('b', 'c', 'a', 'x', 'g', 'z') AS items
     )
