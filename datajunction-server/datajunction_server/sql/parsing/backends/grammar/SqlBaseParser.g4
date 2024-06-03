@@ -18,6 +18,30 @@ parser grammar SqlBaseParser;
 
 options { tokenVocab = SqlBaseLexer; }
 
+@members {
+  /**
+   * When false, INTERSECT is given the greater precedence over the other set
+   * operations (UNION, EXCEPT and MINUS) as per the SQL standard.
+   */
+  public boolean legacy_setops_precedence_enabled = false;
+
+  /**
+   * When false, a literal with an exponent would be converted into
+   * double type rather than decimal type.
+   */
+  public boolean legacy_exponent_literal_as_decimal_enabled = false;
+
+  /**
+   * When true, the behavior of keywords follows ANSI SQL standard.
+   */
+  public boolean SQL_standard_keyword_behavior = false;
+
+  /**
+   * When true, double quoted literals are identifiers rather than STRINGs.
+   */
+  public boolean double_quoted_identifiers = false;
+}
+
 singleStatement
     : statement SEMICOLON* EOF
     ;
@@ -179,7 +203,7 @@ statement
     | LOAD DATA LOCAL? INPATH path=stringLit OVERWRITE? INTO TABLE
         multipartIdentifier partitionSpec?                             #loadData
     | TRUNCATE TABLE multipartIdentifier partitionSpec?                #truncateTable
-    | (MSCK)? REPAIR TABLE multipartIdentifier
+    | MSCK REPAIR TABLE multipartIdentifier
         (option=(ADD|DROP|SYNC) PARTITIONS)?                           #repairTable
     | op=(ADD | LIST) identifier .*?                                   #manageResource
     | SET ROLE .*?                                                     #failNativeCommand
@@ -288,6 +312,9 @@ commentSpec
     : COMMENT stringLit
     ;
 
+query
+    : ctes? queryTerm queryOrganization
+    ;
 
 insertInto
     : INSERT OVERWRITE TABLE? multipartIdentifier (partitionSpec (IF NOT EXISTS)?)?  identifierList?        #insertOverwriteTable
@@ -338,43 +365,8 @@ ctes
     : WITH namedQuery (COMMA namedQuery)*
     ;
 
-query
-    : ctes? queryTerm queryOrganization
-    ;
-
 namedQuery
     : name=errorCapturingIdentifier (columnAliases=identifierList)? AS? LEFT_PAREN query RIGHT_PAREN
-    ;
-
-queryTerm
-    : queryPrimary                                                                       #queryTermDefault
-    | left=queryTerm
-        operator=(INTERSECT | UNION | EXCEPT | SETMINUS) setQuantifier? right=queryTerm  #setOperation
-    ;
-
-querySpecification
-    : transformClause
-      fromClause?
-      lateralView*
-      whereClause?
-      aggregationClause?
-      havingClause?
-      windowClause?                                                         #transformQuerySpecification
-    | selectClause
-      fromClause?
-      lateralView*
-      whereClause?
-      aggregationClause?
-      havingClause?
-      windowClause?                                                         #regularQuerySpecification
-    ;
-
-queryPrimary
-    : querySpecification                                                    #queryPrimaryDefault
-    | fromStatement                                                         #fromStmt
-    | TABLE multipartIdentifier                                             #table
-    | inlineTable                                                           #inlineTableDefault1
-    | LEFT_PAREN query RIGHT_PAREN                                          #subquery
     ;
 
 tableProvider
@@ -467,6 +459,24 @@ multiInsertQueryBody
     : insertInto fromStatementBody
     ;
 
+queryTerm
+    : queryPrimary                                                                       #queryTermDefault
+    | left=queryTerm {legacy_setops_precedence_enabled}?
+        operator=(INTERSECT | UNION | EXCEPT | SETMINUS) setQuantifier? right=queryTerm  #setOperation
+    | left=queryTerm {!legacy_setops_precedence_enabled}?
+        operator=INTERSECT setQuantifier? right=queryTerm                                #setOperation
+    | left=queryTerm {!legacy_setops_precedence_enabled}?
+        operator=(UNION | EXCEPT | SETMINUS) setQuantifier? right=queryTerm              #setOperation
+    ;
+
+queryPrimary
+    : querySpecification                                                    #queryPrimaryDefault
+    | fromStatement                                                         #fromStmt
+    | TABLE multipartIdentifier                                             #table
+    | inlineTable                                                           #inlineTableDefault1
+    | LEFT_PAREN query RIGHT_PAREN                                          #subquery
+    ;
+
 sortItem
     : expression ordering=(ASC | DESC)? (NULLS nullOrder=(LAST | FIRST))?
     ;
@@ -488,7 +498,22 @@ fromStatementBody
       queryOrganization
     ;
 
-
+querySpecification
+    : transformClause
+      fromClause?
+      lateralView*
+      whereClause?
+      aggregationClause?
+      havingClause?
+      windowClause?                                                         #transformQuerySpecification
+    | selectClause
+      fromClause?
+      lateralView*
+      whereClause?
+      aggregationClause?
+      havingClause?
+      windowClause?                                                         #regularQuerySpecification
+    ;
 
 transformClause
     : (SELECT kind=TRANSFORM LEFT_PAREN setQuantifier? expressionSeq RIGHT_PAREN
@@ -930,7 +955,7 @@ booleanValue
     ;
 
 interval
-    : INTERVAL (errorCapturingMultiUnitsInterval | errorCapturingUnitToUnitInterval)
+    : INTERVAL (errorCapturingMultiUnitsInterval | errorCapturingUnitToUnitInterval)?
     ;
 
 errorCapturingMultiUnitsInterval
@@ -984,14 +1009,7 @@ qualifiedColTypeWithPositionList
     ;
 
 qualifiedColTypeWithPosition
-    : name=multipartIdentifier dataType colDefinitionDescriptorWithPosition*
-    ;
-
-colDefinitionDescriptorWithPosition
-    : NOT NULL
-    | defaultExpression
-    | commentSpec
-    | colPosition
+    : name=multipartIdentifier dataType (NOT NULL)? defaultExpression? commentSpec? colPosition?
     ;
 
 defaultExpression
@@ -1017,12 +1035,7 @@ createOrReplaceTableColType
 colDefinitionOption
     : NOT NULL
     | defaultExpression
-    | generationExpression
     | commentSpec
-    ;
-
-generationExpression
-    : GENERATED ALWAYS AS LEFT_PAREN expression RIGHT_PAREN
     ;
 
 complexColTypeList
@@ -1099,19 +1112,19 @@ errorCapturingIdentifierExtra
 
 identifier
     : strictIdentifier
-    | strictNonReserved
+    | {!SQL_standard_keyword_behavior}? strictNonReserved
     ;
 
 strictIdentifier
     : IDENTIFIER              #unquotedIdentifier
     | quotedIdentifier        #quotedIdentifierAlternative
-    | ansiNonReserved         #unquotedIdentifier
-    | nonReserved             #unquotedIdentifier
+    | {SQL_standard_keyword_behavior}? ansiNonReserved #unquotedIdentifier
+    | {!SQL_standard_keyword_behavior}? nonReserved    #unquotedIdentifier
     ;
 
 quotedIdentifier
     : BACKQUOTED_IDENTIFIER
-    | DOUBLEQUOTED_STRING
+    | {double_quoted_identifiers}? DOUBLEQUOTED_STRING
     ;
 
 backQuotedIdentifier
@@ -1119,9 +1132,9 @@ backQuotedIdentifier
     ;
 
 number
-    : MINUS? EXPONENT_VALUE #exponentLiteral
-    | MINUS? DECIMAL_VALUE  #decimalLiteral
-    | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #legacyDecimalLiteral
+    : {!legacy_exponent_literal_as_decimal_enabled}? MINUS? EXPONENT_VALUE #exponentLiteral
+    | {!legacy_exponent_literal_as_decimal_enabled}? MINUS? DECIMAL_VALUE  #decimalLiteral
+    | {legacy_exponent_literal_as_decimal_enabled}? MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #legacyDecimalLiteral
     | MINUS? INTEGER_VALUE            #integerLiteral
     | MINUS? BIGINT_LITERAL           #bigIntLiteral
     | MINUS? SMALLINT_LITERAL         #smallIntLiteral
@@ -1142,7 +1155,7 @@ alterColumnAction
 
 stringLit
     : STRING
-    | DOUBLEQUOTED_STRING
+    | {!double_quoted_identifiers}? DOUBLEQUOTED_STRING
     ;
 
 comment
@@ -1170,7 +1183,6 @@ ansiNonReserved
     : ADD
     | AFTER
     | ALTER
-    | ALWAYS
     | ANALYZE
     | ANTI
     | ANY_VALUE
@@ -1240,7 +1252,6 @@ ansiNonReserved
     | FORMATTED
     | FUNCTION
     | FUNCTIONS
-    | GENERATED
     | GLOBAL
     | GROUPING
     | HOUR
@@ -1430,7 +1441,6 @@ nonReserved
     | AFTER
     | ALL
     | ALTER
-    | ALWAYS
     | ANALYZE
     | AND
     | ANY
@@ -1525,7 +1535,6 @@ nonReserved
     | FROM
     | FUNCTION
     | FUNCTIONS
-    | GENERATED
     | GLOBAL
     | GRANT
     | GROUP
