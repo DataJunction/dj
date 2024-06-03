@@ -1,7 +1,9 @@
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines,too-many-statements
 """
 testing ast Nodes and their methods
 """
+from typing import cast
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1059,3 +1061,147 @@ FROM VALUES
     assert [
         (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
     ] == [("a_", types.IntegerType()), ("b_", types.IntegerType())]
+
+
+@pytest.mark.asyncio
+async def test_ast_hints():
+    """
+    Test that parsing a query with hints will yield an AST that includes the hints
+    """
+    # Test join hints for broadcast joins
+    query_str = (
+        """SELECT /*+ BROADCAST(t1) */ * FROM t1 INNER JOIN t2 ON t1.key = t2.key"""
+    )
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "BROADCAST"
+    assert [col.name.name for col in query.select.hints[0].parameters] == ["t1"]
+    assert "/*+ BROADCAST(t1) */" in str(query)
+
+    query_str = (
+        """SELECT /*+ BROADCASTJOIN(t1) */ * FROM t1 INNER JOIN t2 ON t1.key = t2.key"""
+    )
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "BROADCASTJOIN"
+    assert [col.name.name for col in query.select.hints[0].parameters] == ["t1"]
+    assert "/*+ BROADCASTJOIN(t1) */" in str(query)
+
+    query_str = (
+        """SELECT /*+ MAPJOIN(t2) */ * FROM t1 right JOIN t2 ON t1.key = t2.key"""
+    )
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "MAPJOIN"
+    assert [col.name.name for col in query.select.hints[0].parameters] == ["t2"]
+    assert "/*+ MAPJOIN(t2) */" in str(query)
+
+    # Test join hints for shuffle sort merge join
+    query_str = (
+        """SELECT /*+ SHUFFLE_MERGE(t1) */ * FROM t1 INNER JOIN t2 ON t1.key = t2.key"""
+    )
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "SHUFFLE_MERGE"
+    assert [col.name.name for col in query.select.hints[0].parameters] == ["t1"]
+    assert "/*+ SHUFFLE_MERGE(t1) */" in str(query)
+
+    query_str = (
+        """SELECT /*+ MERGEJOIN(t2) */ * FROM t1 INNER JOIN t2 ON t1.key = t2.key"""
+    )
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "MERGEJOIN"
+    assert [col.name.name for col in query.select.hints[0].parameters] == ["t2"]
+    assert "/*+ MERGEJOIN(t2) */" in str(query)
+
+    # TODO: Figure out why MERGE fails parsing  # pylint: disable=fixme
+    # query_str = """SELECT /*+ MERGE(t1) */ * FROM t1 INNER JOIN t2 ON t1.key = t2.key"""
+    # query = parse(str(query_str))
+    # assert cast(ast.Hint, query.select.hints[0]).name.name == "MERGE"
+    # assert [col.name.name for col in query.select.hints[0].parameters] == ["t1"]
+    # assert "/*+ MERGE(t1) */" in str(query)
+
+    # Test join hints for shuffle hash join
+    query_str = (
+        """SELECT /*+ SHUFFLE_HASH(t1) */ * FROM t1 INNER JOIN t2 ON t1.key = t2.key"""
+    )
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "SHUFFLE_HASH"
+    assert [col.name.name for col in query.select.hints[0].parameters] == ["t1"]
+    assert "/*+ SHUFFLE_HASH(t1) */" in str(query)
+
+    # Test join hints for shuffle-and-replicate nested loop join
+    query_str = "SELECT /*+ SHUFFLE_REPLICATE_NL(t1) */ * FROM t1 INNER JOIN t2 ON t1.key = t2.key"
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "SHUFFLE_REPLICATE_NL"
+    assert [col.name.name for col in query.select.hints[0].parameters] == ["t1"]
+    assert "/*+ SHUFFLE_REPLICATE_NL(t1) */" in str(query)
+
+    # Test multiple join hints
+    query_str = (
+        "SELECT /*+ BROADCAST(t1), SHUFFLE_MERGE(t1, t2) */ * FROM t1 "
+        "INNER JOIN t2 ON t1.key = t2.key"
+    )
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "BROADCAST"
+    assert [col.name.name for col in query.select.hints[0].parameters] == ["t1"]
+    assert cast(ast.Hint, query.select.hints[1]).name.name == "SHUFFLE_MERGE"
+    assert [col.name.name for col in query.select.hints[1].parameters] == ["t1", "t2"]
+    assert "/*+ BROADCAST(t1), SHUFFLE_MERGE(t1, t2) */" in str(query)
+
+    # Test partitioning hints
+    query_str = """SELECT /*+ REPARTITION(c) */ c, b, a FROM t"""
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "REPARTITION"
+    assert [str(col) for col in query.select.hints[0].parameters] == ["c"]
+    assert "/*+ REPARTITION(c) */" in str(query)
+
+    query_str = """SELECT /*+ COALESCE(3) */ * FROM t"""
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "COALESCE"
+    assert [str(col) for col in query.select.hints[0].parameters] == ["3"]
+    assert "/*+ COALESCE(3) */" in str(query)
+
+    query_str = """SELECT /*+ REPARTITION(3) */ * FROM t"""
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "REPARTITION"
+    assert [str(col) for col in query.select.hints[0].parameters] == ["3"]
+    assert "/*+ REPARTITION(3) */" in str(query)
+
+    query_str = """SELECT /*+ REPARTITION(3, c) */ * FROM t"""
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "REPARTITION"
+    assert [str(col) for col in query.select.hints[0].parameters] == ["3", "c"]
+    assert "/*+ REPARTITION(3, c) */" in str(query)
+
+    query_str = """SELECT /*+ REPARTITION_BY_RANGE(c) */ * FROM t"""
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "REPARTITION_BY_RANGE"
+    assert [str(col) for col in query.select.hints[0].parameters] == ["c"]
+    assert "/*+ REPARTITION_BY_RANGE(c) */" in str(query)
+
+    query_str = """SELECT /*+ REPARTITION_BY_RANGE(3, c) */ * FROM t"""
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "REPARTITION_BY_RANGE"
+    assert [str(col) for col in query.select.hints[0].parameters] == ["3", "c"]
+    assert "/*+ REPARTITION_BY_RANGE(3, c) */" in str(query)
+
+    query_str = """SELECT /*+ REBALANCE */ * FROM t"""
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "REBALANCE"
+    assert [str(col) for col in query.select.hints[0].parameters] == []
+    assert "/*+ REBALANCE */" in str(query)
+
+    query_str = """SELECT /*+ REBALANCE(3) */ * FROM t"""
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "REBALANCE"
+    assert [str(col) for col in query.select.hints[0].parameters] == ["3"]
+    assert "/*+ REBALANCE(3) */" in str(query)
+
+    query_str = """SELECT /*+ REBALANCE(c) */ * FROM t"""
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "REBALANCE"
+    assert [str(col) for col in query.select.hints[0].parameters] == ["c"]
+    assert "/*+ REBALANCE(c) */" in str(query)
+
+    query_str = """SELECT /*+ REBALANCE(3, c) */ * FROM t"""
+    query = parse(str(query_str))
+    assert cast(ast.Hint, query.select.hints[0]).name.name == "REBALANCE"
+    assert [str(col) for col in query.select.hints[0].parameters] == ["3", "c"]
+    assert "/*+ REBALANCE(3, c) */" in str(query)
