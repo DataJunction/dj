@@ -1,6 +1,6 @@
-# Generated from SqlBaseParser.g4 by ANTLR 4.12.0
+# Generated from SqlBaseParser.g4 by ANTLR 4.13.1
 from antlr4 import *
-if __name__ is not None and "." in __name__:
+if "." in __name__:
     from .SqlBaseParser import SqlBaseParser
 else:
     from SqlBaseParser import SqlBaseParser
@@ -2510,15 +2510,6 @@ class SqlBaseParserListener(ParseTreeListener):
         pass
 
 
-    # Enter a parse tree produced by SqlBaseParser#colDefinitionDescriptorWithPosition.
-    def enterColDefinitionDescriptorWithPosition(self, ctx:SqlBaseParser.ColDefinitionDescriptorWithPositionContext):
-        pass
-
-    # Exit a parse tree produced by SqlBaseParser#colDefinitionDescriptorWithPosition.
-    def exitColDefinitionDescriptorWithPosition(self, ctx:SqlBaseParser.ColDefinitionDescriptorWithPositionContext):
-        pass
-
-
     # Enter a parse tree produced by SqlBaseParser#defaultExpression.
     def enterDefaultExpression(self, ctx:SqlBaseParser.DefaultExpressionContext):
         pass
@@ -2570,15 +2561,6 @@ class SqlBaseParserListener(ParseTreeListener):
 
     # Exit a parse tree produced by SqlBaseParser#colDefinitionOption.
     def exitColDefinitionOption(self, ctx:SqlBaseParser.ColDefinitionOptionContext):
-        pass
-
-
-    # Enter a parse tree produced by SqlBaseParser#generationExpression.
-    def enterGenerationExpression(self, ctx:SqlBaseParser.GenerationExpressionContext):
-        pass
-
-    # Exit a parse tree produced by SqlBaseParser#generationExpression.
-    def exitGenerationExpression(self, ctx:SqlBaseParser.GenerationExpressionContext):
         pass
 
 
