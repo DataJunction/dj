@@ -2449,6 +2449,24 @@ class Organization(Node):
 
 
 @dataclass(eq=False)
+class Hint(Node):
+    """
+    An Spark SQL hint statement
+    """
+
+    name: Name
+    parameters: List[Column] = field(default_factory=list)
+
+    def __str__(self) -> str:
+        params = (
+            f"({', '.join(str(param) for param in self.parameters)})"
+            if self.parameters
+            else ""
+        )
+        return f"{self.name}{params}"
+
+
+@dataclass(eq=False)
 class SelectExpression(Aliasable, Expression):
     """
     An uninitializable Type for Select for use as a default where
@@ -2465,6 +2483,7 @@ class SelectExpression(Aliasable, Expression):
     set_op: Optional[SetOp] = None
     limit: Optional[Expression] = None
     organization: Optional[Organization] = None
+    hints: Optional[List[Hint]] = None
 
     def add_set_op(self, set_op: SetOp):
         if self.set_op:
@@ -2493,6 +2512,8 @@ class Select(SelectExpression):
 
     def __str__(self) -> str:
         parts = ["SELECT "]
+        if self.hints:
+            parts.append(f"/*+ {', '.join(str(hint) for hint in self.hints)} */\n")
         if self.quantifier:
             parts.append(f"{self.quantifier}\n")
         parts.append(",\n\t".join(str(exp) for exp in self.projection))
