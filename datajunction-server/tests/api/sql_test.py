@@ -1579,7 +1579,6 @@ async def test_sql_with_filters(  # pylint: disable=too-many-arguments
         params={"dimensions": dimensions, "filters": filters},
     )
     data = response.json()
-    print("QUERYY", data["sql"])
     assert_query_strings_equal(data["sql"], sql)
     assert data["columns"] == columns
 
@@ -1775,7 +1774,6 @@ async def test_sql_with_filters_on_namespaced_nodes(  # pylint: disable=R0913
         params={"dimensions": dimensions, "filters": filters, "orderby": orderby},
     )
     data = response.json()
-    print("QUERYYY", data["sql"])
     assert str(parse(str(data["sql"]))) == str(parse(str(sql)))
 
 
@@ -3359,3 +3357,87 @@ async def test_filter_pushdowns(
             """,
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_sql_use_materialized_table(
+    measures_sql_request,  # pylint: disable=redefined-outer-name
+    client_with_roads: AsyncClient,
+):
+    """
+    Posting a materialized table for a dimension node should result in building SQL
+    that uses the materialized table whenever a dimension attribute on the node is
+    requested.
+    """
+    availability_response = await client_with_roads.post(
+        "/data/default.hard_hat/availability",
+        json={
+            "catalog": "default",
+            "schema_": "xyz",
+            "table": "hardhat",
+            "valid_through_ts": 20240601,
+            "max_temporal_partition": ["2024", "06", "01"],
+            "min_temporal_partition": ["2022", "01", "01"],
+        },
+    )
+    assert availability_response.status_code == 200
+    response = (await measures_sql_request()).json()
+    assert "xyz.hardhat" in response["sql"]
+    expected_sql = """WITH
+default_DOT_repair_orders_fact AS (SELECT  default_DOT_repair_orders_fact.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id,
+    default_DOT_repair_orders_fact.municipality_id default_DOT_repair_orders_fact_DOT_municipality_id,
+    default_DOT_repair_orders_fact.hard_hat_id default_DOT_repair_orders_fact_DOT_hard_hat_id,
+    default_DOT_repair_orders_fact.dispatcher_id default_DOT_repair_orders_fact_DOT_dispatcher_id,
+    default_DOT_repair_orders_fact.order_date default_DOT_repair_orders_fact_DOT_order_date,
+    default_DOT_repair_orders_fact.dispatched_date default_DOT_repair_orders_fact_DOT_dispatched_date,
+    default_DOT_repair_orders_fact.required_date default_DOT_repair_orders_fact_DOT_required_date,
+    default_DOT_repair_orders_fact.discount default_DOT_repair_orders_fact_DOT_discount,
+    default_DOT_repair_orders_fact.price default_DOT_repair_orders_fact_DOT_price,
+    default_DOT_repair_orders_fact.quantity default_DOT_repair_orders_fact_DOT_quantity,
+    default_DOT_repair_orders_fact.repair_type_id default_DOT_repair_orders_fact_DOT_repair_type_id,
+    default_DOT_repair_orders_fact.total_repair_cost default_DOT_repair_orders_fact_DOT_total_repair_cost,
+    default_DOT_repair_orders_fact.time_to_dispatch default_DOT_repair_orders_fact_DOT_time_to_dispatch,
+    default_DOT_repair_orders_fact.dispatch_delay default_DOT_repair_orders_fact_DOT_dispatch_delay,
+    default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
+    default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state
+ FROM (SELECT  repair_orders.repair_order_id,
+    repair_orders.municipality_id,
+    repair_orders.hard_hat_id,
+    repair_orders.dispatcher_id,
+    repair_orders.order_date,
+    repair_orders.dispatched_date,
+    repair_orders.required_date,
+    repair_order_details.discount,
+    repair_order_details.price,
+    repair_order_details.quantity,
+    repair_order_details.repair_type_id,
+    repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+    repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+    repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+ FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id)
+ AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_dispatchers.dispatcher_id,
+    default_DOT_dispatchers.company_name
+ FROM roads.dispatchers AS default_DOT_dispatchers)
+ AS default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+LEFT JOIN xyz.hardhat AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+ WHERE  default_DOT_hard_hat.state = 'CA')
+
+SELECT  default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_repair_order_id,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_municipality_id,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_hard_hat_id,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_dispatcher_id,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_order_date,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_dispatched_date,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_required_date,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_discount,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_price,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_quantity,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_repair_type_id,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_total_repair_cost,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_time_to_dispatch,
+    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_dispatch_delay,
+    default_DOT_repair_orders_fact.default_DOT_dispatcher_DOT_company_name,
+    default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_state
+ FROM default_DOT_repair_orders_fact
+    """
+    assert str(parse(expected_sql)) == str(parse(response["sql"]))
