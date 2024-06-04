@@ -195,11 +195,12 @@ async def _build_joins_for_dimension_link(
         necessary_columns = selected_columns.union(join_columns).union(
             joinable_dim_columns,
         )
-        join_right.child.select.projection = [
-            col
-            for col in join_right.child.select.projection
-            if col.alias_or_name.name in necessary_columns
-        ]
+        if isinstance(join_right.child, ast.Query):
+            join_right.child.select.projection = [
+                col
+                for col in join_right.child.select.projection
+                if col.alias_or_name.name in necessary_columns  # type: ignore
+            ]
 
         # Replace the join right query
         join.right = join_right.child  # type: ignore
