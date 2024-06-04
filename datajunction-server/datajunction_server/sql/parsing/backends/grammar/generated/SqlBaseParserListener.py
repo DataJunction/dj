@@ -1,6 +1,6 @@
-# Generated from SqlBaseParser.g4 by ANTLR 4.12.0
+# Generated from SqlBaseParser.g4 by ANTLR 4.13.1
 from antlr4 import *
-if __name__ is not None and "." in __name__:
+if "." in __name__:
     from .SqlBaseParser import SqlBaseParser
 else:
     from SqlBaseParser import SqlBaseParser
@@ -809,15 +809,6 @@ class SqlBaseParserListener(ParseTreeListener):
         pass
 
 
-    # Enter a parse tree produced by SqlBaseParser#query.
-    def enterQuery(self, ctx:SqlBaseParser.QueryContext):
-        pass
-
-    # Exit a parse tree produced by SqlBaseParser#query.
-    def exitQuery(self, ctx:SqlBaseParser.QueryContext):
-        pass
-
-
     # Enter a parse tree produced by SqlBaseParser#insertOverwriteTable.
     def enterInsertOverwriteTable(self, ctx:SqlBaseParser.InsertOverwriteTableContext):
         pass
@@ -935,12 +926,102 @@ class SqlBaseParserListener(ParseTreeListener):
         pass
 
 
+    # Enter a parse tree produced by SqlBaseParser#query.
+    def enterQuery(self, ctx:SqlBaseParser.QueryContext):
+        pass
+
+    # Exit a parse tree produced by SqlBaseParser#query.
+    def exitQuery(self, ctx:SqlBaseParser.QueryContext):
+        pass
+
+
     # Enter a parse tree produced by SqlBaseParser#namedQuery.
     def enterNamedQuery(self, ctx:SqlBaseParser.NamedQueryContext):
         pass
 
     # Exit a parse tree produced by SqlBaseParser#namedQuery.
     def exitNamedQuery(self, ctx:SqlBaseParser.NamedQueryContext):
+        pass
+
+
+    # Enter a parse tree produced by SqlBaseParser#queryTermDefault.
+    def enterQueryTermDefault(self, ctx:SqlBaseParser.QueryTermDefaultContext):
+        pass
+
+    # Exit a parse tree produced by SqlBaseParser#queryTermDefault.
+    def exitQueryTermDefault(self, ctx:SqlBaseParser.QueryTermDefaultContext):
+        pass
+
+
+    # Enter a parse tree produced by SqlBaseParser#setOperation.
+    def enterSetOperation(self, ctx:SqlBaseParser.SetOperationContext):
+        pass
+
+    # Exit a parse tree produced by SqlBaseParser#setOperation.
+    def exitSetOperation(self, ctx:SqlBaseParser.SetOperationContext):
+        pass
+
+
+    # Enter a parse tree produced by SqlBaseParser#transformQuerySpecification.
+    def enterTransformQuerySpecification(self, ctx:SqlBaseParser.TransformQuerySpecificationContext):
+        pass
+
+    # Exit a parse tree produced by SqlBaseParser#transformQuerySpecification.
+    def exitTransformQuerySpecification(self, ctx:SqlBaseParser.TransformQuerySpecificationContext):
+        pass
+
+
+    # Enter a parse tree produced by SqlBaseParser#regularQuerySpecification.
+    def enterRegularQuerySpecification(self, ctx:SqlBaseParser.RegularQuerySpecificationContext):
+        pass
+
+    # Exit a parse tree produced by SqlBaseParser#regularQuerySpecification.
+    def exitRegularQuerySpecification(self, ctx:SqlBaseParser.RegularQuerySpecificationContext):
+        pass
+
+
+    # Enter a parse tree produced by SqlBaseParser#queryPrimaryDefault.
+    def enterQueryPrimaryDefault(self, ctx:SqlBaseParser.QueryPrimaryDefaultContext):
+        pass
+
+    # Exit a parse tree produced by SqlBaseParser#queryPrimaryDefault.
+    def exitQueryPrimaryDefault(self, ctx:SqlBaseParser.QueryPrimaryDefaultContext):
+        pass
+
+
+    # Enter a parse tree produced by SqlBaseParser#fromStmt.
+    def enterFromStmt(self, ctx:SqlBaseParser.FromStmtContext):
+        pass
+
+    # Exit a parse tree produced by SqlBaseParser#fromStmt.
+    def exitFromStmt(self, ctx:SqlBaseParser.FromStmtContext):
+        pass
+
+
+    # Enter a parse tree produced by SqlBaseParser#table.
+    def enterTable(self, ctx:SqlBaseParser.TableContext):
+        pass
+
+    # Exit a parse tree produced by SqlBaseParser#table.
+    def exitTable(self, ctx:SqlBaseParser.TableContext):
+        pass
+
+
+    # Enter a parse tree produced by SqlBaseParser#inlineTableDefault1.
+    def enterInlineTableDefault1(self, ctx:SqlBaseParser.InlineTableDefault1Context):
+        pass
+
+    # Exit a parse tree produced by SqlBaseParser#inlineTableDefault1.
+    def exitInlineTableDefault1(self, ctx:SqlBaseParser.InlineTableDefault1Context):
+        pass
+
+
+    # Enter a parse tree produced by SqlBaseParser#subquery.
+    def enterSubquery(self, ctx:SqlBaseParser.SubqueryContext):
+        pass
+
+    # Exit a parse tree produced by SqlBaseParser#subquery.
+    def exitSubquery(self, ctx:SqlBaseParser.SubqueryContext):
         pass
 
 
@@ -1124,69 +1205,6 @@ class SqlBaseParserListener(ParseTreeListener):
         pass
 
 
-    # Enter a parse tree produced by SqlBaseParser#queryTermDefault.
-    def enterQueryTermDefault(self, ctx:SqlBaseParser.QueryTermDefaultContext):
-        pass
-
-    # Exit a parse tree produced by SqlBaseParser#queryTermDefault.
-    def exitQueryTermDefault(self, ctx:SqlBaseParser.QueryTermDefaultContext):
-        pass
-
-
-    # Enter a parse tree produced by SqlBaseParser#setOperation.
-    def enterSetOperation(self, ctx:SqlBaseParser.SetOperationContext):
-        pass
-
-    # Exit a parse tree produced by SqlBaseParser#setOperation.
-    def exitSetOperation(self, ctx:SqlBaseParser.SetOperationContext):
-        pass
-
-
-    # Enter a parse tree produced by SqlBaseParser#queryPrimaryDefault.
-    def enterQueryPrimaryDefault(self, ctx:SqlBaseParser.QueryPrimaryDefaultContext):
-        pass
-
-    # Exit a parse tree produced by SqlBaseParser#queryPrimaryDefault.
-    def exitQueryPrimaryDefault(self, ctx:SqlBaseParser.QueryPrimaryDefaultContext):
-        pass
-
-
-    # Enter a parse tree produced by SqlBaseParser#fromStmt.
-    def enterFromStmt(self, ctx:SqlBaseParser.FromStmtContext):
-        pass
-
-    # Exit a parse tree produced by SqlBaseParser#fromStmt.
-    def exitFromStmt(self, ctx:SqlBaseParser.FromStmtContext):
-        pass
-
-
-    # Enter a parse tree produced by SqlBaseParser#table.
-    def enterTable(self, ctx:SqlBaseParser.TableContext):
-        pass
-
-    # Exit a parse tree produced by SqlBaseParser#table.
-    def exitTable(self, ctx:SqlBaseParser.TableContext):
-        pass
-
-
-    # Enter a parse tree produced by SqlBaseParser#inlineTableDefault1.
-    def enterInlineTableDefault1(self, ctx:SqlBaseParser.InlineTableDefault1Context):
-        pass
-
-    # Exit a parse tree produced by SqlBaseParser#inlineTableDefault1.
-    def exitInlineTableDefault1(self, ctx:SqlBaseParser.InlineTableDefault1Context):
-        pass
-
-
-    # Enter a parse tree produced by SqlBaseParser#subquery.
-    def enterSubquery(self, ctx:SqlBaseParser.SubqueryContext):
-        pass
-
-    # Exit a parse tree produced by SqlBaseParser#subquery.
-    def exitSubquery(self, ctx:SqlBaseParser.SubqueryContext):
-        pass
-
-
     # Enter a parse tree produced by SqlBaseParser#sortItem.
     def enterSortItem(self, ctx:SqlBaseParser.SortItemContext):
         pass
@@ -1211,24 +1229,6 @@ class SqlBaseParserListener(ParseTreeListener):
 
     # Exit a parse tree produced by SqlBaseParser#fromStatementBody.
     def exitFromStatementBody(self, ctx:SqlBaseParser.FromStatementBodyContext):
-        pass
-
-
-    # Enter a parse tree produced by SqlBaseParser#transformQuerySpecification.
-    def enterTransformQuerySpecification(self, ctx:SqlBaseParser.TransformQuerySpecificationContext):
-        pass
-
-    # Exit a parse tree produced by SqlBaseParser#transformQuerySpecification.
-    def exitTransformQuerySpecification(self, ctx:SqlBaseParser.TransformQuerySpecificationContext):
-        pass
-
-
-    # Enter a parse tree produced by SqlBaseParser#regularQuerySpecification.
-    def enterRegularQuerySpecification(self, ctx:SqlBaseParser.RegularQuerySpecificationContext):
-        pass
-
-    # Exit a parse tree produced by SqlBaseParser#regularQuerySpecification.
-    def exitRegularQuerySpecification(self, ctx:SqlBaseParser.RegularQuerySpecificationContext):
         pass
 
 

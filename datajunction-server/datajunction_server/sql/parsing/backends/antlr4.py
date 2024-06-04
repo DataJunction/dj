@@ -471,7 +471,7 @@ def _(ctx: sbp.QueryPrimaryContext):
 
 @visit.register
 def _(ctx: sbp.RegularQuerySpecificationContext):
-    quantifier, projection = visit(ctx.selectClause())
+    quantifier, projection, hints = visit(ctx.selectClause())
     from_ = visit(ctx.fromClause()) if ctx.fromClause() else None
     laterals = visit(ctx.lateralView())
     group_by = visit(ctx.aggregationClause()) if ctx.aggregationClause() else []
@@ -489,6 +489,7 @@ def _(ctx: sbp.RegularQuerySpecificationContext):
         where=where,
         group_by=group_by,
         having=having,
+        hints=hints,
     )
     if from_ and from_.laterals:
         select.lateral_views += from_.laterals
@@ -535,7 +536,23 @@ def _(ctx: sbp.SelectClauseContext):
     if quant := ctx.setQuantifier():
         quantifier = visit(quant)
     projection = visit(ctx.namedExpressionSeq())
-    return quantifier, projection
+    hints = [statement for hint in ctx.hints for statement in visit(hint)]
+    return quantifier, projection, hints
+
+
+@visit.register
+def _(ctx: sbp.HintContext) -> List[ast.Hint]:
+    return [visit(statement) for statement in ctx.hintStatements]
+
+
+@visit.register
+def _(ctx: sbp.HintStatementContext) -> ast.Hint:
+    name = visit(ctx.hintName)
+    parameters = [visit(param) for param in ctx.parameters]
+    return ast.Hint(
+        name=name,
+        parameters=parameters,
+    )
 
 
 @visit.register
