@@ -5197,17 +5197,50 @@ class TestCopyNode:
         original = (await client_with_roads.get("/nodes/default.repair_order")).json()
         for field in ["name", "node_id", "node_revision_id", "updated_at"]:
             copied[field] = mock.ANY
-        for link in copied["dimension_links"]:
-            link["foreign_keys"] = mock.ANY
-        copied["dimension_links"] = sorted(
+        copied_dimension_links = sorted(
             copied["dimension_links"],
             key=lambda li: li["dimension"]["name"],
         )
-        original["dimension_links"] = sorted(
-            original["dimension_links"],
-            key=lambda li: li["dimension"]["name"],
-        )
+        copied["dimension_links"] = mock.ANY
         assert copied == original
+        assert copied_dimension_links == [
+            {
+                "dimension": {"name": "default.dispatcher"},
+                "foreign_keys": {
+                    "default.contractor.dispatcher_id": (
+                        "default.dispatcher.dispatcher_id"
+                    ),
+                },
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.contractor.dispatcher_id = "
+                "default.dispatcher.dispatcher_id",
+                "join_type": "left",
+                "role": None,
+            },
+            {
+                "dimension": {"name": "default.hard_hat"},
+                "foreign_keys": {
+                    "default.contractor.hard_hat_id": ("default.hard_hat.hard_hat_id"),
+                },
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.contractor.hard_hat_id = default.hard_hat.hard_hat_id",
+                "join_type": "left",
+                "role": None,
+            },
+            {
+                "dimension": {"name": "default.municipality_dim"},
+                "foreign_keys": {
+                    "default.contractor.municipality_id": (
+                        "default.municipality_dim.municipality_id"
+                    ),
+                },
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.contractor.municipality_id = "
+                "default.municipality_dim.municipality_id",
+                "join_type": "left",
+                "role": None,
+            },
+        ]
 
     @pytest.mark.asyncio
     async def test_copy_nodes(  # pylint: disable=too-many-locals
@@ -5219,6 +5252,160 @@ class TestCopyNode:
         """
         Test copying all nodes in the roads database
         """
+        expected_dimension_links = {
+            "default.repair_orders": [
+                {
+                    "dimension": {"name": "default.dispatcher"},
+                    "foreign_keys": {
+                        "default.repair_orders_copy.dispatcher_id": (
+                            "default.dispatcher.dispatcher_id"
+                        ),
+                    },
+                    "join_cardinality": "many_to_one",
+                    "join_sql": "default.repair_orders_copy.dispatcher_id = "
+                    "default.dispatcher.dispatcher_id",
+                    "join_type": "left",
+                    "role": None,
+                },
+                {
+                    "dimension": {"name": "default.repair_order"},
+                    "foreign_keys": {
+                        "default.repair_orders_copy.repair_order_id": (
+                            "default.repair_order.repair_order_id"
+                        ),
+                    },
+                    "join_cardinality": "many_to_one",
+                    "join_sql": "default.repair_orders_copy.repair_order_id "
+                    "= default.repair_order.repair_order_id",
+                    "join_type": "left",
+                    "role": None,
+                },
+            ],
+            "default.repair_order_details": [
+                {
+                    "dimension": {"name": "default.repair_order"},
+                    "join_type": "left",
+                    "join_sql": "default.repair_order_details_copy.repair_order_id "
+                    "= default.repair_order.repair_order_id",
+                    "join_cardinality": "many_to_one",
+                    "role": None,
+                    "foreign_keys": {
+                        "default.repair_order_details_copy.repair_order_id": (
+                            "default.repair_order.repair_order_id"
+                        ),
+                    },
+                },
+            ],
+            "default.repair_type": [
+                {
+                    "dimension": {"name": "default.contractor"},
+                    "join_type": "left",
+                    "join_sql": "default.repair_type_copy.contractor_id = "
+                    "default.contractor.contractor_id",
+                    "join_cardinality": "many_to_one",
+                    "role": None,
+                    "foreign_keys": {
+                        "default.repair_type_copy.contractor_id": (
+                            "default.contractor.contractor_id"
+                        ),
+                    },
+                },
+            ],
+            "default.repair_orders_fact": [
+                {
+                    "dimension": {"name": "default.dispatcher"},
+                    "join_type": "left",
+                    "join_sql": "default.repair_orders_fact_copy.dispatcher_id = "
+                    "default.dispatcher.dispatcher_id",
+                    "join_cardinality": "many_to_one",
+                    "role": None,
+                    "foreign_keys": {
+                        "default.repair_orders_fact_copy.dispatcher_id": (
+                            "default.dispatcher.dispatcher_id"
+                        ),
+                    },
+                },
+                {
+                    "dimension": {"name": "default.hard_hat"},
+                    "join_type": "left",
+                    "join_sql": "default.repair_orders_fact_copy.hard_hat_id = "
+                    "default.hard_hat.hard_hat_id",
+                    "join_cardinality": "many_to_one",
+                    "role": None,
+                    "foreign_keys": {
+                        "default.repair_orders_fact_copy.hard_hat_id": (
+                            "default.hard_hat.hard_hat_id"
+                        ),
+                    },
+                },
+                {
+                    "dimension": {"name": "default.municipality_dim"},
+                    "join_type": "left",
+                    "join_sql": "default.repair_orders_fact_copy.municipality_id = "
+                    "default.municipality_dim.municipality_id",
+                    "join_cardinality": "many_to_one",
+                    "role": None,
+                    "foreign_keys": {
+                        "default.repair_orders_fact_copy.municipality_id": (
+                            "default.municipality_dim.municipality_id"
+                        ),
+                    },
+                },
+            ],
+            "default.hard_hat": [
+                {
+                    "dimension": {"name": "default.us_state"},
+                    "join_type": "left",
+                    "join_sql": "default.hard_hat_copy.state = default.us_state.state_short",
+                    "join_cardinality": "many_to_one",
+                    "role": None,
+                    "foreign_keys": {
+                        "default.hard_hat_copy.state": "default.us_state.state_short",
+                    },
+                },
+            ],
+            "default.repair_order": [
+                {
+                    "dimension": {"name": "default.dispatcher"},
+                    "join_type": "left",
+                    "join_sql": "default.repair_order_copy.dispatcher_id = "
+                    "default.dispatcher.dispatcher_id",
+                    "join_cardinality": "many_to_one",
+                    "role": None,
+                    "foreign_keys": {
+                        "default.repair_order_copy.dispatcher_id": (
+                            "default.dispatcher.dispatcher_id"
+                        ),
+                    },
+                },
+                {
+                    "dimension": {"name": "default.hard_hat"},
+                    "join_type": "left",
+                    "join_sql": "default.repair_order_copy.hard_hat_id = "
+                    "default.hard_hat.hard_hat_id",
+                    "join_cardinality": "many_to_one",
+                    "role": None,
+                    "foreign_keys": {
+                        "default.repair_order_copy.hard_hat_id": (
+                            "default.hard_hat.hard_hat_id"
+                        ),
+                    },
+                },
+                {
+                    "dimension": {"name": "default.municipality_dim"},
+                    "join_type": "left",
+                    "join_sql": "default.repair_order_copy.municipality_id = "
+                    "default.municipality_dim.municipality_id",
+                    "join_cardinality": "many_to_one",
+                    "role": None,
+                    "foreign_keys": {
+                        "default.repair_order_copy.municipality_id": (
+                            "default.municipality_dim.municipality_id"
+                        ),
+                    },
+                },
+            ],
+        }
         await client_with_roads.post("/nodes/cube", json=repairs_cube_payload)
         await client_with_roads.post(
             "/nodes/metric",
@@ -5236,17 +5423,21 @@ class TestCopyNode:
             copied = (await client_with_roads.get(f"/nodes/{node}_copy")).json()
             for field in ["name", "node_id", "node_revision_id", "updated_at"]:
                 copied[field] = mock.ANY
-            for link in copied["dimension_links"]:
-                link["foreign_keys"] = mock.ANY
-            copied["dimension_links"] = sorted(
+            copied_dimension_links = sorted(
                 copied["dimension_links"],
                 key=lambda link: link["dimension"]["name"],
             )
+            copied["dimension_links"] = mock.ANY
             original["dimension_links"] = sorted(
                 original["dimension_links"],
                 key=lambda link: link["dimension"]["name"],
             )
             assert original == copied
+
+            # Compare the dimension links, which should have updated join clauses
+            expected_link = expected_dimension_links.get(node)
+            if expected_link:
+                assert expected_link == copied_dimension_links
 
             # Metrics contain additional metadata, so compare the /metrics endpoint as well
             if original["type"] == "metric":
