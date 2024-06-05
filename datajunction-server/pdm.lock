@@ -5,7 +5,7 @@
 groups = ["default", "test", "uvicorn", "transpilation"]
 strategy = ["cross_platform"]
 lock_version = "4.4.1"
-content_hash = "sha256:429aa30b49f46bc2476c7aae2978331722a4436222e91a1134e9857478b08664"
+content_hash = "sha256:32aabf6a0d1ea115acffb53468e9d15a0b77bd6d3a82d7dc7f9e548e4542f34f"
 
 [[package]]
 name = "accept-types"
@@ -165,11 +165,11 @@ files = [
 
 [[package]]
 name = "antlr4-python3-runtime"
-version = "4.12.0"
-summary = "ANTLR 4.12.0 runtime for Python 3"
+version = "4.13.1"
+summary = "ANTLR 4.13.1 runtime for Python 3"
 files = [
-    {file = "antlr4-python3-runtime-4.12.0.tar.gz", hash = "sha256:0a8b82f55032734f43ed6b60b8a48c25754721a75cd714eb1fe9ce6ed418b361"},
-    {file = "antlr4_python3_runtime-4.12.0-py3-none-any.whl", hash = "sha256:2c08f4dfbdc7dfd10f680681a96a55579c1e4f866f01d27099c9a54027923d70"},
+    {file = "antlr4-python3-runtime-4.13.1.tar.gz", hash = "sha256:3cd282f5ea7cfb841537fe01f143350fdb1c0b1ce7981443a2fa8513fddb6d1a"},
+    {file = "antlr4_python3_runtime-4.13.1-py3-none-any.whl", hash = "sha256:78ec57aad12c97ac039ca27403ad61cb98aaec8a3f9bb8144f889aa0fa28b943"},
 ]
 
 [[package]]
