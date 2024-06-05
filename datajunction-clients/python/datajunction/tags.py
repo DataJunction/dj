@@ -29,7 +29,7 @@ class Tag(TagInfo, ClientEntity):
 
     def _update(self) -> "Tag":
         """
-        Update the tag for fields that have changed
+        Update the tag for fields that have changed.
         """
         update_tag = UpdateTag(
             description=self.description,
