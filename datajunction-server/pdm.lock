@@ -3,9 +3,10 @@
 
 [metadata]
 groups = ["default", "test", "uvicorn", "transpilation"]
-strategy = ["cross_platform"]
-lock_version = "4.4.1"
-content_hash = "sha256:32aabf6a0d1ea115acffb53468e9d15a0b77bd6d3a82d7dc7f9e548e4542f34f"
+cross_platform = true
+static_urls = false
+lock_version = "4.3"
+content_hash = "sha256:c178128a16ba8ae48a055e6415b410cd711267fe823eb55b2d6badc139f83b82"
 
 [[package]]
 name = "accept-types"
@@ -2046,15 +2047,15 @@ files = [
 
 [[package]]
 name = "pytest-asyncio"
-version = "0.23.6"
-requires_python = ">=3.8"
+version = "0.21.2"
+requires_python = ">=3.7"
 summary = "Pytest support for asyncio"
 dependencies = [
-    "pytest<9,>=7.0.0",
+    "pytest>=7.0.0",
 ]
 files = [
-    {file = "pytest-asyncio-0.23.6.tar.gz", hash = "sha256:ffe523a89c1c222598c76856e76852b787504ddb72dd5d9b6617ffa8aa2cde5f"},
-    {file = "pytest_asyncio-0.23.6-py3-none-any.whl", hash = "sha256:68516fdd1018ac57b846c9846b954f0393b26f094764a28c955eabb0536a4e8a"},
+    {file = "pytest_asyncio-0.21.2-py3-none-any.whl", hash = "sha256:ab664c88bb7998f711d8039cacd4884da6430886ae8bbd4eded552ed2004f16b"},
+    {file = "pytest_asyncio-0.21.2.tar.gz", hash = "sha256:d67738fc232b94b326b9d060750beb16e0074210b98dd8b58a5239fa2a154f45"},
 ]
 
 [[package]]
@@ -2350,7 +2351,7 @@ version = "2.0.28"
 requires_python = ">=3.7"
 summary = "Database Abstraction Library"
 dependencies = [
-    "greenlet!=0.4.17; platform_machine == \"win32\" or platform_machine == \"WIN32\" or platform_machine == \"AMD64\" or platform_machine == \"amd64\" or platform_machine == \"x86_64\" or platform_machine == \"ppc64le\" or platform_machine == \"aarch64\"",
+    "greenlet!=0.4.17; platform_machine == \"aarch64\" or (platform_machine == \"ppc64le\" or (platform_machine == \"x86_64\" or (platform_machine == \"amd64\" or (platform_machine == \"AMD64\" or (platform_machine == \"win32\" or platform_machine == \"WIN32\")))))",
     "typing-extensions>=4.6.0",
 ]
 files = [
@@ -2587,7 +2588,7 @@ dependencies = [
     "python-dotenv>=0.13",
     "pyyaml>=5.1",
     "uvicorn==0.28.0",
-    "uvloop!=0.15.0,!=0.15.1,>=0.14.0; (sys_platform != \"cygwin\" and sys_platform != \"win32\") and platform_python_implementation != \"PyPy\"",
+    "uvloop!=0.15.0,!=0.15.1,>=0.14.0; sys_platform != \"win32\" and (sys_platform != \"cygwin\" and platform_python_implementation != \"PyPy\")",
     "watchfiles>=0.13",
     "websockets>=10.4",
 ]
