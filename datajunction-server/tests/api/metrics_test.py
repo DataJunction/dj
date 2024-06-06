@@ -16,17 +16,17 @@ from datajunction_server.sql.parsing.types import FloatType, IntegerType, String
 
 
 @pytest.mark.asyncio
-async def test_read_metrics(client_with_roads: AsyncClient) -> None:
+async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
     """
     Test ``GET /metrics/``.
     """
-    response = await client_with_roads.get("/metrics/")
+    response = await module__client_with_roads.get("/metrics/")
     data = response.json()
 
     assert response.status_code == 200
     assert len(data) > 5
 
-    response = await client_with_roads.get("/metrics/default.num_repair_orders")
+    response = await module__client_with_roads.get("/metrics/default.num_repair_orders")
     data = response.json()
     assert data["metric_metadata"] == {
         "direction": "higher_is_better",
@@ -41,19 +41,24 @@ async def test_read_metrics(client_with_roads: AsyncClient) -> None:
     assert data["upstream_node"] == "default.repair_orders_fact"
     assert data["expression"] == "count(repair_order_id)"
 
-    response = await client_with_roads.get("/metrics/default.discounted_orders_rate")
+    response = await module__client_with_roads.get(
+        "/metrics/default.discounted_orders_rate",
+    )
     data = response.json()
     assert data["incompatible_druid_functions"] == ["IF"]
 
 
 @pytest.mark.asyncio
-async def test_read_metric(session: AsyncSession, client: AsyncClient) -> None:
+async def test_read_metric(
+    module__session: AsyncSession,
+    module__client: AsyncClient,
+) -> None:
     """
     Test ``GET /metric/{node_id}/``.
     """
-    await client.get("/attributes/")
+    await module__client.get("/attributes/")
     dimension_attribute = (
-        await session.execute(
+        await module__session.execute(
             select(AttributeType).where(AttributeType.name == "dimension"),
         )
     ).scalar_one()
@@ -105,10 +110,10 @@ async def test_read_metric(session: AsyncSession, client: AsyncClient) -> None:
         parents=[parent_node],
     )
 
-    session.add(child_rev)
-    await session.commit()
+    module__session.add(child_rev)
+    await module__session.commit()
 
-    response = await client.get("/metrics/child/")
+    response = await module__client.get("/metrics/child/")
     data = response.json()
 
     assert response.status_code == 200
@@ -143,7 +148,10 @@ async def test_read_metric(session: AsyncSession, client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_read_metrics_errors(session: AsyncSession, client: AsyncClient) -> None:
+async def test_read_metrics_errors(
+    module__session: AsyncSession,
+    module__client: AsyncClient,
+) -> None:
     """
     Test errors on ``GET /metrics/{node_id}/``.
     """
@@ -161,29 +169,29 @@ async def test_read_metrics_errors(session: AsyncSession, client: AsyncClient) -
         version="1",
         query="SELECT 1 AS col",
     )
-    session.add(database)
-    session.add(node_revision)
-    await session.execute(text("CREATE TABLE my_table (one TEXT)"))
-    await session.commit()
+    module__session.add(database)
+    module__session.add(node_revision)
+    await module__session.execute(text("CREATE TABLE my_table (one TEXT)"))
+    await module__session.commit()
 
-    response = await client.get("/metrics/foo")
+    response = await module__client.get("/metrics/foo")
     assert response.status_code == 404
     data = response.json()
     assert data["message"] == "A node with name `foo` does not exist."
 
-    response = await client.get("/metrics/a-metric")
+    response = await module__client.get("/metrics/a-metric")
     assert response.status_code == 400
     assert response.json() == {"detail": "Not a metric node: `a-metric`"}
 
 
 @pytest.mark.asyncio
 async def test_common_dimensions(
-    client_with_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
 ) -> None:
     """
     Test ``GET /metrics/common/dimensions``.
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/metrics/common/dimensions?"
         "metric=default.total_repair_order_discounts"
         "&metric=default.total_repair_cost",
@@ -424,16 +432,41 @@ async def test_common_dimensions(
 
 @pytest.mark.asyncio
 async def test_no_common_dimensions(
-    client_example_loader,
+    module__client_with_roads: AsyncClient,
 ) -> None:
     """
     Test getting common dimensions for metrics that have none in common
     """
-    custom_client = await client_example_loader(["BASIC", "ROADS"])
-    response = await custom_client.get(
+    await module__client_with_roads.post(
+        "/nodes/source/",
+        json={
+            "columns": [
+                {
+                    "name": "counts",
+                    "type": "struct<a string, b bigint>",
+                },
+            ],
+            "description": "Collection of dreams",
+            "mode": "published",
+            "name": "basic.dreams_1",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "dreams",
+        },
+    )
+
+    response = await module__client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "query": "SELECT SUM(counts.b) FROM basic.dreams_1",
+            "description": "Dream Counts",
+            "mode": "published",
+            "name": "basic.dream_count_1",
+        },
+    )
+    response = await module__client_with_roads.get(
         "/metrics/common/dimensions?"
-        "metric=basic.num_comments&metric=default.total_repair_order_discounts"
-        "&metric=default.total_repair_cost",
+        "metric=basic.dream_count_1&metric=default.total_repair_order_discounts",
     )
     assert response.status_code == 200
     assert response.json() == []
@@ -441,13 +474,12 @@ async def test_no_common_dimensions(
 
 @pytest.mark.asyncio
 async def test_raise_common_dimensions_not_a_metric_node(
-    client_example_loader,
+    module__client_with_account_revenue,
 ) -> None:
     """
     Test raising ``GET /metrics/common/dimensions`` when not a metric node
     """
-    custom_client = await client_example_loader(["ROADS", "ACCOUNT_REVENUE"])
-    response = await custom_client.get(
+    response = await module__client_with_account_revenue.get(
         "/metrics/common/dimensions?"
         "metric=default.total_repair_order_discounts"
         "&metric=default.payment_type",
@@ -458,12 +490,12 @@ async def test_raise_common_dimensions_not_a_metric_node(
 
 @pytest.mark.asyncio
 async def test_raise_common_dimensions_metric_not_found(
-    client_with_service_setup: AsyncClient,
+    module__client_with_roads: AsyncClient,
 ) -> None:
     """
     Test raising ``GET /metrics/common/dimensions`` when metric not found
     """
-    response = await client_with_service_setup.get(
+    response = await module__client_with_roads.get(
         "/metrics/common/dimensions?metric=default.foo&metric=default.bar",
     )
     assert response.status_code == 500
@@ -482,11 +514,11 @@ async def test_raise_common_dimensions_metric_not_found(
 
 
 @pytest.mark.asyncio
-async def test_get_dimensions(client_with_roads: AsyncClient):
+async def test_get_dimensions(module__client_with_roads: AsyncClient):
     """
     Testing get dimensions for a metric
     """
-    response = await client_with_roads.get("/metrics/default.avg_repair_price/")
+    response = await module__client_with_roads.get("/metrics/default.avg_repair_price/")
 
     data = response.json()
     assert data["dimensions"] == [
@@ -723,15 +755,16 @@ async def test_get_dimensions(client_with_roads: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_get_multi_link_dimensions(
-    client_example_loader,
+    module__client_with_dimension_link,
 ):
     """
     In some cases, the same dimension may be linked to different columns on a node.
     The returned dimension attributes should the join path between the given dimension
     attribute and the original node, in order to help disambiguate the source of the dimension.
     """
-    custom_client = await client_example_loader(["DIMENSION_LINK"])
-    response = await custom_client.get("/metrics/default.avg_user_age/")
+    response = await module__client_with_dimension_link.get(
+        "/metrics/default.avg_user_age/",
+    )
     assert response.json()["dimensions"] == [
         {
             "is_primary_key": True,
@@ -1009,11 +1042,11 @@ async def test_get_multi_link_dimensions(
 
 
 @pytest.mark.asyncio
-async def test_type_inference_structs(client_with_service_setup: AsyncClient):
+async def test_type_inference_structs(module__client_with_roads: AsyncClient):
     """
     Testing type resolution for structs select
     """
-    await client_with_service_setup.post(
+    await module__client_with_roads.post(
         "/nodes/source/",
         json={
             "columns": [
@@ -1024,17 +1057,17 @@ async def test_type_inference_structs(client_with_service_setup: AsyncClient):
             ],
             "description": "Collection of dreams",
             "mode": "published",
-            "name": "basic.dreams",
+            "name": "basic.dreams_3",
             "catalog": "public",
             "schema_": "basic",
             "table": "dreams",
         },
     )
 
-    response = await client_with_service_setup.post(
+    response = await module__client_with_roads.post(
         "/nodes/metric/",
         json={
-            "query": "SELECT SUM(counts.b) FROM basic.dreams",
+            "query": "SELECT SUM(counts.b) FROM basic.dreams_3",
             "description": "Dream Counts",
             "mode": "published",
             "name": "basic.dream_count",
@@ -1044,12 +1077,12 @@ async def test_type_inference_structs(client_with_service_setup: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_metric_expression_auto_aliased(client_with_service_setup: AsyncClient):
+async def test_metric_expression_auto_aliased(module__client_with_roads: AsyncClient):
     """
     Testing that a metric's expression column is automatically aliased
     """
-    await client_with_service_setup.post("/namespaces/basic")
-    await client_with_service_setup.post(
+    await module__client_with_roads.post("/namespaces/basic")
+    await module__client_with_roads.post(
         "/nodes/source/",
         json={
             "columns": [
@@ -1060,31 +1093,31 @@ async def test_metric_expression_auto_aliased(client_with_service_setup: AsyncCl
             ],
             "description": "Collection of dreams",
             "mode": "published",
-            "name": "basic.dreams",
+            "name": "basic.dreams_4",
             "catalog": "public",
             "schema_": "basic",
             "table": "dreams",
         },
     )
 
-    response = await client_with_service_setup.post(
+    response = await module__client_with_roads.post(
         "/nodes/metric/",
         json={
-            "query": "SELECT SUM(counts.b) + SUM(counts.b) FROM basic.dreams",
+            "query": "SELECT SUM(counts.b) + SUM(counts.b) FROM basic.dreams_4",
             "description": "Dream Counts",
             "mode": "published",
-            "name": "basic.dream_count",
+            "name": "basic.dream_count_4",
         },
     )
     assert response.status_code == 201
     data = response.json()
-    assert data["query"] == "SELECT SUM(counts.b) + SUM(counts.b) FROM basic.dreams"
+    assert data["query"] == "SELECT SUM(counts.b) + SUM(counts.b) FROM basic.dreams_4"
     assert data["columns"] == [
         {
             "attributes": [],
             "dimension": None,
-            "display_name": "Basic: Dream Count",
-            "name": "basic_DOT_dream_count",
+            "display_name": "Basic: Dream Count 4",
+            "name": "basic_DOT_dream_count_4",
             "partition": None,
             "type": "bigint",
         },
@@ -1093,13 +1126,14 @@ async def test_metric_expression_auto_aliased(client_with_service_setup: AsyncCl
 
 @pytest.mark.asyncio
 async def test_raise_on_malformated_expression_alias(
-    client_with_service_setup: AsyncClient,
+    module__client_with_roads: AsyncClient,
 ):
     """
     Test that using an invalid alias for a metric expression is saved, but the alias
     is overridden when creating the column name
     """
-    await client_with_service_setup.post(
+    await module__client_with_roads.post("/namespaces/basic")
+    response = await module__client_with_roads.post(
         "/nodes/source/",
         json={
             "columns": [
@@ -1110,35 +1144,36 @@ async def test_raise_on_malformated_expression_alias(
             ],
             "description": "Collection of dreams",
             "mode": "published",
-            "name": "basic.dreams",
+            "name": "basic.dreams_5",
             "catalog": "public",
             "schema_": "basic",
             "table": "dreams",
         },
     )
+    assert response.status_code == 200
 
-    response = await client_with_service_setup.post(
+    response = await module__client_with_roads.post(
         "/nodes/metric/",
         json={
-            "query": "SELECT SUM(counts.b) as foo FROM basic.dreams",
+            "query": "SELECT SUM(counts.b) as foo FROM basic.dreams_5",
             "description": "Dream Counts",
             "mode": "published",
-            "name": "basic.dream_count",
+            "name": "basic.dream_count_5",
         },
     )
     assert response.status_code == 201
     data = response.json()
-    assert data["query"] == "SELECT SUM(counts.b) as foo FROM basic.dreams"
-    assert data["columns"][0]["name"] == "basic_DOT_dream_count"
+    assert data["query"] == "SELECT SUM(counts.b) as foo FROM basic.dreams_5"
+    assert data["columns"][0]["name"] == "basic_DOT_dream_count_5"
 
 
 @pytest.mark.asyncio
-async def test_raise_on_multiple_expressions(client_with_service_setup: AsyncClient):
+async def test_raise_on_multiple_expressions(module__client_with_roads: AsyncClient):
     """
     Testing raising when there is more than one expression
     """
-    await client_with_service_setup.post("/namespaces/basic")
-    await client_with_service_setup.post(
+    await module__client_with_roads.post("/namespaces/basic")
+    response = await module__client_with_roads.post(
         "/nodes/source/",
         json={
             "columns": [
@@ -1149,20 +1184,21 @@ async def test_raise_on_multiple_expressions(client_with_service_setup: AsyncCli
             ],
             "description": "Collection of dreams",
             "mode": "published",
-            "name": "basic.dreams",
+            "name": "basic.dreams_2",
             "catalog": "public",
             "schema_": "basic",
             "table": "dreams",
         },
     )
+    assert response.status_code == 200
 
-    response = await client_with_service_setup.post(
+    response = await module__client_with_roads.post(
         "/nodes/metric/",
         json={
-            "query": "SELECT SUM(counts.b), COUNT(counts.b) FROM basic.dreams",
+            "query": "SELECT SUM(counts.b), COUNT(counts.b) FROM basic.dreams_2",
             "description": "Dream Counts",
             "mode": "published",
-            "name": "basic.dream_count",
+            "name": "basic.dream_count_2",
         },
     )
     assert response.status_code == 400
@@ -1172,11 +1208,11 @@ async def test_raise_on_multiple_expressions(client_with_service_setup: AsyncCli
 
 
 @pytest.mark.asyncio
-async def test_list_metric_metadata(client: AsyncClient):
+async def test_list_metric_metadata(module__client: AsyncClient):
     """
     Test listing metric metadata values
     """
-    metric_metadata_options = (await client.get("/metrics/metadata")).json()
+    metric_metadata_options = (await module__client.get("/metrics/metadata")).json()
     assert metric_metadata_options == {
         "directions": ["higher_is_better", "lower_is_better", "neutral"],
         "units": [
