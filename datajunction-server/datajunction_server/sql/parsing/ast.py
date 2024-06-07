@@ -2532,6 +2532,7 @@ class Select(SelectExpression):
             select = f"({select})"
         if self.set_op:
             select += f"\n{self.set_op}"
+            select = f"({select})"
 
         if self.organization:
             select += f"\n{self.organization}"
