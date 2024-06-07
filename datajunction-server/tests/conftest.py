@@ -1,6 +1,7 @@
 """
 Fixtures for testing.
 """
+import asyncio
 import os
 import re
 from http.client import HTTPException
@@ -168,14 +169,19 @@ async def session(
     await engine.dispose()
 
 
-# @pytest.fixture
-# def event_loop():
-#     try:
-#         loop = asyncio.get_running_loop()
-#     except RuntimeError:
-#         loop = asyncio.new_event_loop()
-#     yield loop
-#     loop.close()
+@pytest.fixture(scope="module")
+def event_loop():
+    """
+    This fixture is OK because we are pinning the pytest_asyncio to 0.21.x.
+    When they fix https://github.com/pytest-dev/pytest-asyncio/issues/718
+    we can remove the pytest_asyncio pin and remove this fixture.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
 
 
 @pytest.fixture
@@ -339,6 +345,13 @@ async def post_and_raise_if_error(client: AsyncClient, endpoint: str, json: dict
         raise HTTPException(response.text)
 
 
+async def post_and_dont_raise_if_error(client: AsyncClient, endpoint: str, json: dict):
+    """
+    Post the payload to the client and don't raise if there's an error
+    """
+    await client.post(endpoint, json=json)
+
+
 async def load_examples_in_client(
     client: AsyncClient,
     examples_to_load: Optional[List[str]] = None,
@@ -348,7 +361,7 @@ async def load_examples_in_client(
     """
     # Basic service setup always has to be done (i.e., create catalogs, engines, namespaces etc)
     for endpoint, json in SERVICE_SETUP:
-        await post_and_raise_if_error(
+        await post_and_dont_raise_if_error(
             client=client,
             endpoint="http://test" + endpoint,
             json=json,  # type: ignore
@@ -597,7 +610,7 @@ def pytest_addoption(parser):
     )
 
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True, scope="module")
 async def mock_user_dj():
     """
     Mock a DJ user for tests
@@ -612,3 +625,161 @@ async def mock_user_dj():
         ),
     ):
         yield
+
+
+#
+# Module scope fixtures
+#
+@pytest_asyncio.fixture(scope="module")
+async def module__client_example_loader(
+    module__client: AsyncClient,
+) -> Callable[[list[str] | None], Coroutine[Any, Any, AsyncClient]]:
+    """
+    Provides a callable fixture for loading examples into a DJ client.
+    """
+
+    async def _load_examples(examples_to_load: Optional[List[str]] = None):
+        return await load_examples_in_client(module__client, examples_to_load)
+
+    return _load_examples
+
+
+@pytest_asyncio.fixture(scope="module")
+async def module__client(  # pylint: disable=too-many-statements
+    module__session: AsyncSession,
+    module__settings: Settings,
+) -> AsyncGenerator[AsyncClient, None]:
+    """
+    Create a client for testing APIs.
+    """
+
+    def get_session_override() -> AsyncSession:
+        return module__session
+
+    def get_settings_override() -> Settings:
+        return module__settings
+
+    def default_validate_access() -> ValidateAccessFn:
+        def _(access_control: AccessControl):
+            access_control.approve_all()
+
+        return _
+
+    app.dependency_overrides[get_session] = get_session_override
+    app.dependency_overrides[get_settings] = get_settings_override
+    app.dependency_overrides[validate_access] = default_validate_access
+
+    async with AsyncClient(app=app, base_url="http://test") as test_client:
+        test_client.headers.update(
+            {
+                "Authorization": f"Bearer {EXAMPLE_TOKEN}",
+            },
+        )
+        test_client.app = app
+        yield test_client
+
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture(scope="module")
+async def module__session(
+    module__postgres_container: PostgresContainer,
+) -> AsyncGenerator[AsyncSession, None]:
+    """
+    Create a Postgres session to test models.
+    """
+    engine = create_async_engine(
+        url=module__postgres_container.get_connection_url(),
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async_session_factory = async_sessionmaker(
+        bind=engine,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    async with async_session_factory() as session:
+        yield session
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+    # for AsyncEngine created in function scope, close and
+    # clean-up pooled connections
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture(scope="module")
+def module__settings(module_mocker: MockerFixture) -> Iterator[Settings]:
+    """
+    Custom settings for unit tests.
+    """
+    settings = Settings(
+        index="sqlite+aiosqlite://",
+        repository="/path/to/repository",
+        results_backend=SimpleCache(default_timeout=0),
+        celery_broker=None,
+        redis_cache=None,
+        query_service=None,
+        secret="a-fake-secretkey",
+    )
+
+    module_mocker.patch(
+        "datajunction_server.utils.get_settings",
+        return_value=settings,
+    )
+
+    yield settings
+
+
+@pytest_asyncio.fixture(scope="module")
+async def module__client_with_dimension_link(
+    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a DJ client fixture with dbt examples
+    """
+    return await module__client_example_loader(["DIMENSION_LINK"])
+
+
+@pytest_asyncio.fixture(scope="module")
+async def module__client_with_roads(
+    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a DJ client fixture with roads examples
+    """
+    return await module__client_example_loader(["ROADS"])
+
+
+@pytest_asyncio.fixture(scope="module")
+async def module__client_with_account_revenue(
+    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a DJ client fixture with account revenue examples
+    """
+    return await module__client_example_loader(["ACCOUNT_REVENUE"])
+
+
+@pytest.fixture(scope="module")
+def module__postgres_container(request) -> PostgresContainer:
+    """
+    Setup postgres container
+    """
+    postgres = PostgresContainer(
+        image="postgres:latest",
+        user="dj",
+        password="dj",
+        dbname=request.module.__name__,
+        port=5432,
+        driver="psycopg",
+    )
+    with postgres:
+        wait_for_logs(
+            postgres,
+            r"UTC \[1\] LOG:  database system is ready to accept connections",
+            10,
+        )
+        yield postgres
