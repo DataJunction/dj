@@ -459,19 +459,31 @@ async def copy_to_new_node(
             for missing_parent in old_revision.missing_parents
         ],
         columns=[col.copy() for col in old_revision.columns],
-        dimension_links=[
-            DimensionLink(
-                dimension_id=link.dimension_id,
-                join_sql=link.join_sql,
-                join_type=link.join_type,
-                join_cardinality=link.join_cardinality,
-                materialization_conf=link.materialization_conf,
-            )
-            for link in old_revision.dimension_links
-        ],
         # TODO: availability and materializations are missing here  # pylint: disable=fixme
         lineage=old_revision.lineage,
     )
+
+    # Assemble new dimension links, where each link will need to have their join SQL rewritten
+    new_dimension_links = []
+    for link in old_revision.dimension_links:
+        join_ast = link.join_sql_ast()
+        for col in join_ast.find_all(ast.Column):
+            if str(col.alias_or_name.namespace) == old_revision.name:
+                col.alias_or_name.namespace = ast.Name(new_name)
+        new_join_sql = str(
+            join_ast.select.from_.relations[-1].extensions[-1].criteria.on,
+        )
+        new_dimension_links.append(
+            DimensionLink(
+                node_revision=new_revision,
+                dimension_id=link.dimension_id,
+                join_sql=new_join_sql,
+                join_type=link.join_type,
+                join_cardinality=link.join_cardinality,
+                materialization_conf=link.materialization_conf,
+            ),
+        )
+    new_revision.dimension_links = new_dimension_links
 
     # Reset the version of the new node
     new_revision.version = (
