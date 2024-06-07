@@ -1826,6 +1826,76 @@ async def test_sql_with_filters_orderby_no_access(  # pylint: disable=R0913
 
 
 @pytest.mark.asyncio
+async def test_union_all(
+    client_with_roads: AsyncClient,
+):
+    """
+    Verify union all query works
+    """
+    response = await client_with_roads.post(
+        "/nodes/transform",
+        json={
+            "name": "default.union_all_test",
+            "description": "",
+            "display_name": "Union All Test",
+            "query": """
+            (
+              SELECT
+                1234 AS farmer_id,
+                2234 AS farm_id,
+                'pear' AS fruit_name,
+                4444 AS fruit_id,
+                20 AS fruits_cnt
+            )
+            UNION ALL
+            (
+              SELECT
+                NULL AS farmer_id,
+                NULL AS farm_id,
+                NULL AS fruit_name,
+                NULL AS fruit_id,
+                NULL AS fruits_cnt
+            )""",
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+
+    response = await client_with_roads.get("/sql/default.union_all_test")
+    assert str(parse(response.json()["sql"])) == str(
+        parse(
+            """
+    SELECT
+      default_DOT_union_all_test.farmer_id default_DOT_union_all_test_DOT_farmer_id,
+      default_DOT_union_all_test.farm_id default_DOT_union_all_test_DOT_farm_id,
+      default_DOT_union_all_test.fruit_name default_DOT_union_all_test_DOT_fruit_name,
+      default_DOT_union_all_test.fruit_id default_DOT_union_all_test_DOT_fruit_id,
+      default_DOT_union_all_test.fruits_cnt default_DOT_union_all_test_DOT_fruits_cnt
+    FROM (
+      (
+        SELECT
+          1234 AS farmer_id,
+          2234 AS farm_id,
+          'pear' AS fruit_name,
+          4444 AS fruit_id,
+          20 AS fruits_cnt
+      )
+      UNION ALL
+      (
+        SELECT
+          NULL AS farmer_id,
+          NULL AS farm_id,
+          NULL AS fruit_name,
+          NULL AS fruit_id,
+          NULL AS fruits_cnt
+      )
+    ) AS default_DOT_union_all_test
+    """,
+        ),
+    )
+
+
+@pytest.mark.asyncio
 async def test_cross_join_unnest(
     client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
 ):
