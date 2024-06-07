@@ -3162,7 +3162,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "basic_DOT_source_DOT_users.preferred_language) AS "
                     "languages \n"
                     " FROM basic.dim_users AS basic_DOT_source_DOT_users \n"
-                    " GROUP BY  1)\n"
+                    " GROUP BY  1)"
                     " AS basic_DOT_transform_DOT_country_agg\n"
                     "\n",
                     "spark": {},

@@ -2532,7 +2532,6 @@ class Select(SelectExpression):
             select = f"({select})"
         if self.set_op:
             select += f"\n{self.set_op}"
-            select = f"({select})"
 
         if self.organization:
             select += f"\n{self.organization}"
@@ -2542,6 +2541,9 @@ class Select(SelectExpression):
         if self.alias:
             as_ = " AS " if self.as_ else " "
             return f"{select}{as_}{self.alias}"
+        if isinstance(self.parent, Alias):
+            if self.set_op:
+                return f"({select})"
         return select
 
     @property

@@ -1112,7 +1112,7 @@ async def test_spark_with_availablity(
         "\n FROM (SELECT  default_DOT_hard_hats.first_name,"
         "\n\tdefault_DOT_hard_hats.birth_date "
         "\n FROM roads.hard_hats AS default_DOT_hard_hats)"
-        "\n AS default_DOT_test_transform\n\n"
+        " AS default_DOT_test_transform\n\n"
     )
     response = await client_with_repairs_cube.get(
         "/nodes/default.test_transform/materializations/",
@@ -1141,8 +1141,8 @@ async def test_spark_with_availablity(
         "\n FROM (SELECT  default_DOT_hard_hats.first_name,"
         "\n\tdefault_DOT_hard_hats.birth_date "
         "\n FROM roads.hard_hats AS default_DOT_hard_hats)"
-        "\n AS default_DOT_test_transform)"
-        "\n AS default_DOT_test_transform_two\n\n"
+        " AS default_DOT_test_transform)"
+        " AS default_DOT_test_transform_two\n\n"
     )
     response = await client_with_repairs_cube.get(
         "/nodes/default.test_transform_two/materializations/",
