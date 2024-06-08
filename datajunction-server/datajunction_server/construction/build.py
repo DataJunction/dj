@@ -434,6 +434,10 @@ async def _build_tables_on_select(
     """
     context = CompileContext(session=session, exception=DJException())
 
+    # `tables` is a mapping between DJ nodes and table expressions on the query AST
+    # If there is more than one table expression on the AST, this means the same DJ
+    # node is referenced multiple times in the query, likely through being joined
+    # more than once.
     for node, tbls in tables.items():
         await session.refresh(node, ["dimension_links"])
 
@@ -443,47 +447,57 @@ async def _build_tables_on_select(
             _get_node_table(node, build_criteria),
         )
 
-        # If no attached physical table was found, recursively build the node
-        if physical_table is None:
-            node_query = parse(cast(str, node.query))
-            if hash(node_query) in memoized_queries:  # pragma: no cover
-                query_ast = memoized_queries[hash(node_query)]  # type: ignore
-            else:
-                query_ast = await build_ast(  # type: ignore
-                    session,
-                    node_query,
-                    memoized_queries,
-                    build_criteria,
-                    filters,
-                    dimensions,
-                    access_control,
-                )
-                memoized_queries[hash(node_query)] = query_ast
-
-            alias = amenable_name(node.name)
-            node_ast = ast.Alias(ast.Name(alias), child=query_ast.select, as_=True)  # type: ignore
-            query_ast.select.parenthesized = True  # type: ignore
-
-            filter_asts = build_filters(node, node_ast, filters)  # type: ignore
-        else:
-            alias = amenable_name(node.name)
-            node_ast = ast.Alias(ast.Name(alias), child=physical_table, as_=True)  # type: ignore
-            filter_asts = build_filters(node, physical_table, filters)
-
         for tbl in tbls:
-            if isinstance(node_ast.child, ast.Select) and isinstance(tbl, ast.Alias):  # type: ignore
-                node_ast.child.projection = [
+            # If no attached physical table was found, recursively build the node
+            if physical_table is None:
+                node_query = parse(cast(str, node.query))
+                if hash(node_query) in memoized_queries:  # pragma: no cover
+                    query_ast = memoized_queries[hash(node_query)]  # type: ignore
+                else:
+                    query_ast = await build_ast(  # type: ignore
+                        session,
+                        node_query,
+                        memoized_queries,
+                        build_criteria,
+                        filters,
+                        dimensions,
+                        access_control,
+                    )
+                    memoized_queries[hash(node_query)] = query_ast
+
+                alias = amenable_name(node.name)
+                node_ast = ast.Alias(ast.Name(alias), child=query_ast, as_=True)  # type: ignore
+                query_ast.parenthesized = True  # type: ignore
+
+                filter_asts = build_filters(node, node_ast, filters)  # type: ignore
+            else:
+                alias = amenable_name(node.name)
+                node_ast = ast.Alias(ast.Name(alias), child=physical_table, as_=True)  # type: ignore
+                filter_asts = build_filters(node, physical_table, filters)
+
+            # Remove columns that are not part of the table expression reference
+            if (
+                isinstance(node_ast, ast.Alias)
+                and isinstance(node_ast.child, ast.Query)  # type: ignore
+                and isinstance(tbl, ast.Alias)
+            ):
+                node_ast.child.select.projection = [
                     col
-                    for col in node_ast.child.projection
+                    for col in node_ast.child.select.projection
                     if col in set(tbl.child.select.projection)
                 ]
-            if (
-                isinstance(node_ast.child, ast.Table)
-                and isinstance(tbl, ast.Aliasable)
-                and hasattr(tbl, "alias")
-                and tbl.alias
-            ):
-                node_ast.alias.name = tbl.alias
+
+            # Rename the built table expression to use the user-provided alias (derived
+            # from the node query)
+            if isinstance(tbl, ast.Aliasable) and hasattr(tbl, "alias") and tbl.alias:
+                if isinstance(node_ast, ast.Alias) and isinstance(
+                    node_ast.child,
+                    ast.Table,
+                ):
+                    node_ast.name = tbl.alias
+                    node_ast.alias.name = tbl.alias
+                elif len(tbls) > 1:
+                    node_ast.alias.name = tbl.alias  # type: ignore
 
             await node_ast.compile(context)
 

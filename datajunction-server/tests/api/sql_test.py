@@ -1826,6 +1826,181 @@ async def test_sql_with_filters_orderby_no_access(  # pylint: disable=R0913
 
 
 @pytest.mark.asyncio
+async def test_union_all(
+    client_with_roads: AsyncClient,
+):
+    """
+    Verify union all query works
+    """
+    response = await client_with_roads.post(
+        "/nodes/transform",
+        json={
+            "name": "default.union_all_test",
+            "description": "",
+            "display_name": "Union All Test",
+            "query": """
+            (
+              SELECT
+                1234 AS farmer_id,
+                2234 AS farm_id,
+                'pear' AS fruit_name,
+                4444 AS fruit_id,
+                20 AS fruits_cnt
+            )
+            UNION ALL
+            (
+              SELECT
+                NULL AS farmer_id,
+                NULL AS farm_id,
+                NULL AS fruit_name,
+                NULL AS fruit_id,
+                NULL AS fruits_cnt
+            )""",
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+
+    response = await client_with_roads.get("/sql/default.union_all_test")
+    print("SQLLL", response.json()["sql"])
+    assert str(parse(response.json()["sql"])) == str(
+        parse(
+            """
+    SELECT
+      default_DOT_union_all_test.farmer_id default_DOT_union_all_test_DOT_farmer_id,
+      default_DOT_union_all_test.farm_id default_DOT_union_all_test_DOT_farm_id,
+      default_DOT_union_all_test.fruit_name default_DOT_union_all_test_DOT_fruit_name,
+      default_DOT_union_all_test.fruit_id default_DOT_union_all_test_DOT_fruit_id,
+      default_DOT_union_all_test.fruits_cnt default_DOT_union_all_test_DOT_fruits_cnt
+    FROM (
+      (
+        SELECT
+          1234 AS farmer_id,
+          2234 AS farm_id,
+          'pear' AS fruit_name,
+          4444 AS fruit_id,
+          20 AS fruits_cnt
+      )
+      UNION ALL
+      (
+        SELECT
+          NULL AS farmer_id,
+          NULL AS farm_id,
+          NULL AS fruit_name,
+          NULL AS fruit_id,
+          NULL AS fruits_cnt
+      )
+    ) AS default_DOT_union_all_test
+    """,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_multiple_joins_to_same_node(
+    client_with_roads: AsyncClient,
+):
+    """
+    Verify that multiple joins to the same node still work
+    """
+    response = await client_with_roads.post(
+        "/nodes/transform",
+        json={
+            "name": "default.sowtime",
+            "description": "",
+            "display_name": "Sow Time",
+            "query": """
+              SELECT
+                'Davis' AS city_name,
+                'fruit' AS fruit,
+                3 AS month
+            """,
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+
+    response = await client_with_roads.post(
+        "/nodes/transform",
+        json={
+            "name": "default.fruits",
+            "description": "",
+            "display_name": "Fruits",
+            "query": """
+              SELECT
+                1234 AS farmer_id,
+                2234 AS farm_id,
+                'pear' AS primary,
+                'avocado' AS companion,
+                'Davis' AS city_name
+            """,
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+
+    response = await client_with_roads.post(
+        "/nodes/transform",
+        json={
+            "name": "default.multiple_join_same_node",
+            "description": "",
+            "display_name": "Multiple Joins to Same Node",
+            "query": """
+              SELECT
+                f.farmer_id,
+                s_start.month AS primary_sow_start_month,
+                s_end.month AS companion_sow_start_month
+              FROM default.fruits AS f
+              LEFT JOIN default.sowtime AS s_start
+                ON  f.city_name = s_start.city_name
+                AND f.primary = s_start.fruit
+              LEFT JOIN default.sowtime AS s_end
+                ON  f.city_name = s_end.city_name
+                AND f.companion = s_end.fruit
+            """,
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+
+    response = await client_with_roads.get("/sql/default.multiple_join_same_node")
+    assert str(parse(response.json()["sql"])) == str(
+        parse(
+            """
+SELECT
+  default_DOT_multiple_join_same_node.farmer_id default_DOT_multiple_join_same_node_DOT_farmer_id,
+  default_DOT_multiple_join_same_node.primary_sow_start_month default_DOT_multiple_join_same_node_DOT_primary_sow_start_month,
+  default_DOT_multiple_join_same_node.companion_sow_start_month default_DOT_multiple_join_same_node_DOT_companion_sow_start_month
+FROM (
+  SELECT
+    default_DOT_fruits.farmer_id,
+    s_start.month AS primary_sow_start_month,
+    s_end.month AS companion_sow_start_month
+  FROM (
+    SELECT
+      1234 AS farmer_id,
+      2234 AS farm_id,
+      'pear' AS primary,
+      'avocado' AS companion,
+      'Davis' AS city_name
+  ) AS default_DOT_fruits LEFT JOIN (
+    SELECT
+      'Davis' AS city_name,
+      'fruit' AS fruit,
+      3 AS month
+  ) AS s_start ON default_DOT_fruits.city_name = s_start.city_name AND default_DOT_fruits.primary = s_start.fruit
+  LEFT JOIN (
+    SELECT
+      'Davis' AS city_name,
+      'fruit' AS fruit,
+      3 AS month
+  ) AS s_end ON default_DOT_fruits.city_name = s_end.city_name AND default_DOT_fruits.companion = s_end.fruit
+) AS default_DOT_multiple_join_same_node""",
+        ),
+    )
+
+
+@pytest.mark.asyncio
 async def test_cross_join_unnest(
     client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
 ):
@@ -2214,7 +2389,7 @@ async def test_get_sql_including_dimension_ids(client_with_roads: AsyncClient):
             default_DOT_repair_orders_fact.default_DOT_dispatcher_DOT_dispatcher_id,
             default_DOT_repair_orders_fact.default_DOT_dispatcher_DOT_company_name
          FROM default_DOT_repair_orders_fact"""
-    assert_query_strings_equal(data["sql"], expected)
+    assert str(parse(str(data["sql"]))) == str(parse(str(expected)))
 
     response = await client_with_roads.get(
         "/sql/",
