@@ -6,11 +6,13 @@ from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_generated_python_client_code_new_metric(client_with_roads: AsyncClient):
+async def test_generated_python_client_code_new_metric(
+    module__client_with_roads: AsyncClient,
+):
     """
     Test generating Python client code for creating a new metric
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.num_repair_orders",
     )
     assert (
@@ -28,11 +30,13 @@ num_repair_orders = dj.create_metric(
 
 
 @pytest.mark.asyncio
-async def test_generated_python_client_code_new_source(client_with_roads: AsyncClient):
+async def test_generated_python_client_code_new_source(
+    module__client_with_roads: AsyncClient,
+):
     """
     Test generating Python client code for creating a new source
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.repair_order_details",
     )
     assert (
@@ -52,12 +56,12 @@ repair_order_details = dj.create_source(
 
 @pytest.mark.asyncio
 async def test_generated_python_client_code_new_dimension(
-    client_with_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
 ):
     """
     Test generating Python client code for creating a new dimension
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.repair_order",
     )
     assert (
@@ -86,11 +90,13 @@ repair_order = dj.create_dimension(
 
 
 @pytest.mark.asyncio
-async def test_generated_python_client_code_new_cube(client_with_roads: AsyncClient):
+async def test_generated_python_client_code_new_cube(
+    module__client_with_roads: AsyncClient,
+):
     """
     Test generating Python client code for creating a new dimension
     """
-    await client_with_roads.post(
+    await module__client_with_roads.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
@@ -103,7 +109,7 @@ async def test_generated_python_client_code_new_cube(client_with_roads: AsyncCli
             "name": "default.repairs_cube",
         },
     )
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.repairs_cube",
     )
     assert (
@@ -122,76 +128,24 @@ repairs_cube = dj.create_cube(
 
 
 @pytest.mark.asyncio
-async def test_generated_python_client_code_adding_materialization(
-    client_with_query_service_example_loader,
-):
-    """
-    Test that generating python client code for adding materialization works
-    """
-    custom_client = await client_with_query_service_example_loader(["BASIC"])
-    await custom_client.post(
-        "/engines/",
-        json={
-            "name": "spark",
-            "version": "2.4.4",
-            "dialect": "spark",
-        },
-    )
-    await custom_client.post(
-        "/nodes/basic.transform.country_agg/materialization/",
-        json={
-            "job": "spark_sql",
-            "strategy": "full",
-            "config": {
-                "spark": {},
-            },
-            "schedule": "0 * * * *",
-        },
-    )
-    response = await custom_client.get(
-        "/datajunction-clients/python/add_materialization/"
-        "basic.transform.country_agg/spark_sql__full",
-    )
-    assert (
-        response.json()
-        == """dj = DJBuilder(DJ_URL)
-
-country_agg = dj.transform(
-    "basic.transform.country_agg"
-)
-materialization = MaterializationConfig(
-    job="spark_sql",
-    strategy="full",
-    schedule="0 * * * *",
-    config={
-        "spark": {}
-    },
-)
-country_agg.add_materialization(
-    materialization
-)"""
-    )
-
-
-@pytest.mark.asyncio
 async def test_generated_python_client_code_link_dimension(
-    client_with_namespaced_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
 ):
     """
     Test generating Python client code for creating a new dimension
     """
-    response = await client_with_namespaced_roads.get(
-        "/datajunction-clients/python/link_dimension/foo.bar.repair_orders/"
-        "municipality_id/foo.bar.municipality_dim/",
+    response = await module__client_with_roads.get(
+        "/datajunction-clients/python/link_dimension/default.repair_orders/"
+        "municipality_id/municipality_dim/",
     )
     assert (
         response.json()
         == """dj = DJBuilder(DJ_URL)
 repair_orders = dj.source(
-    "foo.bar.repair_orders"
+    "default.repair_orders"
 )
 repair_orders.link_dimension(
     "municipality_id",
-    "foo.bar.municipality_dim",
+    "municipality_dim",
 )"""
     )

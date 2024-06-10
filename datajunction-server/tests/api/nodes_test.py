@@ -68,6 +68,7 @@ async def test_read_node(client_with_roads: AsyncClient) -> None:
     assert set(data) == {
         "default.hard_hats",
         "default.hard_hat_state",
+        "default.hard_hat_to_delete",
         "default.hard_hat",
     }
 
@@ -143,6 +144,13 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
     assert response.status_code in (200, 201)
     data = response.json()
     assert {d["name"] for d in data} == {
+        "different.basic.dimension.countries",
+        "different.basic.dimension.users",
+        "different.basic.num_comments",
+        "different.basic.num_users",
+        "different.basic.source.comments",
+        "different.basic.source.users",
+        "different.basic.transform.country_agg",
         "default.country_dim",
         "foo.bar.us_state",
         "basic.paint_colors_trino",
@@ -214,6 +222,7 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "default.avg_length_of_employment",
         "default.municipality_type",
         "default.hard_hat_state",
+        "default.hard_hat_to_delete",
         "default.num_repair_orders",
         "basic.source.users",
         "default.date",
@@ -4147,6 +4156,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert {node["name"] for node in data} == {
             "default.dispatcher",
             "default.hard_hat",
+            "default.hard_hat_to_delete",
             "default.municipality_dim",
             "default.num_repair_orders",
             "default.repair_order_details",
@@ -5287,6 +5297,19 @@ class TestCopyNode:
                 "role": None,
             },
             {
+                "dimension": {"name": "default.hard_hat_to_delete"},
+                "foreign_keys": {
+                    "default.contractor.hard_hat_id": (
+                        "default.hard_hat_to_delete.hard_hat_id"
+                    ),
+                },
+                "join_cardinality": "many_to_one",
+                "join_sql": "default.contractor.hard_hat_id = "
+                "default.hard_hat_to_delete.hard_hat_id",
+                "join_type": "left",
+                "role": None,
+            },
+            {
                 "dimension": {"name": "default.municipality_dim"},
                 "foreign_keys": {
                     "default.contractor.municipality_id": (
@@ -5398,6 +5421,19 @@ class TestCopyNode:
                     },
                 },
                 {
+                    "dimension": {"name": "default.hard_hat_to_delete"},
+                    "join_type": "left",
+                    "join_sql": "default.repair_orders_fact_copy.hard_hat_id = "
+                    "default.hard_hat_to_delete.hard_hat_id",
+                    "join_cardinality": "many_to_one",
+                    "role": None,
+                    "foreign_keys": {
+                        "default.repair_orders_fact_copy.hard_hat_id": (
+                            "default.hard_hat_to_delete.hard_hat_id"
+                        ),
+                    },
+                },
+                {
                     "dimension": {"name": "default.municipality_dim"},
                     "join_type": "left",
                     "join_sql": "default.repair_orders_fact_copy.municipality_id = "
@@ -5447,6 +5483,19 @@ class TestCopyNode:
                     "foreign_keys": {
                         "default.repair_order_copy.hard_hat_id": (
                             "default.hard_hat.hard_hat_id"
+                        ),
+                    },
+                },
+                {
+                    "dimension": {"name": "default.hard_hat_to_delete"},
+                    "join_type": "left",
+                    "join_sql": "default.repair_order_copy.hard_hat_id = "
+                    "default.hard_hat_to_delete.hard_hat_id",
+                    "join_cardinality": "many_to_one",
+                    "role": None,
+                    "foreign_keys": {
+                        "default.repair_order_copy.hard_hat_id": (
+                            "default.hard_hat_to_delete.hard_hat_id"
                         ),
                     },
                 },
