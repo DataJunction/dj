@@ -754,6 +754,16 @@ async def module__client_with_roads(
 
 
 @pytest_asyncio.fixture(scope="module")
+async def module__client_with_namespaced_roads(
+    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a DJ client fixture with roads examples
+    """
+    return await module__client_example_loader(["NAMESPACED_ROADS"])
+
+
+@pytest_asyncio.fixture(scope="module")
 async def module__client_with_account_revenue(
     module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
 ) -> AsyncClient:
