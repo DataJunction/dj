@@ -24,6 +24,7 @@ async def test_list_dimension(client_with_roads: AsyncClient) -> None:
             {"indegree": 3, "name": "default.dispatcher"},
             {"indegree": 2, "name": "default.repair_order"},
             {"indegree": 2, "name": "default.hard_hat"},
+            {"indegree": 2, "name": "default.hard_hat_to_delete"},
             {"indegree": 2, "name": "default.municipality_dim"},
             {"indegree": 1, "name": "default.contractor"},
             {"indegree": 1, "name": "default.us_state"},

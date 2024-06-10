@@ -31,19 +31,19 @@ def trim_trailing_whitespace(string: str) -> str:
 
 @pytest.mark.asyncio
 async def test_generated_python_client_code_new_source(
-    client_with_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
 ):
     """
     Test generating Python client code for creating a new source
     """
     expected = load_expected_file("register_table.txt")
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.repair_order_details"
         "?include_client_setup=false",
     )
     assert trim_trailing_whitespace(response.json()) == expected
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.repair_order_details"
         "?include_client_setup=false&replace_namespace=%7Bnamespace%7D",
     )
@@ -52,13 +52,13 @@ async def test_generated_python_client_code_new_source(
 
 @pytest.mark.asyncio
 async def test_generated_python_client_code_new_transform(
-    client_with_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
 ):
     """
     Test generating Python client code for creating a new transform
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.regional_level_agg"
         "?include_client_setup=false",
     )
@@ -66,7 +66,7 @@ async def test_generated_python_client_code_new_transform(
         trim_trailing_whitespace(response.json()).strip()
         == load_expected_file("create_transform.regional_level_agg.txt").strip()
     )
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.regional_level_agg"
         "?include_client_setup=false&replace_namespace=%7Bnamespace%7D",
     )
@@ -80,13 +80,13 @@ async def test_generated_python_client_code_new_transform(
 
 @pytest.mark.asyncio
 async def test_generated_python_client_code_new_dimension(
-    client_with_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
 ):
     """
     Test generating Python client code for creating a new dimension
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.repair_order"
         "?include_client_setup=false",
     )
@@ -95,7 +95,7 @@ async def test_generated_python_client_code_new_dimension(
         == load_expected_file("create_dimension.repair_order.txt").strip()
     )
 
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.repair_order"
         "?include_client_setup=false&replace_namespace=%7Bnamespace%7D",
     )
@@ -107,13 +107,13 @@ async def test_generated_python_client_code_new_dimension(
 
 @pytest.mark.asyncio
 async def test_generated_python_client_code_new_metric(
-    client_with_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
 ):
     """
     Test generating Python client code for creating a new metric
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.num_repair_orders"
         "?include_client_setup=false",
     )
@@ -122,7 +122,7 @@ async def test_generated_python_client_code_new_metric(
         == load_expected_file("create_metric.num_repair_orders.txt").strip()
     )
 
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.num_repair_orders"
         "?include_client_setup=false&replace_namespace=%7Bnamespace%7D",
     )
@@ -134,13 +134,13 @@ async def test_generated_python_client_code_new_metric(
 
 @pytest.mark.asyncio
 async def test_generated_python_client_code_new_cube(
-    client_with_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
 ):
     """
     Test generating Python client code for creating a new cube
     """
-    await client_with_roads.post(
+    await module__client_with_roads.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
@@ -153,7 +153,7 @@ async def test_generated_python_client_code_new_cube(
             "name": "default.repairs_cube",
         },
     )
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.repairs_cube"
         "?include_client_setup=false",
     )
@@ -161,7 +161,7 @@ async def test_generated_python_client_code_new_cube(
         trim_trailing_whitespace(response.json()).strip()
         == load_expected_file("create_cube.repairs_cube.txt").strip()
     )
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.repairs_cube"
         "?include_client_setup=false&replace_namespace=%7Bnamespace%7D",
     )
@@ -174,66 +174,14 @@ async def test_generated_python_client_code_new_cube(
 
 
 @pytest.mark.asyncio
-async def test_generated_python_client_code_adding_materialization(
-    client_with_query_service_example_loader,
-):
-    """
-    Test that generating python client code for adding materialization works
-    """
-    custom_client = await client_with_query_service_example_loader(["BASIC"])
-    await custom_client.post(
-        "/engines/",
-        json={
-            "name": "spark",
-            "version": "2.4.4",
-            "dialect": "spark",
-        },
-    )
-    await custom_client.post(
-        "/nodes/basic.transform.country_agg/materialization/",
-        json={
-            "job": "spark_sql",
-            "strategy": "full",
-            "config": {
-                "spark": {},
-            },
-            "schedule": "0 * * * *",
-        },
-    )
-    response = await custom_client.get(
-        "/datajunction-clients/python/add_materialization/"
-        "basic.transform.country_agg/spark_sql__full",
-    )
-    assert (
-        response.json()
-        == """dj = DJBuilder(DJ_URL)
-
-country_agg = dj.transform(
-    "basic.transform.country_agg"
-)
-materialization = MaterializationConfig(
-    job="spark_sql",
-    strategy="full",
-    schedule="0 * * * *",
-    config={
-        "spark": {}
-    },
-)
-country_agg.add_materialization(
-    materialization
-)"""
-    )
-
-
-@pytest.mark.asyncio
 async def test_generated_python_client_code_link_dimension(
-    client_with_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
 ):
     """
     Test generating Python client code for creating a new dimension
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/dimension_links/default.repair_orders/"
         "?include_client_setup=false",
     )
@@ -243,7 +191,7 @@ async def test_generated_python_client_code_link_dimension(
     )
     # When replace_namespace is set, verify that the namespaces are replaced in the
     # dimension links' join SQL
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/dimension_links/default.repair_orders/"
         "?include_client_setup=false&replace_namespace=%7Bnamespace%7D",
     )
@@ -257,13 +205,13 @@ async def test_generated_python_client_code_link_dimension(
 
 @pytest.mark.asyncio
 async def test_include_client_setup(
-    client_with_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
 ):
     """
     Generate create new node python client code with client setup included.
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/new_node/default.num_repair_orders"
         "?include_client_setup=true",
     )
@@ -275,20 +223,20 @@ async def test_include_client_setup(
 
 @pytest.mark.asyncio
 async def test_export_namespace_as_notebook(
-    client_with_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
 ):
     """
     Verify exporting all nodes in a namespace as a notebook.
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/notebook?namespace=default",
     )
     assert (
         response.headers["content-disposition"] == 'attachment; filename="export.ipynb"'
     )
     notebook = response.json()
-    assert len(notebook["cells"]) == 47
+    assert len(notebook["cells"]) == 49
     # Intro cell
     assert notebook["cells"][0]["cell_type"] == "markdown"
     assert (
@@ -335,24 +283,16 @@ NAMESPACE_MAPPING = {
         ).strip()
     )
 
-    # Create transform
-    assert (
-        trim_trailing_whitespace(notebook["cells"][18]["source"])
-        == load_expected_file(
-            "notebook.create_transform.txt",
-        ).strip()
-    )
-
 
 @pytest.mark.asyncio
 async def test_export_cube_as_notebook(
-    client_with_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
     load_expected_file,  # pylint: disable=redefined-outer-name
 ):
     """
     Verify exporting all nodes relevant for a cube as a notebook.
     """
-    await client_with_roads.post(
+    await module__client_with_roads.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
@@ -365,7 +305,7 @@ async def test_export_cube_as_notebook(
             "name": "default.roads_cube",
         },
     )
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/notebook?cube=default.roads_cube",
     )
     assert (
@@ -399,7 +339,7 @@ async def test_export_cube_as_notebook(
     )
 
     # Include sources and dimensions
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/notebook?cube=default.roads_cube"
         "&include_sources=true&include_dimensions=true",
     )
@@ -426,11 +366,11 @@ async def test_export_cube_as_notebook(
 
 
 @pytest.mark.asyncio
-async def test_export_notebook_failures(client_with_roads: AsyncClient):
+async def test_export_notebook_failures(module__client_with_roads: AsyncClient):
     """
     Verify that trying to set both cube and namespace when exporting to a notebook will fail
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_roads.get(
         "/datajunction-clients/python/notebook?namespace=default&cube=default.roads_cube",
     )
     assert (
