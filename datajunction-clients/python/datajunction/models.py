@@ -75,6 +75,17 @@ class NodeType(str, enum.Enum):
     CUBE = "cube"
 
 
+class Column(BaseModel):
+    """
+    Represents a column
+    """
+
+    name: str
+    type: str
+    display_name: Optional[str]
+    attributes: Optional[List]
+
+
 class ColumnAttribute(BaseModel):
     """
     Represents a column attribute
@@ -110,7 +121,7 @@ class UpdateNode(BaseModel):
     catalog: Optional[str]
     schema_: Optional[str]
     table: Optional[str]
-    columns: Optional[List[SourceColumn]] = []
+    columns: Optional[List[Column]] = []
 
     # cube nodes only
     metrics: Optional[List[str]]
@@ -162,17 +173,6 @@ class AvailabilityState(BaseModel):
     schema_: Optional[str]
     table: str
     valid_through_ts: int
-
-
-class Column(BaseModel):
-    """
-    Represents a column
-    """
-
-    name: str
-    type: str
-    display_name: Optional[str]
-    attributes: Optional[List]
 
 
 END_JOB_STATES = [QueryState.FINISHED, QueryState.CANCELED, QueryState.FAILED]

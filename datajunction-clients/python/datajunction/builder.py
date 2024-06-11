@@ -111,7 +111,10 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         }
 
         try:
-            existing_node_dict = self._get_node(name)
+            if type_ == models.NodeType.CUBE:
+                existing_node_dict = self._get_cube(name)
+            else:
+                existing_node_dict = self._get_node(name)
         except DJClientException as e:  # pragma: no cover # pytest fixture doesn't raise
             if re.search(r"node .* does not exist", str(e)):
                 existing_node_dict = None
@@ -126,7 +129,16 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         if existing_node_dict and "name" in existing_node_dict:
             # update
             if update_if_exists:
-                existing_node = node_cls(dj_client=self, **existing_node_dict)
+                # For Cube, DJ server returns metrics & dimensions under slightly different names
+                #   that need to be re-mapped here
+                if type_ == models.NodeType.CUBE:
+                    existing_node = Cube(
+                        dj_client=self,
+                        metrics=existing_node_dict.get("cube_node_metrics"),
+                        dimensions=existing_node_dict.get("cube_node_dimensions"),
+                        **existing_node_dict)
+                else:
+                    existing_node = node_cls(dj_client=self, **existing_node_dict)
                 new_node = existing_node.copy(update=data)
                 # dj_client is an Pydantic-excluded field and doesn't survive .copy()
                 #   so we need to set it again
