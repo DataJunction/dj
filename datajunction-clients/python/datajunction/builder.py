@@ -1,4 +1,5 @@
 """DataJunction builder client module."""
+
 # pylint: disable=protected-access
 import re
 from http import HTTPStatus
@@ -115,7 +116,9 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 existing_node_dict = self._get_cube(name)
             else:
                 existing_node_dict = self._get_node(name)
-        except DJClientException as e:  # pragma: no cover # pytest fixture doesn't raise
+        except (
+            DJClientException
+        ) as e:  # pragma: no cover # pytest fixture doesn't raise
             if re.search(r"node .* does not exist", str(e)):
                 existing_node_dict = None
             else:
@@ -136,7 +139,8 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                         dj_client=self,
                         metrics=existing_node_dict.get("cube_node_metrics"),
                         dimensions=existing_node_dict.get("cube_node_dimensions"),
-                        **existing_node_dict)
+                        **existing_node_dict,
+                    )
                 else:
                     existing_node = node_cls(dj_client=self, **existing_node_dict)
                 new_node = existing_node.copy(update=data)
