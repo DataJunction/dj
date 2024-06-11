@@ -90,7 +90,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         type_: models.NodeType,
         name: str,
         data: Dict,
-        update_if_exists: bool = False,
+        update_if_exists: bool = True,
     ) -> "Node":
         """
         Create or update a new node
@@ -112,6 +112,13 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
 
         try:
             existing_node_dict = self._get_node(name)
+            if type_ == models.NodeType.CUBE:
+                cube_dict = self._get_cube(name)
+                # This check is for the unit tests, which don't raise an exception
+                # for >= 400 status codes
+                if "name" in cube_dict:
+                    existing_node_dict["metrics"] = cube_dict["cube_node_metrics"]
+                    existing_node_dict["dimensions"] = cube_dict["cube_node_dimensions"]
         except DJClientException as e:  # pragma: no cover # pytest fixture doesn't raise
             if re.search(r"node .* does not exist", str(e)):
                 existing_node_dict = None
@@ -189,7 +196,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         primary_key: Optional[List[str]] = None,
         tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-        update_if_exists: bool = False,
+        update_if_exists: bool = True,
     ) -> "Source":
         """
         Creates a new Source node with given parameters.
@@ -246,7 +253,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         primary_key: Optional[List[str]] = None,
         tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-        update_if_exists: bool = False,
+        update_if_exists: bool = True,
     ) -> "Transform":
         """
         Creates or update a Transform node with given parameters.
@@ -278,7 +285,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         display_name: Optional[str] = None,
         tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-        update_if_exists: bool = False,
+        update_if_exists: bool = True,
     ) -> "Dimension":
         """
         Creates or update a Dimension node with given parameters.
@@ -310,7 +317,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         primary_key: Optional[List[str]] = None,
         tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-        update_if_exists: bool = False,
+        update_if_exists: bool = True,
     ) -> "Metric":
         """
         Creates or update a Metric node with given parameters.
@@ -342,7 +349,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         description: Optional[str] = None,
         display_name: Optional[str] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-        update_if_exists: bool = False,
+        update_if_exists: bool = True,
     ) -> "Cube":
         """
         Create or update a cube with the given parameters.
