@@ -374,6 +374,7 @@ async def construction_session(  # pylint: disable=too-many-locals
         columns=[
             Column(name="cnt", type=IntegerType(), order=0),
         ],
+        parents=[comments_src_ref],
     )
 
     num_comments_mtc_bnd_dims_ref = Node(
@@ -390,6 +391,7 @@ async def construction_session(  # pylint: disable=too-many-locals
         SELECT COUNT(1) AS cnt
         FROM basic.source.comments
         """,
+        parents=[comments_src_ref],
         columns=[
             Column(name="cnt", type=IntegerType(), order=0),
         ],
@@ -416,6 +418,7 @@ async def construction_session(  # pylint: disable=too-many-locals
         columns=[
             Column(name="col0", type=IntegerType(), order=0),
         ],
+        parents=[country_agg_tfm_ref],
     )
     num_users_us_join_mtc_ref = Node(
         name="basic.num_users_us",
@@ -441,6 +444,7 @@ async def construction_session(  # pylint: disable=too-many-locals
                 order=0,
             ),
         ],
+        parents=[country_agg_tfm_ref, users_src_ref],
     )
     customers_dim_ref = Node(
         name="dbt.dimension.customers",

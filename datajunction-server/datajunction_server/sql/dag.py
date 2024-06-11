@@ -18,7 +18,7 @@ from datajunction_server.database.node import (
     NodeRelationship,
     NodeRevision,
 )
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import get_settings
@@ -142,6 +142,10 @@ async def get_upstream_nodes(
         .unique()
         .scalar()
     )
+    if not node:
+        raise DJDoesNotExistException(  # pragma: no cover
+            message=f"Node with name {node_name} does not exist",
+        )
 
     dag = (
         select(
@@ -484,6 +488,36 @@ async def get_dimensions(
         await session.refresh(node, attribute_names=["current"])
         dag = await get_dimensions_dag(session, node.current, with_attributes)
     return dag
+
+
+async def get_filter_only_dimensions(
+    session: AsyncSession,
+    node_name: str,
+):
+    """
+    Get dimensions for this node that can only be filtered by and cannot be grouped by
+    or retrieved as a part of the node's SELECT clause.
+    """
+    filter_only_dimensions = []
+    upstreams = await get_upstream_nodes(session, node_name, node_type=NodeType.SOURCE)
+    for upstream in upstreams:
+        await session.refresh(upstream.current, ["dimension_links"])
+        for link in upstream.current.dimension_links:
+            filter_only_dimensions.extend(
+                [
+                    DimensionAttributeOutput(
+                        name=dim,
+                        node_name=upstream.name,
+                        node_display_name=upstream.current.display_name,
+                        is_primary_key=False,  # upstream.current
+                        type=upstream.type,
+                        path=[],
+                        filter_only=True,
+                    )
+                    for dim in link.foreign_keys.values()
+                ],
+            )
+    return filter_only_dimensions
 
 
 async def group_dimensions_by_name(

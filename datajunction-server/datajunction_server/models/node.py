@@ -573,6 +573,7 @@ class DimensionAttributeOutput(BaseModel):
     is_primary_key: bool
     type: str
     path: List[str]
+    filter_only: bool = False
 
 
 class ColumnOutput(BaseModel):
