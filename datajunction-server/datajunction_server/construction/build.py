@@ -7,6 +7,7 @@ import time
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
@@ -28,7 +29,7 @@ from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.naming import LOOKUP_CHARS, amenable_name, from_amenable_name
-from datajunction_server.sql.dag import get_shared_dimensions
+from datajunction_server.sql.dag import get_dimensions, get_shared_dimensions
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.types import (
@@ -162,8 +163,9 @@ async def _build_joins_for_dimension_link(
     for link in join_path:
         join_query = await build_ast(session, link.join_sql_ast())
         join = join_query.select.from_.relations[-1].extensions[0]  # type: ignore
-
         # Assemble table on left of join
+        if not tables[link.node_revision]:
+            continue  # pragma: no cover
         left_table = (
             tables[link.node_revision][0].child  # type: ignore
             if isinstance(tables[link.node_revision][0], ast.Alias)
@@ -522,15 +524,15 @@ async def _build_tables_on_select(
                 node_ast,
                 copy=False,
             )
-        await select.compile(context)
-        for col in select.find_all(ast.Column):
-            if (
-                col._table
-                and isinstance(col._table, ast.Table)
-                and col._table.dj_node
-                and col._table.dj_node.name == node.name
-            ):
-                col._table = node_ast
+            await select.compile(context)
+            for col in select.find_all(ast.Column):
+                if (
+                    col._table
+                    and isinstance(col._table, ast.Table)
+                    and col._table.dj_node
+                    and col._table.dj_node.name == node.name
+                ):
+                    col._table = node_ast
 
 
 def dimension_columns_mapping(
@@ -661,6 +663,16 @@ async def add_filters_dimensions_orderby_limit_to_query_ast(
     Add filters and dimensions to a query ast
     """
     projection_addition = {}
+    node_ = await Node.get_by_name(
+        session,
+        node.name,
+        options=[
+            selectinload(Node.current).options(
+                selectinload(NodeRevision.parents).options(selectinload(Node.current)),
+            ),
+        ],
+    )
+    all_dimensions = [dim.name for dim in await get_dimensions(session, node_)]  # type: ignore
 
     if dimensions:
         for agg in dimensions:
@@ -716,8 +728,7 @@ async def add_filters_dimensions_orderby_limit_to_query_ast(
                     else:
                         col.role = col.parent.index.identifier()  # type: ignore
                     col.parent.swap(col)
-
-                if not dimensions:
+                if not dimensions and col.identifier(False) in all_dimensions:
                     projection_addition[col.identifier(False)] = col
                 if access_control:
                     dj_node = await access_control.add_request_by_node_name(
@@ -970,8 +981,38 @@ async def build_node(  # pylint: disable=too-many-arguments
             ],
         )
         access_control.validate_and_raise()
+
+    filter_asts = (
+        _deduplicate_filters(built_ast.select) if built_ast.select.where else None
+    )
+    built_ast.select.where = ast.BinaryOp.And(*filter_asts) if filter_asts else None
     _logger.info("Finished build_ast on %s", node.name)
     return built_ast
+
+
+def _deduplicate_filters(
+    select: ast.SelectExpression,
+) -> Optional[List[ast.Expression]]:
+    """
+    Takes the WHERE clause on a SELECT clause and:
+    1. Removes any duplicate filters
+    2. Removes any filters that don't compile or work with the SELECT clause
+    """
+    filters = select.where_clause_expressions_list()
+    if not filters:
+        return filters  # pragma: no cover
+
+    filter_asts: List[ast.Expression] = []
+    for filter_ in filters:
+        copied_filter = filter_.copy()
+        for reference in copied_filter.find_all(ast.Column):
+            reference.set_alias(None)
+        if all(
+            reference.table is not None
+            for reference in copied_filter.find_all(ast.Column)
+        ) and str(copied_filter) not in [str(f) for f in filter_asts]:
+            filter_asts.append(copied_filter)
+    return filter_asts
 
 
 def rename_columns(built_ast: ast.Query, node: NodeRevision):

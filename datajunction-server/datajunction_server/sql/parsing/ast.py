@@ -2504,6 +2504,28 @@ class SelectExpression(Aliasable, Expression):
                 projection.append(expression)
         self.projection = projection
 
+    def where_clause_expressions_list(self) -> Optional[List[Expression]]:
+        """
+        Converts the WHERE clause to a list of expressions separated by AND operators
+        """
+        if not self.where:
+            return self.where
+
+        filters = []
+        processing = collections.deque([self.where])
+        while processing:
+            current_clause = processing.pop()
+            if current_clause:
+                if (
+                    isinstance(current_clause, BinaryOp)
+                    and current_clause.op == BinaryOpKind.And
+                ):
+                    processing.append(current_clause.left)
+                    processing.append(current_clause.right)
+                else:
+                    filters.append(current_clause)
+        return filters
+
 
 class Select(SelectExpression):
     """

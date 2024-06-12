@@ -953,6 +953,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "int",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -961,6 +962,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -969,6 +971,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "timestamp",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -977,6 +980,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -985,6 +989,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
+                "filter_only": False,
             },
             {
                 "is_primary_key": True,
@@ -993,6 +998,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "int",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -1001,6 +1007,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "timestamp",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -1009,6 +1016,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -1017,6 +1025,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "float",
+                "filter_only": False,
             },
         ]
 
@@ -1060,6 +1069,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "int",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -1068,6 +1078,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -1076,6 +1087,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "timestamp",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -1084,6 +1096,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -1092,6 +1105,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
+                "filter_only": False,
             },
             {
                 "is_primary_key": True,
@@ -1100,6 +1114,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "int",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -1108,6 +1123,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "timestamp",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -1116,6 +1132,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
+                "filter_only": False,
             },
             {
                 "is_primary_key": False,
@@ -1124,6 +1141,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "float",
+                "filter_only": False,
             },
         ]
         # The metric should still be VALID
@@ -4865,6 +4883,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -4873,6 +4892,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -4881,6 +4901,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -4889,6 +4910,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -4897,6 +4919,43 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "int",
+            "filter_only": False,
+        },
+        {
+            "filter_only": True,
+            "is_primary_key": False,
+            "name": "default.repair_order.repair_order_id",
+            "node_display_name": "default.roads.repair_orders",
+            "node_name": "default.repair_orders",
+            "path": [],
+            "type": "source",
+        },
+        {
+            "filter_only": True,
+            "is_primary_key": False,
+            "name": "default.dispatcher.dispatcher_id",
+            "node_display_name": "default.roads.repair_orders",
+            "node_name": "default.repair_orders",
+            "path": [],
+            "type": "source",
+        },
+        {
+            "filter_only": True,
+            "is_primary_key": False,
+            "name": "default.repair_order.repair_order_id",
+            "node_display_name": "default.roads.repair_order_details",
+            "node_name": "default.repair_order_details",
+            "path": [],
+            "type": "source",
+        },
+        {
+            "filter_only": True,
+            "is_primary_key": False,
+            "name": "default.contractor.contractor_id",
+            "node_display_name": "default.roads.repair_type",
+            "node_name": "default.repair_type",
+            "path": [],
+            "type": "source",
         },
     ]
 

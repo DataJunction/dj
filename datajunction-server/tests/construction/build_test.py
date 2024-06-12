@@ -37,13 +37,15 @@ async def test_build_node(
         Dict[Optional[int], Tuple[bool, str]],
     ] = request.getfixturevalue("build_expectation")
     succeeds, expected = build_expectation[node_name][db_id]
-    node = await Node.get_by_name(construction_session, node_name)
+    node = await Node.get_by_name(
+        construction_session,
+        node_name,
+    )
     if succeeds:
         ast = await build_node(
             construction_session,
             node.current,  # type: ignore
         )
-        print("QUERYY", str(ast))
         assert compare_query_strings(str(ast), expected)
     else:
         with pytest.raises(Exception) as exc:
@@ -106,8 +108,8 @@ async def test_build_metric_with_required_dimensions(
     expected = """
         SELECT
           COUNT(1) AS basic_DOT_num_comments_bnd,
-          basic_DOT_source_DOT_comments.id,
           basic_DOT_source_DOT_comments.text,
+          basic_DOT_source_DOT_comments.id,
           basic_DOT_dimension_DOT_users.country,
           basic_DOT_dimension_DOT_users.gender
         FROM basic.source.comments AS basic_DOT_source_DOT_comments
@@ -119,7 +121,7 @@ async def test_build_metric_with_required_dimensions(
           FROM basic.source.users AS basic_DOT_source_DOT_users
         ) AS basic_DOT_dimension_DOT_users ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
          GROUP BY
-           basic_DOT_source_DOT_comments.id, basic_DOT_source_DOT_comments.text, basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
+           basic_DOT_source_DOT_comments.text, basic_DOT_source_DOT_comments.id, basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
     """
     assert str(parse(str(query))) == str(parse(str(expected)))
 
@@ -241,10 +243,10 @@ async def test_build_metric_with_dimensions_filters(construction_session: AsyncS
     ) AS basic_DOT_dimension_DOT_users
       ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
     WHERE
-      basic_DOT_dimension_DOT_users.age >= 25
-      AND basic_DOT_dimension_DOT_users.age < 50
+      basic_DOT_dimension_DOT_users.age < 50
+      AND basic_DOT_dimension_DOT_users.age >= 25
     """
-    assert compare_query_strings(str(query), expected)
+    assert str(parse(str(query))) == str(parse(expected))
 
 
 @pytest.mark.asyncio
