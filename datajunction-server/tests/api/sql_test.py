@@ -853,7 +853,7 @@ async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statemen
                 FROM logs.log_events AS default_DOT_event_source
                 WHERE  default_DOT_event_source.country = 'ABCD' AND default_DOT_event_source.event_latency > 1000000)
                 AS default_DOT_long_events
-                WHERE  default_DOT_long_events.country = 'ABCD' AND default_DOT_long_events.country = 'ABCD'
+                WHERE  default_DOT_long_events.country = 'ABCD'
                 """,
             [
                 {
@@ -1079,7 +1079,7 @@ async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statemen
                 default_DOT_hard_hats.state
              FROM roads.hard_hats AS default_DOT_hard_hats)
              AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-             WHERE  default_DOT_repair_orders_fact.dispatcher_id = 1 AND default_DOT_hard_hat.state = 'AZ'
+             WHERE  default_DOT_hard_hat.state = 'AZ' AND default_DOT_repair_orders_fact.dispatcher_id = 1
              GROUP BY  default_DOT_hard_hat.state
             """,
             [
@@ -1155,7 +1155,7 @@ async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statemen
              FROM roads.municipality AS m LEFT JOIN roads.municipality_municipality_type AS mmt ON m.municipality_id = mmt.municipality_id
             LEFT JOIN roads.municipality_type AS mt ON mmt.municipality_type_id = mt.municipality_type_desc)
              AS default_DOT_municipality_dim ON default_DOT_repair_orders_fact.municipality_id = default_DOT_municipality_dim.municipality_id
-             WHERE  default_DOT_repair_orders_fact.dispatcher_id = 1 AND default_DOT_repair_orders_fact.dispatcher_id = 1 AND default_DOT_hard_hat.state != 'AZ' AND default_DOT_dispatcher.phone = '4082021022' AND default_DOT_repair_orders_fact.order_date >= '2020-01-01'
+             WHERE  default_DOT_repair_orders_fact.order_date >= '2020-01-01' AND default_DOT_dispatcher.phone = '4082021022' AND default_DOT_hard_hat.state != 'AZ' AND default_DOT_repair_orders_fact.dispatcher_id = 1
              GROUP BY  default_DOT_hard_hat.city, default_DOT_hard_hat.last_name, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
             """,
             [
@@ -1579,7 +1579,7 @@ async def test_sql_with_filters(  # pylint: disable=too-many-arguments
         params={"dimensions": dimensions, "filters": filters},
     )
     data = response.json()
-    assert_query_strings_equal(data["sql"], sql)
+    assert str(parse(str(data["sql"]))) == str(parse(str(sql)))
     assert data["columns"] == columns
 
     # Run the query against local duckdb file if it's part of the roads model
@@ -1672,7 +1672,7 @@ async def test_sql_with_filters(  # pylint: disable=too-many-arguments
                 foo_DOT_bar_DOT_hard_hats.state
              FROM roads.hard_hats AS foo_DOT_bar_DOT_hard_hats)
              AS foo_DOT_bar_DOT_hard_hat ON foo_DOT_bar_DOT_repair_order.hard_hat_id = foo_DOT_bar_DOT_hard_hat.hard_hat_id
-             WHERE  foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1 AND foo_DOT_bar_DOT_hard_hat.state = 'AZ'
+             WHERE  foo_DOT_bar_DOT_hard_hat.state = 'AZ' AND foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1
              GROUP BY  foo_DOT_bar_DOT_hard_hat.state
             """,
         ),
@@ -1719,7 +1719,7 @@ async def test_sql_with_filters(  # pylint: disable=too-many-arguments
              FROM roads.municipality AS m LEFT JOIN roads.municipality_municipality_type AS mmt ON m.municipality_id = mmt.municipality_id
             LEFT JOIN roads.municipality_type AS mt ON mmt.municipality_type_id = mt.municipality_type_desc)
              AS foo_DOT_bar_DOT_municipality_dim ON foo_DOT_bar_DOT_repair_order.municipality_id = foo_DOT_bar_DOT_municipality_dim.municipality_id
-             WHERE  foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1 AND foo_DOT_bar_DOT_hard_hat.state != 'AZ' AND foo_DOT_bar_DOT_dispatcher.phone = '4082021022' AND foo_DOT_bar_DOT_repair_orders.order_date >= '2020-01-01'
+             WHERE  foo_DOT_bar_DOT_repair_orders.order_date >= '2020-01-01' AND foo_DOT_bar_DOT_dispatcher.phone = '4082021022' AND foo_DOT_bar_DOT_hard_hat.state != 'AZ' AND foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1
              GROUP BY  foo_DOT_bar_DOT_hard_hat.city, foo_DOT_bar_DOT_hard_hat.last_name, foo_DOT_bar_DOT_dispatcher.company_name, foo_DOT_bar_DOT_municipality_dim.local_region
             ORDER BY foo_DOT_bar_DOT_hard_hat.last_name
             """,
@@ -1862,7 +1862,6 @@ async def test_union_all(
     assert response.status_code == 201
 
     response = await client_with_roads.get("/sql/default.union_all_test")
-    print("SQLLL", response.json()["sql"])
     assert str(parse(response.json()["sql"])) == str(
         parse(
             """
@@ -3468,7 +3467,7 @@ async def test_measures_sql_with_filters(  # pylint: disable=too-many-arguments
     }
     response = await client_with_roads.get("/sql/measures", params=sql_params)
     data = response.json()
-    assert_query_strings_equal(data["sql"], sql)
+    assert str(parse(str(data["sql"]))) == str(parse(str(sql)))
     result = duckdb_conn.sql(data["sql"])
     assert result.fetchall() == rows
     assert data["columns"] == columns
@@ -3524,9 +3523,6 @@ async def test_filter_pushdowns(
               FROM roads.repair_orders AS repair_orders
             ) AS default_DOT_repair_orders_fact
             WHERE  default_DOT_repair_orders_fact.hh_id IN (123, 13)
-              AND default_DOT_repair_orders_fact.hh_id = 123
-              OR default_DOT_repair_orders_fact.hh_id = 13
-              AND default_DOT_repair_orders_fact.hh_id IN (123, 13)
               AND default_DOT_repair_orders_fact.hh_id = 123
               OR default_DOT_repair_orders_fact.hh_id = 13
             """,
@@ -3616,3 +3612,132 @@ SELECT  default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_repair
  FROM default_DOT_repair_orders_fact
     """
     assert str(parse(expected_sql)) == str(parse(response["sql"]))
+
+
+@pytest.mark.asyncio
+async def test_filter_on_source_nodes(
+    client_with_basic: AsyncClient,
+):
+    """
+    Verify that filtering using dimensions that are available on a given node's upstream
+    source nodes works, even if these dimensions are not available on the node itself.
+    """
+    # Create a dimension node: `default.event_date`
+    response = await client_with_basic.post(
+        "/nodes/dimension",
+        json={
+            "name": "default.event_date",
+            "description": "",
+            "display_name": "Event Date",
+            "query": """
+              SELECT
+                20240101 AS dateint,
+                '2024-01-01' AS date
+            """,
+            "mode": "published",
+            "primary_key": ["dateint"],
+        },
+    )
+    assert response.status_code == 201
+
+    # Create a source node: `default.events`
+    response = await client_with_basic.post(
+        "/nodes/source",
+        json={
+            "name": "default.events",
+            "description": "",
+            "display_name": "Events",
+            "catalog": "default",
+            "schema_": "example",
+            "table": "events",
+            "columns": [
+                {"name": "event_id", "type": "int"},
+                {"name": "event_date", "type": "int"},
+                {"name": "user_id", "type": "int"},
+                {"name": "duration_ms", "type": "int"},
+            ],
+            "primary_key": ["event_id"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 200
+
+    # Link `default.events` transform to the `default.event_date` dimension node on `dateint`
+    response = await client_with_basic.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.event_date",
+            "join_type": "left",
+            "join_on": "default.events.event_date = default.event_date.dateint",
+        },
+    )
+    assert response.status_code == 201
+
+    # Create a transform on `default.events` that aggregates it to the user level
+    response = await client_with_basic.post(
+        "/nodes/transform",
+        json={
+            "name": "default.events_agg",
+            "description": "",
+            "display_name": "Events Agg",
+            "query": """
+              SELECT
+                user_id,
+                SUM(duration_ms) AS duration_ms
+              FROM default.events
+            """,
+            "primary_key": ["user_id"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+
+    # Request the available dimensions for `default.events_agg`
+    response = await client_with_basic.get("/nodes/default.events_agg/dimensions")
+    assert response.json() == [
+        {
+            "is_primary_key": True,
+            "name": "default.events_agg.user_id",
+            "node_display_name": "Events Agg",
+            "node_name": "default.events_agg",
+            "path": [],
+            "type": "int",
+            "filter_only": False,
+        },
+        {
+            "is_primary_key": False,
+            "name": "default.event_date.dateint",
+            "node_display_name": "Events",
+            "node_name": "default.events",
+            "path": [],
+            "type": "source",
+            "filter_only": True,
+        },
+    ]
+
+    # Request SQL for default.events_agg with filters on `default.event_date`
+    response = await client_with_basic.get(
+        "/sql/default.events_agg",
+        params={
+            "filters": ["default.event_date.dateint BETWEEN 20240101 AND 20240201"],
+        },
+    )
+
+    # Check that the filters have propagated to the upstream nodes
+    assert str(parse(response.json()["sql"])) == str(
+        parse(
+            """
+            SELECT
+              default_DOT_events_agg.user_id default_DOT_events_agg_DOT_user_id,
+              default_DOT_events_agg.duration_ms default_DOT_events_agg_DOT_duration_ms
+            FROM (
+              SELECT
+                default_DOT_events.user_id,
+                SUM(default_DOT_events.duration_ms) AS duration_ms
+              FROM example.events AS default_DOT_events
+              WHERE
+                default_DOT_events.event_date BETWEEN 20240101 AND 20240201
+            ) AS default_DOT_events_agg
+            """,
+        ),
+    )

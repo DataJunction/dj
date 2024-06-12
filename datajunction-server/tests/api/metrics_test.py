@@ -127,6 +127,7 @@ async def test_read_metric(
             "node_name": "parent",
             "path": [],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -135,6 +136,7 @@ async def test_read_metric(
             "node_name": "parent",
             "path": [],
             "type": "float",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -143,6 +145,7 @@ async def test_read_metric(
             "node_name": "parent",
             "path": [],
             "type": "int",
+            "filter_only": False,
         },
     ]
 
@@ -206,6 +209,7 @@ async def test_common_dimensions(
             "node_name": "default.dispatcher",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -214,6 +218,7 @@ async def test_common_dimensions(
             "node_name": "default.dispatcher",
             "path": ["default.repair_orders_fact"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -222,6 +227,7 @@ async def test_common_dimensions(
             "node_name": "default.dispatcher",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -230,6 +236,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -238,6 +245,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "timestamp",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -246,6 +254,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -254,6 +263,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -262,6 +272,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -270,6 +281,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -278,6 +290,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -286,6 +299,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "timestamp",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -294,6 +308,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -302,6 +317,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -310,6 +326,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -318,6 +335,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -326,6 +344,7 @@ async def test_common_dimensions(
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -334,6 +353,7 @@ async def test_common_dimensions(
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -342,6 +362,7 @@ async def test_common_dimensions(
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -350,6 +371,7 @@ async def test_common_dimensions(
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -358,6 +380,7 @@ async def test_common_dimensions(
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -366,6 +389,7 @@ async def test_common_dimensions(
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -374,6 +398,7 @@ async def test_common_dimensions(
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -382,6 +407,7 @@ async def test_common_dimensions(
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -393,6 +419,7 @@ async def test_common_dimensions(
                 "default.hard_hat",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -404,6 +431,7 @@ async def test_common_dimensions(
                 "default.hard_hat",
             ],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -415,6 +443,7 @@ async def test_common_dimensions(
                 "default.hard_hat",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -426,6 +455,7 @@ async def test_common_dimensions(
                 "default.hard_hat",
             ],
             "type": "string",
+            "filter_only": False,
         },
     ]
 
@@ -529,6 +559,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.dispatcher",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -537,6 +568,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.dispatcher",
             "path": ["default.repair_orders_fact"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -545,6 +577,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.dispatcher",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -553,6 +586,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -561,6 +595,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "timestamp",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -569,6 +604,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -577,6 +613,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -585,6 +622,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -593,6 +631,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -601,6 +640,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -609,6 +649,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "timestamp",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -617,6 +658,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -625,6 +667,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -633,6 +676,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -641,6 +685,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -649,6 +694,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.hard_hat",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -657,6 +703,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -665,6 +712,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -673,6 +721,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -681,6 +730,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -689,6 +739,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -697,6 +748,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -705,6 +757,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
             "node_name": "default.municipality_dim",
             "path": ["default.repair_orders_fact"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -716,6 +769,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
                 "default.hard_hat",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -727,6 +781,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
                 "default.hard_hat",
             ],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -738,6 +793,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
                 "default.hard_hat",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -749,6 +805,7 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
                 "default.hard_hat",
             ],
             "type": "string",
+            "filter_only": False,
         },
     ]
 
@@ -776,6 +833,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.formation_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -787,6 +845,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.last_election_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -798,6 +857,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.formation_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -809,6 +869,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.last_election_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -820,6 +881,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.formation_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -831,6 +893,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.last_election_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -842,6 +905,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.formation_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -853,6 +917,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.last_election_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -864,6 +929,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.formation_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -875,6 +941,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.last_election_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -886,6 +953,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.formation_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -897,6 +965,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.last_election_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -908,6 +977,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.formation_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -919,6 +989,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.last_election_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -930,6 +1001,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.formation_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -941,6 +1013,7 @@ async def test_get_multi_link_dimensions(
                 "default.special_country_dim.last_election_date",
             ],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -949,6 +1022,7 @@ async def test_get_multi_link_dimensions(
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.birth_country"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -957,6 +1031,7 @@ async def test_get_multi_link_dimensions(
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.residence_country"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -965,6 +1040,7 @@ async def test_get_multi_link_dimensions(
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.birth_country"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -973,6 +1049,7 @@ async def test_get_multi_link_dimensions(
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.residence_country"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -981,6 +1058,7 @@ async def test_get_multi_link_dimensions(
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.birth_country"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -989,6 +1067,7 @@ async def test_get_multi_link_dimensions(
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.residence_country"],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -997,6 +1076,7 @@ async def test_get_multi_link_dimensions(
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.birth_country"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -1005,6 +1085,7 @@ async def test_get_multi_link_dimensions(
             "node_name": "default.special_country_dim",
             "path": ["default.user_dim.residence_country"],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -1013,6 +1094,7 @@ async def test_get_multi_link_dimensions(
             "node_name": "default.user_dim",
             "path": [],
             "type": "int",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -1021,6 +1103,7 @@ async def test_get_multi_link_dimensions(
             "node_name": "default.user_dim",
             "path": [],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": False,
@@ -1029,6 +1112,7 @@ async def test_get_multi_link_dimensions(
             "node_name": "default.user_dim",
             "path": [],
             "type": "string",
+            "filter_only": False,
         },
         {
             "is_primary_key": True,
@@ -1037,6 +1121,7 @@ async def test_get_multi_link_dimensions(
             "node_name": "default.user_dim",
             "path": [],
             "type": "int",
+            "filter_only": False,
         },
     ]
 

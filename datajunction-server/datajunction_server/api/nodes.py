@@ -102,6 +102,7 @@ from datajunction_server.sql.dag import (
     _node_output_options,
     get_dimensions,
     get_downstream_nodes,
+    get_filter_only_dimensions,
     get_upstream_nodes,
 )
 from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
@@ -1214,7 +1215,9 @@ async def list_all_dimension_attributes(
             ],
         )
     )
-    return await get_dimensions(session, node, with_attributes=True)  # type: ignore
+    dimensions = await get_dimensions(session, node, with_attributes=True)  # type: ignore
+    filter_only_dimensions = await get_filter_only_dimensions(session, name)
+    return dimensions + filter_only_dimensions
 
 
 @router.get(

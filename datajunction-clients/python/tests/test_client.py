@@ -397,7 +397,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         result = num_repair_orders.get_downstreams()
         assert result == ["default.cube_two"]
         result = num_repair_orders.get_dimensions()
-        assert len(result) == 28
+        assert len(result) == 31
 
         hard_hat = client.dimension("default.hard_hat")
         result = hard_hat.get_upstreams()
