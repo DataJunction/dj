@@ -21,7 +21,7 @@ from datajunction_server.database.node import (
 from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import get_settings
+from datajunction_server.utils import SEPARATOR, get_settings
 
 settings = get_settings()
 
@@ -503,15 +503,23 @@ async def get_filter_only_dimensions(
     for upstream in upstreams:
         await session.refresh(upstream.current, ["dimension_links"])
         for link in upstream.current.dimension_links:
+            await session.refresh(link.dimension, ["current"])
+            await session.refresh(link.dimension.current, ["columns"])
+            column_mapping = {col.name: col for col in link.dimension.current.columns}
             filter_only_dimensions.extend(
                 [
                     DimensionAttributeOutput(
                         name=dim,
-                        node_name=upstream.name,
-                        node_display_name=upstream.current.display_name,
-                        is_primary_key=False,  # upstream.current
-                        type=upstream.type,
-                        path=[],
+                        node_name=link.dimension.name,
+                        node_display_name=link.dimension.current.display_name,
+                        is_primary_key=(
+                            dim.split(SEPARATOR)[-1]
+                            in {
+                                col.name for col in link.dimension.current.primary_key()
+                            }
+                        ),
+                        type=str(column_mapping[dim.split(SEPARATOR)[-1]].type),
+                        path=[upstream.name],
                         filter_only=True,
                     )
                     for dim in link.foreign_keys.values()

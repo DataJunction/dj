@@ -3705,12 +3705,12 @@ async def test_filter_on_source_nodes(
             "filter_only": False,
         },
         {
-            "is_primary_key": False,
+            "is_primary_key": True,
             "name": "default.event_date.dateint",
-            "node_display_name": "Events",
-            "node_name": "default.events",
-            "path": [],
-            "type": "source",
+            "node_display_name": "Event Date",
+            "node_name": "default.event_date",
+            "path": ["default.events"],
+            "type": "int",
             "filter_only": True,
         },
     ]
