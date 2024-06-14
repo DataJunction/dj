@@ -1,3 +1,4 @@
+# pylint: disable=too-many-public-methods
 """DataJunction main client module."""
 
 import time
@@ -8,7 +9,7 @@ from alive_progress import alive_bar
 
 from datajunction import _internal, models
 from datajunction.exceptions import DJClientException, DJTagDoesNotExist
-from datajunction.nodes import Cube, Dimension, Metric, Source, Transform
+from datajunction.nodes import Cube, Dimension, Metric, Node, Source, Transform
 from datajunction.tags import Tag
 
 
@@ -343,22 +344,39 @@ class DJClient(_internal.DJClient):
         node_dict = self._get_cube(node_name)
         if "name" not in node_dict:
             raise DJClientException(f"Cube `{node_name}` does not exist")
-        dimensions = [
-            f'{col["node_name"]}.{col["name"]}'
-            for col in node_dict["cube_elements"]
-            if col["type"] != "metric"
-        ]
-        metrics = [
-            f'{col["node_name"]}.{col["name"]}'
-            for col in node_dict["cube_elements"]
-            if col["type"] == "metric"
-        ]
+        dimensions = node_dict["cube_node_dimensions"]
+        metrics = node_dict["cube_node_metrics"]
         return Cube(
             **node_dict,
             metrics=metrics,
             dimensions=dimensions,
             dj_client=self,
         )
+
+    def node(self, node_name: str) -> "Node":
+        """
+        Retrieves a node with the name if one exists
+        """
+        node_dict = self._verify_node_exists(node_name)
+        node_cls = Node
+        match node_dict["type"]:
+            case models.NodeType.SOURCE.value:
+                node_cls = Source
+            case models.NodeType.DIMENSION.value:
+                node_cls = Dimension
+            case models.NodeType.TRANSFORM.value:
+                node_cls = Transform
+            case models.NodeType.METRIC.value:
+                node_cls = Metric
+            case models.NodeType.CUBE.value:
+                return self.cube(node_name)
+
+        node = node_cls(
+            **node_dict,
+            dj_client=self,
+        )
+        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
+        return node
 
     #
     # Tags
