@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines,too-many-statements
 """Tests DJ client"""
 from unittest.mock import MagicMock
 
@@ -297,18 +298,18 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert "default.account_type_table" in client.namespace("default").sources()
 
         # update it
-        # ... should fail without changing the default update_if_exists = False
+        # ... should fail since update_if_exists is set to False
         with pytest.raises(DJClientException):
             account_type_table = client.create_source(
                 name="default.account_type_table",
                 description="New description",
+                update_if_exists=False,
             )
 
-        # ... should work by setting update_if_exists = True
+        # ... should work since update_if_exists is set to True by default
         account_type_table = client.create_source(
             name="default.account_type_table",
             description="new description",
-            update_if_exists=True,
         )
         assert account_type_table.description == "new description"
 
@@ -481,15 +482,46 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             namespace="default",
         )
 
+        # Test updating metric node
+        number_of_account_types = client.create_metric(
+            name="default.number_of_account_types",
+            query="SELECT count(*) FROM default.account_type",
+            update_if_exists=True,
+        )
+        assert number_of_account_types.name == "default.number_of_account_types"
+        assert (
+            number_of_account_types.query == "SELECT count(*) FROM default.account_type"
+        )
+        assert number_of_account_types.description == "Total number of account types"
+        assert number_of_account_types.mode == "published"
+        assert [dim["name"] for dim in number_of_account_types.dimensions()] == [
+            "default.account_type.account_type_classification",
+            "default.account_type.account_type_name",
+            "default.account_type.id",
+        ]
+
         # cube nodes
         cube_one = client.create_cube(
             name="default.cube_one",
             description="Ice ice cube.",
             metrics=["default.number_of_account_types"],
-            dimensions=["default.payment_type.payment_type_name"],
+            dimensions=["default.account_type.account_type_name"],
             mode=NodeMode.PUBLISHED,
         )
         assert cube_one.name == "default.cube_one"
+        assert cube_one.status == "valid"
+
+        # Test updating cube node
+        cube_one = client.create_cube(
+            name="default.cube_one",
+            description="Ice cubes!",
+            metrics=["default.number_of_account_types"],
+            dimensions=["default.account_type.account_type_name"],
+            mode=NodeMode.PUBLISHED,
+            update_if_exists=True,
+        )
+        assert cube_one.name == "default.cube_one"
+        assert cube_one.description == "Ice cubes!"
 
     def test_link_unlink_dimension(self, client):  # pylint: disable=unused-argument
         """
