@@ -254,14 +254,18 @@ class DJClient:
         )
         return response.json()
 
-    def _verify_node_exists(self, node_name: str, type_: str) -> Dict[str, Any]:
+    def _verify_node_exists(
+        self,
+        node_name: str,
+        type_: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Retrieves a node and verifies that it exists and has the expected node type.
         """
         node = self._get_node(node_name)
         if "name" not in node:
             raise DJClientException(f"No node with name {node_name} exists!")
-        if "name" in node and node["type"] != type_:
+        if type_ and "name" in node and node["type"] != type_:
             raise DJClientException(
                 f"A node with name {node_name} exists, but it is not a {type_} node!",
             )
