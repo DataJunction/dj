@@ -4,6 +4,7 @@ import pytest
 
 from datajunction import DJClient
 from datajunction.exceptions import DJClientException
+from datajunction.nodes import Cube, Dimension, Metric, Source, Transform
 
 
 class TestDJClient:  # pylint: disable=too-many-public-methods
@@ -406,3 +407,30 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         assert result == []
         result = hard_hat.get_dimensions()
         assert len(result) == 18
+
+    def test_get_node(self, client):
+        """
+        Verifies that retrieving a node (of any type) works with:
+            dj.node(<node_name>)
+        """
+        hard_hat = client.node("default.hard_hat")
+        assert isinstance(hard_hat, Dimension)
+        assert hard_hat.name == "default.hard_hat"
+
+        num_repair_orders = client.node("default.num_repair_orders")
+        assert isinstance(num_repair_orders, Metric)
+        assert num_repair_orders.name == "default.num_repair_orders"
+
+        repair_orders_thin = client.node("default.repair_orders_thin")
+        assert isinstance(repair_orders_thin, Transform)
+        assert repair_orders_thin.name == "default.repair_orders_thin"
+
+        repair_orders = client.node("default.repair_orders")
+        assert isinstance(repair_orders, Source)
+        assert repair_orders.name == "default.repair_orders"
+
+        cube_two = client.node("default.cube_two")
+        assert isinstance(cube_two, Cube)
+        assert cube_two.name == "default.cube_two"
+        assert cube_two.metrics == ["default.num_repair_orders"]
+        assert cube_two.dimensions == ["default.municipality_dim.local_region"]
