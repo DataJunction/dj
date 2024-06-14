@@ -368,7 +368,7 @@ class DJClient(_internal.DJClient):
                 node_cls = Transform
             case models.NodeType.METRIC.value:
                 node_cls = Metric
-            case models.NodeType.CUBE.value:
+            case models.NodeType.CUBE.value:  # pragma: no cover
                 return self.cube(node_name)
 
         node = node_cls(
