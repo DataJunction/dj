@@ -122,6 +122,7 @@ async def build_cube_materialization_config(
                 use_materialized=False,
             )
             generic_config = DruidMetricsCubeConfig(
+                lookback_window=upsert_input.config.lookback_window,
                 node_name=current_revision.name,
                 query=metrics_query.sql,
                 dimensions=[
