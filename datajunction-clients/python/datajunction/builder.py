@@ -112,7 +112,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
 
         try:
             existing_node_dict = self._get_node(name)
-            if type_ == models.NodeType.CUBE:
+            if type_ == models.NodeType.CUBE.value:
                 cube_dict = self._get_cube(name)
                 # This check is for the unit tests, which don't raise an exception
                 # for >= 400 status codes
