@@ -138,12 +138,26 @@ def build_materialization_query(
             for col in cube_materialization_query_ast.select.projection
             if col.alias_or_name.name == amenable_name(temporal_partitions[0].name)  # type: ignore
         ]
-        temporal_op = ast.BinaryOp(
-            left=ast.Column(
-                name=ast.Name(temporal_partition_col[0].alias_or_name.name),  # type: ignore
-            ),
-            right=temporal_partitions[0].partition.temporal_expression(),
-            op=ast.BinaryOpKind.Eq,
+        temporal_op = (
+            ast.BinaryOp(
+                left=ast.Column(
+                    name=ast.Name(temporal_partition_col[0].alias_or_name.name),  # type: ignore
+                ),
+                right=temporal_partitions[0].partition.temporal_expression(),
+                op=ast.BinaryOpKind.Eq,
+            )
+            if not materialization.config["lookback_window"]
+            else ast.Between(
+                expr=ast.Column(
+                    name=ast.Name(
+                        temporal_partition_col[0].alias_or_name.name,  # type: ignore
+                    ),
+                ),
+                low=temporal_partitions[0].partition.temporal_expression(
+                    interval=materialization.config["lookback_window"],
+                ),
+                high=temporal_partitions[0].partition.temporal_expression(),
+            )
         )
 
         categorical_partitions = node_revision.categorical_partition_columns()
