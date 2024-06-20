@@ -149,6 +149,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             # create
             new_node = node_cls(dj_client=self, **data)
             self._create_node(node=new_node, mode=data.get("mode"))
+            new_node._update_tags()
         new_node.refresh()
         return new_node
 
@@ -314,7 +315,9 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         query: Optional[str] = None,
         description: Optional[str] = None,
         display_name: Optional[str] = None,
-        primary_key: Optional[List[str]] = None,
+        required_dimensions: Optional[List[str]] = None,
+        direction: Optional[models.MetricDirection] = None,
+        unit: Optional[models.MetricUnit] = None,
         tags: Optional[List[Tag]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
         update_if_exists: bool = True,
@@ -330,7 +333,17 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 "query": query,
                 "description": description,
                 "display_name": display_name,
-                "primary_key": primary_key,
+                "required_dimensions": required_dimensions,
+                **(
+                    {
+                        "metric_metadata": models.MetricMetadata(
+                            direction=direction,
+                            unit=unit,
+                        ),
+                    }
+                    if direction or unit
+                    else {}
+                ),
                 "tags": tags,
                 "mode": mode,
             },
