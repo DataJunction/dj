@@ -399,6 +399,8 @@ class Metric(NodeWithQuery):
     """
 
     type: str = "metric"
+    required_dimensions: Optional[List[str]]
+    metric_metadata: Optional[models.MetricMetadata]
     columns: Optional[List[models.Column]]
 
     def dimensions(self):
@@ -407,6 +409,38 @@ class Metric(NodeWithQuery):
         """
         metric = self.dj_client.get_metric(self.name)
         return metric["dimensions"]
+
+    def _update(self) -> "Node":
+        """
+        Update the node for fields that have changed.
+        """
+        update_node = models.UpdateNode(
+            display_name=self.display_name,
+            description=self.description,
+            mode=self.mode,
+            primary_key=self.primary_key,
+            query=self.query,
+            required_dimensions=self.required_dimensions,
+            metric_metadata=self.metric_metadata,
+        )
+        return self.dj_client._update_node(self.name, update_node)
+
+    @validator("metric_metadata", pre=True)
+    def parse_cls(  # pylint: disable=no-self-argument
+        cls,
+        value: Union[models.MetricMetadata, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        When `metric_metadata` has a unit value, it should be parsed into a str
+        """
+        if isinstance(value, models.MetricMetadata):
+            value = value.dict()
+        if not value or not value.get("unit"):
+            return value
+        if isinstance(value["unit"], str):
+            return value
+        value["unit"] = value["unit"]["name"].lower()  # pragma: no cover
+        return value  # pragma: no cover
 
 
 class Dimension(NodeWithQuery):
@@ -447,6 +481,5 @@ class Cube(Node):  # pylint: disable=abstract-method
             metrics=self.metrics,
             dimensions=self.dimensions,
             filters=self.filters,
-            columns=self.columns,
         )
         return self.dj_client._update_node(self.name, update_node)
