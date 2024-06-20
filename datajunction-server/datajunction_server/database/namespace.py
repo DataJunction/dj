@@ -11,6 +11,7 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.dag import _node_output_options
 from datajunction_server.typing import UTCDatetime
 
 
@@ -126,3 +127,35 @@ class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
             )
             for row in result.all()
         ]
+
+    @classmethod
+    async def list_node_namespace_dag(
+        cls,
+        session: AsyncSession,
+        namespace: str,
+        # node_type: NodeType = None,
+        include_deactivated: bool = False,
+    ) -> List["Node"]:
+        """
+        List all nodes in the namespace's data graph.
+        """
+        await cls.get(session, namespace)
+
+        list_nodes_query = (
+            select(Node)
+            .where(
+                or_(
+                    Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
+                    Node.namespace == namespace,
+                ),
+            )
+            .options(
+                *_node_output_options(),
+            )
+        )
+        if include_deactivated is False:
+            list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))
+
+        result = await session.execute(list_nodes_query)
+        nodes = result.unique().scalars().all()
+        return nodes

@@ -1,0 +1,9 @@
+# A mapping from current namespaces to new namespaces
+# Note: Editing the mapping will result in the nodes under that namespace getting
+# copied to the new namespace
+
+NAMESPACE_MAPPING = {
+    {%- for namespace in namespaces %}
+    "{{ namespace }}": "{{ namespace }}",
+    {%- endfor %}
+}
