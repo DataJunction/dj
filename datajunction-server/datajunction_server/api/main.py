@@ -27,6 +27,7 @@ from datajunction_server.api import (
     attributes,
     catalogs,
     client,
+    collection,
     cubes,
     data,
     dimensions,
@@ -89,6 +90,7 @@ app.add_middleware(
 )
 
 app.include_router(catalogs.router)
+app.include_router(collection.router)
 app.include_router(engines.router)
 app.include_router(metrics.router)
 app.include_router(djsql.router)
