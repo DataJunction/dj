@@ -14,6 +14,9 @@ from datajunction.models import (
     Materialization,
     MaterializationJobType,
     MaterializationStrategy,
+    MetricDirection,
+    MetricMetadata,
+    MetricUnit,
     NodeMode,
 )
 from datajunction.nodes import (
@@ -50,6 +53,8 @@ __all__ = [
     "MaterializationJobType",
     "MaterializationStrategy",
     "Metric",
+    "MetricDirection",
+    "MetricUnit",
     "Cube",
     "Node",
     "NodeMode",

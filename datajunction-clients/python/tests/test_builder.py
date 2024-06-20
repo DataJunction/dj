@@ -19,6 +19,8 @@ from datajunction.models import (
     Materialization,
     MaterializationJobType,
     MaterializationStrategy,
+    MetricDirection,
+    MetricUnit,
     NodeMode,
 )
 
@@ -317,6 +319,13 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         """
         Verifies that creating nodes works.
         """
+        client.create_tag(
+            name="foo",
+            description="Foo Bar",
+            tag_type="test",
+            tag_metadata={"foo": "bar"},
+        )
+        foo_tag = client.tag("foo")
         # source nodes
         account_type_table = client.create_source(
             name="default.account_type_table",
@@ -331,9 +340,11 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 Column(name="account_type_classification", type="int"),
                 Column(name="preferred_payment_method", type="int"),
             ],
+            tags=[foo_tag],
             mode=NodeMode.PUBLISHED,
         )
         assert account_type_table.name == "default.account_type_table"
+        assert [tag["name"] for tag in account_type_table.tags] == ["foo"]
         assert "default.account_type_table" in client.namespace("default").sources()
 
         payment_type_table = client.create_source(
@@ -348,9 +359,11 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 Column(name="payment_type_name", type="string"),
                 Column(name="payment_type_classification", type="string"),
             ],
+            tags=[foo_tag],
             mode=NodeMode.PUBLISHED,
         )
         assert payment_type_table.name == "default.payment_type_table"
+        assert [tag["name"] for tag in payment_type_table.tags] == ["foo"]
         assert "default.payment_type_table" in client.namespace("default").sources()
 
         revenue = client.create_source(
@@ -383,10 +396,12 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ),
             primary_key=["id"],
             mode=NodeMode.DRAFT,
+            tags=[foo_tag],
         )
         payment_type_dim.validate()  # pylint: disable=protected-access
         assert payment_type_dim.name == "default.payment_type"
         assert "default.payment_type" in client.list_dimensions(namespace="default")
+        assert [tag["name"] for tag in payment_type_dim.tags] == ["foo"]
         payment_type_dim.publish()  # Test changing a draft node to published
         payment_type_dim.refresh()
         assert payment_type_dim.mode == NodeMode.PUBLISHED
@@ -416,6 +431,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "FROM default.revenue WHERE payment_amount > 1000000"
             ),
             mode=NodeMode.PUBLISHED,
+            tags=[foo_tag],
         )
         assert large_revenue_payments_only.name == "default.large_revenue_payments_only"
         assert (
@@ -423,6 +439,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             in client.namespace("default").transforms()
         )
         assert len(large_revenue_payments_only.columns) == 4
+        assert [tag["name"] for tag in large_revenue_payments_only.tags] == ["foo"]
 
         client.transform("default.large_revenue_payments_only")
 
@@ -481,14 +498,27 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert "default.number_of_account_types" in client.list_metrics(
             namespace="default",
         )
+        assert number_of_account_types.required_dimensions is None
+        assert number_of_account_types.metric_metadata is None
+        assert [tag["name"] for tag in number_of_account_types.tags] == []
 
         # Test updating metric node
         number_of_account_types = client.create_metric(
             name="default.number_of_account_types",
             query="SELECT count(*) FROM default.account_type",
+            required_dimensions=["account_type_name"],
+            direction=MetricDirection.HIGHER_IS_BETTER,
+            unit=MetricUnit.UNITLESS,
+            tags=[foo_tag],
             update_if_exists=True,
         )
         assert number_of_account_types.name == "default.number_of_account_types"
+        assert number_of_account_types.required_dimensions == ["account_type_name"]
+        assert (
+            number_of_account_types.metric_metadata["direction"] == "higher_is_better"
+        )
+        assert number_of_account_types.metric_metadata["unit"]["name"] == "UNITLESS"
+
         assert (
             number_of_account_types.query == "SELECT count(*) FROM default.account_type"
         )
@@ -499,6 +529,25 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "default.account_type.account_type_name",
             "default.account_type.id",
         ]
+        assert [tag["name"] for tag in number_of_account_types.tags] == ["foo"]
+
+        # test setting required dims, direction, and unit at creation time (not update)
+        number_of_account_types2 = client.create_metric(
+            name="default.number_of_account_types2",
+            description="Total number of account types",
+            query="SELECT count(id) FROM default.account_type",
+            required_dimensions=["account_type_name"],
+            direction=MetricDirection.HIGHER_IS_BETTER,
+            unit=MetricUnit.UNITLESS,
+            tags=[foo_tag],
+            mode=NodeMode.PUBLISHED,
+        )
+        assert number_of_account_types2.name == "default.number_of_account_types2"
+        assert number_of_account_types2.required_dimensions == ["account_type_name"]
+        assert (
+            number_of_account_types2.metric_metadata["direction"] == "higher_is_better"
+        )
+        assert number_of_account_types2.metric_metadata["unit"]["name"] == "UNITLESS"
 
         # cube nodes
         cube_one = client.create_cube(
@@ -507,9 +556,11 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             metrics=["default.number_of_account_types"],
             dimensions=["default.account_type.account_type_name"],
             mode=NodeMode.PUBLISHED,
+            tags=[foo_tag],
         )
         assert cube_one.name == "default.cube_one"
         assert cube_one.status == "valid"
+        assert [tag["name"] for tag in cube_one.tags] == ["foo"]
 
         # Test updating cube node
         cube_one = client.create_cube(
@@ -518,10 +569,12 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             metrics=["default.number_of_account_types"],
             dimensions=["default.account_type.account_type_name"],
             mode=NodeMode.PUBLISHED,
+            tags=[],
             update_if_exists=True,
         )
         assert cube_one.name == "default.cube_one"
         assert cube_one.description == "Ice cubes!"
+        assert [tag["name"] for tag in cube_one.tags] == []
 
     def test_link_unlink_dimension(self, client):  # pylint: disable=unused-argument
         """

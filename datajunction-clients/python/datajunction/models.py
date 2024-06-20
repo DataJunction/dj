@@ -1,6 +1,6 @@
 """Models used by the DJ client."""
 import enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -12,6 +12,44 @@ class Engine(BaseModel):
 
     name: str
     version: Optional[str]
+
+
+class MetricDirection(str, enum.Enum):
+    """
+    The direction of the metric that's considered good, i.e., higher is better
+    """
+
+    HIGHER_IS_BETTER = "higher_is_better"
+    LOWER_IS_BETTER = "lower_is_better"
+    NEUTRAL = "neutral"
+
+
+class MetricUnit(str, enum.Enum):
+    """
+    Unit
+    """
+
+    UNKNOWN = "unknown"
+    UNITLESS = "unitless"
+    PERCENTAGE = "percentage"
+    PROPORTION = "proportion"
+    DOLLAR = "dollar"
+    SECOND = "second"
+    MINUTE = "minute"
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    YEAR = "year"
+
+
+class MetricMetadata(BaseModel):
+    """
+    Metric metadata output
+    """
+
+    direction: Optional[MetricDirection]
+    unit: Optional[MetricUnit]
 
 
 class MaterializationJobType(str, enum.Enum):
@@ -118,6 +156,10 @@ class UpdateNode(BaseModel):
     filters: Optional[List[str]]
     orderby: Optional[List[str]]
     limit: Optional[int]
+
+    # metric nodes only
+    required_dimensions: Optional[List[str]]
+    metric_metadata: Optional[Dict[str, Any]]
 
 
 class UpdateTag(BaseModel):
