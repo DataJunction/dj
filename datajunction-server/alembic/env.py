@@ -11,6 +11,7 @@ from alembic import context
 from datajunction_server.database import (
     AttributeType,
     Catalog,
+    Collection,
     Column,
     ColumnAttribute,
     Database,
