@@ -1555,34 +1555,34 @@ async def remove_dimension_link(
         name=link_identifier.dimension_node,
         node_type=NodeType.DIMENSION,
     )
-    # removed = False
+    removed = False
 
-    # # Find cubes that are affected by this dimension link removal and update their statuses
-    # downstream_cubes = await get_downstream_nodes(
-    #     session,
-    #     node_name,
-    #     node_type=NodeType.CUBE,
-    # )
-    # for cube in downstream_cubes:
-    #     for elem in cube.current.cube_elements:
-    #         await session.refresh(elem, ["node_revisions"])
-    #     cube_dimension_nodes = [
-    #         cube_elem_node.name
-    #         for (element, cube_elem_node) in cube.current.cube_elements_with_nodes()
-    #         if cube_elem_node.type == NodeType.DIMENSION
-    #     ]
-    #     if dimension_node.name in cube_dimension_nodes:
-    #         cube.current.status = NodeStatus.INVALID
-    #         session.add(cube)
-    #         session.add(
-    #             status_change_history(
-    #                 cube.current,  # type: ignore
-    #                 NodeStatus.VALID,
-    #                 NodeStatus.INVALID,
-    #                 current_user=current_user,
-    #             ),
-    #         )
-    #     await session.commit()
+    # Find cubes that are affected by this dimension link removal and update their statuses
+    downstream_cubes = await get_downstream_nodes(
+        session,
+        node_name,
+        node_type=NodeType.CUBE,
+    )
+    for cube in downstream_cubes:
+        for elem in cube.current.cube_elements:
+            await session.refresh(elem, ["node_revisions"])
+        cube_dimension_nodes = [
+            cube_elem_node.name
+            for (element, cube_elem_node) in cube.current.cube_elements_with_nodes()
+            if cube_elem_node.type == NodeType.DIMENSION
+        ]
+        if dimension_node.name in cube_dimension_nodes:
+            cube.current.status = NodeStatus.INVALID
+            session.add(cube)
+            session.add(
+                status_change_history(
+                    cube.current,  # type: ignore
+                    NodeStatus.VALID,
+                    NodeStatus.INVALID,
+                    current_user=current_user,
+                ),
+            )
+        await session.commit()
 
     # Delete the dimension link if one exists
     for link in node.current.dimension_links:  # type: ignore
