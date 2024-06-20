@@ -1,0 +1,6 @@
+{{ node_short_name }}.link_complex_dimension(
+    dimension_node=f"{{ dimension_node }}",
+    join_on=f"{{ join_on }}",
+    join_type="{{ join_type }}",{% if role %}
+    role="{{ role }}",{% else %}{% endif %}
+)

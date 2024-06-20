@@ -1,0 +1,8 @@
+from datajunction import(
+    DJBuilder, Source, Dimension, Transform, Metric, Namespace, MetricUnit, MetricDirection
+)
+
+DJ_URL = "{{ request_url }}"
+
+dj = DJBuilder(DJ_URL)
+dj.basic_login("dj", "dj")
