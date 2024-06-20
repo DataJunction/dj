@@ -84,6 +84,8 @@ dependencies = [
     "pydantic<2",
     "aiosqlite>=0.20.0",
     "pytest-asyncio==0.21.2",
+    "nbformat>=5.10.4",
+    "jinja2>=3.1.4",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.md"
