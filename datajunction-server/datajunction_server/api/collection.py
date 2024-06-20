@@ -99,7 +99,6 @@ async def get_collection(
 
 @router.post(
     "/collections/{name}/nodes/",
-    response_model=CollectionInfo,
     status_code=201,
     name="Add Nodes to a Collection",
 )
@@ -108,7 +107,7 @@ async def add_nodes_to_collection(
     data: List[str],
     *,
     session: AsyncSession = Depends(get_session),
-) -> CollectionInfo:
+) -> JSONResponse:
     """
     Add one or more nodes to a collection
     """
@@ -123,4 +122,34 @@ async def add_nodes_to_collection(
     session.add(collection)
     await session.commit()
     await session.refresh(collection)
-    return CollectionInfo.from_orm(collection)
+    return JSONResponse(
+        content={"message": f"Nodes successfully added to collection {name}"},
+        status_code=HTTPStatus.OK,
+    )
+
+
+@router.delete(
+    "/collections/{name}/nodes/",
+    status_code=201,
+    name="Delete Nodes from a Collection",
+)
+async def delete_nodes_from_collection(
+    name: str,
+    data: List[str],
+    *,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Delete one or more nodes from a collection
+    """
+    collection = await get_collection_by_name(session, name)
+    nodes = await Node.get_by_names(session=session, names=data)
+    for node in nodes:
+        if node in collection.nodes:
+            collection.nodes.remove(node)
+    await session.commit()
+    await session.refresh(collection)
+    return JSONResponse(
+        content={"message": f"Nodes successfully deleted from collection `{name}`"},
+        status_code=HTTPStatus.OK,
+    )
