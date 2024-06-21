@@ -92,7 +92,7 @@ export default function NodeColumnTab({ node, djClient }) {
   };
 
   const columnList = columns => {
-    return columns.map(col => {
+    return columns?.map(col => {
       const dimensionLinks = (links.length > 0 ? links : node?.dimension_links)
         .map(link => [
           link.dimension.name,
@@ -151,7 +151,6 @@ export default function NodeColumnTab({ node, djClient }) {
                 options={dimensions}
                 onSubmit={async () => {
                   const res = await djClient.node(node.name);
-                  setColumns(res.columns);
                   setLinks(res.dimension_links);
                 }}
               />

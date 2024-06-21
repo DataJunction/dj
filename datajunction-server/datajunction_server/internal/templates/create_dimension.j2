@@ -1,5 +1,5 @@
 {{ short_name }} = dj.create_dimension(
-    name=f"{{ name }}",
+    name={% if '{' in name %}f{% else %}{% endif %}"{{ name }}",
     display_name="{{ display_name }}",
     description="""{{ description }}""",
     mode="{{ mode }}",
@@ -11,6 +11,6 @@
         dj.tag("{{ tag }}"),
         {%- endfor %}{% if tags %}
     {% else %}{% endif %}],
-    query=f"""{{ query }}""",
+    query={% if '{' in query %}f{% else %}{% endif %}"""{{ query }}""",
     update_if_exists=True,
 )

@@ -129,15 +129,14 @@ class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
         ]
 
     @classmethod
-    async def list_node_namespace_dag(
+    async def list_all_nodes(
         cls,
         session: AsyncSession,
         namespace: str,
-        # node_type: NodeType = None,
         include_deactivated: bool = False,
     ) -> List["Node"]:
         """
-        List all nodes in the namespace's data graph.
+        List all nodes in the namespace.
         """
         await cls.get(session, namespace)
 
@@ -153,7 +152,7 @@ class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
                 *_node_output_options(),
             )
         )
-        if include_deactivated is False:
+        if include_deactivated is False:  # pragma: no cover
             list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))
 
         result = await session.execute(list_nodes_query)

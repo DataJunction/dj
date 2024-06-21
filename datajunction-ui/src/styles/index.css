@@ -1065,6 +1065,15 @@ pre {
 .tag_value:hover {
   background-color: #5c3b8f50;
 }
+.download_notebook {
+  color: #5c3b8f;
+  background-color: #ffefd0;
+  margin: 0.25rem;
+  font-size: 100%;
+}
+.download_notebook:hover {
+  background-color: #fedda1 !important;
+}
 
 .modal-backdrop.in {
   filter: alpha(opacity=50);
