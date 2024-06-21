@@ -3,23 +3,19 @@ Collection related APIs.
 """
 import logging
 from http import HTTPStatus
-from typing import List, Any
+from typing import List
 
-from fastapi import Depends, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.operators import is_
 
-from datajunction_server.api.helpers import (
-    get_collection_by_name,
-)
 from datajunction_server.database.collection import Collection
 from datajunction_server.database.node import Node
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.models.collection import CollectionInfo, CreateCollection
+from datajunction_server.models.collection import CollectionInfo, CollectionInfoWithNodes
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
@@ -27,9 +23,9 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["collections"])
 
 
-@router.post("/collections/", response_model=CollectionInfo, status_code=201)
+@router.post("/collections/", response_model=CollectionInfo, status_code=HTTPStatus.CREATED)
 async def create_a_collection(
-    data: CreateCollection,
+    data: CollectionInfo,
     *,
     session: AsyncSession = Depends(get_session),
 ) -> CollectionInfo:
@@ -37,7 +33,7 @@ async def create_a_collection(
     Create a Collection
     """
     try:
-        await get_collection_by_name(session, data.name)
+        await Collection.get_by_name(session, data.name, raise_if_not_exists=True)
     except DJException:
         pass
     else:
@@ -56,50 +52,46 @@ async def create_a_collection(
 
     return CollectionInfo.from_orm(collection)
 
-@router.delete("/collections/{name}", status_code=HTTPStatus.OK)
+@router.delete("/collections/{name}", status_code=HTTPStatus.NO_CONTENT)
 async def delete_a_collection(
      name: str,
     *,
     session: AsyncSession = Depends(get_session),
-) -> JSONResponse:
+):
     """
     Delete a collection
     """
-    collection = await get_collection_by_name(session, name)
+    collection = await Collection.get_by_name(session, name)
     await session.delete(collection)
     await session.commit()
-    return {"message": f"Collection `{name}` successfully deleted"}
+    return Response(status_code=HTTPStatus.NO_CONTENT)
 
-@router.get("/collections/", response_model=Any)
+@router.get("/collections/")
 async def list_collections(
     *,
     session: AsyncSession = Depends(get_session),
-) -> Any:
+) -> List[CollectionInfo]:
     """
     List all collections
     """
     collections = await session.execute(select(Collection).where(is_(Collection.deactivated_at, None)))
     return collections.scalars().all()
 
-@router.get("/collections/{name}", response_model=Any)
+@router.get("/collections/{name}")
 async def get_collection(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
-) -> Any:
+):
     """
-    Get a collection and it's nodes
+    Get a collection and its nodes
     """
-    results = await session.execute(select(Collection).where(Collection.name==name))
-    collections = results.scalars().all()
-    if not collections:
-        raise HTTPException(status_code=404, detail="Collection not found")
-
-    return collections[0]
+    collection = await Collection.get_by_name(session, name=name, raise_if_not_exists=True)
+    return collection
 
 @router.post(
     "/collections/{name}/nodes/",
-    status_code=201,
+    status_code=HTTPStatus.NO_CONTENT,
     name="Add Nodes to a Collection",
 )
 async def add_nodes_to_collection(
@@ -107,11 +99,11 @@ async def add_nodes_to_collection(
     data: List[str],
     *,
     session: AsyncSession = Depends(get_session),
-) -> JSONResponse:
+):
     """
     Add one or more nodes to a collection
     """
-    collection = await get_collection_by_name(session, name)
+    collection = await Collection.get_by_name(session, name)
     nodes = await Node.get_by_names(session=session, names=data)
     if not nodes:
         raise HTTPException(
@@ -122,15 +114,12 @@ async def add_nodes_to_collection(
     session.add(collection)
     await session.commit()
     await session.refresh(collection)
-    return JSONResponse(
-        content={"message": f"Nodes successfully added to collection {name}"},
-        status_code=HTTPStatus.OK,
-    )
+    return Response(status_code=HTTPStatus.NO_CONTENT)
 
 
 @router.delete(
     "/collections/{name}/nodes/",
-    status_code=201,
+    status_code=HTTPStatus.NO_CONTENT,
     name="Delete Nodes from a Collection",
 )
 async def delete_nodes_from_collection(
@@ -142,14 +131,11 @@ async def delete_nodes_from_collection(
     """
     Delete one or more nodes from a collection
     """
-    collection = await get_collection_by_name(session, name)
+    collection = await Collection.get_by_name(session, name)
     nodes = await Node.get_by_names(session=session, names=data)
     for node in nodes:
         if node in collection.nodes:
             collection.nodes.remove(node)
     await session.commit()
     await session.refresh(collection)
-    return JSONResponse(
-        content={"message": f"Nodes successfully deleted from collection `{name}`"},
-        status_code=HTTPStatus.OK,
-    )
+    return Response(status_code=HTTPStatus.NO_CONTENT)

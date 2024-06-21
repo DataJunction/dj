@@ -3,11 +3,13 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import List, Optional, TYPE_CHECKING
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, ForeignKey
+from sqlalchemy import BigInteger, DateTime, Integer, String, ForeignKey, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node
+from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.typing import UTCDatetime
 
 class Collection(Base):  # pylint: disable=too-few-public-methods
@@ -17,11 +19,8 @@ class Collection(Base):  # pylint: disable=too-few-public-methods
 
     __tablename__ = "collection"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"),
-        primary_key=True,
-    )
-    name: Mapped[Optional[str]] = mapped_column(String, default=None)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[Optional[str]] = mapped_column(String, default=None, unique=True)
     description: Mapped[Optional[str]] = mapped_column(String, default=None)
     nodes: Mapped[List[Node]] = relationship(
         secondary="collectionnodes",
@@ -42,6 +41,26 @@ class Collection(Base):  # pylint: disable=too-few-public-methods
     def __hash__(self) -> int:
         return hash(self.id)
 
+    @classmethod
+    async def get_by_name(
+        cls,
+        session: AsyncSession,
+        name: str,
+        raise_if_not_exists: bool = False,
+    ) -> Optional["Collection"]:
+        """
+        Get a collection by name
+        """
+        statement = (
+            select(Collection).where(Collection.name == name)
+        )
+        collection = (await session.execute(statement)).scalar()
+        if not collection and raise_if_not_exists:
+            raise DJDoesNotExistException(
+                message=f"Collection with name `{name}` does not exist.",
+                http_status_code=404,
+            )
+        return collection
 
 class CollectionNodes(Base):  # type: ignore  # pylint: disable=too-few-public-methods
     """

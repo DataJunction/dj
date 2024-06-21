@@ -874,18 +874,3 @@ def assemble_column_metadata(
         else None,
     )
     return metadata
-
-async def get_collection_by_name(session: AsyncSession, name: str) -> Catalog:
-    """
-    Get a collection by name
-    """
-    statement = (
-        select(Collection).where(Collection.name == name)
-    )
-    collection = (await session.execute(statement)).scalar()
-    if not collection:
-        raise DJDoesNotExistException(
-            message=f"Collection with name `{name}` does not exist.",
-            http_status_code=404,
-        )
-    return collection

@@ -4,17 +4,20 @@ from datajunction_server.models.node import NodeOutput
 
 from pydantic.main import BaseModel
 
-class CreateCollection(BaseModel):
+class CollectionInfo(BaseModel):
     """
-    Class for a collection creation request
+    Class for a collection information
     """
 
     name: str
     description: str
 
-class CollectionInfo(BaseModel):
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
+
+class CollectionInfoWithNodes(BaseModel):
     """
-    Class for collection information
+    Class for collection information including node information
     """
 
     name: str
