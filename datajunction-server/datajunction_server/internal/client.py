@@ -1,32 +1,36 @@
 """Helper functions to generate client code."""
-from typing import Optional, List, cast
+import os
 import urllib
+from typing import List, Optional, cast
 
-from datajunction_server.database import Node, NodeRevision, DimensionLink, Column
-from datajunction_server.utils import SEPARATOR
-from datajunction_server.construction.utils import to_namespaced_name
-from datajunction_server.models.node_type import NodeType
-from datajunction_server.sql.parsing import ast
-from datajunction_server.sql.parsing.backends.antlr4 import parse
-from nbformat.v4 import new_markdown_cell, new_code_cell
+from jinja2 import Environment, FileSystemLoader
+from nbformat.v4 import new_code_cell, new_markdown_cell, new_notebook
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
-from sqlalchemy.ext.asyncio import AsyncSession
 
-import os
-from jinja2 import Environment, FileSystemLoader
-jinja_env = Environment(loader=FileSystemLoader(
-    os.path.join(os.path.dirname(__file__), "templates"),
-))
+from datajunction_server.construction.utils import to_namespaced_name
+from datajunction_server.database import Column, DimensionLink, Node, NodeRevision
+from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.dag import topological_sort
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.utils import SEPARATOR
+
+jinja_env = Environment(
+    loader=FileSystemLoader(
+        os.path.join(os.path.dirname(__file__), "templates"),
+    ),
+)
+
 
 def python_client_initialize(request_url: str):
     """
-    Returns the Python client code to initialize the client. This function can be overridden
+    Returns the python client code to initialize the client. This function can be overridden
     for different servers, based on how the client should be setup.
     """
     parsed_url = urllib.parse.urlparse(str(request_url))
     server_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-    template = jinja_env.get_template(f"client_setup.j2")
+    template = jinja_env.get_template("client_setup.j2")
     return template.render(request_url=server_url)
 
 
@@ -35,22 +39,38 @@ def python_client_code_for_linking_complex_dimension(
     dimension_link: DimensionLink,
     replace_namespace: Optional[str] = None,
 ):
+    """
+    Returns the python client code to create a complex dimension link.
+    """
     node_short_name = node_name.split(SEPARATOR)[-1]
     node_namespace = SEPARATOR.join(node_name.split(SEPARATOR)[:-1])
     if replace_namespace:
         join_on_ast = dimension_link.join_sql_ast()
         for col in join_on_ast.find_all(ast.Column):
-            col_node_namespace = str(SEPARATOR.join(col.identifier().split(SEPARATOR)[:-2]))
+            col_node_namespace = str(
+                SEPARATOR.join(col.identifier().split(SEPARATOR)[:-2]),
+            )
             col_short_name = str(SEPARATOR.join(col.identifier().split(SEPARATOR)[-2:]))
-            if replace_namespace and col_node_namespace == node_namespace:
+            if (
+                replace_namespace
+                and col_node_namespace == node_namespace  # pragma: no cover
+            ):
                 col.name = to_namespaced_name(f"{replace_namespace}.{col_short_name}")
         join_on = str(
-            join_on_ast.select.from_.relations[-1].extensions[0].criteria.on  # type: ignore
+            join_on_ast.select.from_.relations[-1].extensions[0].criteria.on,  # type: ignore
         )
     else:
         join_on = dimension_link.join_sql
-    dimension_node_name = dimension_link.dimension.name.replace(node_namespace, replace_namespace)
-    
+
+    dimension_node_name = (
+        dimension_link.dimension.name.replace(
+            node_namespace,
+            replace_namespace,
+        )
+        if replace_namespace
+        else dimension_link.dimension.name
+    )
+
     template = jinja_env.get_template("link_dimension.j2")
     return template.render(
         node_short_name=node_short_name,
@@ -67,13 +87,13 @@ async def python_client_create_node(
     replace_namespace: Optional[str] = None,
 ):
     """
-    Renders Python client code for creating this node
+    Returns the python client code for creating this node
 
-        replace_namespace: a string to replace the node namespace with
+    replace_namespace: a string to replace the node namespace with
     """
     node_short_name = node_name.split(SEPARATOR)[-1]
     node = cast(
-        Node, 
+        Node,
         await Node.get_by_name(
             session,
             node_name,
@@ -89,7 +109,7 @@ async def python_client_create_node(
                 joinedload(Node.tags),
             ],
             raise_if_not_exists=True,
-        )
+        ),
     )
 
     if node.type == NodeType.SOURCE:
@@ -113,42 +133,74 @@ async def python_client_create_node(
 
     return template.render(
         short_name=node_short_name,
-        name=node.name if not replace_namespace else f"{replace_namespace}.{node_short_name}",
+        name=(
+            node.name
+            if not replace_namespace
+            else f"{replace_namespace}.{node_short_name}"
+        ),
         display_name=node.current.display_name,
         description=node.current.description.strip(),
         mode=node.current.mode,
         **(
             {"primary_key": [col.name for col in node.current.primary_key()]}
-            if node.type != NodeType.METRIC else
-            {
+            if node.type != NodeType.METRIC
+            else {
                 "required_dimensions": [  # type: ignore
                     col.name for col in node.current.required_dimensions
                 ],
                 **(
                     {
-                        "direction":  # type: ignore
-                        f"MetricDirection.{node.current.metric_metadata.direction.upper()}"
+                        "direction": (  # type: ignore
+                            f"MetricDirection.{node.current.metric_metadata.direction.upper()}"
+                        ),
                     }
-                    if node.current.metric_metadata and node.current.metric_metadata.direction 
+                    if node.current.metric_metadata
+                    and node.current.metric_metadata.direction
                     else {}
                 ),
                 **(
                     {"unit": node.current.metric_metadata.unit}
-                    if node.current.metric_metadata and node.current.metric_metadata.direction 
+                    if node.current.metric_metadata
+                    and node.current.metric_metadata.unit
                     else {}
                 ),
             }
         ),
         **(
             {
-                "metrics": [f"{{NAMESPACE_MAPPING['{SEPARATOR.join(metric.split(SEPARATOR)[:-1])}']}}{SEPARATOR}{metric.split(SEPARATOR)[-1]}" for metric in node.current.cube_node_metrics],
+                "metrics": [
+                    (
+                        f"{replace_namespace}{SEPARATOR}{metric.split(SEPARATOR)[-1]}"
+                        if replace_namespace
+                        else metric
+                    )
+                    for metric in node.current.cube_node_metrics
+                ],
                 "dimensions": node.current.cube_node_dimensions,
             }
-            if node.type == NodeType.CUBE else
-            {"query": query}
+            if node.type == NodeType.CUBE
+            else {"query": query}
         ),
         tags=[tag.name for tag in node.tags],
     )
+
+
+async def build_export_notebook(
+    session: AsyncSession,
+    nodes: List[Node],
+    introduction: str,
+    request_url: str,
+):
+    """
+    Builds a notebook with Python client code for exporting the list of provided nodes.
+    """
+    notebook = new_notebook()
+    notebook.cells.append(new_markdown_cell(introduction))
+    notebook.cells.append(new_code_cell(python_client_initialize(str(request_url))))
+    sorted_nodes = topological_sort(nodes)
+    cells = await export_nodes_notebook_cells(session, sorted_nodes)
+    notebook.cells.extend(cells)
+    return notebook
 
 
 def move_node_references_namespace(namespace: str, query: str, replacement: str) -> str:
@@ -170,18 +222,24 @@ def move_node_references_namespace(namespace: str, query: str, replacement: str)
 
 
 async def export_nodes_notebook_cells(session: AsyncSession, nodes: List[Node]):
+    """
+    Returns notebook cells used for exporting the list of nodes.
+    A node export means the following:
+    - Client code to create the node and set the right tags
+    - Client code to link all dimensions set on the node
+    - TODO: Client code to set all column attributes on the node
+    """
     cells = []
     cells.append(
         new_markdown_cell(
-            f"### Upserting Nodes:\n" + 
-            "\n".join([f"* {node.name}" for node in nodes])
-        )
+            "### Upserting Nodes:\n" + "\n".join([f"* {node.name}" for node in nodes]),
+        ),
     )
 
     # Set up a namespace mapping between current namespaces and where they should be moved
     # to. This is modifiable by the exported notebook user and can be used to move nodes
-    namespaces = set([SEPARATOR.join(node.name.split(SEPARATOR)[:-1]) for node in nodes])
-    template = jinja_env.get_template(f"namespace_mapping.j2")
+    namespaces = {SEPARATOR.join(node.name.split(SEPARATOR)[:-1]) for node in nodes}
+    template = jinja_env.get_template("namespace_mapping.j2")
     template.render(namespaces=namespaces)
     cells.append(new_code_cell(template.render(namespaces=namespaces)))
 
@@ -190,18 +248,21 @@ async def export_nodes_notebook_cells(session: AsyncSession, nodes: List[Node]):
         namespace = SEPARATOR.join(node.name.split(SEPARATOR)[:-1])
         cells.append(
             new_code_cell(
+                # for cubes: NAMESPACE_MAPPING['{SEPARATOR.join(metric.split(SEPARATOR)[:-1])}']
                 await python_client_create_node(
                     session,
                     node.name,
                     replace_namespace=f"{{NAMESPACE_MAPPING['{namespace}']}}",
-                )
-            )
+                ),
+            ),
         )
 
         # Add cell for linking dimensions if needed
         if node.current.dimension_links:
             cells.append(
-                new_markdown_cell(f"Linking dimensions for {node.type} node `{node.name}`:")
+                new_markdown_cell(
+                    f"Linking dimensions for {node.type} node `{node.name}`:",
+                ),
             )
             link_dimensions = "\n".join(
                 [
@@ -211,7 +272,7 @@ async def export_nodes_notebook_cells(session: AsyncSession, nodes: List[Node]):
                         replace_namespace=f"{{NAMESPACE_MAPPING['{namespace}']}}",
                     )
                     for link in node.current.dimension_links
-                ]
+                ],
             )
             cells.append(new_code_cell(link_dimensions))
     return cells

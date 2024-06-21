@@ -1,0 +1,11 @@
+repair_orders.link_complex_dimension(
+    dimension_node=f"default.repair_order",
+    join_on=f"default.repair_orders.repair_order_id = default.repair_order.repair_order_id",
+    join_type="left",
+)
+
+repair_orders.link_complex_dimension(
+    dimension_node=f"default.dispatcher",
+    join_on=f"default.repair_orders.dispatcher_id = default.dispatcher.dispatcher_id",
+    join_type="left",
+)

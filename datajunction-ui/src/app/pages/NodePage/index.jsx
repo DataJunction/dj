@@ -7,6 +7,7 @@ import NodeInfoTab from './NodeInfoTab';
 import NodeColumnTab from './NodeColumnTab';
 import NodeGraphTab from './NodeGraphTab';
 import NodeHistory from './NodeHistory';
+import NotebookDownload from './NotebookDownload';
 import DJClientContext from '../../providers/djclient';
 import NodeValidateTab from './NodeValidateTab';
 import NodeMaterializationTab from './NodeMaterializationTab';
@@ -203,6 +204,7 @@ export function NodePage() {
               >
                 {node?.version}
               </span>
+              {node?.type === 'cube' ? <NotebookDownload node={node} /> : <></>}
             </div>
             <div className="align-items-center row">
               {tabsList(node).map(buildTabs)}

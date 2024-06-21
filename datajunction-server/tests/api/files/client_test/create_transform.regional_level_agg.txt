@@ -1,0 +1,60 @@
+regional_level_agg = dj.create_transform(
+    name="default.regional_level_agg",
+    display_name="Default: Regional Level Agg",
+    description="""Regional-level aggregates""",
+    mode="published",
+    primary_key=[
+        "us_region_id",
+        "state_name",
+        "order_year",
+        "order_month",
+        "order_day",
+    ],
+    tags=[],
+    query="""WITH ro as (SELECT
+        repair_order_id,
+        municipality_id,
+        hard_hat_id,
+        order_date,
+        required_date,
+        dispatched_date,
+        dispatcher_id
+    FROM default.repair_orders)
+            SELECT
+    usr.us_region_id,
+    us.state_name,
+    CONCAT(us.state_name, '-', usr.us_region_description) AS location_hierarchy,
+    EXTRACT(YEAR FROM ro.order_date) AS order_year,
+    EXTRACT(MONTH FROM ro.order_date) AS order_month,
+    EXTRACT(DAY FROM ro.order_date) AS order_day,
+    COUNT(DISTINCT CASE WHEN ro.dispatched_date IS NOT NULL THEN ro.repair_order_id ELSE NULL END) AS completed_repairs,
+    COUNT(DISTINCT ro.repair_order_id) AS total_repairs_dispatched,
+    SUM(rd.price * rd.quantity) AS total_amount_in_region,
+    AVG(rd.price * rd.quantity) AS avg_repair_amount_in_region,
+    -- ELEMENT_AT(ARRAY_SORT(COLLECT_LIST(STRUCT(COUNT(*) AS cnt, rt.repair_type_name AS repair_type_name)), (left, right) -> case when left.cnt < right.cnt then 1 when left.cnt > right.cnt then -1 else 0 end), 0).repair_type_name AS most_common_repair_type,
+    AVG(DATEDIFF(ro.dispatched_date, ro.order_date)) AS avg_dispatch_delay,
+    COUNT(DISTINCT c.contractor_id) AS unique_contractors
+FROM ro
+JOIN
+    default.municipality m ON ro.municipality_id = m.municipality_id
+JOIN
+    default.us_states us ON m.state_id = us.state_id
+                         AND AVG(rd.price * rd.quantity) >
+                            (SELECT AVG(price * quantity) FROM default.repair_order_details WHERE repair_order_id = ro.repair_order_id)
+JOIN
+    default.us_states us ON m.state_id = us.state_id
+JOIN
+    default.us_region usr ON us.state_region = usr.us_region_id
+JOIN
+    default.repair_order_details rd ON ro.repair_order_id = rd.repair_order_id
+JOIN
+    default.repair_type rt ON rd.repair_type_id = rt.repair_type_id
+JOIN
+    default.contractors c ON rt.contractor_id = c.contractor_id
+GROUP BY
+    usr.us_region_id,
+    EXTRACT(YEAR FROM ro.order_date),
+    EXTRACT(MONTH FROM ro.order_date),
+    EXTRACT(DAY FROM ro.order_date)""",
+    update_if_exists=True,
+)

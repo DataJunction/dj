@@ -399,16 +399,6 @@ export const DataJunctionAPI = {
   columns: async function (node) {
     return await Promise.all(
       node.columns.map(async col => {
-        if (col.dimension) {
-          col.clientCode = await (
-            await fetch(
-              `${DJ_URL}/datajunction-clients/python/link_dimension/${node.name}/${col.name}/${col.dimension?.name}`,
-              {
-                credentials: 'include',
-              },
-            )
-          ).json();
-        }
         return col;
       }),
     );
@@ -458,6 +448,20 @@ export const DataJunctionAPI = {
       await fetch(`${DJ_URL}/data/${nodeName}?${params}`, {
         credentials: 'include',
         headers: { 'Cache-Control': 'max-age=86400' },
+      })
+    ).json();
+  },
+
+  notebookExportCube: async function (cube) {
+    return await fetch(`${DJ_URL}/datajunction-clients/python/notebook/?cube=${cube}`, {
+      credentials: 'include',
+    });
+  },
+
+  notebookExportNamespace: async function (namespace) {
+    return await (
+      await fetch(`${DJ_URL}/datajunction-clients/python/notebook/?namespace=${namespace}`, {
+        credentials: 'include',
       })
     ).json();
   },

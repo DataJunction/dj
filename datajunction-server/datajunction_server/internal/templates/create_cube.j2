@@ -1,13 +1,13 @@
 {{ short_name }} = dj.create_cube(
-    name=f"{{ name }}",
+    name={% if '{' in name %}f{% else %}{% endif %}"{{ name }}",
     display_name="{{ display_name }}",
     description="""{{ description }}""",
     dimensions=[{%- for dimension in dimensions %}
-        "{{ dimension }}",
+        {% if '{' in dimension %}f{% else %}{% endif %}"{{ dimension }}",
         {%- endfor %}
     ],
     metrics=[{%- for metric in metrics %}
-        f"{{ metric }}",
+        {% if '{' in metric %}f{% else %}{% endif %}"{{ metric }}",
         {%- endfor %}
     ],
     mode="{{ mode }}",

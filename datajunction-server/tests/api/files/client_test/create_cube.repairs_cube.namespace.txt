@@ -1,0 +1,16 @@
+repairs_cube = dj.create_cube(
+    name=f"{namespace}.repairs_cube",
+    display_name="Default: Repairs Cube",
+    description="""Cube of various metrics related to repairs""",
+    dimensions=[
+        "default.hard_hat.country",
+        "default.hard_hat.city",
+    ],
+    metrics=[
+        f"{namespace}.num_repair_orders",
+        f"{namespace}.total_repair_cost",
+    ],
+    mode="published",
+    tags=[],
+    update_if_exists=True,
+)

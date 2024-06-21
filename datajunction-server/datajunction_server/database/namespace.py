@@ -129,15 +129,14 @@ class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
         ]
 
     @classmethod
-    async def list_node_namespace_dag(
+    async def list_all_nodes(
         cls,
         session: AsyncSession,
         namespace: str,
-        # node_type: NodeType = None,
         include_deactivated: bool = False,
     ) -> List["Node"]:
         """
-        List all nodes in the namespace's data graph.
+        List all nodes in the namespace.
         """
         await cls.get(session, namespace)
 
