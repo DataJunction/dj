@@ -1,0 +1,12 @@
+num_repair_orders = dj.create_metric(
+    name="default.num_repair_orders",
+    display_name="Default: Num Repair Orders",
+    description="""Number of repair orders""",
+    mode="published",
+    required_dimensions=[],
+    tags=[],
+    query="""SELECT count(repair_order_id) FROM default.repair_orders_fact""",
+    direction=MetricDirection.HIGHER_IS_BETTER,
+    unit=MetricUnit.DOLLAR,
+    update_if_exists=True,
+)

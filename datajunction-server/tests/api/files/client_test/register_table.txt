@@ -1,0 +1,5 @@
+dj.register_table(
+    catalog="default",
+    schema="roads",
+    table="repair_order_details",
+)
