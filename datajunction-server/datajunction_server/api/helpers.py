@@ -580,6 +580,7 @@ async def find_existing_cube(
             materialized and cube.current.materializations and cube.current.availability
         ):
             return cube.current
+
     return None
 
 
