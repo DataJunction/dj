@@ -26,7 +26,7 @@ async def test_list_all_namespaces(client_with_examples: AsyncClient) -> None:
         {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
         {"namespace": "dbt.source.stripe", "num_nodes": 1},
         {"namespace": "dbt.transform", "num_nodes": 1},
-        {"namespace": "default", "num_nodes": 56},
+        {"namespace": "default", "num_nodes": 61},
         {
             "namespace": "different.basic",
             "num_nodes": 2,
@@ -517,6 +517,11 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
             "foo.bar.repair_order": [
                 {
                     "effect": "broken link",
+                    "name": "foo.bar.total_repair_cost",
+                    "status": "valid",
+                },
+                {
+                    "effect": "broken link",
                     "name": "foo.bar.total_repair_order_discounts",
                     "status": "valid",
                 },
@@ -528,11 +533,6 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
                 {
                     "effect": "broken link",
                     "name": "foo.bar.repair_order_details",
-                    "status": "valid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "foo.bar.total_repair_cost",
                     "status": "valid",
                 },
             ],
@@ -575,7 +575,7 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
         {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
         {"namespace": "dbt.source.stripe", "num_nodes": 1},
         {"namespace": "dbt.transform", "num_nodes": 1},
-        {"namespace": "default", "num_nodes": 56},
+        {"namespace": "default", "num_nodes": 61},
         {"namespace": "different.basic", "num_nodes": 2},
         {"namespace": "different.basic.dimension", "num_nodes": 2},
         {"namespace": "different.basic.source", "num_nodes": 2},
@@ -704,6 +704,8 @@ async def test_export_namespaces(client_with_examples: AsyncClient):
         "contractor.dimension.yaml",
         "hard_hat.dimension.yaml",
         "local_hard_hats.dimension.yaml",
+        "local_hard_hats_1.dimension.yaml",
+        "local_hard_hats_2.dimension.yaml",
         "us_state.dimension.yaml",
         "dispatcher.dimension.yaml",
         "municipality_dim.dimension.yaml",
@@ -725,7 +727,10 @@ async def test_export_namespaces(client_with_examples: AsyncClient):
         "payment_type.dimension.yaml",
         "account_type.dimension.yaml",
         "large_revenue_payments_only.transform.yaml",
+        "large_revenue_payments_only_1.transform.yaml",
+        "large_revenue_payments_only_2.transform.yaml",
         "large_revenue_payments_and_business_only.transform.yaml",
+        "large_revenue_payments_and_business_only_1.transform.yaml",
         "number_of_account_types.metric.yaml",
         "event_source.source.yaml",
         "long_events.transform.yaml",
