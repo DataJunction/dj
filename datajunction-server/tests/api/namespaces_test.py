@@ -26,7 +26,23 @@ async def test_list_all_namespaces(client_with_examples: AsyncClient) -> None:
         {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
         {"namespace": "dbt.source.stripe", "num_nodes": 1},
         {"namespace": "dbt.transform", "num_nodes": 1},
-        {"namespace": "default", "num_nodes": 55},
+        {"namespace": "default", "num_nodes": 56},
+        {
+            "namespace": "different.basic",
+            "num_nodes": 2,
+        },
+        {
+            "namespace": "different.basic.dimension",
+            "num_nodes": 2,
+        },
+        {
+            "namespace": "different.basic.source",
+            "num_nodes": 2,
+        },
+        {
+            "namespace": "different.basic.transform",
+            "num_nodes": 1,
+        },
         {"namespace": "foo.bar", "num_nodes": 26},
     ]
 
@@ -501,6 +517,11 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
             "foo.bar.repair_order": [
                 {
                     "effect": "broken link",
+                    "name": "foo.bar.total_repair_order_discounts",
+                    "status": "valid",
+                },
+                {
+                    "effect": "broken link",
                     "name": "foo.bar.repair_orders",
                     "status": "valid",
                 },
@@ -512,11 +533,6 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
                 {
                     "effect": "broken link",
                     "name": "foo.bar.total_repair_cost",
-                    "status": "valid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "foo.bar.total_repair_order_discounts",
                     "status": "valid",
                 },
             ],
@@ -559,7 +575,11 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
         {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
         {"namespace": "dbt.source.stripe", "num_nodes": 1},
         {"namespace": "dbt.transform", "num_nodes": 1},
-        {"namespace": "default", "num_nodes": 55},
+        {"namespace": "default", "num_nodes": 56},
+        {"namespace": "different.basic", "num_nodes": 2},
+        {"namespace": "different.basic.dimension", "num_nodes": 2},
+        {"namespace": "different.basic.source", "num_nodes": 2},
+        {"namespace": "different.basic.transform", "num_nodes": 1},
         {"namespace": "foo", "num_nodes": 0},
     ]
 
@@ -677,6 +697,7 @@ async def test_export_namespaces(client_with_examples: AsyncClient):
         "dispatchers.source.yaml",
         "hard_hats.source.yaml",
         "hard_hat_state.source.yaml",
+        "hard_hat_to_delete.dimension.yaml",
         "us_states.source.yaml",
         "us_region.source.yaml",
         "repair_order.dimension.yaml",

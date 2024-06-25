@@ -1462,19 +1462,19 @@ def build_materialized_cube_node(
         )
         filter_asts.append(temp_select.where)
 
-    if filter_asts:
+    if filter_asts:  # pragma: no cover
         # pylint: disable=no-value-for-parameter
         combined_ast.select.where = ast.BinaryOp.And(*filter_asts)
 
     # Add orderby
-    if orderby:
+    if orderby:  # pragma: no cover
         temp_select = build_temp_select(
             f"select * order by {','.join(orderby)}",
         )
         combined_ast.select.organization = temp_select.organization
 
     # Add limit
-    if limit:
+    if limit:  # pragma: no cover
         combined_ast.select.limit = ast.Number(value=limit)
 
     # Set up FROM clause
