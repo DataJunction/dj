@@ -1,0 +1,50 @@
+regional_level_agg = dj.create_transform(
+    name=f"{namespace}.regional_level_agg",
+    display_name="Default: Regional Level Agg",
+    description="""Regional-level aggregates""",
+    mode="published",
+    primary_key=[
+        "us_region_id",
+        "state_name",
+        "order_year",
+        "order_month",
+        "order_day",
+    ],
+    tags=[],
+    query=f"""WITH
+ro AS (SELECT  repair_order_id,
+	municipality_id,
+	hard_hat_id,
+	order_date,
+	required_date,
+	dispatched_date,
+	dispatcher_id
+ FROM {namespace}.repair_orders)
+
+SELECT  usr.us_region_id,
+	us.state_name,
+	CONCAT(us.state_name, '-', usr.us_region_description) AS location_hierarchy,
+	EXTRACT(YEAR, ro.order_date) AS order_year,
+	EXTRACT(MONTH, ro.order_date) AS order_month,
+	EXTRACT(DAY, ro.order_date) AS order_day,
+	COUNT( DISTINCT CASE
+        WHEN ro.dispatched_date IS NOT NULL THEN ro.repair_order_id
+        ELSE NULL
+    END) AS completed_repairs,
+	COUNT( DISTINCT ro.repair_order_id) AS total_repairs_dispatched,
+	SUM(rd.price * rd.quantity) AS total_amount_in_region,
+	AVG(rd.price * rd.quantity) AS avg_repair_amount_in_region,
+	AVG(DATEDIFF(ro.dispatched_date, ro.order_date)) AS avg_dispatch_delay,
+	COUNT( DISTINCT c.contractor_id) AS unique_contractors
+ FROM ro JOIN {namespace}.municipality m ON ro.municipality_id = m.municipality_id
+JOIN {namespace}.us_states us ON m.state_id = us.state_id AND AVG(rd.price * rd.quantity) > (SELECT  AVG(price * quantity)
+ FROM {namespace}.repair_order_details
+ WHERE  repair_order_id = ro.repair_order_id)
+JOIN {namespace}.us_states us ON m.state_id = us.state_id
+JOIN {namespace}.us_region usr ON us.state_region = usr.us_region_id
+JOIN {namespace}.repair_order_details rd ON ro.repair_order_id = rd.repair_order_id
+JOIN {namespace}.repair_type rt ON rd.repair_type_id = rt.repair_type_id
+JOIN {namespace}.contractors c ON rt.contractor_id = c.contractor_id
+ GROUP BY  usr.us_region_id, EXTRACT(YEAR, ro.order_date), EXTRACT(MONTH, ro.order_date), EXTRACT(DAY, ro.order_date)""",
+    update_if_exists=True,
+)

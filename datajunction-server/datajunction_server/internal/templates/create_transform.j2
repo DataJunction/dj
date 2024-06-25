@@ -1,0 +1,16 @@
+{{ short_name }} = dj.create_transform(
+    name={% if '{' in name %}f{% else %}{% endif %}"{{ name }}",
+    display_name="{{ display_name }}",
+    description="""{{ description }}""",
+    mode="{{ mode }}",
+    primary_key=[{%- for column in primary_key %}
+        "{{ column }}",
+        {%- endfor %}{% if primary_key %}
+    {% else %}{% endif %}],
+    tags=[{%- for tag in tags %}
+        dj.tag("{{ tag }}"),
+        {%- endfor %}{% if tags %}
+    {% else %}{% endif %}],
+    query={% if '{' in query %}f{% else %}{% endif %}"""{{ query }}""",
+    update_if_exists=True,
+)
