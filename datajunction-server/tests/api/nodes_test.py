@@ -171,8 +171,11 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "basic.source.comments",
         "foo.bar.municipality_type",
         "default.large_revenue_payments_and_business_only",
+        "default.large_revenue_payments_and_business_only_1",
         "default.payment_type_table",
         "default.local_hard_hats",
+        "default.local_hard_hats_1",
+        "default.local_hard_hats_2",
         "default.dispatcher",
         "foo.bar.repair_orders",
         "basic.transform.country_agg",
@@ -250,6 +253,8 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "default.event_source",
         "foo.bar.repair_type",
         "default.large_revenue_payments_only",
+        "default.large_revenue_payments_only_1",
+        "default.large_revenue_payments_only_2",
         "default.repair_orders_fact",
     }
 

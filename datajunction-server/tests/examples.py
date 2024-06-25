@@ -399,6 +399,32 @@ ROADS = (  # type: ignore
     (
         "/nodes/dimension/",
         {
+            "description": "Hard hat dimension #1",
+            "query": """
+                        SELECT hh.hard_hat_id
+                        FROM default.hard_hats hh
+                    """,
+            "mode": "published",
+            "name": "default.local_hard_hats_1",
+            "primary_key": ["hard_hat_id"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "description": "Hard hat dimension #2",
+            "query": """
+                        SELECT hh.hard_hat_id
+                        FROM default.hard_hats hh
+                    """,
+            "mode": "published",
+            "name": "default.local_hard_hats_2",
+            "primary_key": ["hard_hat_id"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
             "description": "US state dimension",
             "query": """
                         SELECT
@@ -1400,6 +1426,30 @@ ACCOUNT_REVENUE = (  # type: ignore
         {
             "query": (
                 "SELECT payment_id, payment_amount, customer_id, account_type "
+                "FROM default.revenue WHERE payment_amount > 1000000"
+            ),
+            "description": "Only large revenue payments #1",
+            "mode": "published",
+            "name": "default.large_revenue_payments_only_1",
+        },
+    ),
+    (
+        "/nodes/transform/",
+        {
+            "query": (
+                "SELECT payment_id, payment_amount, customer_id, account_type "
+                "FROM default.revenue WHERE payment_amount > 1000000"
+            ),
+            "description": "Only large revenue payments #2",
+            "mode": "published",
+            "name": "default.large_revenue_payments_only_2",
+        },
+    ),
+    (
+        "/nodes/transform/",
+        {
+            "query": (
+                "SELECT payment_id, payment_amount, customer_id, account_type "
                 "FROM default.revenue WHERE "
                 "large_revenue_payments_and_business_only > 1000000 "
                 "AND account_type='BUSINESS'"
@@ -1407,6 +1457,20 @@ ACCOUNT_REVENUE = (  # type: ignore
             "description": "Only large revenue payments from business accounts",
             "mode": "published",
             "name": "default.large_revenue_payments_and_business_only",
+        },
+    ),
+    (
+        "/nodes/transform/",
+        {
+            "query": (
+                "SELECT payment_id, payment_amount, customer_id, account_type "
+                "FROM default.revenue WHERE "
+                "large_revenue_payments_and_business_only > 1000000 "
+                "AND account_type='BUSINESS'"
+            ),
+            "description": "Only large revenue payments from business accounts 1",
+            "mode": "published",
+            "name": "default.large_revenue_payments_and_business_only_1",
         },
     ),
     (

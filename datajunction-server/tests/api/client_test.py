@@ -236,7 +236,7 @@ async def test_export_namespace_as_notebook(
         response.headers["content-disposition"] == 'attachment; filename="export.ipynb"'
     )
     notebook = response.json()
-    assert len(notebook["cells"]) == 49
+    assert len(notebook["cells"]) == 51
     # Intro cell
     assert notebook["cells"][0]["cell_type"] == "markdown"
     assert (
