@@ -49,11 +49,24 @@ async def create_node_namespace(
     """
     Create a node namespace
     """
-    if await NodeNamespace.get(
+    if node_namespace := await NodeNamespace.get(
         session,
         namespace,
         raise_if_not_exists=False,
     ):  # pragma: no cover
+        if node_namespace.deactivated_at:
+            node_namespace.deactivated_at = None
+            session.add(node_namespace)
+            await session.commit()
+            return JSONResponse(
+                status_code=HTTPStatus.CREATED,
+                content={
+                    "message": (
+                        "The following node namespace has been successfully reactivated: "
+                        + namespace
+                    ),
+                },
+            )
         return JSONResponse(
             status_code=409,
             content={

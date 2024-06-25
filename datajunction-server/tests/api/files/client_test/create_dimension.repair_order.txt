@@ -1,0 +1,20 @@
+repair_order = dj.create_dimension(
+    name="default.repair_order",
+    display_name="Default: Repair Order",
+    description="""Repair order dimension""",
+    mode="published",
+    primary_key=[
+        "repair_order_id",
+    ],
+    tags=[],
+    query="""SELECT
+                        repair_order_id,
+                        municipality_id,
+                        hard_hat_id,
+                        order_date,
+                        required_date,
+                        dispatched_date,
+                        dispatcher_id
+                        FROM default.repair_orders""",
+    update_if_exists=True,
+)

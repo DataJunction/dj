@@ -1,0 +1,19 @@
+{{ short_name }} = dj.create_cube(
+    name={% if '{' in name %}f{% else %}{% endif %}"{{ name }}",
+    display_name="{{ display_name }}",
+    description="""{{ description }}""",
+    dimensions=[{%- for dimension in dimensions %}
+        {% if '{' in dimension %}f{% else %}{% endif %}"{{ dimension }}",
+        {%- endfor %}
+    ],
+    metrics=[{%- for metric in metrics %}
+        {% if '{' in metric %}f{% else %}{% endif %}"{{ metric }}",
+        {%- endfor %}
+    ],
+    mode="{{ mode }}",
+    tags=[{%- for tag in tags %}
+        dj.tag("{{ tag }}"),
+        {%- endfor %}{% if tags %}
+    {% else %}{% endif %}],
+    update_if_exists=True,
+)

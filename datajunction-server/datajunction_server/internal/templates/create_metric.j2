@@ -1,0 +1,18 @@
+{{ short_name }} = dj.create_metric(
+    name={% if '{' in name %}f{% else %}{% endif %}"{{ name }}",
+    display_name="{{ display_name }}",
+    description="""{{ description }}""",
+    mode="{{ mode }}",
+    required_dimensions=[{%- for dimension in required_dimensions %}
+        {% if '{' in dimension %}f{% else %}{% endif %}"{{ dimension }}",
+        {%- endfor %}{% if required_dimensions %}
+    {% else %}{% endif %}],
+    tags=[{%- for tag in tags %}
+        dj.tag("{{ tag }}"),
+        {%- endfor %}{% if tags %}
+    {% else %}{% endif %}],
+    query={% if '{' in query %}f{% else %}{% endif %}"""{{ query }}""",{% if direction %}
+    direction={{ direction }},{% else %}{% endif %}{% if unit %}
+    unit={{ unit }},{% else %}{% endif %}
+    update_if_exists=True,
+)

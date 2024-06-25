@@ -1,0 +1,5 @@
+repair_order_details.link_complex_dimension(
+    dimension_node=f"{NAMESPACE_MAPPING['default']}.repair_order",
+    join_on=f"{NAMESPACE_MAPPING['default']}.repair_order_details.repair_order_id = {NAMESPACE_MAPPING['default']}.repair_order.repair_order_id",
+    join_type="left",
+)

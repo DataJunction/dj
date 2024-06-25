@@ -489,9 +489,9 @@ describe('DataJunctionAPI', () => {
     const sampleNode = {
       name: 'sampleNode',
       columns: [
-        { name: 'column1', dimension: { name: 'dimension1' }, clientCode: {} },
+        { name: 'column1', dimension: { name: 'dimension1' }, },
         { name: 'column2', dimension: null },
-        { name: 'column3', dimension: { name: 'dimension2' }, clientCode: {} },
+        { name: 'column3', dimension: { name: 'dimension2' }, },
       ],
     };
 
@@ -503,18 +503,6 @@ describe('DataJunctionAPI', () => {
     fetch.mockResponses(...mockClientCodeResponses);
 
     const result = await DataJunctionAPI.columns(sampleNode);
-
-    // Check the fetch calls for clientCode for columns with a dimension
-    sampleNode.columns.forEach(col => {
-      if (col.dimension) {
-        expect(fetch).toHaveBeenCalledWith(
-          `${DJ_URL}/datajunction-clients/python/link_dimension/${sampleNode.name}/${col.name}/${col.dimension.name}`,
-          { credentials: 'include' },
-        );
-      }
-    });
-
-    // Ensure the result contains the clientCode for columns with a dimension and leaves others unchanged
     expect(result).toEqual(sampleNode.columns);
   });
 

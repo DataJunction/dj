@@ -40,6 +40,8 @@ pandas = ["pandas>=2.0.2"]
 path = "datajunction/__about__.py"
 
 
+
+
 [tool.pdm]
 [tool.pdm.build]
 includes = ["datajunction"]
@@ -60,6 +62,8 @@ test = [
     "namesgenerator==0.3",
     "testcontainers>=3.7.1",
     "greenlet>=3.0.3",
+    "jinja2>=3.1.4",
+    "nbformat>=5.10.4",
 ]
 
 [project.urls]

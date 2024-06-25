@@ -1,20 +1,31 @@
 """
 APIs related to generating client code used for performing various actions in DJ.
 """
-
 import json
 import logging
+import os
+import tempfile
+from datetime import datetime
+from typing import Dict, Optional, cast
 
-from fastapi import Depends
+from fastapi import BackgroundTasks, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
+from starlette.responses import FileResponse
 
-from datajunction_server.api.helpers import get_node_by_name
-from datajunction_server.database import Node, NodeRevision
+from datajunction_server.database import Node, NodeNamespace, NodeRevision
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.client import (
+    build_export_notebook,
+    python_client_code_for_linking_complex_dimension,
+    python_client_create_node,
+    python_client_initialize,
+)
 from datajunction_server.models.materialization import MaterializationJobTypeEnum
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.sql.dag import get_upstream_nodes
+from datajunction_server.utils import SEPARATOR, get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -23,89 +34,59 @@ router = SecureAPIRouter(tags=["client"])
 
 @router.get("/datajunction-clients/python/new_node/{node_name}", response_model=str)
 async def client_code_for_creating_node(
-    node_name: str, *, session: AsyncSession = Depends(get_session)
+    node_name: str,
+    *,
+    include_client_setup: bool = True,
+    session: AsyncSession = Depends(get_session),
+    replace_namespace: Optional[str] = None,
+    request: Request,
 ) -> str:
     """
     Generate the Python client code used for creating this node
     """
-    node_short_name = node_name.split(".")[-1]
+    client_setup = (
+        python_client_initialize(str(request.url)) if include_client_setup else ""
+    )
+    client_code = await python_client_create_node(session, node_name, replace_namespace)
+    return client_setup + "\n\n" + client_code  # type: ignore
+
+
+@router.get(
+    "/datajunction-clients/python/dimension_links/{node_name}",
+    response_model=str,
+)
+async def client_code_for_dimension_links_on_node(
+    node_name: str,
+    *,
+    include_client_setup: bool = True,
+    session: AsyncSession = Depends(get_session),
+    replace_namespace: Optional[str] = None,
+    request: Request,
+) -> str:
+    """
+    Generate the Python client code used for creating this node
+    """
     node = await Node.get_by_name(
         session,
         node_name,
         options=[
             joinedload(Node.current).options(
-                *NodeRevision.default_load_options(),
-                joinedload(NodeRevision.cube_elements),
+                selectinload(NodeRevision.dimension_links),
             ),
         ],
-        raise_if_not_exists=True,
     )
-    # Generic user-configurable node creation params
-    params = {
-        "name": node.name,  # type: ignore
-        "display_name": node.current.display_name,  # type: ignore
-        "description": node.current.description,  # type: ignore
-        "mode": node.current.mode,  # type: ignore
-        "query": node.current.query,  # type: ignore
-        "schema_": node.current.schema_,  # type: ignore
-        "table": node.current.table,  # type: ignore
-        "primary_key": [col.name for col in node.current.primary_key()],  # type: ignore
-    }
-
-    for key in params:  # pylint: disable=consider-using-dict-items
-        if (
-            not isinstance(params[key], list)
-            and key != "query"
-            and key != "lineage"
-            and params[key]
-        ):
-            params[key] = f'"{params[key]}"'
-        if key == "query" and params[key]:
-            params[key] = f'"""{params[key]}"""'
-
-    # Cube-specific params
-    cube_params = []
-    if node.type == NodeType.CUBE:  # type: ignore
-        node = await Node.get_cube_by_name(session, node_name)
-        ordering = {
-            col.name: col.order or idx
-            for idx, col in enumerate(node.current.columns)  # type: ignore
-        }
-        metrics_list = sorted(
-            [
-                elem.node_revisions[-1].name
-                for elem in node.current.cube_elements  # type: ignore
-                if elem.node_revisions[-1].type == NodeType.METRIC
-            ],
-            key=lambda x: ordering[x],
+    code = [python_client_initialize(str(request.url))] if include_client_setup else []
+    short_name = node_name.split(SEPARATOR)[-1]
+    code += [f'{short_name} = dj.node("{node_name}")']
+    for link in node.current.dimension_links:  # type: ignore
+        code.append(
+            python_client_code_for_linking_complex_dimension(
+                node_name,
+                link,
+                replace_namespace,
+            ),
         )
-        dimensions_list = sorted(
-            [
-                elem.node_revisions[-1].name + "." + elem.name
-                for elem in node.current.cube_elements  # type: ignore
-                if elem.node_revisions[-1].type == NodeType.DIMENSION
-            ],
-            key=lambda x: ordering[x],
-        )
-        cube_metrics = ", ".join([f'"{metric}"' for metric in metrics_list])
-        cube_dimensions = ", ".join([f'"{dim}"' for dim in dimensions_list])
-        cube_params = [
-            f"    metrics=[{cube_metrics}]",
-            f"    dimensions=[{cube_dimensions}]",
-        ]
-
-    formatted_params = ",\n".join(
-        [f"    {k}={params[k]}" for k in sorted(params.keys()) if params[k]]
-        + cube_params,
-    )
-
-    node_type = node.type  # type: ignore
-    client_code = f"""dj = DJBuilder(DJ_URL)
-
-{node_short_name} = dj.create_{node_type}(
-{formatted_params}
-)"""
-    return client_code  # type: ignore
+    return "\n\n".join(code)
 
 
 @router.get(
@@ -165,27 +146,67 @@ materialization = MaterializationConfig(
 
 
 @router.get(
-    "/datajunction-clients/python/link_dimension/{node_name}/{column}/{dimension}/",
-    response_model=str,
+    "/datajunction-clients/python/notebook",
 )
-async def client_code_for_linking_dimension_to_node(
-    node_name: str,
-    column: str,
-    dimension: str,
+async def notebook_for_exporting_nodes(
     *,
+    namespace: Optional[str] = None,
+    cube: Optional[str] = None,
+    include_dimensions: bool = False,
+    include_sources: bool = False,
     session: AsyncSession = Depends(get_session),
-) -> str:
+    background_tasks: BackgroundTasks,
+    request: Request,
+) -> FileResponse:
     """
-    Generate the Python client code used for linking this node's column to a dimension
+    Generate the Python client code used for exporting multiple nodes. There are two options:
+    * namespace: If `namespace` is specified, the generated notebook will contain Python client
+    code to export all nodes in the namespace.
+    * cube: If `cube` is specified, the generated notebook will contain Python client code
+    used for exporting a cube, including all metrics and dimensions referenced in the cube.
     """
-    node_short_name = node_name.split(".")[-1]
-    node = await get_node_by_name(session, node_name)
-    client_code = f"""dj = DJBuilder(DJ_URL)
-{node_short_name} = dj.{node.type}(
-    "{node.name}"
-)
-{node_short_name}.link_dimension(
-    "{column}",
-    "{dimension}",
-)"""
-    return client_code  # type: ignore
+    if namespace and cube:
+        raise DJInvalidInputException(
+            "Can only specify export of either a namespace or a cube.",
+        )
+
+    if namespace:
+        nodes = await NodeNamespace.list_all_nodes(session, namespace)
+        introduction = (
+            f"## DJ Namespace Export\n\n"
+            f"Exported `{namespace}`\n\n(As of {datetime.now()})"
+        )
+    else:
+        nodes = await get_upstream_nodes(session, cast(str, cube))
+        cube_node = cast(
+            Node,
+            await Node.get_by_name(session, cast(str, cube), raise_if_not_exists=True),
+        )
+        nodes += [cube_node]
+        if not include_dimensions:
+            nodes = [node for node in nodes if node.type != NodeType.DIMENSION]
+        if not include_sources:
+            nodes = [node for node in nodes if node.type != NodeType.SOURCE]
+        introduction = (
+            f"## DJ Cube Export\n\n"
+            f"Exported `{cube}` {cube_node.current_version}\n\n(As of {datetime.now()})"
+        )
+
+    notebook = await build_export_notebook(session, nodes, introduction, request.url)
+    return notebook_file_response(notebook, background_tasks)
+
+
+def notebook_file_response(notebook: Dict, background_tasks: BackgroundTasks):
+    """
+    Write the notebook contents to a temporary file and prepare a file response
+    with appropriate headers so that the API returns a downloadable .ipynb file.
+    """
+    file_descriptor, path = tempfile.mkstemp(suffix=".ipynb")
+    with os.fdopen(file_descriptor, "w") as file:
+        file.write(json.dumps(notebook))
+
+    background_tasks.add_task(os.unlink, path)
+    headers = {
+        "Content-Disposition": 'attachment; filename="export.ipynb"',
+    }
+    return FileResponse(path, headers=headers)
