@@ -1,13 +1,19 @@
 """tests for building nodes"""
 
 from typing import Dict, Optional, Tuple
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import datajunction_server.sql.parsing.types as ct
-from datajunction_server.construction.build import build_node, get_default_criteria
+from datajunction_server.construction.build import (
+    build_materialized_cube_node,
+    build_node,
+    build_temp_select,
+    get_default_criteria,
+)
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
@@ -15,7 +21,7 @@ from datajunction_server.errors import DJException
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.naming import amenable_name
-from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 from ..sql.utils import compare_query_strings
 from .fixtures import BUILD_EXPECTATION_PARAMETERS
@@ -42,11 +48,11 @@ async def test_build_node(
         node_name,
     )
     if succeeds:
-        ast = await build_node(
+        test_ast = await build_node(
             construction_session,
             node.current,  # type: ignore
         )
-        assert compare_query_strings(str(ast), expected)
+        assert compare_query_strings(str(test_ast), expected)
     else:
         with pytest.raises(Exception) as exc:
             await build_node(
@@ -289,3 +295,75 @@ def test_get_default_criteria():
     result = get_default_criteria(node=NodeRevision(type=NodeType.TRANSFORM))
     assert result.dialect == Dialect.SPARK
     assert result.target_node_name is None
+
+
+@patch("datajunction_server.construction.build.parse")
+def test_build_temp_select(mock_parse):
+    """Test building a temporary select statement"""
+    mock_columns = [MagicMock(name="foo"), MagicMock(name="bar")]
+    mock_select = MagicMock(find_all=MagicMock(return_value=mock_columns))
+    mock_parse().select = mock_select
+    test_select = build_temp_select(temp_query="SELECT * FROM foo")
+    assert test_select == mock_select
+
+
+def test_build_materialized_cube_node():
+    """Test building a materialized cube node"""
+    result = build_materialized_cube_node(
+        selected_metrics=[],
+        selected_dimensions=[MagicMock(name="dim1"), MagicMock(name="dim2")],
+        cube=NodeRevision(
+            name="foo",
+            type=NodeType.CUBE,
+            query="SELECT * FROM foo",
+            columns=[],
+            version="1",
+            materializations=[MagicMock()],
+            availability=MagicMock(table=MagicMock(name="foo")),
+        ),
+        filters=["filter1", "filter2"],
+        orderby=["order1", "order2"],
+        limit=10,
+    )
+    assert result == ast.Query(
+        name=ast.DefaultName(name="", quote_style="", namespace=None),
+        alias=None,
+        as_=None,
+        semantic_entity=None,
+        semantic_type=None,
+        column_list=[],
+        _columns=[],
+        select=ast.Select(
+            alias=None,
+            as_=None,
+            semantic_entity=None,
+            semantic_type=None,
+            quantifier="",
+            projection=[],
+            from_=ast.From(
+                relations=[
+                    ast.Relation(
+                        primary=ast.Table(
+                            name=ast.Name(name="foo", quote_style="", namespace=None),
+                            alias=None,
+                            as_=None,
+                            semantic_entity=None,
+                            semantic_type=None,
+                            column_list=[],
+                            _columns=[],
+                        ),
+                        extensions=[],
+                    ),
+                ],
+            ),
+            group_by=[],
+            having=None,
+            where=None,
+            lateral_views=[],
+            set_op=None,
+            limit=None,
+            organization=None,
+            hints=None,
+        ),
+        ctes=[],
+    )

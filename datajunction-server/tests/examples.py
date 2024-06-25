@@ -343,6 +343,32 @@ ROADS = (  # type: ignore
     (
         "/nodes/dimension/",
         {
+            "description": "Hard hat dimension (for deletion)",
+            "query": """
+                        SELECT
+                        hard_hat_id,
+                        last_name,
+                        first_name,
+                        title,
+                        birth_date,
+                        hire_date,
+                        address,
+                        city,
+                        state,
+                        postal_code,
+                        country,
+                        manager,
+                        contractor_id
+                        FROM default.hard_hats
+                    """,
+            "mode": "published",
+            "name": "default.hard_hat_to_delete",
+            "primary_key": ["hard_hat_id"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
             "description": "Hard hat dimension",
             "query": """
                         SELECT
@@ -659,6 +685,16 @@ CROSS JOIN
     (
         "/nodes/default.repair_orders_fact/link",
         {
+            "dimension_node": "default.hard_hat_to_delete",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_orders_fact.hard_hat_id = default.hard_hat_to_delete.hard_hat_id"
+            ),
+        },
+    ),
+    (
+        "/nodes/default.repair_orders_fact/link",
+        {
             "dimension_node": "default.dispatcher",
             "join_type": "left",
             "join_on": (
@@ -741,6 +777,16 @@ CROSS JOIN
             "join_type": "left",
             "join_on": (
                 "default.repair_order.hard_hat_id = default.hard_hat.hard_hat_id"
+            ),
+        },
+    ),
+    (
+        "/nodes/default.repair_order/link",
+        {
+            "dimension_node": "default.hard_hat_to_delete",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_order.hard_hat_id = default.hard_hat_to_delete.hard_hat_id"
             ),
         },
     ),
@@ -1396,7 +1442,11 @@ BASIC = (  # type: ignore
                 {"name": "id", "type": "int"},
                 {"name": "full_name", "type": "string"},
                 {"name": "age", "type": "int"},
-                {"name": "country", "type": "string"},
+                {
+                    "name": "country",
+                    "type": "string",
+                    "dimension": "basic.dimension.countries",
+                },
                 {"name": "gender", "type": "string"},
                 {"name": "preferred_language", "type": "string"},
                 {"name": "secret_number", "type": "float"},
@@ -1484,9 +1534,132 @@ BASIC = (  # type: ignore
         {
             "description": "Number of users.",
             "type": "metric",
-            "query": ("SELECT SUM(num_users) FROM basic.transform.country_agg"),
+            "query": ("SELECT SUM(1) FROM basic.dimension.users"),
             "mode": "published",
             "name": "basic.num_users",
+        },
+    ),
+)
+
+BASIC_IN_DIFFERENT_CATALOG = (  # type: ignore
+    (
+        "/namespaces/different.basic/",
+        {},
+    ),
+    (
+        "/namespaces/different.basic.source/",
+        {},
+    ),
+    (
+        "/namespaces/different.basic.transform/",
+        {},
+    ),
+    (
+        "/namespaces/different.basic.dimension/",
+        {},
+    ),
+    (
+        "/nodes/source/",
+        {
+            "name": "different.basic.source.users",
+            "description": "A user table",
+            "columns": [
+                {"name": "id", "type": "int"},
+                {"name": "full_name", "type": "string"},
+                {"name": "age", "type": "int"},
+                {"name": "country", "type": "string"},
+                {"name": "gender", "type": "string"},
+                {"name": "preferred_language", "type": "string"},
+                {"name": "secret_number", "type": "float"},
+                {"name": "created_at", "type": "timestamp"},
+                {"name": "post_processing_timestamp", "type": "timestamp"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "basic",
+            "table": "dim_users",
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "description": "User dimension",
+            "query": (
+                "SELECT id, full_name, age, country, gender, preferred_language, "
+                "secret_number, created_at, post_processing_timestamp "
+                "FROM different.basic.source.users"
+            ),
+            "mode": "published",
+            "name": "different.basic.dimension.users",
+            "primary_key": ["id"],
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "name": "different.basic.source.comments",
+            "description": "A fact table with comments",
+            "columns": [
+                {"name": "id", "type": "int"},
+                {
+                    "name": "user_id",
+                    "type": "int",
+                    "dimension": "different.basic.dimension.users",
+                },
+                {"name": "timestamp", "type": "timestamp"},
+                {"name": "text", "type": "string"},
+                {"name": "event_timestamp", "type": "timestamp"},
+                {"name": "created_at", "type": "timestamp"},
+                {"name": "post_processing_timestamp", "type": "timestamp"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "basic",
+            "table": "comments",
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "description": "Country dimension",
+            "query": "SELECT country, COUNT(1) AS user_cnt "
+            "FROM different.basic.source.users GROUP BY country",
+            "mode": "published",
+            "name": "different.basic.dimension.countries",
+            "primary_key": ["country"],
+        },
+    ),
+    (
+        "/nodes/transform/",
+        {
+            "description": "Country level agg table",
+            "query": (
+                "SELECT country, COUNT(DISTINCT id) AS num_users "
+                "FROM different.basic.source.users GROUP BY 1"
+            ),
+            "mode": "published",
+            "name": "different.basic.transform.country_agg",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "description": "Number of comments",
+            "query": ("SELECT COUNT(1) FROM different.basic.source.comments"),
+            "mode": "published",
+            "name": "different.basic.num_comments",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "description": "Number of users.",
+            "type": "metric",
+            "query": (
+                "SELECT SUM(num_users) FROM different.basic.transform.country_agg"
+            ),
+            "mode": "published",
+            "name": "different.basic.num_users",
         },
     ),
 )
@@ -2130,6 +2303,7 @@ EXAMPLES = {  # type: ignore
     "NAMESPACED_ROADS": NAMESPACED_ROADS,
     "ACCOUNT_REVENUE": ACCOUNT_REVENUE,
     "BASIC": BASIC,
+    "BASIC_IN_DIFFERENT_CATALOG": BASIC_IN_DIFFERENT_CATALOG,
     "EVENT": EVENT,
     "DBT": DBT,
     "LATERAL_VIEW": LATERAL_VIEW,

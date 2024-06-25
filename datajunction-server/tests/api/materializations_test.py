@@ -1205,3 +1205,55 @@ async def test_spark_with_availablity(
         "FROM accounting.test_transform_materialized "
         in response.json()[0]["config"]["query"]
     )
+
+
+@pytest.mark.asyncio
+async def test_generated_python_client_code_adding_materialization(
+    client_with_query_service_example_loader: AsyncClient,
+):
+    """
+    Test that generating python client code for adding materialization works
+    """
+    custom_client = await client_with_query_service_example_loader(["BASIC"])
+    await custom_client.post(
+        "/engines/",
+        json={
+            "name": "spark",
+            "version": "2.4.4",
+            "dialect": "spark",
+        },
+    )
+    await custom_client.post(
+        "/nodes/basic.transform.country_agg/materialization/",
+        json={
+            "job": "spark_sql",
+            "strategy": "full",
+            "config": {
+                "spark": {},
+            },
+            "schedule": "0 * * * *",
+        },
+    )
+    response = await custom_client.get(
+        "/datajunction-clients/python/add_materialization/"
+        "basic.transform.country_agg/spark_sql__full",
+    )
+    assert (
+        response.json()
+        == """dj = DJBuilder(DJ_URL)
+
+country_agg = dj.transform(
+    "basic.transform.country_agg"
+)
+materialization = MaterializationConfig(
+    job="spark_sql",
+    strategy="full",
+    schedule="0 * * * *",
+    config={
+        "spark": {}
+    },
+)
+country_agg.add_materialization(
+    materialization
+)"""
+    )

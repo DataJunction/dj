@@ -610,6 +610,9 @@ def pytest_addoption(parser):
     )
 
 
+#
+# Module scope fixtures
+#
 @pytest_asyncio.fixture(autouse=True, scope="module")
 async def mock_user_dj():
     """
@@ -627,9 +630,6 @@ async def mock_user_dj():
         yield
 
 
-#
-# Module scope fixtures
-#
 @pytest_asyncio.fixture(scope="module")
 async def module__client_example_loader(
     module__client: AsyncClient,
@@ -648,10 +648,14 @@ async def module__client_example_loader(
 async def module__client(  # pylint: disable=too-many-statements
     module__session: AsyncSession,
     module__settings: Settings,
+    module__query_service_client: QueryServiceClient,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
     """
+
+    def get_query_service_client_override() -> QueryServiceClient:
+        return module__query_service_client
 
     def get_session_override() -> AsyncSession:
         return module__session
@@ -668,6 +672,9 @@ async def module__client(  # pylint: disable=too-many-statements
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
     app.dependency_overrides[validate_access] = default_validate_access
+    app.dependency_overrides[
+        get_query_service_client
+    ] = get_query_service_client_override
 
     async with AsyncClient(app=app, base_url="http://test") as test_client:
         test_client.headers.update(
@@ -754,6 +761,16 @@ async def module__client_with_roads(
 
 
 @pytest_asyncio.fixture(scope="module")
+async def module__client_with_namespaced_roads(
+    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a DJ client fixture with roads examples
+    """
+    return await module__client_example_loader(["NAMESPACED_ROADS"])
+
+
+@pytest_asyncio.fixture(scope="module")
 async def module__client_with_account_revenue(
     module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
 ) -> AsyncClient:
@@ -761,6 +778,26 @@ async def module__client_with_account_revenue(
     Provides a DJ client fixture with account revenue examples
     """
     return await module__client_example_loader(["ACCOUNT_REVENUE"])
+
+
+@pytest_asyncio.fixture(scope="module")
+async def module__client_with_basic(
+    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a DJ client fixture with account revenue examples
+    """
+    return await module__client_example_loader(["BASIC"])
+
+
+@pytest_asyncio.fixture(scope="module")
+async def module__client_with_both_basics(
+    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a DJ client fixture with account revenue examples
+    """
+    return await module__client_example_loader(["BASIC", "BASIC_IN_DIFFERENT_CATALOG"])
 
 
 @pytest.fixture(scope="module")
@@ -783,3 +820,118 @@ def module__postgres_container(request) -> PostgresContainer:
             10,
         )
         yield postgres
+
+
+@pytest.fixture(scope="module")
+def module__query_service_client(
+    module_mocker: MockerFixture,
+    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+) -> Iterator[QueryServiceClient]:
+    """
+    Custom settings for unit tests.
+    """
+    qs_client = QueryServiceClient(uri="query_service:8001")
+
+    def mock_get_columns_for_table(
+        catalog: str,
+        schema: str,
+        table: str,
+        engine: Optional[Engine] = None,  # pylint: disable=unused-argument
+    ) -> List[Column]:
+        return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
+
+    module_mocker.patch.object(
+        qs_client,
+        "get_columns_for_table",
+        mock_get_columns_for_table,
+    )
+
+    def mock_submit_query(
+        query_create: QueryCreate,
+        headers: Optional[Dict[str, str]] = None,  # pylint: disable=unused-argument
+    ) -> QueryWithResults:
+        result = duckdb_conn.sql(query_create.submitted_query)
+        columns = [
+            {"name": col, "type": str(type_).lower()}
+            for col, type_ in zip(result.columns, result.types)
+        ]
+        return QueryWithResults(
+            id="bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+            submitted_query=query_create.submitted_query,
+            state=QueryState.FINISHED,
+            results=[
+                {
+                    "columns": columns,
+                    "rows": result.fetchall(),
+                    "sql": query_create.submitted_query,
+                },
+            ],
+            errors=[],
+        )
+
+    module_mocker.patch.object(
+        qs_client,
+        "submit_query",
+        mock_submit_query,
+    )
+
+    def mock_get_query(
+        query_id: str,
+    ) -> Collection[Collection[str]]:
+        if query_id == "foo-bar-baz":
+            raise DJQueryServiceClientException("Query foo-bar-baz not found.")
+        for _, response in QUERY_DATA_MAPPINGS.items():
+            if response.id == query_id:
+                return response
+        raise RuntimeError(f"No mocked query exists for id {query_id}")
+
+    module_mocker.patch.object(
+        qs_client,
+        "get_query",
+        mock_get_query,
+    )
+
+    mock_materialize = MagicMock()
+    mock_materialize.return_value = MaterializationInfo(
+        urls=["http://fake.url/job"],
+        output_tables=["common.a", "common.b"],
+    )
+    module_mocker.patch.object(
+        qs_client,
+        "materialize",
+        mock_materialize,
+    )
+
+    mock_deactivate_materialization = MagicMock()
+    mock_deactivate_materialization.return_value = MaterializationInfo(
+        urls=["http://fake.url/job"],
+        output_tables=[],
+    )
+    module_mocker.patch.object(
+        qs_client,
+        "deactivate_materialization",
+        mock_deactivate_materialization,
+    )
+
+    mock_get_materialization_info = MagicMock()
+    mock_get_materialization_info.return_value = MaterializationInfo(
+        urls=["http://fake.url/job"],
+        output_tables=["common.a", "common.b"],
+    )
+    module_mocker.patch.object(
+        qs_client,
+        "get_materialization_info",
+        mock_get_materialization_info,
+    )
+
+    mock_run_backfill = MagicMock()
+    mock_run_backfill.return_value = MaterializationInfo(
+        urls=["http://fake.url/job"],
+        output_tables=[],
+    )
+    module_mocker.patch.object(
+        qs_client,
+        "run_backfill",
+        mock_run_backfill,
+    )
+    yield qs_client
