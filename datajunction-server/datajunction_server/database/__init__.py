@@ -3,7 +3,6 @@ __all__ = [
     "AttributeType",
     "ColumnAttribute",
     "Catalog",
-    "Column",
     "Collection",
     "Database",
     "DimensionLink",
@@ -22,7 +21,6 @@ __all__ = [
 
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.column import Column
 from datajunction_server.database.collection import Collection
 from datajunction_server.database.database import Database, Table
 from datajunction_server.database.dimensionlink import DimensionLink

@@ -1,9 +1,9 @@
 """Collection database schema."""
 from datetime import datetime, timezone
 from functools import partial
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, ForeignKey, select
+from sqlalchemy import DateTime, ForeignKey, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,6 +11,7 @@ from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.typing import UTCDatetime
+
 
 class Collection(Base):  # pylint: disable=too-few-public-methods
     """
@@ -51,9 +52,7 @@ class Collection(Base):  # pylint: disable=too-few-public-methods
         """
         Get a collection by name
         """
-        statement = (
-            select(Collection).where(Collection.name == name)
-        )
+        statement = select(Collection).where(Collection.name == name)
         collection = (await session.execute(statement)).scalar()
         if not collection and raise_if_not_exists:
             raise DJDoesNotExistException(
@@ -61,6 +60,7 @@ class Collection(Base):  # pylint: disable=too-few-public-methods
                 http_status_code=404,
             )
         return collection
+
 
 class CollectionNodes(Base):  # type: ignore  # pylint: disable=too-few-public-methods
     """

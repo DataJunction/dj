@@ -6,7 +6,8 @@ from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import find_bound_dimensions
-from datajunction_server.database import Column, Node, NodeRevision
+from datajunction_server.database import Node, NodeRevision
+from datajunction_server.database.column import Column
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus

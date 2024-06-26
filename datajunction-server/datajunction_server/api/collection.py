@@ -8,14 +8,13 @@ from typing import List
 from fastapi import Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.operators import is_
 
 from datajunction_server.database.collection import Collection
 from datajunction_server.database.node import Node
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.models.collection import CollectionInfo, CollectionInfoWithNodes
+from datajunction_server.models.collection import CollectionInfo
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
@@ -23,7 +22,11 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["collections"])
 
 
-@router.post("/collections/", response_model=CollectionInfo, status_code=HTTPStatus.CREATED)
+@router.post(
+    "/collections/",
+    response_model=CollectionInfo,
+    status_code=HTTPStatus.CREATED,
+)
 async def create_a_collection(
     data: CollectionInfo,
     *,
@@ -52,9 +55,10 @@ async def create_a_collection(
 
     return CollectionInfo.from_orm(collection)
 
+
 @router.delete("/collections/{name}", status_code=HTTPStatus.NO_CONTENT)
 async def delete_a_collection(
-     name: str,
+    name: str,
     *,
     session: AsyncSession = Depends(get_session),
 ):
@@ -66,6 +70,7 @@ async def delete_a_collection(
     await session.commit()
     return Response(status_code=HTTPStatus.NO_CONTENT)
 
+
 @router.get("/collections/")
 async def list_collections(
     *,
@@ -74,8 +79,11 @@ async def list_collections(
     """
     List all collections
     """
-    collections = await session.execute(select(Collection).where(is_(Collection.deactivated_at, None)))
+    collections = await session.execute(
+        select(Collection).where(is_(Collection.deactivated_at, None)),
+    )
     return collections.scalars().all()
+
 
 @router.get("/collections/{name}")
 async def get_collection(
@@ -86,8 +94,13 @@ async def get_collection(
     """
     Get a collection and its nodes
     """
-    collection = await Collection.get_by_name(session, name=name, raise_if_not_exists=True)
+    collection = await Collection.get_by_name(
+        session,
+        name=name,
+        raise_if_not_exists=True,
+    )
     return collection
+
 
 @router.post(
     "/collections/{name}/nodes/",
@@ -103,22 +116,22 @@ async def add_nodes_to_collection(
     """
     Add one or more nodes to a collection
     """
-    collection = await Collection.get_by_name(session, name)
+    collection = await Collection.get_by_name(session, name, raise_if_not_exists=True)
     nodes = await Node.get_by_names(session=session, names=data)
     if not nodes:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
             detail=f"Cannot add nodes to collection, no nodes found: `{data}`",
         )
-    collection.nodes.extend(nodes)
+    collection.nodes.extend(nodes)  # type: ignore
     session.add(collection)
     await session.commit()
     await session.refresh(collection)
     return Response(status_code=HTTPStatus.NO_CONTENT)
 
 
-@router.delete(
-    "/collections/{name}/nodes/",
+@router.post(
+    "/collections/{name}/remove/",
     status_code=HTTPStatus.NO_CONTENT,
     name="Delete Nodes from a Collection",
 )
@@ -134,8 +147,8 @@ async def delete_nodes_from_collection(
     collection = await Collection.get_by_name(session, name)
     nodes = await Node.get_by_names(session=session, names=data)
     for node in nodes:
-        if node in collection.nodes:
-            collection.nodes.remove(node)
+        if node in collection.nodes:  # type: ignore
+            collection.nodes.remove(node)  # type: ignore
     await session.commit()
     await session.refresh(collection)
     return Response(status_code=HTTPStatus.NO_CONTENT)
