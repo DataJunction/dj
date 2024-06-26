@@ -78,7 +78,7 @@ async def get_data_for_djsql(  # pylint: disable=R0914, R0913
 
 # pylint: disable=R0914, R0913
 @router.get("/djsql/stream/", response_model=QueryWithResults)
-async def get_data_stream_for_djsql(  # pragma: no cover
+async def get_data_stream_for_djsql(
     query: str,
     *,
     cache_control: Annotated[str, Header()] = "",
@@ -91,13 +91,14 @@ async def get_data_stream_for_djsql(  # pragma: no cover
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     )
-) -> QueryWithResults:  # pragma: no cover
+) -> QueryWithResults:
     """
     Return data for a DJ SQL query using server side events
     """
-    access_control = access.AccessControl(
+    access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=current_user,
+        base_verb=access.ResourceRequestVerb.EXECUTE,
     )
     translated_sql, engine, catalog = await build_sql_for_dj_query(
         session,
@@ -121,7 +122,7 @@ async def get_data_stream_for_djsql(  # pragma: no cover
         headers={"Cache-Control": cache_control},
     )
     return EventSourceResponse(
-        await query_event_stream(
+        query_event_stream(
             query=initial_query_info,
             query_service_client=query_service_client,
             columns=translated_sql.columns,  # type: ignore
