@@ -781,6 +781,16 @@ async def module__client_with_account_revenue(
 
 
 @pytest_asyncio.fixture(scope="module")
+async def module__client_with_roads_and_acc_revenue(
+    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a DJ client fixture with roads examples
+    """
+    return await module__client_example_loader(["ROADS", "ACCOUNT_REVENUE"])
+
+
+@pytest_asyncio.fixture(scope="module")
 async def module__client_with_basic(
     module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
 ) -> AsyncClient:
