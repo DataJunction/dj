@@ -29,7 +29,6 @@ from datajunction_server.construction.dj_query import build_dj_query
 from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
-from datajunction_server.database.collection import Collection
 from datajunction_server.database.engine import Engine
 from datajunction_server.database.history import EntityType, History
 from datajunction_server.database.namespace import NodeNamespace

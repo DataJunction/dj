@@ -15,9 +15,9 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship
 
-from datajunction_server.database import Column
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.base import Base
+from datajunction_server.database.column import Column
 from datajunction_server.models.materialization import (
     DruidMeasuresCubeConfig,
     GenericMaterializationConfig,

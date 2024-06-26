@@ -12,7 +12,6 @@ from datajunction_server.database import (
     AttributeType,
     Catalog,
     Collection,
-    Column,
     ColumnAttribute,
     Database,
     DimensionLink,
@@ -28,6 +27,7 @@ from datajunction_server.database import (
     User,
 )
 from datajunction_server.database.base import Base
+from datajunction_server.database.column import Column
 from datajunction_server.utils import get_settings
 
 settings = get_settings()

@@ -12,8 +12,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from datajunction_server.database import Column, ColumnAttribute, Node, NodeRevision
+from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.backfill import Backfill
+from datajunction_server.database.column import Column, ColumnAttribute
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException, DJException
