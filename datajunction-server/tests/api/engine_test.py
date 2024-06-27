@@ -7,15 +7,15 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_engine_adding_a_new_engine(
-    client: AsyncClient,
+    module__client: AsyncClient,
 ) -> None:
     """
     Test adding an engine
     """
-    response = await client.post(
+    response = await module__client.post(
         "/engines/",
         json={
-            "name": "spark",
+            "name": "spark-one",
             "version": "3.3.1",
             "dialect": "spark",
         },
@@ -24,7 +24,7 @@ async def test_engine_adding_a_new_engine(
     assert response.status_code == 201
     assert data == {
         "dialect": "spark",
-        "name": "spark",
+        "name": "spark-one",
         "uri": None,
         "version": "3.3.1",
     }
@@ -32,59 +32,59 @@ async def test_engine_adding_a_new_engine(
 
 @pytest.mark.asyncio
 async def test_engine_list(
-    client: AsyncClient,
+    module__client: AsyncClient,
 ) -> None:
     """
     Test listing engines
     """
-    response = await client.post(
+    response = await module__client.post(
         "/engines/",
         json={
-            "name": "spark",
+            "name": "spark-foo",
             "version": "2.4.4",
             "dialect": "spark",
         },
     )
     assert response.status_code == 201
 
-    response = await client.post(
+    response = await module__client.post(
         "/engines/",
         json={
-            "name": "spark",
+            "name": "spark-foo",
             "version": "3.3.0",
             "dialect": "spark",
         },
     )
     assert response.status_code == 201
 
-    response = await client.post(
+    response = await module__client.post(
         "/engines/",
         json={
-            "name": "spark",
+            "name": "spark-foo",
             "version": "3.3.1",
             "dialect": "spark",
         },
     )
     assert response.status_code == 201
 
-    response = await client.get("/engines/")
+    response = await module__client.get("/engines/")
     assert response.status_code == 200
-    data = response.json()
+    data = [engine for engine in response.json() if engine["name"] == "spark-foo"]
     assert data == [
         {
-            "name": "spark",
+            "name": "spark-foo",
             "uri": None,
             "version": "2.4.4",
             "dialect": "spark",
         },
         {
-            "name": "spark",
+            "name": "spark-foo",
             "uri": None,
             "version": "3.3.0",
             "dialect": "spark",
         },
         {
-            "name": "spark",
+            "name": "spark-foo",
             "uri": None,
             "version": "3.3.1",
             "dialect": "spark",
@@ -94,28 +94,28 @@ async def test_engine_list(
 
 @pytest.mark.asyncio
 async def test_engine_get_engine(
-    client: AsyncClient,
+    module__client: AsyncClient,
 ) -> None:
     """
     Test getting an engine
     """
-    response = await client.post(
+    response = await module__client.post(
         "/engines/",
         json={
-            "name": "spark",
+            "name": "spark-two",
             "version": "3.3.1",
             "dialect": "spark",
         },
     )
     assert response.status_code == 201
 
-    response = await client.get(
-        "/engines/spark/3.3.1",
+    response = await module__client.get(
+        "/engines/spark-two/3.3.1",
     )
     assert response.status_code == 200
     data = response.json()
     assert data == {
-        "name": "spark",
+        "name": "spark-two",
         "uri": None,
         "version": "3.3.1",
         "dialect": "spark",
@@ -124,29 +124,29 @@ async def test_engine_get_engine(
 
 @pytest.mark.asyncio
 async def test_engine_raise_on_engine_already_exists(
-    client: AsyncClient,
+    module__client: AsyncClient,
 ) -> None:
     """
     Test raise on engine already exists
     """
-    response = await client.post(
+    response = await module__client.post(
         "/engines/",
         json={
-            "name": "spark",
+            "name": "spark-three",
             "version": "3.3.1",
             "dialect": "spark",
         },
     )
     assert response.status_code == 201
 
-    response = await client.post(
+    response = await module__client.post(
         "/engines/",
         json={
-            "name": "spark",
+            "name": "spark-three",
             "version": "3.3.1",
             "dialect": "spark",
         },
     )
     assert response.status_code == 409
     data = response.json()
-    assert data == {"detail": "Engine already exists: `spark` version `3.3.1`"}
+    assert data == {"detail": "Engine already exists: `spark-three` version `3.3.1`"}

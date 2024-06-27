@@ -29,11 +29,13 @@ def test_history_hash():
 
 
 @pytest.mark.asyncio
-async def test_get_history_entity(client_with_roads: AsyncClient):
+async def test_get_history_entity(module__client_with_roads: AsyncClient):
     """
     Test getting history for an entity
     """
-    response = await client_with_roads.get("/history/node/default.repair_orders/")
+    response = await module__client_with_roads.get(
+        "/history/node/default.repair_orders/",
+    )
     assert response.status_code in (200, 201)
     history = response.json()
     assert len(history) == 1
@@ -55,12 +57,12 @@ async def test_get_history_entity(client_with_roads: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_get_history_node(client_with_roads: AsyncClient):
+async def test_get_history_node(module__client_with_roads: AsyncClient):
     """
     Test getting history for a node
     """
 
-    response = await client_with_roads.get("/history?node=default.repair_order")
+    response = await module__client_with_roads.get("/history?node=default.repair_order")
     assert response.status_code in (200, 201)
     history = response.json()
     assert len(history) == 6
