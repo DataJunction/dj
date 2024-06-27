@@ -6,7 +6,6 @@ from pydantic import AnyHttpUrl, BaseModel, validator
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.models.column import SemanticType
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import (
     BackfillOutput,
@@ -15,7 +14,6 @@ from datajunction_server.models.partition import (
 )
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.naming import amenable_name
-from datajunction_server.sql.parsing.types import TimestampType
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
@@ -313,33 +311,22 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         node_name = node_revision.name
         metrics_spec = list(self.metrics_spec().values())
 
-        # Either a temporal partition is configured or a timestamp column must exist on the cube
+        # A temporal partition should be configured on the cube, raise an error if not
         user_defined_temporal_partitions = node_revision.temporal_partition_columns()
-        timestamp_columns = [
-            col.name for col in node_revision.columns if col.type == TimestampType()
-        ]
-        if not user_defined_temporal_partitions and not timestamp_columns:
+        if not user_defined_temporal_partitions:
             raise DJInvalidInputException(  # pragma: no cover
-                "There must be at least one timestamp column or temporal partition configured"
+                "There must be at least one time-based partition configured"
                 " on this cube or it cannot be materialized to Druid.",
             )
 
-        # Select which timestamp column to use: the user-defined temporal partition
-        # if it exists or a timestamp column if it doesn't
+        # Use the user-defined temporal partition if it exists
         user_defined_temporal_partition = None
-        if user_defined_temporal_partitions:
-            user_defined_temporal_partition = user_defined_temporal_partitions[0]
-            timestamp_column = [
-                col.name
-                for col in self.columns  # type: ignore
-                if col.semantic_entity == user_defined_temporal_partition.name
-            ][0]
-        else:
-            timestamp_column = [
-                col.name
-                for col in self.columns  # type: ignore
-                if col.semantic_type == SemanticType.TIMESTAMP
-            ][0]
+        user_defined_temporal_partition = user_defined_temporal_partitions[0]
+        timestamp_column = [
+            col.name
+            for col in self.columns  # type: ignore
+            if col.semantic_entity == user_defined_temporal_partition.name
+        ][0]
 
         druid_datasource_name = (
             self.prefix  # type: ignore
