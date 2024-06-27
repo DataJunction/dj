@@ -1,4 +1,8 @@
-"""Dimension linking related tests."""
+"""
+Dimension linking related tests.
+
+TODO: convert to module scope later, for now these tests are pretty fast, only ~20 sec.
+"""
 
 import pytest
 import pytest_asyncio
