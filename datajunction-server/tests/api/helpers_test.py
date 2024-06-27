@@ -15,26 +15,30 @@ from datajunction_server.models.node import NodeStatus
 
 
 @pytest.mark.asyncio
-async def test_raise_get_node_when_node_does_not_exist(session: AsyncSession):
+async def test_raise_get_node_when_node_does_not_exist(module__session: AsyncSession):
     """
     Test raising when a node doesn't exist
     """
     with pytest.raises(DJException) as exc_info:
         await helpers.get_node_by_name(
-            session=session,
+            session=module__session,
             name="foo",
             raise_if_not_exists=True,
         )
 
     assert "A node with name `foo` does not exist." in str(exc_info.value)
     with pytest.raises(DJException) as exc_info:
-        await Node.get_by_name(session=session, name="foo", raise_if_not_exists=True)
+        await Node.get_by_name(
+            session=module__session,
+            name="foo",
+            raise_if_not_exists=True,
+        )
 
     assert "A node with name `foo` does not exist." in str(exc_info.value)
 
 
 @pytest.mark.asyncio
-async def test_propagate_valid_status(session: AsyncSession):
+async def test_propagate_valid_status(module__session: AsyncSession):
     """
     Test raising when trying to propagate a valid status using an invalid node
     """
@@ -44,7 +48,7 @@ async def test_propagate_valid_status(session: AsyncSession):
     )
     with pytest.raises(DJException) as exc_info:
         await propagate_valid_status(
-            session=session,
+            session=module__session,
             valid_nodes=[invalid_node],
             catalog_id=1,
         )
