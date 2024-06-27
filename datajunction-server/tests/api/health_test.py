@@ -9,11 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.mark.asyncio
-async def test_successful_health(client: AsyncClient) -> None:
+async def test_successful_health(module__client: AsyncClient) -> None:
     """
     Test ``GET /health/``.
     """
-    response = await client.get("/health/")
+    response = await module__client.get("/health/")
     data = response.json()
     assert data == [{"name": "database", "status": "ok"}]
 
