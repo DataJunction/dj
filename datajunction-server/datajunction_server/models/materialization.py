@@ -9,6 +9,7 @@ from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import (
     BackfillOutput,
+    Granularity,
     PartitionColumnOutput,
     PartitionType,
 )
@@ -360,11 +361,11 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
                 "metricsSpec": metrics_spec,
                 "granularitySpec": {
                     "type": "uniform",
-                    "segmentGranularity": (
+                    "segmentGranularity": str(
                         user_defined_temporal_partition.partition.granularity
                         if user_defined_temporal_partition
-                        else "DAY"
-                    ),
+                        else Granularity.DAY,
+                    ).upper(),
                     "intervals": [],  # this should be set at runtime
                 },
             },
