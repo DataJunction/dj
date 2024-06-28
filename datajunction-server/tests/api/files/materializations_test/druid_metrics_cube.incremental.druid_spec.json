@@ -32,7 +32,7 @@
       ],
       "granularitySpec":{
          "type":"uniform",
-         "segmentGranularity":"day",
+         "segmentGranularity":"DAY",
          "intervals":[
 
          ]
