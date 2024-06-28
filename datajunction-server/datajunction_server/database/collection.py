@@ -40,7 +40,7 @@ class Collection(Base):  # pylint: disable=too-few-public-methods
     )
 
     def __hash__(self) -> int:
-        return hash(self.id)
+        return hash(self.id)  # pragma: no cover
 
     @classmethod
     async def get_by_name(
