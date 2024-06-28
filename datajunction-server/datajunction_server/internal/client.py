@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.construction.utils import to_namespaced_name
-from datajunction_server.database import  DimensionLink, Node, NodeRevision
+from datajunction_server.database import DimensionLink, Node, NodeRevision
 from datajunction_server.database.column import Column
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import topological_sort
