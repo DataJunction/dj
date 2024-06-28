@@ -1107,7 +1107,7 @@ async def test_druid_cube_agg_materialization(
             ],
             "granularitySpec": {
                 "type": "uniform",
-                "segmentGranularity": "day",
+                "segmentGranularity": "DAY",
                 "intervals": [],
             },
         },

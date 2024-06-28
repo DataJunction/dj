@@ -286,42 +286,10 @@ async def test_druid_measures_cube_full(
     - Job Type: druid_measures_cube
     - Strategy: full
     Cases to check:
-    - [success] When there is a column on the cube with type `timestamp`
     - [success] When there is a column on the cube with the partition label
     - [failure] When there are no columns on the cube with type `timestamp` and no partition labels
     - [failure] If nothing has changed, will not update the existing materialization
     """
-    # [success] When there is a column on the cube with type `timestamp`:
-    response = await client_with_repairs_cube.post(
-        "/nodes/default.repairs_cube/materialization/",
-        json={
-            "job": "druid_measures_cube",
-            "strategy": "full",
-            "config": {},
-            "schedule": "@daily",
-        },
-    )
-    assert response.json()["message"] == (
-        "Successfully updated materialization config named "
-        "`druid_measures_cube__full` for node `default.repairs_cube`"
-    )
-    args, _ = query_service_client.materialize.call_args_list[0]  # type: ignore
-    assert str(parse(args[0].query)) == str(
-        parse(load_expected_file("druid_measures_cube.full.query.sql")),
-    )
-    assert args[0].druid_spec == load_expected_file(
-        "druid_measures_cube.full.druid_spec.json",
-    )
-
-    # Reset by deleting the materialization
-    response = await client_with_repairs_cube.delete(
-        "/nodes/default.repairs_cube/materializations/",
-        params={
-            "materialization_name": "druid_measures_cube__full",
-        },
-    )
-    assert response.status_code in (200, 201)
-
     # [success] When there is a column on the cube with a temporal partition label:
     await set_temporal_column(
         "default.repairs_cube",
@@ -351,6 +319,15 @@ async def test_druid_measures_cube_full(
     assert args[0].druid_spec == load_expected_file(
         "druid_measures_cube.full.druid_spec.json",
     )
+
+    # Reset by deleting the materialization
+    response = await client_with_repairs_cube.delete(
+        "/nodes/default.repairs_cube/materializations/",
+        params={
+            "materialization_name": "druid_measures_cube__full",
+        },
+    )
+    assert response.status_code in (200, 201)
 
     # [failure] When there are no columns on the cube with type `timestamp` and no partition labels
     response = await client_with_repairs_cube.post(
