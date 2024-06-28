@@ -32,8 +32,8 @@
                 },
                 "format":"parquet",
                 "timestampSpec":{
-                    "column":"timestamp_column",
-                    "format":"millis"
+                    "column":"default_DOT_repair_orders_fact_DOT_order_date",
+                    "format":"yyyyMMdd"
                 }
             }
         }
