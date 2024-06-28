@@ -7,13 +7,12 @@ import pytest
 from httpx import AsyncClient
 
 
-@pytest.fixture
-def completed_repairs_measure() -> Dict:
+def completed_repairs_measure(measure_name: str = "completed_repairs") -> Dict:
     """
     Test ``GET /measures/``.
     """
     return {
-        "name": "completed_repairs",
+        "name": f"{measure_name}",
         "description": "Number of completed repairs",
         "columns": [
             {
@@ -47,31 +46,33 @@ def failed_measure() -> Dict:
 
 @pytest.mark.asyncio
 async def test_list_all_measures(
-    client_with_roads: AsyncClient,
-    completed_repairs_measure: Dict,  # pylint: disable=redefined-outer-name
+    module__client_with_roads: AsyncClient,
 ) -> None:
     """
     Test ``GET /measures/``.
     """
-    response = await client_with_roads.get("/measures/")
+    response = await module__client_with_roads.get("/measures/")
     assert response.status_code in (200, 201)
     assert response.json() == []
 
-    await client_with_roads.post("/measures/", json=completed_repairs_measure)
+    await module__client_with_roads.post(
+        "/measures/",
+        json=completed_repairs_measure(measure_name="completed_repairs_1"),
+    )
 
-    response = await client_with_roads.get("/measures/")
+    response = await module__client_with_roads.get("/measures/")
     assert response.status_code in (200, 201)
-    assert response.json() == ["completed_repairs"]
+    assert response.json() == ["completed_repairs_1"]
 
-    response = await client_with_roads.get("/measures/?prefix=comp")
+    response = await module__client_with_roads.get("/measures/?prefix=comp")
     assert response.status_code in (200, 201)
-    assert response.json() == ["completed_repairs"]
+    assert response.json() == ["completed_repairs_1"]
 
-    response = await client_with_roads.get("/measures/?prefix=xyz")
+    response = await module__client_with_roads.get("/measures/?prefix=xyz")
     assert response.status_code in (200, 201)
     assert response.json() == []
 
-    response = await client_with_roads.get("/measures/completed_repairs")
+    response = await module__client_with_roads.get("/measures/completed_repairs_1")
     assert response.status_code in (200, 201)
     assert response.json() == {
         "additive": "non-additive",
@@ -83,11 +84,11 @@ async def test_list_all_measures(
             },
         ],
         "description": "Number of completed repairs",
-        "display_name": "Completed Repairs",
-        "name": "completed_repairs",
+        "display_name": "Completed Repairs 1",
+        "name": "completed_repairs_1",
     }
 
-    response = await client_with_roads.get("/measures/random_measure")
+    response = await module__client_with_roads.get("/measures/random_measure")
     assert response.status_code >= 400
     assert (
         response.json()["message"]
@@ -97,17 +98,16 @@ async def test_list_all_measures(
 
 @pytest.mark.asyncio
 async def test_create_measure(
-    client_with_roads: AsyncClient,
-    completed_repairs_measure: Dict,  # pylint: disable=redefined-outer-name
+    module__client_with_roads: AsyncClient,
     failed_measure: Dict,  # pylint: disable=redefined-outer-name
 ) -> None:
     """
     Test ``POST /measures/``.
     """
     # Successful measure creation
-    response = await client_with_roads.post(
+    response = await module__client_with_roads.post(
         "/measures/",
-        json=completed_repairs_measure,
+        json=completed_repairs_measure(measure_name="completed_repairs_2"),
     )
     assert response.status_code in (200, 201)
     assert response.json() == {
@@ -120,20 +120,20 @@ async def test_create_measure(
             },
         ],
         "description": "Number of completed repairs",
-        "display_name": "Completed Repairs",
-        "name": "completed_repairs",
+        "display_name": "Completed Repairs 2",
+        "name": "completed_repairs_2",
     }
 
     # Creating the same measure again will fail
-    response = await client_with_roads.post(
+    response = await module__client_with_roads.post(
         "/measures/",
-        json=completed_repairs_measure,
+        json=completed_repairs_measure(measure_name="completed_repairs_2"),
     )
     assert response.status_code >= 400
-    assert response.json()["message"] == "Measure `completed_repairs` already exists!"
+    assert response.json()["message"] == "Measure `completed_repairs_2` already exists!"
 
     # Failed measure creation
-    response = await client_with_roads.post("/measures/", json=failed_measure)
+    response = await module__client_with_roads.post("/measures/", json=failed_measure)
     assert response.status_code >= 400
     assert response.json()["message"] == (
         "Column `completed_repairs` does not exist on node `default.national_level_agg`"
@@ -142,17 +142,19 @@ async def test_create_measure(
 
 @pytest.mark.asyncio
 async def test_edit_measure(
-    client_with_roads: AsyncClient,
-    completed_repairs_measure: Dict,  # pylint: disable=redefined-outer-name
+    module__client_with_roads: AsyncClient,
 ) -> None:
     """
     Test ``PATCH /measures/{name}``.
     """
-    await client_with_roads.post("/measures", json=completed_repairs_measure)
+    await module__client_with_roads.post(
+        "/measures",
+        json=completed_repairs_measure(measure_name="completed_repairs_3"),
+    )
 
     # Successfully edit measure
-    response = await client_with_roads.patch(
-        "/measures/completed_repairs",
+    response = await module__client_with_roads.patch(
+        "/measures/completed_repairs_3",
         json={
             "additive": "additive",
             "display_name": "blah",
@@ -171,11 +173,11 @@ async def test_edit_measure(
         ],
         "description": "random description",
         "display_name": "blah",
-        "name": "completed_repairs",
+        "name": "completed_repairs_3",
     }
 
-    response = await client_with_roads.patch(
-        "/measures/completed_repairs",
+    response = await module__client_with_roads.patch(
+        "/measures/completed_repairs_3",
         json={
             "additive": "non-additive",
             "columns": [],
@@ -187,11 +189,11 @@ async def test_edit_measure(
         "columns": [],
         "description": "random description",
         "display_name": "blah",
-        "name": "completed_repairs",
+        "name": "completed_repairs_3",
     }
 
-    response = await client_with_roads.patch(
-        "/measures/completed_repairs",
+    response = await module__client_with_roads.patch(
+        "/measures/completed_repairs_3",
         json={
             "columns": [
                 {
@@ -222,12 +224,12 @@ async def test_edit_measure(
         ],
         "description": "random description",
         "display_name": "blah",
-        "name": "completed_repairs",
+        "name": "completed_repairs_3",
     }
 
     # Failed edit
-    response = await client_with_roads.patch(
-        "/measures/completed_repairs",
+    response = await module__client_with_roads.patch(
+        "/measures/completed_repairs_3",
         json={
             "columns": [
                 {
