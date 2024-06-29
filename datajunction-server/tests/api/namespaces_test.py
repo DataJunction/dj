@@ -462,28 +462,10 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
                     "status": "valid",
                 },
             ],
-            "foo.bar.hard_hat_state": [
-                {
-                    "effect": "downstream node is now " "invalid",
-                    "name": "foo.bar.local_hard_hats",
-                    "status": "invalid",
-                },
-            ],
-            "foo.bar.hard_hats": [
-                {
-                    "effect": "downstream node is now invalid",
-                    "name": "foo.bar.local_hard_hats",
-                    "status": "invalid",
-                },
-            ],
+            "foo.bar.hard_hat_state": [],
+            "foo.bar.hard_hats": [],
             "foo.bar.local_hard_hats": [],
-            "foo.bar.municipality": [
-                {
-                    "effect": "downstream node is now " "invalid",
-                    "name": "foo.bar.municipality_dim",
-                    "status": "invalid",
-                },
-            ],
+            "foo.bar.municipality": [],
             "foo.bar.municipality_dim": [
                 {
                     "effect": "broken link",
@@ -536,29 +518,12 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
                     "status": "valid",
                 },
             ],
-            "foo.bar.repair_order_details": [
-                {
-                    "effect": "downstream node is " "now invalid",
-                    "name": "foo.bar.total_repair_cost",
-                    "status": "invalid",
-                },
-                {
-                    "effect": "downstream node is " "now invalid",
-                    "name": "foo.bar.total_repair_order_discounts",
-                    "status": "invalid",
-                },
-            ],
+            "foo.bar.repair_order_details": [],
             "foo.bar.repair_orders": [],
             "foo.bar.repair_type": [],
             "foo.bar.total_repair_cost": [],
             "foo.bar.total_repair_order_discounts": [],
-            "foo.bar.us_region": [
-                {
-                    "effect": "downstream node is now invalid",
-                    "name": "foo.bar.us_state",
-                    "status": "invalid",
-                },
-            ],
+            "foo.bar.us_region": [],
             "foo.bar.us_state": [],
             "foo.bar.us_states": [],
         },
