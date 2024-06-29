@@ -59,6 +59,7 @@ from datajunction_server.sql.parsing.types import (
     StructType,
     TimestampType,
     TimestamptzType,
+    UnknownType,
     WildcardType,
     YearMonthIntervalType,
 )
@@ -552,7 +553,7 @@ class Alias(Aliasable, Generic[AliasedType]):
 
     @property
     def type(self) -> ColumnType:
-        return self.child.type
+        return UnknownType()
 
     @property
     def columns(self):
@@ -574,10 +575,8 @@ class Expression(Node):
     parenthesized: Optional[bool] = field(init=False, default=None)
 
     @property
-    def type(self) -> Union[ColumnType, List[ColumnType]]:
-        """
-        Return the type of the expression
-        """
+    def type(self) -> ColumnType:
+        return UnknownType()
 
     @property
     def columns(self):
@@ -731,16 +730,8 @@ class Column(Aliasable, Named, Expression):
     role: Optional[str] = None
 
     @property
-    def type(self):
-        if self._type:
-            return self._type
-        # Column was derived from some other expression we can get the type of
-        if self.expression:
-            self.add_type(self.expression.type)
-            return self.expression.type
-
-        parent_expr = f"in {self.parent}" if self.parent else "that has no parent"
-        raise DJParseException(f"Cannot resolve type of column {self} {parent_expr}")
+    def type(self) -> ColumnType:
+        return UnknownType()
 
     def add_type(self, type_: ColumnType) -> "Column":
         """
@@ -1125,7 +1116,7 @@ class Wildcard(Named, Expression):
 
     @property
     def type(self) -> ColumnType:
-        return WildcardType()
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -1400,24 +1391,7 @@ class UnaryOp(Operation):
 
     @property
     def type(self) -> ColumnType:
-        type_ = self.expr.type
-
-        def raise_unop_exception():
-            raise DJParseException(
-                "Incompatible type in unary operation "
-                f"{self}. Got {type} in {self}.",
-            )
-
-        if self.op == UnaryOpKind.Not:
-            if isinstance(type_, BooleanType):
-                return type_
-            raise_unop_exception()
-        if self.op == UnaryOpKind.Exists:
-            if isinstance(type_, BooleanType):
-                return type_
-            raise_unop_exception()
-
-        raise DJParseException(f"Unary operation {self.op} not supported!")
+        return UnknownType()
 
 
 # pylint: disable=C0103
@@ -1515,74 +1489,7 @@ class BinaryOp(Operation):
 
     @property
     def type(self) -> ColumnType:
-        kind = self.op
-        left_type = self.left.type
-        right_type = self.right.type
-
-        def raise_binop_exception():
-            raise DJParseException(
-                "Incompatible types in binary operation "
-                f"{self}. Got left {left_type}, right {right_type}.",
-            )
-
-        numeric_types = {
-            type_: idx
-            for idx, type_ in enumerate(
-                [
-                    str(DoubleType()),
-                    str(FloatType()),
-                    str(BigIntType()),
-                    str(IntegerType()),
-                ],
-            )
-        }
-
-        def resolve_numeric_types_binary_operations(
-            left: ColumnType,
-            right: ColumnType,
-        ):
-            if not left.is_compatible(right):
-                raise_binop_exception()
-            if str(left) in numeric_types and str(right) in numeric_types:
-                if str(left) == str(right):
-                    return left
-                if numeric_types[str(left)] > numeric_types[str(right)]:
-                    return right
-                return left
-            return left
-
-        BINOP_TYPE_COMBO_LOOKUP: Dict[  # pylint: disable=C0103
-            BinaryOpKind,
-            Callable[[ColumnType, ColumnType], ColumnType],
-        ] = {
-            BinaryOpKind.And: lambda left, right: BooleanType(),
-            BinaryOpKind.Or: lambda left, right: BooleanType(),
-            BinaryOpKind.Is: lambda left, right: BooleanType(),
-            BinaryOpKind.Eq: lambda left, right: BooleanType(),
-            BinaryOpKind.NotEq: lambda left, right: BooleanType(),
-            BinaryOpKind.NotEquals: lambda left, right: BooleanType(),
-            BinaryOpKind.Gt: lambda left, right: BooleanType(),
-            BinaryOpKind.Lt: lambda left, right: BooleanType(),
-            BinaryOpKind.GtEq: lambda left, right: BooleanType(),
-            BinaryOpKind.LtEq: lambda left, right: BooleanType(),
-            BinaryOpKind.BitwiseOr: lambda left, right: IntegerType()
-            if str(left) == str(IntegerType()) and str(right) == str(IntegerType())
-            else raise_binop_exception(),
-            BinaryOpKind.BitwiseAnd: lambda left, right: IntegerType()
-            if str(left) == str(IntegerType()) and str(right) == str(IntegerType())
-            else raise_binop_exception(),
-            BinaryOpKind.BitwiseXor: lambda left, right: IntegerType()
-            if str(left) == str(IntegerType()) and str(right) == str(IntegerType())
-            else raise_binop_exception(),
-            BinaryOpKind.Multiply: resolve_numeric_types_binary_operations,
-            BinaryOpKind.Divide: resolve_numeric_types_binary_operations,
-            BinaryOpKind.Plus: resolve_numeric_types_binary_operations,
-            BinaryOpKind.Minus: resolve_numeric_types_binary_operations,
-            BinaryOpKind.Modulo: lambda left, right: IntegerType()
-            if str(left) == str(IntegerType()) and str(right) == str(IntegerType())
-            else raise_binop_exception(),
-        }
-        return BINOP_TYPE_COMBO_LOOKUP[kind](left_type, right_type)
+        return UnknownType()
 
     async def compile(self, ctx: CompileContext):
         """
@@ -1715,7 +1622,7 @@ class Function(Named, Operation):
 
     @property
     def type(self) -> ColumnType:
-        return self.function().infer_type(*self.args)
+        return UnknownType()
 
     async def compile(self, ctx: CompileContext):
         """
@@ -1765,7 +1672,7 @@ class Null(Value):
 
     @property
     def type(self) -> ColumnType:
-        return NullType()
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -1801,30 +1708,7 @@ class Number(Value):
 
     @property
     def type(self) -> ColumnType:
-        """
-        Determine the type of the numeric expression.
-        """
-        # We won't assume that anyone wants SHORT by default
-        if isinstance(self.value, int):
-            check_types = (self._type,) if self._type else (IntegerType(), BigIntType())
-            for integer_type in check_types:
-                if integer_type.check_bounds(self.value):
-                    return integer_type
-
-            raise DJParseException(
-                f"No Integer type of {check_types} can hold the value {self.value}.",
-            )
-        #
-        # # Arbitrary-precision floating point
-        # if isinstance(self.value, decimal.Decimal):
-        #     return DecimalType.parse(self.value)
-
-        # Double-precision floating point
-        if not (1.18e-38 <= abs(self.value) <= 3.4e38):
-            return DoubleType()
-
-        # Single-precision floating point
-        return FloatType()
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -1840,7 +1724,7 @@ class String(Value):
 
     @property
     def type(self) -> ColumnType:
-        return StringType()
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -1856,7 +1740,7 @@ class Boolean(Value):
 
     @property
     def type(self) -> ColumnType:
-        return BooleanType()
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -1887,38 +1771,7 @@ class Interval(Value):
 
     @property
     def type(self) -> ColumnType:
-        """
-        Determine the type of the interval expression.
-        """
-        units = ["YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND"]
-        years_months_units = {"YEAR", "MONTH"}
-        days_seconds_units = {"DAY", "HOUR", "MINUTE", "SECOND"}
-        from_ = [DateTimeBase.Unit(f.unit) for f in self.from_]
-        if all(unit.unit in years_months_units for unit in self.from_):
-            if (
-                self.to is None
-                or self.to.unit is None
-                or self.to.unit in years_months_units
-            ):
-                # If all the units in the from_ list are YEAR or MONTH, the interval
-                # is a YearMonthInterval
-                return YearMonthIntervalType(
-                    sorted(from_, key=lambda u: units.index(u))[0],
-                    self.to,
-                )
-        elif all(unit.unit in days_seconds_units for unit in self.from_):
-            if (
-                self.to is None
-                or self.to.unit is None
-                or self.to.unit in days_seconds_units
-            ):
-                # If the to_ attribute is None or its unit is DAY, HOUR, MINUTE, or
-                # SECOND, the interval is a DayTimeInterval
-                return DayTimeIntervalType(
-                    sorted(from_, key=lambda u: units.index(u))[0],
-                    self.to,
-                )
-        raise DJParseException(f"Invalid interval type specified in {self}.")
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -1944,7 +1797,7 @@ class Predicate(Operation):
 
     @property
     def type(self) -> ColumnType:
-        return BooleanType()
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -1966,15 +1819,7 @@ class Between(Predicate):
 
     @property
     def type(self) -> ColumnType:
-        expr_type = self.expr.type
-        low_type = self.low.type
-        high_type = self.high.type
-        if expr_type == low_type == high_type:
-            return BooleanType()
-        raise DJParseException(
-            f"BETWEEN expects all elements to have the same type got "
-            f"{expr_type} BETWEEN {low_type} AND {high_type} in {self}.",
-        )
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -2035,12 +1880,7 @@ class Like(Predicate):
 
     @property
     def type(self) -> ColumnType:
-        expr_type = self.expr.type
-        if expr_type == StringType():
-            return BooleanType()
-        raise DJParseException(
-            f"Incompatible type for {self}: {expr_type}. Expected STR",
-        )
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -2057,7 +1897,7 @@ class IsNull(Predicate):
 
     @property
     def type(self) -> ColumnType:
-        return BooleanType()
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -2075,7 +1915,7 @@ class IsBoolean(Predicate):
 
     @property
     def type(self) -> ColumnType:
-        return BooleanType()
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -2093,7 +1933,7 @@ class IsDistinctFrom(Predicate):
 
     @property
     def type(self) -> ColumnType:
-        return BooleanType()
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -2130,16 +1970,7 @@ class Case(Expression):
 
     @property
     def type(self) -> ColumnType:
-        result_types = [
-            res.type
-            for res in self.results + ([self.else_result] if self.else_result else [])
-            if res.type
-        ]
-        if not all(result_types[0].is_compatible(res) for res in result_types):
-            raise DJParseException(
-                f"Not all the same type in CASE! Found: {', '.join([str(type_) for type_ in result_types])}",
-            )
-        return result_types[0]
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -2156,15 +1987,7 @@ class Subscript(Expression):
 
     @property
     def type(self) -> ColumnType:
-        if isinstance(self.expr.type, MapType):
-            type_ = cast(MapType, self.expr.type)
-            return type_.value.type
-        if isinstance(self.expr.type, StructType):
-            nested_field = self.expr.type.fields_mapping.get(
-                self.index.value.replace("'", ""),
-            )
-            return nested_field.type
-        return cast(ListType, self.expr.type).element.type
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -2184,11 +2007,8 @@ class Lambda(Expression):
         return f"{id_str} -> {self.expr}"
 
     @property
-    def type(self) -> Union[ColumnType, List[ColumnType]]:
-        """
-        The return type of the lambda function
-        """
-        return self.expr.type
+    def type(self) -> ColumnType:
+        return UnknownType()
 
 
 @dataclass(eq=False)
@@ -2298,29 +2118,7 @@ class FunctionTable(FunctionTableExpression):
         return dj_func.infer_type(*arg_types)
 
     async def compile(self, ctx):
-        if self.is_compiled():
-            return
-        self._is_compiled = True
-        types = await self._type(ctx)
-        for type, col in zip_longest(types, self.column_list):
-            if self.column_list:
-                if (type is None) or (col is None):
-                    ctx.exception.errors.append(
-                        DJError(
-                            code=ErrorCode.INVALID_SQL_QUERY,
-                            message=(
-                                "Found different number of columns than types"
-                                f" in {self}."
-                            ),
-                            context=str(self),
-                        ),
-                    )
-                    break
-            else:
-                col = Column(type.name)
-
-            col.add_type(type.type)
-            self._columns.append(col)
+        return
 
 
 @dataclass(eq=False)
@@ -2399,10 +2197,7 @@ class Cast(Expression):
 
     @property
     def type(self) -> ColumnType:
-        """
-        Return the type of the expression
-        """
-        return self.data_type
+        return UnknownType()
 
     async def compile(self, ctx: CompileContext):
         """
@@ -2570,25 +2365,9 @@ class Select(SelectExpression):
 
     @property
     def type(self) -> ColumnType:
-        if len(self.projection) != 1:
-            raise DJParseException(
-                "Can only infer type of a SELECT when it "
-                f"has a single expression in its projection. In {self}.",
-            )
-        return self.projection[0].type
+        return UnknownType()
 
     async def compile(self, ctx: CompileContext):
-        if not self.group_by and self.having:
-            ctx.exception.errors.append(
-                DJError(
-                    code=ErrorCode.INVALID_SQL_QUERY,
-                    message=(
-                        "HAVING without a GROUP BY is not allowed. "
-                        "Did you want to use a WHERE clause instead?"
-                    ),
-                    context=str(self),
-                ),
-            )
         await super().compile(ctx)
 
 
@@ -2689,7 +2468,7 @@ class Query(TableExpression, UnNamed):
 
     @property
     def type(self) -> ColumnType:
-        return self.select.type
+        return UnknownType()
 
     async def build(  # pylint: disable=R0913,C0415
         self,
