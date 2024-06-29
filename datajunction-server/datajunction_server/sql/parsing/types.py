@@ -115,7 +115,7 @@ class ColumnType(BaseModel):
         Returns whether the two types are compatible with each other by
         checking their ancestors.
         """
-        if self == NullType() or other == NullType() or self == other:
+        if self == UnknownType() or other == UnknownType() or self == other:
             return True  # quick return
 
         def has_common_ancestor(type1, type2) -> bool:
@@ -156,12 +156,19 @@ class NullType(PrimitiveType, Singleton):  # pylint: disable=too-few-public-meth
     """A data type for NULL
 
     Example:
-        >>> NullType()
-        NullType()
+        >>> UnknownType()
+        UnknownType()
     """
 
     def __init__(self):
-        super().__init__("NULL", "NullType()")
+        super().__init__("NULL", "UnknownType()")
+
+
+class UnknownType(PrimitiveType, Singleton):  # pylint: disable=too-few-public-methods
+    """A placeholder for an unknown type"""
+
+    def __init__(self):
+        super().__init__("UNKNOWN", "UnknownType()")
 
 
 class FixedType(PrimitiveType):
@@ -335,10 +342,7 @@ class NestedField(ColumnType):
 
     @property
     def type(self) -> ColumnType:
-        """
-        The field's type
-        """
-        return self._type
+        return UnknownType()
 
 
 class StructType(ColumnType):
@@ -938,4 +942,5 @@ PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
     "none": NullType(),
     "null": NullType(),
     "wildcard": WildcardType(),
+    "unknown": UnknownType(),
 }

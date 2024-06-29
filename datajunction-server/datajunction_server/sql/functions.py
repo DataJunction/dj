@@ -95,37 +95,8 @@ class Dispatch(metaclass=DispatchMeta):
 
     @classmethod
     def register(cls, func):  # pylint: disable=redefined-outer-name
-        func_name = func.__name__
-        params = inspect.signature(func).parameters
-        spread_types = [[]]
-        cls.registry[cls] = cls.registry.get(cls) or {}
-        cls.registry[cls][func_name] = cls.registry[cls].get(func_name) or {}
-        for i, (key, value) in enumerate(params.items()):
-            name = str(value).split(":", maxsplit=1)[0]
-            if name.startswith("**"):
-                raise ValueError(
-                    "kwargs are not supported in dispatch.",
-                )  # pragma: no cover
-            if name.startswith("*"):
-                i = -1
-            type_ = params[key].annotation
-            if type_ == inspect.Parameter.empty:
-                raise ValueError(  # pragma: no cover
-                    "All arguments must have a type annotation.",
-                )
-            inner_types = [type_]
-            if get_origin(type_) == Union:
-                inner_types = type_.__args__
-                for _ in inner_types:
-                    spread_types += spread_types[:]
-            temp = []
-            for type_ in inner_types:
-                for types in spread_types:
-                    temp.append(types[:])
-                    temp[-1].append((i, type_))
-            spread_types = temp
-        for types in spread_types:
-            cls.registry[cls][func_name][tuple(types)] = func  # type: ignore
+        def func(args, **kwargs):
+            return ct.UnknownType()
         return func
 
     @classmethod
@@ -171,7 +142,7 @@ class Function(Dispatch):  # pylint: disable=too-few-public-methods
 
     @staticmethod
     def infer_type(*args) -> ct.ColumnType:
-        raise NotImplementedError()
+        return ct.UnknownType()
 
     @staticmethod
     def compile_lambda(*args):
@@ -189,7 +160,7 @@ class TableFunction(Dispatch):  # pylint: disable=too-few-public-methods
 
     @staticmethod
     def infer_type(*args) -> List[ct.ColumnType]:
-        raise NotImplementedError()
+        return [ct.UnknownType()]
 
 
 class DjLogicalTimestamp(Function):
@@ -208,20 +179,12 @@ class DjLogicalTimestamp(Function):
 
 
 @DjLogicalTimestamp.register  # type: ignore
-def infer_type() -> ct.StringType:
-    """
-    Defaults to returning a timestamp in the format %Y-%m-%d %H:%M:%S
-    """
-    return ct.StringType()
-
-
-@DjLogicalTimestamp.register  # type: ignore
 def infer_type(_: ct.StringType) -> ct.StringType:
     """
     This function can optionally take a datetime format string like:
     DJ_CURRENT_TIMESTAMP('%Y-%m-%d')
     """
-    return ct.StringType()
+    return ct.UnknownType()
 
 
 #####################
@@ -242,8 +205,7 @@ class Abs(Function):
 def infer_type(
     arg: ct.NumberType,
 ) -> ct.NumberType:
-    type_ = arg.type
-    return type_
+    return ct.UnknownType()
 
 
 class Acos(Function):
@@ -258,7 +220,7 @@ class Acos(Function):
 def infer_type(
     arg: ct.NumberType,
 ) -> ct.FloatType:
-    return ct.FloatType()
+    return ct.UnknownType()
 
 
 class Aggregate(Function):
@@ -323,7 +285,7 @@ def infer_type(
     start: ct.ColumnType,
     merge: ct.ColumnType,
 ) -> ct.ColumnType:
-    return merge.expr.type
+    return ct.UnknownType()
 
 
 class AnyValue(Function):
@@ -339,7 +301,7 @@ class AnyValue(Function):
 def infer_type(
     expr: ct.ColumnType,
 ) -> ct.ColumnType:
-    return expr.type  # type: ignore
+    return ct.UnknownType()  # type: ignore
 
 
 class ApproxCountDistinct(Function):
@@ -355,7 +317,7 @@ class ApproxCountDistinct(Function):
 def infer_type(
     expr: ct.ColumnType,
 ) -> ct.LongType:
-    return ct.LongType()
+    return ct.UnknownType()
 
 
 class ApproxCountDistinctDsHll(Function):
@@ -371,7 +333,7 @@ class ApproxCountDistinctDsHll(Function):
 def infer_type(
     expr: ct.ColumnType,
 ) -> ct.LongType:
-    return ct.LongType()
+    return ct.UnknownType()
 
 
 class ApproxCountDistinctDsTheta(Function):
@@ -387,7 +349,7 @@ class ApproxCountDistinctDsTheta(Function):
 def infer_type(
     expr: ct.ColumnType,
 ) -> ct.LongType:
-    return ct.LongType()
+    return ct.UnknownType()
 
 
 class ApproxPercentile(Function):
@@ -406,7 +368,7 @@ def infer_type(
     percentage: ct.ListType,
     accuracy: Optional[ct.NumberType],
 ) -> ct.DoubleType:
-    return ct.ListType(element_type=col.type)  # type: ignore
+    return ct.UnknownType()  # type: ignore
 
 
 @ApproxPercentile.register
@@ -415,7 +377,7 @@ def infer_type(
     percentage: ct.FloatType,
     accuracy: Optional[ct.NumberType],
 ) -> ct.NumberType:
-    return col.type  # type: ignore
+    return ct.UnknownType()  # type: ignore
 
 
 class Array(Function):
@@ -430,18 +392,12 @@ class Array(Function):
 def infer_type(
     *elements: ct.ColumnType,
 ) -> ct.ListType:
-    types = {element.type for element in elements if element.type != ct.NullType()}
-    if len(types) > 1:
-        raise DJParseException(
-            f"Multiple types {', '.join(sorted(str(typ) for typ in types))} passed to array.",
-        )
-    element_type = elements[0].type if elements else ct.NullType()
-    return ct.ListType(element_type=element_type)
+    return ct.UnknownType()
 
 
 @Array.register  # type: ignore
 def infer_type() -> ct.ListType:
-    return ct.ListType(element_type=ct.NullType())
+    return ct.UnknownType()
 
 
 class ArrayAgg(Function):
@@ -456,13 +412,7 @@ class ArrayAgg(Function):
 def infer_type(
     *elements: ct.ColumnType,
 ) -> ct.ListType:
-    types = {element.type for element in elements}
-    if len(types) > 1:  # pragma: no cover
-        raise DJParseException(
-            f"Multiple types {', '.join(sorted(str(typ) for typ in types))} passed to array.",
-        )
-    element_type = elements[0].type if elements else ct.NullType()
-    return ct.ListType(element_type=element_type)
+    return ct.UnknownType()
 
 
 class ArrayAppend(Function):
@@ -478,7 +428,7 @@ def infer_type(
     array: ct.ListType,
     item: ct.ColumnType,
 ) -> ct.ListType:
-    return ct.ListType(element_type=item.type)
+    return ct.UnknownType()
 
 
 class ArrayCompact(Function):
@@ -491,7 +441,7 @@ class ArrayCompact(Function):
 def infer_type(
     array: ct.ListType,
 ) -> ct.ListType:
-    return array.type
+    return ct.UnknownType()
 
 
 class ArrayConcat(Function):
@@ -508,7 +458,7 @@ def infer_type(
     arr1: ct.ListType,
     arr2: ct.ListType,
 ) -> ct.ListType:
-    return arr1.type
+    return ct.UnknownType()
 
 
 class ArrayContains(Function):
@@ -524,7 +474,7 @@ def infer_type(
     array: ct.ListType,
     element: ct.ColumnType,
 ) -> ct.BooleanType:
-    return ct.BooleanType()
+    return ct.UnknownType()
 
 
 class ArrayDistinct(Function):
@@ -537,7 +487,7 @@ class ArrayDistinct(Function):
 def infer_type(
     array: ct.ListType,
 ) -> ct.ListType:
-    return array.type
+    return ct.UnknownType()
 
 
 class ArrayExcept(Function):
@@ -552,7 +502,7 @@ def infer_type(
     array1: ct.ListType,
     array2: ct.ListType,
 ) -> ct.ListType:
-    return array1.type
+    return ct.UnknownType()
 
 
 class ArrayLength(Function):
@@ -567,7 +517,7 @@ class ArrayLength(Function):
 def infer_type(
     array: ct.ListType,
 ) -> ct.LongType:
-    return ct.LongType()
+    return ct.UnknownType()
 
 
 class ArrayIntersect(Function):
@@ -582,7 +532,7 @@ def infer_type(
     array1: ct.ListType,
     array2: ct.ListType,
 ) -> ct.ListType:
-    return array1.type
+    return ct.UnknownType()
 
 
 class ArrayJoin(Function):
@@ -598,7 +548,7 @@ def infer_type(
     array: ct.ListType,
     delimiter: ct.StringType,
 ) -> ct.StringType:
-    return ct.StringType()
+    return ct.UnknownType()
 
 
 @ArrayJoin.register
@@ -607,7 +557,7 @@ def infer_type(
     delimiter: ct.StringType,
     null_replacement: ct.StringType,
 ) -> ct.StringType:
-    return ct.StringType()
+    return ct.UnknownType()
 
 
 class ArrayMax(Function):
@@ -622,7 +572,7 @@ class ArrayMax(Function):
 def infer_type(
     array: ct.ListType,
 ) -> ct.NumberType:
-    return array.type.element.type
+    return ct.UnknownType()
 
 
 class ArrayMin(Function):
@@ -636,7 +586,7 @@ class ArrayMin(Function):
 def infer_type(
     array: ct.ListType,
 ) -> ct.NumberType:
-    return array.type.element.type
+    return ct.UnknownType()
 
 
 class ArrayOffset(Function):
@@ -647,15 +597,6 @@ class ArrayOffset(Function):
 
     dialects = [Dialect.DRUID]
 
-
-@ArrayOffset.register
-def infer_type(
-    array: ct.ListType,
-    index: Union[ct.LongType, ct.IntegerType],
-) -> ct.NumberType:
-    return array.type.element.type  # type: ignore
-
-
 class ArrayOrdinal(Function):
     """
     ARRAY_ORDINAL(arr, long)
@@ -663,15 +604,6 @@ class ArrayOrdinal(Function):
     """
 
     dialects = [Dialect.DRUID]
-
-
-@ArrayOrdinal.register
-def infer_type(
-    array: ct.ListType,
-    index: Union[ct.LongType, ct.IntegerType],
-) -> ct.NumberType:
-    return array.type.element.type  # type: ignore
-
 
 class ArrayPosition(Function):
     """
@@ -685,7 +617,7 @@ def infer_type(
     array: ct.ListType,
     element: ct.ColumnType,
 ) -> ct.LongType:
-    return ct.LongType()
+    return ct.UnknownType()
 
 
 class ArrayRemove(Function):
@@ -699,7 +631,7 @@ def infer_type(
     array: ct.ListType,
     element: ct.ColumnType,
 ) -> ct.ListType:
-    return array.type
+    return ct.UnknownType()
 
 
 class ArrayRepeat(Function):
@@ -713,7 +645,7 @@ def infer_type(
     element: ct.ColumnType,
     count: ct.IntegerType,
 ) -> ct.ListType:
-    return ct.ListType(element_type=element.type)
+    return ct.UnknownType()
 
 
 class ArraySize(Function):
@@ -726,7 +658,7 @@ class ArraySize(Function):
 def infer_type(
     array: ct.ListType,
 ) -> ct.LongType:
-    return ct.LongType()
+    return ct.UnknownType()
 
 
 class ArraySort(Function):
@@ -739,7 +671,7 @@ class ArraySort(Function):
 def infer_type(
     array: ct.ListType,
 ) -> ct.ListType:
-    return array.type
+    return ct.UnknownType()
 
 
 @ArraySort.register
@@ -747,7 +679,7 @@ def infer_type(
     array: ct.ListType,
     sort_func: ct.LambdaType,
 ) -> ct.ListType:  # pragma: no cover
-    return array.type
+    return ct.UnknownType()
 
 
 class ArrayUnion(Function):
@@ -762,7 +694,7 @@ def infer_type(
     array1: ct.ListType,
     array2: ct.ListType,
 ) -> ct.ListType:
-    return array1.type
+    return ct.UnknownType()
 
 
 class ArraysOverlap(Function):
@@ -777,7 +709,7 @@ def infer_type(
     array1: ct.ListType,
     array2: ct.ListType,
 ) -> ct.ListType:
-    return ct.BooleanType()
+    return ct.UnknownType()
 
 
 class Avg(Function):
@@ -793,29 +725,28 @@ class Avg(Function):
 def infer_type(
     arg: ct.DecimalType,
 ) -> ct.DecimalType:
-    type_ = arg.type
-    return ct.DecimalType(type_.precision + 4, type_.scale + 4)
+    return ct.UnknownType()
 
 
 @Avg.register
 def infer_type(
     arg: ct.IntervalTypeBase,
 ) -> ct.IntervalTypeBase:
-    return type(arg.type)()
+    return ct.UnknownType()
 
 
 @Avg.register  # type: ignore
 def infer_type(
     arg: ct.NumberType,
 ) -> ct.DoubleType:
-    return ct.DoubleType()
+    return ct.UnknownType()
 
 
 @Avg.register  # type: ignore
 def infer_type(
     arg: ct.DateTimeBase,
 ) -> ct.DateTimeBase:
-    return type(arg.type)()
+    return ct.UnknownType()
 
 
 class Cardinality(Function):
@@ -828,14 +759,14 @@ class Cardinality(Function):
 def infer_type(
     args: ct.ListType,
 ) -> ct.IntegerType:
-    return ct.IntegerType()
+    return ct.UnknownType()
 
 
 @Cardinality.register  # type: ignore
 def infer_type(
     args: ct.MapType,
 ) -> ct.IntegerType:
-    return ct.IntegerType()
+    return ct.UnknownType()
 
 
 class Cbrt(Function):
@@ -848,7 +779,7 @@ class Cbrt(Function):
 def infer_type(
     arg: ct.NumberType,
 ) -> ct.ColumnType:
-    return ct.FloatType()
+    return ct.UnknownType()
 
 
 class Ceil(Function):
@@ -872,35 +803,7 @@ def infer_type(
     args: ct.NumberType,
     _target_scale: ct.IntegerType,
 ) -> ct.DecimalType:
-    target_scale = _target_scale.value
-    if isinstance(args.type, ct.DecimalType):
-        precision = max(args.type.precision - args.type.scale + 1, -target_scale + 1)
-        scale = min(args.type.scale, max(0, target_scale))
-        return ct.DecimalType(precision, scale)
-    if args.type == ct.TinyIntType():
-        precision = max(3, -target_scale + 1)
-        return ct.DecimalType(precision, 0)
-    if args.type == ct.SmallIntType():
-        precision = max(5, -target_scale + 1)
-        return ct.DecimalType(precision, 0)
-    if args.type == ct.IntegerType():
-        precision = max(10, -target_scale + 1)
-        return ct.DecimalType(precision, 0)
-    if args.type == ct.BigIntType():
-        precision = max(20, -target_scale + 1)
-        return ct.DecimalType(precision, 0)
-    if args.type == ct.FloatType():
-        precision = max(14, -target_scale + 1)
-        scale = min(7, max(0, target_scale))
-        return ct.DecimalType(precision, scale)
-    if args.type == ct.DoubleType():
-        precision = max(30, -target_scale + 1)
-        scale = min(15, max(0, target_scale))
-        return ct.DecimalType(precision, scale)
-
-    raise DJParseException(  # pragma: no cover
-        f"Unhandled numeric type in Ceil `{args.type}`",
-    )
+    return ct.UnknownType()
 
 
 @Ceil.register
@@ -908,7 +811,7 @@ def infer_type(
 def infer_type(
     args: ct.DecimalType,
 ) -> ct.DecimalType:
-    return ct.DecimalType(args.type.precision - args.type.scale + 1, 0)
+    return ct.UnknownType()
 
 
 @Ceil.register
@@ -916,7 +819,7 @@ def infer_type(
 def infer_type(
     args: ct.NumberType,
 ) -> ct.BigIntType:
-    return ct.BigIntType()
+    return ct.UnknownType()
 
 
 class Char(Function):
@@ -929,7 +832,7 @@ class Char(Function):
 def infer_type(
     arg: ct.IntegerType,
 ) -> ct.ColumnType:
-    return ct.StringType()
+    return ct.UnknownType()
 
 
 class CharLength(Function):
@@ -942,7 +845,7 @@ class CharLength(Function):
 
 @CharLength.register  # type: ignore
 def infer_type(arg: ct.StringType) -> ct.ColumnType:
-    return ct.IntegerType()
+    return ct.UnknownType()
 
 
 class CharacterLength(Function):
@@ -955,7 +858,7 @@ class CharacterLength(Function):
 
 @CharacterLength.register  # type: ignore
 def infer_type(arg: ct.StringType) -> ct.ColumnType:
-    return ct.IntegerType()
+    return ct.UnknownType()
 
 
 class Chr(Function):
@@ -966,7 +869,7 @@ class Chr(Function):
 
 @Chr.register  # type: ignore
 def infer_type(arg: ct.IntegerType) -> ct.ColumnType:
-    return ct.StringType()
+    return ct.UnknownType()
 
 
 class Coalesce(Function):
@@ -982,20 +885,7 @@ class Coalesce(Function):
 def infer_type(
     *args: ct.ColumnType,
 ) -> ct.ColumnType:
-    if not args:  # pragma: no cover
-        raise DJInvalidInputException(
-            message="Wrong number of arguments to function",
-            errors=[
-                DJError(
-                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
-                    message="You need to pass at least one argument to `COALESCE`.",
-                ),
-            ],
-        )
-    for arg in args:
-        if arg.type != ct.NullType():
-            return arg.type
-    return ct.NullType()
+    return ct.UnknownType()
 
 
 class CollectList(Function):
@@ -1010,7 +900,7 @@ class CollectList(Function):
 def infer_type(
     arg: ct.ColumnType,
 ) -> ct.ColumnType:
-    return ct.ListType(element_type=arg.type)
+    return ct.UnknownType()
 
 
 class CollectSet(Function):
@@ -1025,7 +915,7 @@ class CollectSet(Function):
 def infer_type(
     arg: ct.ColumnType,
 ) -> ct.ColumnType:
-    return ct.ListType(element_type=arg.type)
+    return ct.UnknownType()
 
 
 class Concat(Function):
@@ -1040,21 +930,21 @@ class Concat(Function):
 def infer_type(
     *strings: ct.StringType,
 ) -> ct.StringType:
-    return ct.StringType()
+    return ct.UnknownType()
 
 
 @Concat.register  # type: ignore
 def infer_type(
     *arrays: ct.ListType,
 ) -> ct.ListType:
-    return arrays[0].type
+    return ct.UnknownType()
 
 
 @Concat.register  # type: ignore
 def infer_type(
     *maps: ct.MapType,
 ) -> ct.MapType:
-    return maps[0].type
+    return ct.UnknownType()
 
 
 class ConcatWs(Function):
@@ -1069,7 +959,7 @@ def infer_type(
     sep: ct.StringType,
     *strings: ct.StringType,
 ) -> ct.ColumnType:
-    return ct.StringType()
+    return ct.UnknownType()
 
 
 @ConcatWs.register  # type: ignore
@@ -1077,7 +967,7 @@ def infer_type(
     sep: ct.StringType,
     *strings: ct.ListType,
 ) -> ct.ColumnType:
-    return ct.StringType()
+    return ct.UnknownType()
 
 
 class Contains(Function):
@@ -1090,7 +980,7 @@ class Contains(Function):
 
 @Contains.register  # type: ignore
 def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
-    return ct.BooleanType()
+    return ct.UnknownType()
 
 
 class ContainsString(Function):
@@ -1103,7 +993,7 @@ class ContainsString(Function):
 
 @ContainsString.register  # type: ignore
 def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
-    return ct.BooleanType()
+    return ct.UnknownType()
 
 
 @Contains.register  # type: ignore
@@ -1111,7 +1001,7 @@ def infer_type(
     arg1: ct.BinaryType,
     arg2: ct.BinaryType,
 ) -> ct.ColumnType:  # pragma: no cover
-    return ct.BooleanType()
+    return ct.UnknownType()
 
 
 class Conv(Function):
@@ -1126,7 +1016,7 @@ def infer_type(
     arg2: ct.IntegerType,
     arg3: ct.IntegerType,
 ) -> ct.ColumnType:
-    return ct.StringType()
+    return ct.UnknownType()
 
 
 @Conv.register  # type: ignore
@@ -1135,7 +1025,7 @@ def infer_type(
     arg2: ct.IntegerType,
     arg3: ct.IntegerType,
 ) -> ct.ColumnType:
-    return ct.StringType()
+    return ct.UnknownType()
 
 
 class ConvertTimezone(Function):
@@ -1151,7 +1041,7 @@ def infer_type(
     arg2: ct.StringType,
     arg3: ct.TimestampType,
 ) -> ct.ColumnType:
-    return ct.TimestampType()
+    return ct.UnknownType()
 
 
 class Corr(Function):
@@ -1165,7 +1055,7 @@ def infer_type(
     arg1: ct.NumberType,
     arg2: ct.NumberType,
 ) -> ct.ColumnType:
-    return ct.FloatType()
+    return ct.UnknownType()
 
 
 class Cos(Function):
@@ -1178,7 +1068,7 @@ class Cos(Function):
 
 @Cos.register  # type: ignore
 def infer_type(arg: ct.NumberType) -> ct.ColumnType:
-    return ct.FloatType()
+    return ct.UnknownType()
 
 
 class Cosh(Function):
@@ -1191,7 +1081,7 @@ class Cosh(Function):
 
 @Cosh.register  # type: ignore
 def infer_type(arg: ct.NumberType) -> ct.ColumnType:
-    return ct.FloatType()
+    return ct.UnknownType()
 
 
 class Cot(Function):
@@ -1204,7 +1094,7 @@ class Cot(Function):
 
 @Cot.register  # type: ignore
 def infer_type(arg: ct.NumberType) -> ct.ColumnType:
-    return ct.FloatType()
+    return ct.UnknownType()
 
 
 class Count(Function):
@@ -1220,7 +1110,7 @@ class Count(Function):
 def infer_type(
     *args: ct.ColumnType,
 ) -> ct.BigIntType:
-    return ct.BigIntType()
+    return ct.UnknownType()
 
 
 class CountIf(Function):
@@ -1231,7 +1121,7 @@ class CountIf(Function):
 
 @CountIf.register  # type: ignore
 def infer_type(arg: ct.BooleanType) -> ct.IntegerType:
-    return ct.IntegerType()  # pragma: no cover
+    return ct.UnknownType()  # pragma: no cover
 
 
 class CountMinSketch(Function):
@@ -1247,7 +1137,7 @@ def infer_type(
     arg3: ct.FloatType,
     arg4: ct.IntegerType,
 ) -> ct.ColumnType:
-    return ct.BinaryType()
+    return ct.UnknownType()
 
 
 class CovarPop(Function):
@@ -1261,7 +1151,7 @@ def infer_type(
     arg1: ct.NumberType,
     arg2: ct.NumberType,
 ) -> ct.ColumnType:
-    return ct.FloatType()
+    return ct.UnknownType()
 
 
 class CovarSamp(Function):
@@ -2392,7 +2282,7 @@ def infer_type(
             message="The then result and else result must match in type! "
             f"Got {then.type} and {else_.type}",
         )
-    if then.type == ct.NullType():
+    if then.type == ct.UnknownType():
         return else_.type
     return then.type
 
@@ -2405,7 +2295,7 @@ class IfNull(Function):
 
 @IfNull.register
 def infer_type(*args: ct.ColumnType) -> ct.ColumnType:
-    return args[0].type if args[1].type == ct.NullType() else args[1].type
+    return args[0].type if args[1].type == ct.UnknownType() else args[1].type
 
 
 class ILike(Function):
@@ -4421,14 +4311,14 @@ class Explode(TableFunction):
 def infer_type(
     arg: ct.ListType,
 ) -> List[ct.NestedField]:
-    return [arg.element]
+    return ct.UnknownType()
 
 
 @Explode.register
 def infer_type(
     arg: ct.MapType,
 ) -> List[ct.NestedField]:
-    return [arg.key, arg.value]
+    return ct.UnknownType()
 
 
 class Unnest(TableFunction):
@@ -4445,14 +4335,14 @@ class Unnest(TableFunction):
 def infer_type(
     arg: ct.ListType,
 ) -> List[ct.NestedField]:
-    return [arg.element]  # pragma: no cover
+    return ct.UnknownType()  # pragma: no cover
 
 
 @Unnest.register
 def infer_type(
     arg: ct.MapType,
 ) -> List[ct.NestedField]:
-    return [arg.key, arg.value]
+    return ct.UnknownType()
 
 
 class FunctionRegistryDict(dict):
