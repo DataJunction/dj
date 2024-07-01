@@ -6,7 +6,7 @@ import pytest
 from httpx import AsyncClient
 
 
-class TestDataForNode:
+class TestCollections:
     """
     Test ``POST /collections/``.
     """
