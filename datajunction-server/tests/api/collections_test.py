@@ -67,16 +67,6 @@ class TestCollections:
         """
         Test adding a node to a collection
         """
-        # Create a collection
-        response = await module__client_with_account_revenue.post(
-            "/collections/",
-            json={
-                "name": "Accounting",
-                "description": "This is a collection that contains accounting related nodes",
-            },
-        )
-        assert response.status_code == 201
-
         # Add a node to a collection
         response = await module__client_with_account_revenue.post(
             "/collections/Accounting/nodes/",
@@ -92,16 +82,6 @@ class TestCollections:
         """
         Test adding a node to a collection when the nodes can't be found
         """
-        # Create a collection
-        response = await module__client_with_account_revenue.post(
-            "/collections/",
-            json={
-                "name": "Accounting",
-                "description": "This is a collection that contains accounting related nodes",
-            },
-        )
-        assert response.status_code == 201
-
         # Add a node to a collection
         response = await module__client_with_account_revenue.post(
             "/collections/Accounting/nodes/",
@@ -117,24 +97,6 @@ class TestCollections:
         """
         Test removing a node from a collection
         """
-        # Create a collection
-        response = await module__client_with_account_revenue.post(
-            "/collections/",
-            json={
-                "name": "Accounting",
-                "description": "This is a collection that contains accounting related nodes",
-            },
-        )
-        data = response.json()
-        assert response.status_code == 201
-
-        # Add a node to a collection
-        response = await module__client_with_account_revenue.post(
-            "/collections/Accounting/nodes/",
-            json=["default.payment_type"],
-        )
-        assert response.status_code == 204
-
         # Remove the node from the collection
         response = await module__client_with_account_revenue.post(
             "/collections/Accounting/remove/",
@@ -157,16 +119,6 @@ class TestCollections:
         """
         Test removing a node from a collection when the node can't be found
         """
-        # Create a collection
-        response = await module__client_with_account_revenue.post(
-            "/collections/",
-            json={
-                "name": "Accounting",
-                "description": "This is a collection that contains accounting related nodes",
-            },
-        )
-        assert response.status_code == 201
-
         # Remove the node from the collection
         response = await module__client_with_account_revenue.post(
             "/collections/Accounting/remove/",
@@ -182,16 +134,6 @@ class TestCollections:
         """
         Test removing a collection
         """
-        # Create a collection
-        response = await module__client_with_account_revenue.post(
-            "/collections/",
-            json={
-                "name": "Accounting",
-                "description": "This is a collection that contains accounting related nodes",
-            },
-        )
-        assert response.status_code == 201
-
         # Remove the collection
         response = await module__client_with_account_revenue.delete(
             "/collections/Accounting",
