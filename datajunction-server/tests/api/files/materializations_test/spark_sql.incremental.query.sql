@@ -24,5 +24,5 @@ SELECT  hard_hat_id,
 	default_DOT_hard_hats.country,
 	default_DOT_hard_hats.manager,
 	default_DOT_hard_hats.contractor_id
- FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat
+ FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat_2
  WHERE  birth_date = CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP)
