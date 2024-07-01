@@ -7,5 +7,5 @@ SELECT  last_name,
 	default_DOT_hard_hats.birth_date,
 	default_DOT_hard_hats.country
  FROM roads.hard_hats AS default_DOT_hard_hats
- WHERE  DATE_FORMAT(default_DOT_hard_hats.birth_date, 'yyyyMMdd') = DATE_FORMAT(${dj_logical_timestamp}, 'yyyyMMdd')) AS default_DOT_hard_hat
+ WHERE  DATE_FORMAT(default_DOT_hard_hats.birth_date, 'yyyyMMdd') = DATE_FORMAT(${dj_logical_timestamp}, 'yyyyMMdd')) AS default_DOT_hard_hat_2
  WHERE  birth_date = CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP) AND country = CAST(${country} AS STRING)

@@ -32,6 +32,7 @@ async def test_list_dimension(
             {"indegree": 0, "name": "default.local_hard_hats_2"},
             {"indegree": 0, "name": "default.payment_type"},
             {"indegree": 0, "name": "default.account_type"},
+            {"indegree": 0, "name": "default.hard_hat_2"},
         ]
     }
 
