@@ -27,7 +27,7 @@ class TestCollections:
             },
         )
         data = response.json()
-        assert response.status_code in (201, 409)
+        assert response.status_code == 201
 
         # Ensure the collection shows up in collections list
         response = await module__client_with_account_revenue.get(
@@ -67,15 +67,15 @@ class TestCollections:
         response = await module__client_with_account_revenue.post(
             "/collections/",
             json={
-                "name": "Accounting",
-                "description": "This is a collection that contains accounting related nodes",
+                "name": "Revenue Project",
+                "description": "A collection for nodes related to a revenue project",
             },
         )
-        assert response.status_code in (201, 409)
+        assert response.status_code == 201
 
         # Add a node to a collection
         response = await module__client_with_account_revenue.post(
-            "/collections/Accounting/nodes/",
+            "/collections/Revenue%20Project/nodes/",
             json=["default.payment_type", "default.revenue"],
         )
         assert response.status_code == 204
@@ -92,15 +92,15 @@ class TestCollections:
         response = await module__client_with_account_revenue.post(
             "/collections/",
             json={
-                "name": "Accounting",
+                "name": "My Collection",
                 "description": "This is a collection that contains accounting related nodes",
             },
         )
-        assert response.status_code in (201, 409)
+        assert response.status_code == 201
 
         # Add a node to a collection
         response = await module__client_with_account_revenue.post(
-            "/collections/Accounting/nodes/",
+            "/collections/My%20Collection/nodes/",
             json=["foo.bar", "baz.qux"],
         )
         assert response.status_code == 404
@@ -117,30 +117,30 @@ class TestCollections:
         response = await module__client_with_account_revenue.post(
             "/collections/",
             json={
-                "name": "Accounting",
-                "description": "This is a collection that contains accounting related nodes",
+                "name": "add_then_remove",
+                "description": "A collection to test adding and removing a node",
             },
         )
         data = response.json()
-        assert response.status_code in (201, 409)
+        assert response.status_code == 201
 
         # Add a node to a collection
         response = await module__client_with_account_revenue.post(
-            "/collections/Accounting/nodes/",
+            "/collections/add_then_remove/nodes/",
             json=["default.payment_type"],
         )
         assert response.status_code == 204
 
         # Remove the node from the collection
         response = await module__client_with_account_revenue.post(
-            "/collections/Accounting/remove/",
+            "/collections/add_then_remove/remove/",
             json=["default.payment_type", "default.revenue"],
         )
         assert response.status_code == 204
 
         # Confirm node no longer found in collection
         response = await module__client_with_account_revenue.get(
-            "/collections/Accounting",
+            "/collections/add_then_remove",
         )
         data = response.json()
         for node in data["nodes"]:
@@ -158,15 +158,15 @@ class TestCollections:
         response = await module__client_with_account_revenue.post(
             "/collections/",
             json={
-                "name": "Accounting",
-                "description": "This is a collection that contains accounting related nodes",
+                "name": "Removing Nodes",
+                "description": "This is a collection to test for no errors when removing nodes",
             },
         )
-        assert response.status_code in (201, 409)
+        assert response.status_code == 201
 
         # Remove the node from the collection
         response = await module__client_with_account_revenue.post(
-            "/collections/Accounting/remove/",
+            "/collections/Removing%20Nodes/remove/",
             json=["foo.bar", "baz.qux"],
         )
         assert response.status_code == 204
