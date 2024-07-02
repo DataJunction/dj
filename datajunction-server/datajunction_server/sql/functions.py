@@ -3886,11 +3886,11 @@ class Sequence(Function):
 
 @Sequence.register
 def infer_type(  # type: ignore
-    start: ct.IntegerType,
-    end: ct.IntegerType,
-    step: Optional[ct.IntegerType] = None,
+    start: ct.IntegerBase,
+    end: ct.IntegerBase,
+    step: Optional[ct.IntegerBase] = None,
 ) -> ct.ListType:
-    return ct.ListType(element_type=ct.IntegerType())
+    return ct.ListType(element_type=start.type)
 
 
 @Sequence.register
