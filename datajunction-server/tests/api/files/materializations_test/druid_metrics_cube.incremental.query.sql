@@ -19,7 +19,8 @@ default_DOT_repair_orders_fact AS (SELECT  default_DOT_repair_orders_fact.order_
 	repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
 	repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
 	repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
- FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id) AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_dispatchers.dispatcher_id,
+ FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+ WHERE  repair_orders.order_date = ${dj_logical_timestamp}) AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_dispatchers.dispatcher_id,
 	default_DOT_dispatchers.company_name
  FROM roads.dispatchers AS default_DOT_dispatchers) AS default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
 LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,

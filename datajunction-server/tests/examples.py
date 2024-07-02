@@ -343,6 +343,32 @@ ROADS = (  # type: ignore
     (
         "/nodes/dimension/",
         {
+            "description": "Hard hat dimension #2",
+            "query": """
+                        SELECT
+                        hard_hat_id,
+                        last_name,
+                        first_name,
+                        title,
+                        birth_date,
+                        hire_date,
+                        address,
+                        city,
+                        state,
+                        postal_code,
+                        country,
+                        manager,
+                        contractor_id
+                        FROM default.hard_hats
+                    """,
+            "mode": "published",
+            "name": "default.hard_hat_2",
+            "primary_key": ["hard_hat_id"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
             "description": "Hard hat dimension (for deletion)",
             "query": """
                         SELECT
