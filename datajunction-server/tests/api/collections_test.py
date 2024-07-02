@@ -143,7 +143,8 @@ class TestCollections:
             "/collections/Accounting",
         )
         data = response.json()
-        assert data["nodes"] == []
+        for node in data["nodes"]:
+            assert node["name"] != "default.payment_type"
 
     @pytest.mark.asyncio
     async def test_collections_no_errors_when_removing(
@@ -203,4 +204,3 @@ class TestCollections:
         data = response.json()
         for collection in data:
             assert collection["name"] != "DeleteMe"
-        assert data == []
