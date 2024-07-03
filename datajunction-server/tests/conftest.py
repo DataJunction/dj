@@ -718,12 +718,15 @@ async def module__session(
 
 
 @pytest_asyncio.fixture(scope="module")
-def module__settings(module_mocker: MockerFixture) -> Iterator[Settings]:
+def module__settings(
+    module_mocker: MockerFixture,
+    module__postgres_container: PostgresContainer,
+) -> Iterator[Settings]:
     """
     Custom settings for unit tests.
     """
     settings = Settings(
-        index="sqlite+aiosqlite://",
+        index=module__postgres_container.get_connection_url(),
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -808,6 +811,16 @@ async def module__client_with_both_basics(
     Provides a DJ client fixture with account revenue examples
     """
     return await module__client_example_loader(["BASIC", "BASIC_IN_DIFFERENT_CATALOG"])
+
+
+@pytest_asyncio.fixture(scope="module")
+async def module__client_with_examples(
+    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a DJ client fixture with all examples
+    """
+    return await module__client_example_loader(None)
 
 
 @pytest.fixture(scope="module")

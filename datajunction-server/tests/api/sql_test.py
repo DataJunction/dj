@@ -1,6 +1,6 @@
 """Tests for the /sql/ endpoint"""
 import datetime
-from typing import Callable, List, Optional
+from typing import List
 
 # pylint: disable=line-too-long,too-many-lines
 # pylint: disable=C0302
@@ -1565,15 +1565,12 @@ async def test_sql_with_filters(  # pylint: disable=too-many-arguments
     sql,
     columns,
     rows,
-    client_with_query_service_example_loader: Callable[
-        [Optional[List[str]]],
-        AsyncClient,
-    ],
+    module__client_with_examples: AsyncClient,
 ):
     """
     Test ``GET /sql/{node_name}/`` with various filters and dimensions.
     """
-    custom_client = await client_with_query_service_example_loader(groups)
+    custom_client = module__client_with_examples
     response = await custom_client.get(
         f"/sql/{node_name}/",
         params={"dimensions": dimensions, "filters": filters},
@@ -1763,13 +1760,13 @@ async def test_sql_with_filters_on_namespaced_nodes(  # pylint: disable=R0913
     filters,
     orderby,
     sql,
-    client_with_namespaced_roads: AsyncClient,
+    module__client_with_examples: AsyncClient,
 ):
     """
     Test ``GET /sql/{node_name}/`` with various filters and dimensions using a
     version of the DJ roads database with namespaces.
     """
-    response = await client_with_namespaced_roads.get(
+    response = await module__client_with_examples.get(
         f"/sql/{node_name}/",
         params={"dimensions": dimensions, "filters": filters, "orderby": orderby},
     )
@@ -1779,7 +1776,7 @@ async def test_sql_with_filters_on_namespaced_nodes(  # pylint: disable=R0913
 
 @pytest.mark.asyncio
 async def test_sql_with_filters_orderby_no_access(  # pylint: disable=R0913
-    client_with_namespaced_roads: AsyncClient,
+    module__client_with_examples: AsyncClient,
 ):
     """
     Test ``GET /sql/{node_name}/`` with various filters and dimensions using a
@@ -1808,7 +1805,7 @@ async def test_sql_with_filters_orderby_no_access(  # pylint: disable=R0913
         "foo.bar.repair_orders.order_date >= '2020-01-01'",
     ]
     orderby = ["foo.bar.hard_hat.last_name"]
-    response = await client_with_namespaced_roads.get(
+    response = await module__client_with_examples.get(
         f"/sql/{node_name}/",
         params={"dimensions": dimensions, "filters": filters, "orderby": orderby},
     )
@@ -1822,17 +1819,17 @@ async def test_sql_with_filters_orderby_no_access(  # pylint: disable=R0913
         ),
     )
     assert data["errors"][0]["code"] == 500
-    app.dependency_overrides.clear()
+    app.dependency_overrides[validate_access] = validate_access
 
 
 @pytest.mark.asyncio
 async def test_union_all(
-    client_with_roads: AsyncClient,
+    module__client_with_examples: AsyncClient,
 ):
     """
     Verify union all query works
     """
-    response = await client_with_roads.post(
+    response = await module__client_with_examples.post(
         "/nodes/transform",
         json={
             "name": "default.union_all_test",
@@ -1861,7 +1858,7 @@ async def test_union_all(
     )
     assert response.status_code == 201
 
-    response = await client_with_roads.get("/sql/default.union_all_test")
+    response = await module__client_with_examples.get("/sql/default.union_all_test")
     assert str(parse(response.json()["sql"])) == str(
         parse(
             """
@@ -1897,12 +1894,12 @@ async def test_union_all(
 
 @pytest.mark.asyncio
 async def test_multiple_joins_to_same_node(
-    client_with_roads: AsyncClient,
+    module__client_with_examples: AsyncClient,
 ):
     """
     Verify that multiple joins to the same node still work
     """
-    response = await client_with_roads.post(
+    response = await module__client_with_examples.post(
         "/nodes/transform",
         json={
             "name": "default.sowtime",
@@ -1919,7 +1916,7 @@ async def test_multiple_joins_to_same_node(
     )
     assert response.status_code == 201
 
-    response = await client_with_roads.post(
+    response = await module__client_with_examples.post(
         "/nodes/transform",
         json={
             "name": "default.fruits",
@@ -1938,7 +1935,7 @@ async def test_multiple_joins_to_same_node(
     )
     assert response.status_code == 201
 
-    response = await client_with_roads.post(
+    response = await module__client_with_examples.post(
         "/nodes/transform",
         json={
             "name": "default.multiple_join_same_node",
@@ -1962,7 +1959,9 @@ async def test_multiple_joins_to_same_node(
     )
     assert response.status_code == 201
 
-    response = await client_with_roads.get("/sql/default.multiple_join_same_node")
+    response = await module__client_with_examples.get(
+        "/sql/default.multiple_join_same_node",
+    )
     assert str(parse(response.json()["sql"])) == str(
         parse(
             """
@@ -2001,17 +2000,16 @@ FROM (
 
 @pytest.mark.asyncio
 async def test_cross_join_unnest(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_with_examples: AsyncClient,
 ):
     """
     Verify cross join unnest on a joined in dimension works
     """
-    custom_client = await client_example_loader(["LATERAL_VIEW"])
-    await custom_client.post(
+    await module__client_with_examples.post(
         "/nodes/basic.corrected_patches/columns/color_id/"
         "?dimension=basic.paint_colors_trino&dimension_column=color_id",
     )
-    response = await custom_client.get(
+    response = await module__client_with_examples.get(
         "/sql/basic.avg_luminosity_patches/",
         params={
             "filters": [],
@@ -2058,17 +2056,16 @@ async def test_cross_join_unnest(
 
 @pytest.mark.asyncio
 async def test_lateral_view_explode(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_with_examples: AsyncClient,
 ):
     """
     Verify lateral view explode on a joined in dimension works
     """
-    custom_client = await client_example_loader(["LATERAL_VIEW"])
-    await custom_client.post(
+    await module__client_with_examples.post(
         "/nodes/basic.corrected_patches/columns/color_id/"
         "?dimension=basic.paint_colors_spark&dimension_column=color_id",
     )
-    response = await custom_client.get(
+    response = await module__client_with_examples.get(
         "/sql/basic.avg_luminosity_patches/",
         params={
             "filters": [],
@@ -2106,12 +2103,12 @@ async def test_lateral_view_explode(
 
 
 @pytest.mark.asyncio
-async def test_get_sql_for_metrics_failures(client_with_account_revenue: AsyncClient):
+async def test_get_sql_for_metrics_failures(module__client_with_examples: AsyncClient):
     """
     Test failure modes when getting sql for multiple metrics.
     """
     # Getting sql for no metrics fails appropriately
-    response = await client_with_account_revenue.get(
+    response = await module__client_with_examples.get(
         "/sql/",
         params={
             "metrics": [],
@@ -2128,7 +2125,7 @@ async def test_get_sql_for_metrics_failures(client_with_account_revenue: AsyncCl
     }
 
     # Getting sql for metric with no dimensions works
-    response = await client_with_account_revenue.get(
+    response = await module__client_with_examples.get(
         "/sql/",
         params={
             "metrics": ["default.number_of_account_types"],
@@ -2140,7 +2137,7 @@ async def test_get_sql_for_metrics_failures(client_with_account_revenue: AsyncCl
 
 
 @pytest.mark.asyncio
-async def test_get_sql_for_metrics_no_access(client_with_roads: AsyncClient):
+async def test_get_sql_for_metrics_no_access(module__client_with_examples: AsyncClient):
     """
     Test getting sql for multiple metrics.
     """
@@ -2154,9 +2151,11 @@ async def test_get_sql_for_metrics_no_access(client_with_roads: AsyncClient):
 
         return _validate_access
 
-    app.dependency_overrides[validate_access] = validate_access_override
+    module__client_with_examples.app.dependency_overrides[
+        validate_access
+    ] = validate_access_override
 
-    response = await client_with_roads.get(
+    response = await module__client_with_examples.get(
         "/sql/",
         params={
             "metrics": ["default.discounted_orders_rate", "default.num_repair_orders"],
@@ -2181,16 +2180,21 @@ async def test_get_sql_for_metrics_no_access(client_with_roads: AsyncClient):
     assert "read:node/default.repair_orders_fact" in data["message"]
     assert "read:node/default.hard_hat" in data["message"]
     assert data["errors"][0]["code"] == 500
-    app.dependency_overrides.clear()
+
+    module__client_with_examples.app.dependency_overrides[
+        validate_access
+    ] = validate_access
+
+    module__client_with_examples.app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio
-async def test_get_sql_for_metrics(client_with_roads: AsyncClient):
+async def test_get_sql_for_metrics(module__client_with_examples: AsyncClient):
     """
     Test getting sql for multiple metrics.
     """
 
-    response = await client_with_roads.get(
+    response = await module__client_with_examples.get(
         "/sql/",
         params={
             "metrics": ["default.discounted_orders_rate", "default.num_repair_orders"],
@@ -2338,11 +2342,13 @@ async def test_get_sql_for_metrics(client_with_roads: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_get_sql_including_dimension_ids(client_with_roads: AsyncClient):
+async def test_get_sql_including_dimension_ids(
+    module__client_with_examples: AsyncClient,
+):
     """
     Test getting SQL when there are dimensions ids included
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_examples.get(
         "/sql/",
         params={
             "metrics": ["default.avg_repair_price", "default.total_repair_cost"],
@@ -2390,7 +2396,7 @@ async def test_get_sql_including_dimension_ids(client_with_roads: AsyncClient):
          FROM default_DOT_repair_orders_fact"""
     assert str(parse(str(data["sql"]))) == str(parse(str(expected)))
 
-    response = await client_with_roads.get(
+    response = await module__client_with_examples.get(
         "/sql/",
         params={
             "metrics": ["default.avg_repair_price", "default.total_repair_cost"],
@@ -2444,13 +2450,13 @@ async def test_get_sql_including_dimension_ids(client_with_roads: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_get_sql_including_dimensions_with_disambiguated_columns(
-    client_with_roads: AsyncClient,
+    module__client_with_examples: AsyncClient,
     duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
 ):
     """
     Test getting SQL that includes dimensions with SQL that has to disambiguate projection columns with prefixes
     """
-    response = await client_with_roads.get(
+    response = await module__client_with_examples.get(
         "/sql/",
         params={
             "metrics": ["default.total_repair_cost"],
@@ -2557,7 +2563,7 @@ async def test_get_sql_including_dimensions_with_disambiguated_columns(
         (1135603.0, "Philadelphia", 39, "B", None),
     ]
 
-    response = await client_with_roads.get(
+    response = await module__client_with_examples.get(
         "/sql/",
         params={
             "metrics": ["default.avg_repair_price", "default.total_repair_cost"],
@@ -2614,12 +2620,12 @@ async def test_get_sql_including_dimensions_with_disambiguated_columns(
 
 @pytest.mark.asyncio
 async def test_get_sql_for_metrics_filters_validate_dimensions(
-    client_with_namespaced_roads: AsyncClient,
+    module__client_with_examples: AsyncClient,
 ):
     """
     Test that we extract the columns from filters to validate that they are from shared dimensions
     """
-    response = await client_with_namespaced_roads.get(
+    response = await module__client_with_examples.get(
         "/sql/",
         params={
             "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
@@ -2640,13 +2646,12 @@ async def test_get_sql_for_metrics_filters_validate_dimensions(
 
 @pytest.mark.asyncio
 async def test_get_sql_for_metrics_orderby_not_in_dimensions(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_with_examples: AsyncClient,
 ):
     """
     Test that we extract the columns from filters to validate that they are from shared dimensions
     """
-    custom_client = await client_example_loader(["ROADS", "NAMESPACED_ROADS"])
-    response = await custom_client.get(
+    response = await module__client_with_examples.get(
         "/sql/",
         params={
             "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
@@ -2666,7 +2671,7 @@ async def test_get_sql_for_metrics_orderby_not_in_dimensions(
 
 @pytest.mark.asyncio
 async def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_with_examples: AsyncClient,
 ):
     """
     Test that we extract the columns from filters to validate that they are from shared dimensions
@@ -2689,9 +2694,10 @@ async def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
 
         return _validate_access
 
-    app.dependency_overrides[validate_access] = validate_access_override
-    custom_client = await client_example_loader(["ROADS", "NAMESPACED_ROADS"])
-    response = await custom_client.get(
+    module__client_with_examples.app.dependency_overrides[
+        validate_access
+    ] = validate_access_override
+    response = await module__client_with_examples.get(
         "/sql/",
         params={
             "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
@@ -2707,17 +2713,17 @@ async def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
         "Columns ['default.hard_hat.city'] in order by "
         "clause must also be specified in the metrics or dimensions"
     )
-    app.dependency_overrides.clear()
+    module__client_with_examples.app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio
-async def test_sql_structs(client_with_roads: AsyncClient):
+async def test_sql_structs(module__client_with_examples: AsyncClient):
     """
     Create a transform with structs and verify that metric expressions that reference these
     structs, along with grouping by dimensions that reference these structs will work when
     building metrics SQL.
     """
-    await client_with_roads.post(
+    await module__client_with_examples.post(
         "/nodes/transform",
         json={
             "name": "default.simple_agg",
@@ -2742,7 +2748,7 @@ GROUP BY
         },
     )
 
-    await client_with_roads.post(
+    await module__client_with_examples.post(
         "/nodes/metric",
         json={
             "name": "default.average_dispatch_delay",
@@ -2758,7 +2764,7 @@ GROUP BY
         },
     ]
     for column in ["order_year", "order_month", "order_day"]:
-        await client_with_roads.post(
+        await module__client_with_examples.post(
             f"/nodes/default.simple_agg/columns/{column}/attributes/",
             json=dimension_attr,
         )
@@ -2795,12 +2801,12 @@ SELECT  default_DOT_simple_agg.default_DOT_average_dispatch_delay,
     default_DOT_simple_agg.default_DOT_simple_agg_DOT_order_month,
     default_DOT_simple_agg.default_DOT_simple_agg_DOT_order_day
  FROM default_DOT_simple_agg"""
-    response = await client_with_roads.get("/sql", params=sql_params)
+    response = await module__client_with_examples.get("/sql", params=sql_params)
     data = response.json()
     assert str(parse(str(expected))) == str(parse(str(data["sql"])))
 
     # Test the same query string but with `ro` as a CTE
-    await client_with_roads.patch(
+    await module__client_with_examples.patch(
         "/nodes/transform",
         json={
             "name": "default.simple_agg",
@@ -2824,7 +2830,7 @@ GROUP BY
         },
     )
 
-    response = await client_with_roads.get("/sql", params=sql_params)
+    response = await module__client_with_examples.get("/sql", params=sql_params)
     data = response.json()
     assert compare_query_strings(data["sql"], expected)
 
@@ -3454,7 +3460,7 @@ async def test_measures_sql_with_filters(  # pylint: disable=too-many-arguments
     sql,
     columns,
     rows,
-    client_with_roads: AsyncClient,
+    module__client_with_examples: AsyncClient,
     duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
 ):
     """
@@ -3465,7 +3471,10 @@ async def test_measures_sql_with_filters(  # pylint: disable=too-many-arguments
         "dimensions": dimensions,
         "filters": filters,
     }
-    response = await client_with_roads.get("/sql/measures", params=sql_params)
+    response = await module__client_with_examples.get(
+        "/sql/measures",
+        params=sql_params,
+    )
     data = response.json()
     assert str(parse(str(data["sql"]))) == str(parse(str(sql)))
     result = duckdb_conn.sql(data["sql"])
@@ -3475,12 +3484,12 @@ async def test_measures_sql_with_filters(  # pylint: disable=too-many-arguments
 
 @pytest.mark.asyncio
 async def test_filter_pushdowns(
-    client_with_roads: AsyncClient,
+    module__client_with_examples: AsyncClient,
 ):
     """
     Pushing down filters should use the column names and not the column aliases
     """
-    response = await client_with_roads.patch(
+    response = await module__client_with_examples.patch(
         "/nodes/default.repair_orders_fact",
         json={
             "query": "SELECT repair_orders.hard_hat_id AS hh_id "
@@ -3489,7 +3498,7 @@ async def test_filter_pushdowns(
     )
     assert response.status_code == 200
 
-    response = await client_with_roads.post(
+    response = await module__client_with_examples.post(
         "/nodes/default.repair_orders_fact/link",
         json={
             "dimension_node": "default.hard_hat",
@@ -3501,7 +3510,7 @@ async def test_filter_pushdowns(
     )
     assert response.status_code == 201
 
-    response = await client_with_roads.get(
+    response = await module__client_with_examples.get(
         "/sql/default.repair_orders_fact",
         params={
             "dimensions": ["default.hard_hat.hard_hat_id"],
@@ -3533,14 +3542,14 @@ async def test_filter_pushdowns(
 @pytest.mark.asyncio
 async def test_sql_use_materialized_table(
     measures_sql_request,  # pylint: disable=redefined-outer-name
-    client_with_roads: AsyncClient,
+    module__client_with_examples: AsyncClient,
 ):
     """
     Posting a materialized table for a dimension node should result in building SQL
     that uses the materialized table whenever a dimension attribute on the node is
     requested.
     """
-    availability_response = await client_with_roads.post(
+    availability_response = await module__client_with_examples.post(
         "/data/default.hard_hat/availability",
         json={
             "catalog": "default",
@@ -3616,14 +3625,14 @@ SELECT  default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_repair
 
 @pytest.mark.asyncio
 async def test_filter_on_source_nodes(
-    client_with_basic: AsyncClient,
+    module__client_with_examples: AsyncClient,
 ):
     """
     Verify that filtering using dimensions that are available on a given node's upstream
     source nodes works, even if these dimensions are not available on the node itself.
     """
     # Create a dimension node: `default.event_date`
-    response = await client_with_basic.post(
+    response = await module__client_with_examples.post(
         "/nodes/dimension",
         json={
             "name": "default.event_date",
@@ -3641,7 +3650,7 @@ async def test_filter_on_source_nodes(
     assert response.status_code == 201
 
     # Create a source node: `default.events`
-    response = await client_with_basic.post(
+    response = await module__client_with_examples.post(
         "/nodes/source",
         json={
             "name": "default.events",
@@ -3663,7 +3672,7 @@ async def test_filter_on_source_nodes(
     assert response.status_code == 200
 
     # Link `default.events` transform to the `default.event_date` dimension node on `dateint`
-    response = await client_with_basic.post(
+    response = await module__client_with_examples.post(
         "/nodes/default.events/link",
         json={
             "dimension_node": "default.event_date",
@@ -3674,7 +3683,7 @@ async def test_filter_on_source_nodes(
     assert response.status_code == 201
 
     # Create a transform on `default.events` that aggregates it to the user level
-    response = await client_with_basic.post(
+    response = await module__client_with_examples.post(
         "/nodes/transform",
         json={
             "name": "default.events_agg",
@@ -3693,7 +3702,9 @@ async def test_filter_on_source_nodes(
     assert response.status_code == 201
 
     # Request the available dimensions for `default.events_agg`
-    response = await client_with_basic.get("/nodes/default.events_agg/dimensions")
+    response = await module__client_with_examples.get(
+        "/nodes/default.events_agg/dimensions",
+    )
     assert response.json() == [
         {
             "is_primary_key": True,
@@ -3716,7 +3727,7 @@ async def test_filter_on_source_nodes(
     ]
 
     # Request SQL for default.events_agg with filters on `default.event_date`
-    response = await client_with_basic.get(
+    response = await module__client_with_examples.get(
         "/sql/default.events_agg",
         params={
             "filters": ["default.event_date.dateint BETWEEN 20240101 AND 20240201"],
