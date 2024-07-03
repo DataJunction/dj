@@ -229,6 +229,15 @@ async def test_export_namespace_as_notebook(
     """
     Verify exporting all nodes in a namespace as a notebook.
     """
+    response = await module__client_with_roads.post(
+        "/nodes/default.repair_order_details/columns/repair_type_id/attributes/",
+        json=[
+            {
+                "namespace": "system",
+                "name": "dimension",
+            },
+        ],
+    )
     response = await module__client_with_roads.get(
         "/datajunction-clients/python/notebook?namespace=default",
     )
@@ -280,6 +289,13 @@ NAMESPACE_MAPPING = {
         notebook["cells"][6]["source"]
         == load_expected_file(
             "notebook.link_dimension.txt",
+        ).strip()
+    )
+    # Check column attributes
+    assert (
+        notebook["cells"][7]["source"]
+        == load_expected_file(
+            "notebook.set_attribute.txt",
         ).strip()
     )
 
@@ -344,7 +360,7 @@ async def test_export_cube_as_notebook(
         "&include_sources=true&include_dimensions=true",
     )
     notebook = response.json()
-    assert len(notebook["cells"]) == 20
+    assert len(notebook["cells"]) == 21
     assert (
         notebook["cells"][2]["source"]
         == """### Upserting Nodes:
@@ -358,7 +374,7 @@ async def test_export_cube_as_notebook(
 * default.roads_cube"""
     )
     assert (
-        trim_trailing_whitespace(notebook["cells"][19]["source"])
+        trim_trailing_whitespace(notebook["cells"][20]["source"])
         == load_expected_file(
             "notebook.create_cube.txt",
         ).strip()

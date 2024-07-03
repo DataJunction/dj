@@ -1,0 +1,7 @@
+{{ node_short_name }}.set_column_attributes(
+    "{{ column_name }}",
+    [{%- for attribute in attributes %}
+        ColumnAttribute(namespace="{{ attribute.namespace }}", name="{{ attribute.name }}"),
+        {%- endfor %}{% if attributes %}
+    {% else %}{% endif %}],
+)
