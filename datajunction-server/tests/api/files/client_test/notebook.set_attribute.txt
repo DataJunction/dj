@@ -1,0 +1,6 @@
+repair_order_details.set_column_attributes(
+    "repair_type_id",
+    [
+        ColumnAttribute(namespace="system", name="dimension"),
+    ],
+)

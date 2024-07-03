@@ -1,5 +1,6 @@
 from datajunction import (
-    DJBuilder, Source, Dimension, Transform, Metric, Namespace, MetricUnit, MetricDirection
+    DJBuilder, Source, Dimension, Transform, Metric,
+    Namespace, MetricUnit, MetricDirection, ColumnAttribute,
 )
 
 DJ_URL = "http://test"
