@@ -70,6 +70,7 @@ async def test_read_node(client_with_roads: AsyncClient) -> None:
         "default.hard_hat_state",
         "default.hard_hat_to_delete",
         "default.hard_hat",
+        "default.hard_hat_2",
     }
 
 
@@ -237,6 +238,7 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "default.regional_repair_efficiency",
         "foo.bar.num_repair_orders",
         "default.hard_hat",
+        "default.hard_hat_2",
         "foo.bar.municipality_municipality_type",
         "basic.dimension.countries",
         "default.number_of_account_types",
