@@ -116,6 +116,15 @@ class Column(Base):  # type: ignore
             for attr in self.attributes  # pylint: disable=not-an-iterable
         )
 
+    def has_attributes_besides(self, attribute_name: str) -> bool:
+        """
+        Whether the column has any attribute besides the one specified.
+        """
+        return any(
+            attr.attribute_type.name != attribute_name
+            for attr in self.attributes  # pylint: disable=not-an-iterable
+        )
+
     def __hash__(self) -> int:
         return hash(self.id)
 
