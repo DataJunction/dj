@@ -46,7 +46,6 @@ class TestGeneratedClient:  # pylint: disable=too-many-public-methods, protected
         ]
         for node in nodes:
             self.run_generated_create_node_client_code(session_with_examples, node)
-            print("RAn ", node, "!!")
             shortname = node.split(".")[-1]
             result = session_with_examples.get(f"/nodes/roadscopy.{shortname}").json()
             assert result["name"] == f"roadscopy.{shortname}"
@@ -63,7 +62,6 @@ class TestGeneratedClient:  # pylint: disable=too-many-public-methods, protected
                 "DJBuilder(DJ_URL)",
                 "DJBuilder(requests_session=session_with_examples)",
             ).replace('dj.basic_login("dj", "dj")', "")
-            print("dimension_links_client_code", dimension_links_client_code)
             exec(dimension_links_client_code)  # pylint: disable=exec-used
 
         # Check linked dimensions

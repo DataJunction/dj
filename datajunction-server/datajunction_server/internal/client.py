@@ -82,6 +82,43 @@ def python_client_code_for_linking_complex_dimension(
     )
 
 
+async def python_client_code_for_setting_column_attributes(
+    session: AsyncSession,
+    node_name: str,
+):
+    """
+    Returns the python client code to set column attributes.
+    """
+    node_short_name = node_name.split(SEPARATOR)[-1]
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[
+            joinedload(Node.current).options(
+                selectinload(NodeRevision.columns).options(
+                    selectinload(Column.attributes),
+                ),
+            ),
+        ],
+    )
+
+    template = jinja_env.get_template("set_column_attributes.j2")
+    snippets = [
+        template.render(
+            node_short_name=node_short_name,
+            column_name=col.name,
+            attributes=[
+                attr.attribute_type
+                for attr in col.attributes
+                if attr.attribute_type.name != "primary_key"
+            ],
+        )
+        for col in node.current.columns  # type: ignore
+        if col.has_attributes_besides("primary_key")
+    ]
+    return "\n\n".join(snippets)
+
+
 async def python_client_create_node(
     session: AsyncSession,
     node_name: str,
@@ -228,7 +265,7 @@ async def export_nodes_notebook_cells(session: AsyncSession, nodes: List[Node]):
     A node export means the following:
     - Client code to create the node and set the right tags
     - Client code to link all dimensions set on the node
-    - TODO: Client code to set all column attributes on the node
+    - Client code to set all column attributes on the node
     """
     cells = []
     cells.append(
@@ -249,7 +286,6 @@ async def export_nodes_notebook_cells(session: AsyncSession, nodes: List[Node]):
         namespace = SEPARATOR.join(node.name.split(SEPARATOR)[:-1])
         cells.append(
             new_code_cell(
-                # for cubes: NAMESPACE_MAPPING['{SEPARATOR.join(metric.split(SEPARATOR)[:-1])}']
                 await python_client_create_node(
                     session,
                     node.name,
@@ -276,4 +312,17 @@ async def export_nodes_notebook_cells(session: AsyncSession, nodes: List[Node]):
                 ],
             )
             cells.append(new_code_cell(link_dimensions))
+
+        # Add cell for setting column attributes if needed
+        if any(
+            col.has_attributes_besides("primary_key") for col in node.current.columns
+        ):
+            cells.append(
+                new_code_cell(
+                    await python_client_code_for_setting_column_attributes(
+                        session,
+                        node.name,
+                    ),
+                ),
+            )
     return cells
