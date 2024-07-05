@@ -4438,7 +4438,7 @@ class Unnest(TableFunction):
     It will generate a new row for each element in the specified column.
     """
 
-    dialects = [Dialect.SPARK, Dialect.DRUID]
+    dialects = [Dialect.TRINO, Dialect.DRUID]
 
 
 @Unnest.register
