@@ -17,7 +17,7 @@ class TestDataAccessControl:  # pylint: disable=too-few-public-methods
     @pytest.mark.asyncio
     async def test_get_metric_data_unauthorized(
         self,
-        module__client_with_basic,
+        module__client_with_examples: AsyncClient,
     ) -> None:
         """
         Test retrieving data for a metric
@@ -30,7 +30,7 @@ class TestDataAccessControl:  # pylint: disable=too-few-public-methods
             return _validate_access
 
         app.dependency_overrides[validate_access] = validate_access_override
-        response = await module__client_with_basic.get("/data/basic.num_comments/")
+        response = await module__client_with_examples.get("/data/basic.num_comments/")
         data = response.json()
         assert data["message"] == (
             "Authorization of User `dj` for this request failed."
