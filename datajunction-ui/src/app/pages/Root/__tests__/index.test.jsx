@@ -39,7 +39,7 @@ describe('<Root />', () => {
         'href',
         '/sql',
       );
-      expect(screen.getByText('Docs').closest('a')).toHaveAttribute(
+      expect(screen.getByText('Open-Source').closest('a')).toHaveAttribute(
         'href',
         'https://www.datajunction.io',
       );
