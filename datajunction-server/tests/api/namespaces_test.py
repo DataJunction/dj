@@ -10,11 +10,13 @@ from datajunction_server.models import access
 
 
 @pytest.mark.asyncio
-async def test_list_all_namespaces(client_with_examples: AsyncClient) -> None:
+async def test_list_all_namespaces(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
     """
     Test ``GET /namespaces/``.
     """
-    response = await client_with_examples.get("/namespaces/")
+    response = await module__client_with_all_examples.get("/namespaces/")
     assert response.status_code in (200, 201)
     assert response.json() == [
         {"namespace": "basic", "num_nodes": 8},
@@ -48,134 +50,57 @@ async def test_list_all_namespaces(client_with_examples: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_all_namespaces_access_limited(
-    client_with_examples: AsyncClient,
+async def test_list_nodes_by_namespace(
+    module__client_with_all_examples: AsyncClient,
 ) -> None:
-    """
-    Test ``GET /namespaces/``.
-    """
-
-    def validate_access_override():
-        def _validate_access(access_control: access.AccessControl):
-            for request in access_control.requests:
-                if (
-                    request.access_object.resource_type == access.ResourceType.NAMESPACE
-                    and "dbt" in request.access_object.name
-                ):
-                    request.approve()
-                else:
-                    request.deny()
-
-        return _validate_access
-
-    app.dependency_overrides[validate_access] = validate_access_override
-
-    response = await client_with_examples.get("/namespaces/")
-
-    assert response.status_code in (200, 201)
-    assert response.json() == [
-        {"namespace": "dbt.dimension", "num_nodes": 1},
-        {"namespace": "dbt.source", "num_nodes": 0},
-        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
-        {"namespace": "dbt.source.stripe", "num_nodes": 1},
-        {"namespace": "dbt.transform", "num_nodes": 1},
-    ]
-    app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
-async def test_list_all_namespaces_access_bad_injection(
-    client_with_examples: AsyncClient,
-) -> None:
-    """
-    Test ``GET /namespaces/``.
-    """
-
-    def validate_access_override():
-        def _validate_access(access_control: access.AccessControl):
-            for i, request in enumerate(access_control.requests):
-                if i != 0:
-                    request.approve()
-
-        return _validate_access
-
-    app.dependency_overrides[validate_access] = validate_access_override
-
-    response = await client_with_examples.get("/namespaces/")
-
-    assert response.status_code == 403
-    assert response.json() == {
-        "message": "Injected `validate_access` must approve or deny all requests.",
-        "errors": [
-            {
-                "code": 501,
-                "message": "Injected `validate_access` must approve or deny all requests.",
-                "debug": None,
-                "context": "",
-            },
-        ],
-        "warnings": [],
-    }
-    app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
-async def test_list_all_namespaces_deny_all(client_with_examples: AsyncClient) -> None:
-    """
-    Test ``GET /namespaces/``.
-    """
-
-    def validate_access_override():
-        def _validate_access(access_control: access.AccessControl):
-            access_control.deny_all()
-
-        return _validate_access
-
-    app.dependency_overrides[validate_access] = validate_access_override
-
-    response = await client_with_examples.get("/namespaces/")
-
-    assert response.status_code in (200, 201)
-    assert response.json() == []
-    app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
-async def test_list_nodes_by_namespace(client_with_basic: AsyncClient) -> None:
     """
     Test ``GET /namespaces/{namespace}/``.
     """
-    response = await client_with_basic.get("/namespaces/basic.source/")
+    response = await module__client_with_all_examples.get("/namespaces/basic.source/")
     assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "basic.source.users",
         "basic.source.comments",
     }
 
-    response = await client_with_basic.get("/namespaces/basic/")
+    response = await module__client_with_all_examples.get("/namespaces/basic/")
     assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
+        "basic.avg_luminosity_patches",
+        "basic.corrected_patches",
         "basic.source.users",
         "basic.dimension.users",
+        "basic.murals",
         "basic.source.comments",
         "basic.dimension.countries",
         "basic.transform.country_agg",
         "basic.num_comments",
         "basic.num_users",
+        "basic.paint_colors_spark",
+        "basic.paint_colors_trino",
+        "basic.patches",
     }
 
-    response = await client_with_basic.get("/namespaces/basic/?type_=dimension")
+    response = await module__client_with_all_examples.get(
+        "/namespaces/basic/?type_=dimension",
+    )
     assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "basic.dimension.users",
         "basic.dimension.countries",
+        "basic.paint_colors_trino",
+        "basic.paint_colors_spark",
     }
 
-    response = await client_with_basic.get("/namespaces/basic/?type_=source")
+    response = await module__client_with_all_examples.get(
+        "/namespaces/basic/?type_=source",
+    )
     assert response.status_code in (200, 201)
     assert {n["name"] for n in response.json()} == {
         "basic.source.comments",
         "basic.source.users",
+        "basic.murals",
+        "basic.patches",
     }
 
 
@@ -354,11 +279,11 @@ async def test_deactivate_namespaces(client_with_namespaced_roads: AsyncClient) 
 
 
 @pytest.mark.asyncio
-async def test_hard_delete_namespace(client_with_examples: AsyncClient):
+async def test_hard_delete_namespace(client_with_namespaced_roads: AsyncClient):
     """
     Test hard deleting a namespace
     """
-    response = await client_with_examples.delete("/namespaces/foo/hard/")
+    response = await client_with_namespaced_roads.delete("/namespaces/foo/hard/")
     assert response.json()["message"] == (
         "Cannot hard delete namespace `foo` as there are still the following nodes "
         "under it: `['foo.bar.avg_length_of_employment', "
@@ -377,16 +302,20 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
         "action cannot be undone."
     )
 
-    await client_with_examples.post("/namespaces/foo/")
-    await client_with_examples.post("/namespaces/foo.bar.baz/")
-    await client_with_examples.post("/namespaces/foo.bar.baf/")
-    await client_with_examples.post("/namespaces/foo.bar.bif.d/")
+    await client_with_namespaced_roads.post("/namespaces/foo/")
+    await client_with_namespaced_roads.post("/namespaces/foo.bar.baz/")
+    await client_with_namespaced_roads.post("/namespaces/foo.bar.baf/")
+    await client_with_namespaced_roads.post("/namespaces/foo.bar.bif.d/")
 
     # Deactivating a few nodes should still allow the hard delete to go through
-    await client_with_examples.delete("/nodes/foo.bar.avg_length_of_employment")
-    await client_with_examples.delete("/nodes/foo.bar.avg_repair_order_discounts")
+    await client_with_namespaced_roads.delete(
+        "/nodes/foo.bar.avg_length_of_employment",
+    )
+    await client_with_namespaced_roads.delete(
+        "/nodes/foo.bar.avg_repair_order_discounts",
+    )
 
-    hard_delete_response = await client_with_examples.delete(
+    hard_delete_response = await client_with_namespaced_roads.delete(
         "/namespaces/foo.bar/hard/?cascade=true",
     )
     assert hard_delete_response.json() == {
@@ -517,11 +446,6 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
             "foo.bar.repair_order": [
                 {
                     "effect": "broken link",
-                    "name": "foo.bar.total_repair_cost",
-                    "status": "valid",
-                },
-                {
-                    "effect": "broken link",
                     "name": "foo.bar.total_repair_order_discounts",
                     "status": "valid",
                 },
@@ -533,6 +457,11 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
                 {
                     "effect": "broken link",
                     "name": "foo.bar.repair_order_details",
+                    "status": "valid",
+                },
+                {
+                    "effect": "broken link",
+                    "name": "foo.bar.total_repair_cost",
                     "status": "valid",
                 },
             ],
@@ -564,26 +493,16 @@ async def test_hard_delete_namespace(client_with_examples: AsyncClient):
         },
         "message": "The namespace `foo.bar` has been completely removed.",
     }
-    list_namespaces_response = await client_with_examples.get("/namespaces/")
+    list_namespaces_response = await client_with_namespaced_roads.get(
+        "/namespaces/",
+    )
     assert list_namespaces_response.json() == [
-        {"namespace": "basic", "num_nodes": 8},
-        {"namespace": "basic.dimension", "num_nodes": 2},
-        {"namespace": "basic.source", "num_nodes": 2},
-        {"namespace": "basic.transform", "num_nodes": 1},
-        {"namespace": "dbt.dimension", "num_nodes": 1},
-        {"namespace": "dbt.source", "num_nodes": 0},
-        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
-        {"namespace": "dbt.source.stripe", "num_nodes": 1},
-        {"namespace": "dbt.transform", "num_nodes": 1},
-        {"namespace": "default", "num_nodes": 62},
-        {"namespace": "different.basic", "num_nodes": 2},
-        {"namespace": "different.basic.dimension", "num_nodes": 2},
-        {"namespace": "different.basic.source", "num_nodes": 2},
-        {"namespace": "different.basic.transform", "num_nodes": 1},
+        {"namespace": "basic", "num_nodes": 0},
+        {"namespace": "default", "num_nodes": 0},
         {"namespace": "foo", "num_nodes": 0},
     ]
 
-    response = await client_with_examples.delete(
+    response = await client_with_namespaced_roads.delete(
         "/namespaces/jaffle_shop/hard/?cascade=true",
     )
     assert response.json() == {
@@ -656,12 +575,12 @@ async def test_create_namespace(client_with_service_setup: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_export_namespaces(client_with_examples: AsyncClient):
+async def test_export_namespaces(client_with_roads: AsyncClient):
     """
     Test exporting a namespace to a project definition
     """
     # Create a cube so that the cube definition export path is tested
-    response = await client_with_examples.post(
+    response = await client_with_roads.post(
         "/nodes/cube/",
         json={
             "name": "default.example_cube",
@@ -673,7 +592,7 @@ async def test_export_namespaces(client_with_examples: AsyncClient):
         },
     )
     assert response.status_code in (200, 201)
-    response = await client_with_examples.get(
+    response = await client_with_roads.get(
         "/namespaces/default/export/",
     )
     project_definition = response.json()
@@ -687,68 +606,136 @@ async def test_export_namespaces(client_with_examples: AsyncClient):
         "metrics": ["default.num_repair_orders"],
     }
     assert set(node_defs.keys()) == {
-        "repair_orders.source.yaml",
-        "repair_order_details.source.yaml",
-        "repair_type.source.yaml",
-        "contractors.source.yaml",
-        "municipality_municipality_type.source.yaml",
-        "municipality_type.source.yaml",
-        "municipality.source.yaml",
-        "dispatchers.source.yaml",
-        "hard_hats.source.yaml",
-        "hard_hat_state.source.yaml",
-        "hard_hat_to_delete.dimension.yaml",
-        "us_states.source.yaml",
-        "us_region.source.yaml",
-        "repair_order.dimension.yaml",
+        "avg_length_of_employment.metric.yaml",
+        "avg_repair_order_discounts.metric.yaml",
+        "avg_repair_price.metric.yaml",
+        "avg_time_to_dispatch.metric.yaml",
         "contractor.dimension.yaml",
+        "contractors.source.yaml",
+        "discounted_orders_rate.metric.yaml",
+        "dispatcher.dimension.yaml",
+        "dispatchers.source.yaml",
+        "example_cube.cube.yaml",
         "hard_hat.dimension.yaml",
         "hard_hat_2.dimension.yaml",
+        "hard_hat_state.source.yaml",
+        "hard_hat_to_delete.dimension.yaml",
+        "hard_hats.source.yaml",
         "local_hard_hats.dimension.yaml",
         "local_hard_hats_1.dimension.yaml",
         "local_hard_hats_2.dimension.yaml",
-        "us_state.dimension.yaml",
-        "dispatcher.dimension.yaml",
+        "municipality.source.yaml",
         "municipality_dim.dimension.yaml",
-        "regional_level_agg.transform.yaml",
+        "municipality_municipality_type.source.yaml",
+        "municipality_type.source.yaml",
         "national_level_agg.transform.yaml",
-        "repair_orders_fact.transform.yaml",
-        "regional_repair_efficiency.metric.yaml",
         "num_repair_orders.metric.yaml",
-        "avg_repair_price.metric.yaml",
+        "regional_level_agg.transform.yaml",
+        "regional_repair_efficiency.metric.yaml",
+        "repair_order.dimension.yaml",
+        "repair_order_details.source.yaml",
+        "repair_orders.source.yaml",
+        "repair_orders_fact.transform.yaml",
+        "repair_type.source.yaml",
         "total_repair_cost.metric.yaml",
-        "avg_length_of_employment.metric.yaml",
-        "discounted_orders_rate.metric.yaml",
         "total_repair_order_discounts.metric.yaml",
-        "avg_repair_order_discounts.metric.yaml",
-        "avg_time_to_dispatch.metric.yaml",
-        "account_type_table.source.yaml",
-        "payment_type_table.source.yaml",
-        "revenue.source.yaml",
-        "payment_type.dimension.yaml",
-        "account_type.dimension.yaml",
-        "large_revenue_payments_only.transform.yaml",
-        "large_revenue_payments_only_1.transform.yaml",
-        "large_revenue_payments_only_2.transform.yaml",
-        "large_revenue_payments_and_business_only.transform.yaml",
-        "large_revenue_payments_and_business_only_1.transform.yaml",
-        "number_of_account_types.metric.yaml",
-        "event_source.source.yaml",
-        "long_events.transform.yaml",
-        "country_dim.dimension.yaml",
-        "device_ids_count.metric.yaml",
-        "long_events_distinct_countries.metric.yaml",
-        "sales.source.yaml",
-        "items.dimension.yaml",
-        "items_sold_count.metric.yaml",
-        "total_profit.metric.yaml",
-        "date.source.yaml",
-        "countries.source.yaml",
-        "users.source.yaml",
-        "date_dim.dimension.yaml",
-        "special_country_dim.dimension.yaml",
-        "user_dim.dimension.yaml",
-        "avg_user_age.metric.yaml",
-        "example_cube.cube.yaml",
+        "us_region.source.yaml",
+        "us_state.dimension.yaml",
+        "us_states.source.yaml",
     }
     assert {d["directory"] for d in project_definition} == {""}
+
+
+@pytest.mark.asyncio
+async def test_list_all_namespaces_access_limited(
+    client_with_dbt: AsyncClient,
+) -> None:
+    """
+    Test ``GET /namespaces/``.
+    """
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            for request in access_control.requests:
+                if (
+                    request.access_object.resource_type == access.ResourceType.NAMESPACE
+                    and "dbt" in request.access_object.name
+                ):
+                    request.approve()
+                else:
+                    request.deny()
+
+        return _validate_access
+
+    app.dependency_overrides[validate_access] = validate_access_override
+
+    response = await client_with_dbt.get("/namespaces/")
+
+    assert response.status_code in (200, 201)
+    assert response.json() == [
+        {"namespace": "dbt.dimension", "num_nodes": 1},
+        {"namespace": "dbt.source", "num_nodes": 0},
+        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
+        {"namespace": "dbt.source.stripe", "num_nodes": 1},
+        {"namespace": "dbt.transform", "num_nodes": 1},
+    ]
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_all_namespaces_access_bad_injection(
+    client_with_service_setup: AsyncClient,
+) -> None:
+    """
+    Test ``GET /namespaces/``.
+    """
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            for i, request in enumerate(access_control.requests):
+                if i != 0:
+                    request.approve()
+
+        return _validate_access
+
+    app.dependency_overrides[validate_access] = validate_access_override
+
+    response = await client_with_service_setup.get("/namespaces/")
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "message": "Injected `validate_access` must approve or deny all requests.",
+        "errors": [
+            {
+                "code": 501,
+                "message": "Injected `validate_access` must approve or deny all requests.",
+                "debug": None,
+                "context": "",
+            },
+        ],
+        "warnings": [],
+    }
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_all_namespaces_deny_all(
+    client_with_service_setup: AsyncClient,
+) -> None:
+    """
+    Test ``GET /namespaces/``.
+    """
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            access_control.deny_all()
+
+        return _validate_access
+
+    app.dependency_overrides[validate_access] = validate_access_override
+
+    response = await client_with_service_setup.get("/namespaces/")
+
+    assert response.status_code in (200, 201)
+    assert response.json() == []
+    app.dependency_overrides.clear()
