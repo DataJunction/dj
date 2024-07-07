@@ -958,3 +958,13 @@ def module__query_service_client(
         mock_run_backfill,
     )
     yield qs_client
+
+
+@pytest_asyncio.fixture(scope="module")
+async def module__client_with_all_examples(
+    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a DJ client fixture with all examples
+    """
+    return await module__client_example_loader(None)
