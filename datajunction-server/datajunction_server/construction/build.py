@@ -183,20 +183,24 @@ async def _build_joins_for_dimension_link(
         initial_nodes.add(link.dimension.current)
         tables[link.dimension.current].append(join_right)  # type: ignore
 
+        # TODO: We can reenable this optimization after we figure out the  # pylint: disable=fix-me
+        # best way to pass in filters down to each dimension node build, so that we can include
+        # the columns referenced in those filters.
+        # --
         # Optimize query by filtering down to only the necessary columns
-        selected_columns = {col.name.name for col in required_dimension_columns}
-        join_columns = {
-            join_col.name.name
-            for join_col in join.criteria.on.find_all(ast.Column)  # type: ignore
-        }
-        joinable_dim_columns = {
-            col.name.name
-            for dim_link in link.dimension.current.dimension_links
-            for col in dim_link.joins()[0].criteria.on.find_all(ast.Column)
-        }
-        necessary_columns = selected_columns.union(join_columns).union(
-            joinable_dim_columns,
-        )
+        # selected_columns = {col.name.name for col in required_dimension_columns}
+        # join_columns = {
+        #     join_col.name.name
+        #     for join_col in join.criteria.on.find_all(ast.Column)  # type: ignore
+        # }
+        # joinable_dim_columns = {
+        #     col.name.name
+        #     for dim_link in link.dimension.current.dimension_links
+        #     for col in dim_link.joins()[0].criteria.on.find_all(ast.Column)
+        # }
+        # necessary_columns = selected_columns.union(join_columns).union(
+        #     joinable_dim_columns,
+        # )
         if isinstance(join_right.child, ast.Query):
             join_right.child.select.projection = [
                 col
@@ -571,7 +575,7 @@ async def _build_select_ast(
     For the ones that cannot be sourced directly, attempt to join them via dimension links.
     """
     tables = _get_tables_from_select(select)
-    dimension_columns = dimension_columns_mapping(select)
+    dimension_columns = dimension_columns_mapping(select, filters)
     await join_tables_for_dimensions(
         session,
         dimension_columns,
