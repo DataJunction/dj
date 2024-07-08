@@ -14,7 +14,6 @@ from sqlalchemy import create_engine, text
 from sqlmodel import Session, select
 
 from djqs.config import Settings
-from djqs.models.catalog import Catalog
 from djqs.models.engine import Engine, EngineType
 from djqs.models.query import (
     ColumnMetadata,
@@ -78,9 +77,6 @@ def run_query(
     columns (name and type) and a stream of rows (tuples).
     """
     _logger.info("Running query on catalog %s", query.catalog_name)
-    catalog = session.exec(
-        select(Catalog).where(Catalog.name == query.catalog_name),
-    ).one()
     engine = session.exec(
         select(Engine)
         .where(Engine.name == query.engine_name)
