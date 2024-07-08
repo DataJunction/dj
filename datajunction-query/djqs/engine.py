@@ -104,8 +104,7 @@ def run_query(
         cur = conn.cursor()
 
         return run_snowflake_query(query, cur)
-
-    sqla_engine = create_engine(engine.uri, **catalog.extra_params)
+    sqla_engine = create_engine(engine.uri, connect_args=engine.extra_params)
     connection = sqla_engine.connect()
 
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
