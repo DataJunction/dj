@@ -40,7 +40,7 @@ def table_columns(
     )
     external_columns = get_columns(
         uri=engine.uri,
-        extra_params={},
+        extra_params=engine.extra_params,
         catalog=table_parts[0],
         schema=table_parts[1],
         table=table_parts[2],
