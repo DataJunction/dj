@@ -367,6 +367,46 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             )
         assert "Error response from query service" in str(exc_info)
 
+    def test_sql(self, client):
+        """
+        Test SQL retrieval
+        """
+        # Retrieve sql for metrics
+        result = client.sql(
+            metrics=["default.avg_repair_price", "default.num_repair_orders"],
+            dimensions=["default.hard_hat.city"],
+            filters=["default.hard_hat.state = 'NY'"],
+        )
+        assert isinstance(result, str)
+
+        # Retrieve sql for a node
+        result = client.node_sql(
+            node_name="default.repair_order_details",
+            dimensions=["default.hard_hat.city"],
+            filters=["default.hard_hat.state = 'NY'"],
+        )
+        assert isinstance(result, str)
+
+        # Retrieve sql for a node (error)
+        result = client.node_sql(
+            node_name="default.repair_order_details",
+            dimensions=["default.repair_order.repair_order_id1"],
+            filters=["default.repair_order.repair_order_id = 1222"],
+        )
+        assert result["message"] == (
+            "default.repair_order.repair_order_id1 are not available dimensions"
+            " on default.repair_order_details"
+        )
+
+        # Retrieve measures sql for metrics
+        result = client.sql(
+            metrics=["default.avg_repair_price", "default.num_repair_orders"],
+            dimensions=["default.hard_hat.city"],
+            filters=["default.hard_hat.state = 'NY'"],
+            measures=True,
+        )
+        assert isinstance(result, str)
+
     #
     # Data Catalog and Engines
     #
