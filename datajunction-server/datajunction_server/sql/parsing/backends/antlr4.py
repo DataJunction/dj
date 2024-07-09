@@ -703,7 +703,7 @@ def _(ctx: sbp.StarContext):
     namespace = None
     if qual_name := ctx.qualifiedName():
         namespace = visit(qual_name)
-    star = ast.Wildcard()
+    star = ast.Wildcard(name=ast.Name("*", namespace=ast.Name(namespace)))
     star.name.namespace = namespace
     return star
 

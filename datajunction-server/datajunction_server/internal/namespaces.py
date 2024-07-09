@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.api.helpers import get_node_namespace
 from datajunction_server.database.history import ActivityType, EntityType, History
@@ -26,6 +26,7 @@ from datajunction_server.internal.nodes import (
 )
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.dag import topological_sort
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
 
@@ -229,10 +230,10 @@ async def hard_delete_namespace(
     """
     Hard delete a node namespace.
     """
-    node_names = (
+    nodes = (
         (
             await session.execute(
-                select(Node.name)
+                select(Node)
                 .where(
                     or_(
                         Node.namespace.like(
@@ -241,27 +242,33 @@ async def hard_delete_namespace(
                         Node.namespace == namespace,
                     ),
                 )
-                .order_by(Node.name),
+                .order_by(Node.name)
+                .options(
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.parents),
+                    ),
+                ),
             )
         )
+        .unique()
         .scalars()
         .all()
     )
 
-    if not cascade and node_names:
+    if not cascade and nodes:
         raise DJActionNotAllowedException(
             message=(
                 f"Cannot hard delete namespace `{namespace}` as there are still the "
-                f"following nodes under it: `{node_names}`. Set `cascade` to true to "
-                "additionally hard delete the above nodes in this namespace. WARNING:"
+                f"following nodes under it: `{[node.name for node in nodes]}`. Set `cascade` to "
+                "true to additionally hard delete the above nodes in this namespace. WARNING:"
                 " this action cannot be undone."
             ),
         )
 
     impacts = {}
-    for node_name in node_names:
-        impacts[node_name] = await hard_delete_node(
-            node_name,
+    for node in reversed(topological_sort(nodes)):
+        impacts[node.name] = await hard_delete_node(
+            node.name,
             session,
             current_user=current_user,
         )
