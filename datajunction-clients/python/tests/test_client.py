@@ -387,6 +387,17 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         )
         assert isinstance(result, str)
 
+        # Retrieve sql for a node (error)
+        result = client.node_sql(
+            node_name="default.repair_order_details",
+            dimensions=["default.repair_order.repair_order_id1"],
+            filters=["default.repair_order.repair_order_id = 1222"],
+        )
+        assert result["message"] == (
+            "default.repair_order.repair_order_id1 are not available dimensions"
+            " on default.repair_order_details"
+        )
+
         # Retrieve measures sql for metrics
         result = client.sql(
             metrics=["default.avg_repair_price", "default.num_repair_orders"],
