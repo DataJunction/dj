@@ -36,7 +36,7 @@ def table_columns(
 
     if engine_version == "":
         version = ""
-    else:
+    else:  # pragma: no cover
         version = engine_version or settings.default_reflection_engine_version
 
     engine = get_engine(
