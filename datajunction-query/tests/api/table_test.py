@@ -26,7 +26,7 @@ def test_table_columns(client: TestClient, mocker):
         {"name": "col_e", "type": "DECIMAL"},
     ]
     mocker.patch("djqs.api.tables.get_columns", return_value=columns)
-    response = client.get("/table/foo.bar.baz/columns/")
+    response = client.get("/table/foo.bar.baz/columns/?engine=default&engine_version=")
     assert response.json() == {
         "name": "foo.bar.baz",
         "columns": [
