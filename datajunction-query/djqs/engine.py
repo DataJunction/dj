@@ -14,7 +14,6 @@ from sqlalchemy import create_engine, text
 from sqlmodel import Session, select
 
 from djqs.config import Settings
-from djqs.models.catalog import Catalog
 from djqs.models.engine import Engine, EngineType
 from djqs.models.query import (
     ColumnMetadata,
@@ -78,9 +77,6 @@ def run_query(
     columns (name and type) and a stream of rows (tuples).
     """
     _logger.info("Running query on catalog %s", query.catalog_name)
-    catalog = session.exec(
-        select(Catalog).where(Catalog.name == query.catalog_name),
-    ).one()
     engine = session.exec(
         select(Engine)
         .where(Engine.name == query.engine_name)
@@ -104,8 +100,7 @@ def run_query(
         cur = conn.cursor()
 
         return run_snowflake_query(query, cur)
-
-    sqla_engine = create_engine(engine.uri, **catalog.extra_params)
+    sqla_engine = create_engine(engine.uri, connect_args=engine.extra_params)
     connection = sqla_engine.connect()
 
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []

@@ -5,7 +5,17 @@ engines:
     uri: duckdb:////code/docker/default.duckdb
     extra_params:
       location: /code/docker/default.duckdb
+  - name: trino
+    version: 451
+    type: sqlalchemy
+    uri: trino://trino-coordinator:8080/tpch/sf1
+    extra_params:
+      http_scheme: http
+      user: admin
 catalogs:
   - name: warehouse
     engines:
       - duckdb
+  - name: tpch
+    engines:
+      - trino
