@@ -66,7 +66,7 @@ router = APIRouter(tags=["SQL Queries"])
         },
     },
 )
-async def submit_query(
+async def submit_query(  # pylint: disable=too-many-arguments
     accept: Optional[str] = Header(None),
     *,
     session: Session = Depends(get_session),

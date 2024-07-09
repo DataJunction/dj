@@ -33,14 +33,20 @@ def table_columns(
             f"for `table` must be in the format `<catalog>.<schema>.<table>`",
         )
     settings = get_settings()
+
+    if engine_version == "":
+        version = ""
+    else:  # pragma: no cover
+        version = engine_version or settings.default_reflection_engine_version
+
     engine = get_engine(
         session=session,
         name=engine or settings.default_reflection_engine,
-        version=engine_version or settings.default_reflection_engine_version,
+        version=version,
     )
     external_columns = get_columns(
         uri=engine.uri,
-        extra_params={},
+        extra_params=engine.extra_params,
         catalog=table_parts[0],
         schema=table_parts[1],
         table=table_parts[2],

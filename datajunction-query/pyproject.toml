@@ -33,6 +33,7 @@ dependencies = [
     "toml>=0.10.2",
     "snowflake-connector-python>=3.3.1",
     "pyyaml>=6.0.1",
+    "trino>=0.324.0",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.rst"

@@ -58,7 +58,7 @@ def get_columns(
     if not uri:
         raise DJException("Cannot retrieve columns without a uri")
 
-    engine = create_engine(uri, **extra_params)
+    engine = create_engine(uri, connect_args=extra_params)
     try:
         inspector = inspect(engine)
         column_metadata = inspector.get_columns(
