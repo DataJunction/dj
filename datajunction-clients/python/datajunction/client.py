@@ -177,7 +177,11 @@ class DJClient(_internal.DJClient):
                 "dimensions": dimensions or [],
                 "filters": filters or [],
                 "engine_name": engine_name or self.engine_name,
-                "engine_version": engine_version or self.engine_version,
+                "engine_version": (
+                    engine_version
+                    if engine_version or engine_version == ""
+                    else self.engine_version
+                ),
             },
         )
         if response.status_code == 200:
@@ -204,7 +208,11 @@ class DJClient(_internal.DJClient):
                 "dimensions": dimensions or [],
                 "filters": filters or [],
                 "engine_name": engine_name or self.engine_name,
-                "engine_version": engine_version or self.engine_version,
+                "engine_version": (
+                    engine_version
+                    if engine_version or engine_version == ""
+                    else self.engine_version
+                ),
             },
         )
         if response.status_code == 200:
