@@ -8,6 +8,7 @@ Main DJ query server app.
 # pylint: disable=unused-import,expression-not-assigned
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -22,7 +23,19 @@ _logger = logging.getLogger(__name__)
 
 settings = get_settings()
 session = next(get_session())
-load_djqs_config(settings=settings, session=session)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # pylint: disable=W0621,W0613
+    """
+    Load DJQS config on app startup
+    """
+    try:
+        load_djqs_config(settings=settings, session=session)
+    except Exception as e:  # pylint: disable=W0718
+        _logger.warning("Could not load DJQS config: %s", e)
+    yield
+
 
 app = FastAPI(
     title=settings.name,
@@ -32,6 +45,7 @@ app = FastAPI(
         "name": "MIT License",
         "url": "https://mit-license.org/",
     },
+    lifespan=lifespan,
 )
 app.include_router(catalogs.get_router)
 app.include_router(engines.get_router)

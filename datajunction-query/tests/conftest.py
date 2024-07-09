@@ -28,6 +28,8 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
         results_backend=SimpleCache(default_timeout=0),
         configuration_file="./config.djqs.yml",
         enable_dynamic_config=True,
+        default_reflection_engine=None,
+        default_reflection_engine_version=None,
     )
 
     mocker.patch(
