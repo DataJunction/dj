@@ -154,6 +154,7 @@ async def _build_joins_for_dimension_link(
     build_criteria: Optional[BuildCriteria],
     required_dimension_columns: List[ast.Column],
     join_path: List,
+    filters: Optional[List[str]] = None,
 ) -> List[ast.Join]:
     """
     Returns the join ASTs needed to bring in the dimension node from
@@ -194,8 +195,25 @@ async def _build_joins_for_dimension_link(
             for dim_link in link.dimension.current.dimension_links
             for col in dim_link.joins()[0].criteria.on.find_all(ast.Column)
         }
-        necessary_columns = selected_columns.union(join_columns).union(
-            joinable_dim_columns,
+        columns_in_filter_clauses = set()
+        if filters:
+            filter_asts = [
+                parse(f"select * where {filter_}").select.where  # type: ignore
+                for filter_ in filters
+            ]
+            for clause in filter_asts:
+                for col in clause.find_all(ast.Column):  # type: ignore
+                    node_name = SEPARATOR.join(col.identifier().split(SEPARATOR)[:-1])
+                    column_name = col.identifier().split(SEPARATOR)[-1]
+                    if node_name == link.dimension.name:
+                        columns_in_filter_clauses.add(column_name)
+
+        necessary_columns = (
+            selected_columns.union(join_columns)
+            .union(
+                joinable_dim_columns,
+            )
+            .union(columns_in_filter_clauses)
         )
         if isinstance(join_right.child, ast.Query):
             join_right.child.select.projection = [
@@ -325,6 +343,7 @@ async def join_tables_for_dimensions(
     dimension_nodes_to_columns: Dict[NodeRevision, List[ast.Column]],
     tables: DefaultDict[NodeRevision, List[ast.Table]],
     build_criteria: Optional[BuildCriteria] = None,
+    filters: Optional[List[str]] = None,
 ):
     """
     Joins the tables necessary for a set of filter and group by dimensions
@@ -368,6 +387,7 @@ async def join_tables_for_dimensions(
                         build_criteria,
                         required_dimension_columns,
                         join_path,
+                        filters,
                     )
                 else:
                     join_asts = await _build_joins_for_dimension(
@@ -577,6 +597,7 @@ async def _build_select_ast(
         dimension_columns,
         tables,
         build_criteria,
+        filters,
     )
     await _build_tables_on_select(
         session,
