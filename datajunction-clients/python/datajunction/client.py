@@ -162,14 +162,45 @@ class DJClient(_internal.DJClient):
         filters: Optional[List[str]] = None,
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
+        measures: bool = False,
     ):
         """
-        Builds SQL for one or more metrics with the provided dimensions and filters.
+        Builds SQL for one or more metrics with the provided group by dimensions and filters.
         """
+        endpoint = "/sql/"
+        if measures:
+            endpoint = "/sql/measures/"
         response = self._session.get(
-            "/sql/",
+            endpoint,
             params={
                 "metrics": metrics,
+                "dimensions": dimensions or [],
+                "filters": filters or [],
+                "engine_name": engine_name or self.engine_name,
+                "engine_version": engine_version or self.engine_version,
+            },
+        )
+        if response.status_code == 200:
+            return response.json()["sql"]
+        return response.json()
+
+    #
+    # Get SQL for a node
+    #
+    def node_sql(  # pylint: disable=too-many-arguments
+        self,
+        node_name: str,
+        dimensions: Optional[List[str]] = None,
+        filters: Optional[List[str]] = None,
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
+    ):
+        """
+        Builds SQL for a node with the provided dimensions and filters.
+        """
+        response = self._session.get(
+            f"/sql/{node_name}",
+            params={
                 "dimensions": dimensions or [],
                 "filters": filters or [],
                 "engine_name": engine_name or self.engine_name,
