@@ -22,7 +22,8 @@ class TestUsers:
 
     @pytest.mark.asyncio
     async def test_list_nodes_by_user(
-        self, module__client_with_roads: AsyncClient,
+        self,
+        module__client_with_roads: AsyncClient,
     ) -> None:
         """
         Test ``POST /tags`` and ``GET /tags/{name}``
