@@ -42,6 +42,7 @@ from datajunction_server.api import (
     nodes,
     sql,
     tags,
+    users,
 )
 from datajunction_server.api.access.authentication import whoami
 from datajunction_server.api.attributes import default_attribute_types
@@ -109,6 +110,7 @@ app.include_router(client.router)
 app.include_router(dimensions.router)
 app.include_router(graphql_app, prefix="/graphql")
 app.include_router(whoami.router)
+app.include_router(users.router)
 
 
 @app.on_event("startup")
