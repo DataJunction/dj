@@ -2,9 +2,8 @@ import { useContext, useState } from 'react';
 import * as React from 'react';
 import DJClientContext from '../../providers/djclient';
 import { ErrorMessage, Field, Form, Formik } from 'formik';
-import { FormikSelect } from '../AddEditNodePage/FormikSelect';
-import EditIcon from '../../icons/EditIcon';
-import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
+import AddItemIcon from '../../icons/AddItemIcon';
+import { displayMessageAfterSubmit } from '../../../utils/form';
 
 export default function AddNamespacePopover({ namespace }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -33,7 +32,7 @@ export default function AddNamespacePopover({ namespace }) {
           setPopoverAnchor(!popoverAnchor);
         }}
       >
-        <EditIcon />
+        <AddItemIcon />
       </button>
       <div
         className="popover"
@@ -48,7 +47,7 @@ export default function AddNamespacePopover({ namespace }) {
       >
         <Formik
           initialValues={{
-            namespace: '',
+            namespace: namespace + '.',
           }}
           onSubmit={addNamespace}
         >
@@ -64,6 +63,7 @@ export default function AddNamespacePopover({ namespace }) {
                     name="namespace"
                     id="namespace"
                     placeholder="New namespace"
+                    default={namespace}
                   />
                 </span>
                 <button
