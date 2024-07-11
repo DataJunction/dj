@@ -167,7 +167,7 @@ export function NamespacePage() {
                   padding: '1rem 1rem 1rem 0',
                 }}
               >
-                Namespaces <AddNamespacePopover />
+                Namespaces <AddNamespacePopover namespace={namespace}/>
               </span>
               {namespaceHierarchy
                 ? namespaceHierarchy.map(child => (
