@@ -3,7 +3,8 @@
 SQL related APIs.
 """
 import logging
-from typing import List, Optional, Tuple
+from collections import OrderedDict
+from typing import List, Optional, Tuple, cast
 
 from fastapi import BackgroundTasks, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,7 @@ from datajunction_server.api.helpers import (
     validate_orderby,
 )
 from datajunction_server.construction.build import get_measures_query
-from datajunction_server.database import Engine
+from datajunction_server.database import Engine, Node
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
@@ -24,6 +25,7 @@ from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.access import AccessControlStore
 from datajunction_server.models.metric import TranslatedSQL
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.user import UserOutput
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
@@ -124,6 +126,51 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
     """
     Build node SQL and save it to query requests
     """
+    node = cast(
+        Node,
+        await Node.get_by_name(session, node_name, raise_if_not_exists=True),
+    )
+
+    # If it's a cube, we'll build SQL for the metrics in the cube, along with any additional
+    # dimensions or filters provided in the arguments
+    if node.type == NodeType.CUBE:
+        dimensions = list(
+            OrderedDict.fromkeys(node.current.cube_node_dimensions + dimensions),
+        )
+        translated_sql, _, _ = await build_sql_for_multiple_metrics(
+            session=session,
+            metrics=node.current.cube_node_metrics,
+            dimensions=dimensions,
+            filters=filters,
+            orderby=orderby,
+            limit=limit,
+            engine_name=engine.name if engine else None,
+            engine_version=engine.version if engine else None,
+            access_control=access_control,
+        )
+        # We save the request for both the cube and the metrics, so that if someone makes either
+        # of these types of requests, they'll go to the cached query
+        requests_to_save = [
+            (node.current.cube_node_metrics, QueryBuildType.METRICS),
+            ([node_name], QueryBuildType.NODE),
+        ]
+        for nodes, query_type in requests_to_save:
+            request = await QueryRequest.save_query_request(
+                session=session,
+                nodes=nodes,
+                dimensions=dimensions,
+                filters=filters,
+                orderby=orderby,
+                limit=limit,
+                engine_name=engine.name if engine else None,
+                engine_version=engine.version if engine else None,
+                query_type=query_type,
+                query=translated_sql.sql,
+                columns=[col.dict() for col in translated_sql.columns],  # type: ignore
+            )
+        return request
+
+    # For all other nodes, build the node query
     query_ast = await get_query(
         session=session,
         node_name=node_name,
