@@ -167,7 +167,7 @@ describe('NamespacePage', () => {
     });
     expect(mockDjClient.addNamespace).toHaveBeenCalled();
     expect(mockDjClient.addNamespace).toHaveBeenCalledWith(
-      'some.random.namespace',
+      'test.namespace.some.random.namespace',
     );
     expect(screen.getByText('Saved')).toBeInTheDocument();
     expect(window.location.reload).toHaveBeenCalled();
