@@ -146,6 +146,8 @@ Now, define the relationships between dimensions, referred to as dimension linki
 
 Continue linking dimensions for the relevant columns. Refer to the provided ERD diagram for guidance.
 
+![source.tpch.sf1](/images/tpch-erd.png)
+
 ### Create a Metric
 
 Create a simple metric to count orders:
@@ -153,6 +155,8 @@ Create a simple metric to count orders:
 1. Go to the Explore page and create a namespace called `tpch_metrics`.
 2. Hover over "+ Add Node" and select "Metric".
 3. Create a metric called `num_orders` with the upstream node `source.tpch.sf1.orders` and the expression `COUNT(orderkey)`.
+
+![tpch_metrics.num_orders](/images/tpch_metrics.num_orders.png)
 
 You can also validate the metric directly in the UI to make sure that DataJunction can generate a proper query to
 retrieve the metric data.
