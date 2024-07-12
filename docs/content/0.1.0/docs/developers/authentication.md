@@ -30,13 +30,18 @@ To learn more about creating a GitHub OAuth app, see the
 [Creating an OAuth app](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app)
 page in the GitHub documentation.
 
-## Disabling Authentication
+## How DataJunction Stores Users
 
-{{< alert icon="❗" >}}
-Disabling authentication is useful for demo and testing environments, however it's not recommended to run a
-production deployment with authentication disabled.
-{{< /alert >}}
+The metadata database for the core DataJunction service contains a `users` table that stores user information such as
+`username` and `email`. This table is used for all authorization related behavior such as storing which users have
+authored a node and setting access controls. As the authorization features continue to mature, the core service will
+rely even more on this table and so the service leads with an assumption that all authenticated users can be found in
+this table.
 
-To disable authentication entirely, simply exclude all auth-related variables from the server configuration.
-All endpoints will no longer be fronted by any authentication middleware and the username attached to all user
-activity will be `unknown`.
+When using the open source basic auth or google OAuth implementation, those implementations ensure that authenticated
+users are stored in the `users` table. However, custom auth implementations that override the `get_current_user`
+dependency may or may not directly store the user. To handle the scenario where it does not directly store the user,
+the dependency chain ends with a `get_and_update_current_user` method that will upsert the authenticated user. This
+means that if your custom `get_current_user` implementation relies on an entirely separate authentication service that
+holds your user information, it's completely optional to have it additionally handle creating the user record in
+DataJunction since the core DataJunction service will handle that.

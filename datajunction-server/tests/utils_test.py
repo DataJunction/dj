@@ -18,7 +18,7 @@ from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJException
 from datajunction_server.utils import (
     Version,
-    get_current_user_and_upsert,
+    get_and_update_current_user,
     get_engine,
     get_issue_url,
     get_query_service_client,
@@ -137,7 +137,7 @@ def test_version_parse() -> None:
     assert str(excinfo.value) == "Unparseable version 0!"
 
 
-async def test_get_current_user_and_upsert(session: AsyncSession):
+async def test_get_and_update_current_user(session: AsyncSession):
     """
     Test upserting the current user
     """
@@ -151,7 +151,7 @@ async def test_get_current_user_and_upsert(session: AsyncSession):
     )
 
     # Confirm that the current user is returned after upserting
-    current_user = await get_current_user_and_upsert(
+    current_user = await get_and_update_current_user(
         session=session,
         current_user=example_user,
     )
@@ -170,5 +170,5 @@ async def test_get_current_user_and_upsert(session: AsyncSession):
     assert found_user.oauth_provider == "basic"
 
     # Confirm that if current_user is None, this also returns None
-    current_user = await get_current_user_and_upsert(session=session, current_user=None)
+    current_user = await get_and_update_current_user(session=session, current_user=None)
     assert current_user is None

@@ -33,7 +33,7 @@ from datajunction_server.models import access
 from datajunction_server.models.node import NamespaceOutput, NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
-    get_current_user_and_upsert,
+    get_and_update_current_user,
     get_session,
     get_settings,
 )
@@ -48,7 +48,7 @@ async def create_node_namespace(
     namespace: str,
     include_parents: Optional[bool] = False,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user_and_upsert),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Create a node namespace
@@ -102,7 +102,7 @@ async def create_node_namespace(
 )
 async def list_namespaces(
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user_and_upsert),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -160,7 +160,7 @@ async def deactivate_a_namespace(
         description="Cascade the deletion down to the nodes in the namespace",
     ),
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user_and_upsert),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Deactivates a node namespace
@@ -232,7 +232,7 @@ async def restore_a_namespace(
         description="Cascade the restore down to the nodes in the namespace",
     ),
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user_and_upsert),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Restores a node namespace
@@ -297,7 +297,7 @@ async def hard_delete_node_namespace(
     *,
     cascade: bool = False,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user_and_upsert),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Hard delete a namespace, which will completely remove the namespace. Additionally,
