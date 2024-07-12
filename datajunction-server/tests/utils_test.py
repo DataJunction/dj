@@ -7,15 +7,18 @@ from unittest.mock import patch
 
 import pytest
 from pytest_mock import MockerFixture
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTasks
 from testcontainers.postgres import PostgresContainer
 from yarl import URL
 
 from datajunction_server.config import Settings
+from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJException
 from datajunction_server.utils import (
     Version,
+    get_current_user_and_upsert,
     get_engine,
     get_issue_url,
     get_query_service_client,
@@ -132,3 +135,40 @@ def test_version_parse() -> None:
     with pytest.raises(DJException) as excinfo:
         Version.parse("0")
     assert str(excinfo.value) == "Unparseable version 0!"
+
+
+async def test_get_current_user_and_upsert(session: AsyncSession):
+    """
+    Test upserting the current user
+    """
+    example_user = User(
+        id=1,
+        username="userfoo",
+        password="passwordfoo",
+        name="djuser",
+        email="userfoo@datajunction.io",
+        oauth_provider=OAuthProvider.BASIC,
+    )
+
+    # Confirm that the current user is returned after upserting
+    current_user = await get_current_user_and_upsert(
+        session=session,
+        current_user=example_user,
+    )
+    assert current_user == example_user
+
+    # Confirm that the user was upserted
+    result = await session.execute(select(User).where(User.username == "userfoo"))
+    found_user = result.scalar_one_or_none()
+    assert found_user.id == 1
+    assert found_user.username == "userfoo"
+    assert (
+        found_user.password is None
+    )  # If the user is added via upsert, auth is externally managed
+    assert found_user.name == "djuser"
+    assert found_user.email == "userfoo@datajunction.io"
+    assert found_user.oauth_provider == "basic"
+
+    # Confirm that if current_user is None, this also returns None
+    current_user = await get_current_user_and_upsert(session=session, current_user=None)
+    assert current_user is None

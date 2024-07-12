@@ -8,11 +8,13 @@ import re
 from functools import lru_cache
 
 # pylint: disable=line-too-long
-from typing import TYPE_CHECKING, AsyncIterator, List, Optional
+from typing import AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
+from fastapi import Depends
 from rich.logging import RichHandler
 from sqlalchemy import AsyncAdaptedQueuePool
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -24,12 +26,10 @@ from starlette.requests import Request
 from yarl import URL
 
 from datajunction_server.config import Settings
+from datajunction_server.database.user import User
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJException
 from datajunction_server.service_clients import QueryServiceClient
-
-if TYPE_CHECKING:
-    from datajunction_server.database.user import User
 
 
 def setup_logging(loglevel: str) -> None:
@@ -259,6 +259,34 @@ async def get_current_user(request: Request) -> Optional["User"]:
     if hasattr(request.state, "user"):
         return request.state.user
     return None  # pragma: no cover
+
+
+async def get_current_user_and_upsert(
+    session: AsyncSession = Depends(get_session),
+    current_user: Optional["User"] = Depends(get_current_user),
+) -> Optional["User"]:
+    """
+    Wrapper for the get_current_user dependency that creates a DJ user object if required
+    """
+    if current_user:
+        statement = insert(User).values(
+            username=current_user.username,
+            email=current_user.email,
+            name=current_user.name,
+            oauth_provider=current_user.oauth_provider,
+        )
+        update_dict = {
+            "email": current_user.email,
+            "name": current_user.name,
+            "oauth_provider": current_user.oauth_provider,
+        }
+        statement = statement.on_conflict_do_update(
+            index_elements=["username"],
+            set_=update_dict,
+        )
+        await session.execute(statement)
+        await session.commit()
+    return current_user
 
 
 SEPARATOR = "."

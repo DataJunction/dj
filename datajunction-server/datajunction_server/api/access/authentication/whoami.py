@@ -11,14 +11,16 @@ from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.models.user import UserOutput
-from datajunction_server.utils import get_current_user, get_settings
+from datajunction_server.utils import get_current_user_and_upsert, get_settings
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["Who am I?"])
 
 
 @router.get("/whoami/", response_model=UserOutput)
-async def get_user(current_user: User = Depends(get_current_user)) -> UserOutput:
+async def get_user(
+    current_user: User = Depends(get_current_user_and_upsert),
+) -> UserOutput:
     """
     Returns the current authenticated user
     """
