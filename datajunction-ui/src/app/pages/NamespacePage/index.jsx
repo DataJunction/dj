@@ -97,9 +97,9 @@ export function NamespacePage() {
       <td>
         <NodeStatus node={node} revalidate={false} />
       </td>
-      <td>
+      {/* <td>
         <span className="status">{node.mode}</span>
-      </td>
+      </td> */}
       <td>
         <span className="status">
           {new Date(node.updated_at).toLocaleString('en-us')}

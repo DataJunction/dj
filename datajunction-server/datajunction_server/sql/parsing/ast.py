@@ -2708,6 +2708,7 @@ class Query(TableExpression, UnNamed):
         from datajunction_server.construction.build import _build_select_ast
 
         self.bake_ctes()  # pylint: disable=W0212
+        print("preselect", self.select)
         await _build_select_ast(
             session,
             self.select,

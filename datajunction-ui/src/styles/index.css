@@ -1238,6 +1238,7 @@ pre {
   margin: 5px;
   border-radius: 0.375rem;
   background-color: #ccc4d525;
+  text-align: left;
 }
 .partitionLink:hover {
   background-color: rgba(157, 147, 168, 0.15);
@@ -1502,4 +1503,33 @@ table {
 }
 .dropdown:hover .dropdown-menu {
   display: block;
+}
+
+.cards {
+  display: flow;
+  grid-template-columns: repeat(auto-fill, minmax(250px,1fr));
+  /* width: 1000px; */
+  grid-auto-rows: max-content;
+  /* align-content: start; */
+  margin: 0px auto;
+  margin-bottom: auto;
+  justify-content: center;
+  gap: 24px;
+  position: relative;
+}
+
+.grouping {
+  display: flex;
+  /* text-align: center; */
+  /* align-items: center; */
+  flex-direction: column;
+  /* justify-content: space-between; */
+  font-size: 16px;
+  /* padding: 24px 16px; */
+  transition: box-shadow 0.3s, background-color 0.3s;
+  box-shadow: 0px 2px 4px 0 rgba(0, 0, 0, 0.1), 0px 0px 2px 0 rgba(0, 0, 0, 0.1);
+  border-color: rgba(0, 0, 0, 0);
+  border-width: 0px;
+  background-color: rgb(255, 255, 255);
+  border-radius: 4px;
 }

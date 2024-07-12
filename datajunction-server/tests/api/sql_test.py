@@ -768,23 +768,16 @@ async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statemen
             [],
             ["default.country_dim.events_cnt >= 20"],
             """
-            SELECT  default_DOT_long_events.event_id default_DOT_long_events_DOT_event_id,
-    default_DOT_long_events.event_latency default_DOT_long_events_DOT_event_latency,
-    default_DOT_long_events.device_id default_DOT_long_events_DOT_device_id,
-    default_DOT_long_events.country default_DOT_long_events_DOT_country,
-    default_DOT_country_dim.events_cnt default_DOT_country_dim_DOT_events_cnt
- FROM (SELECT  default_DOT_event_source.event_id,
-    default_DOT_event_source.event_latency,
-    default_DOT_event_source.device_id,
-    default_DOT_event_source.country
- FROM logs.log_events AS default_DOT_event_source
- WHERE  default_DOT_event_source.event_latency > 1000000)
- AS default_DOT_long_events LEFT JOIN (SELECT  default_DOT_event_source.country,
-    COUNT( DISTINCT default_DOT_event_source.event_id) AS events_cnt
- FROM logs.log_events AS default_DOT_event_source
- GROUP BY  default_DOT_event_source.country)
- AS default_DOT_country_dim ON default_DOT_long_events.country = default_DOT_country_dim.country
- WHERE  default_DOT_country_dim.events_cnt >= 20
+            SELECT  default_DOT_event_source.event_id default_DOT_long_events_DOT_event_id,
+        default_DOT_event_source.event_latency default_DOT_long_events_DOT_event_latency,
+        default_DOT_event_source.device_id default_DOT_long_events_DOT_device_id,
+        default_DOT_event_source.country default_DOT_long_events_DOT_country,
+        default_DOT_country_dim.events_cnt default_DOT_country_dim_DOT_events_cnt 
+ FROM logs.log_events AS default_DOT_event_source LEFT JOIN (SELECT  default_DOT_event_source.country,
+        COUNT( DISTINCT default_DOT_event_source.event_id) AS events_cnt 
+ FROM logs.log_events AS default_DOT_event_source 
+ GROUP BY  default_DOT_event_source.country) AS default_DOT_country_dim ON default_DOT_event_source.country = default_DOT_country_dim.country 
+ WHERE  default_DOT_country_dim.events_cnt >= 20 AND default_DOT_event_source.event_latency > 1000000
             """,
             [
                 {
@@ -841,19 +834,16 @@ async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statemen
                 "default.country_dim.country = 'ABCD'",
             ],  # country is PK of default.country_dim
             """
-                SELECT  default_DOT_long_events.event_id default_DOT_long_events_DOT_event_id,
-                    default_DOT_long_events.event_latency default_DOT_long_events_DOT_event_latency,
-                    default_DOT_long_events.device_id default_DOT_long_events_DOT_device_id,
-                    default_DOT_long_events.country default_DOT_country_dim_DOT_country
-                FROM (SELECT  default_DOT_event_source.event_id,
-                    default_DOT_event_source.event_latency,
-                    default_DOT_event_source.device_id,
-                    default_DOT_event_source.country
-                FROM logs.log_events AS default_DOT_event_source
-                WHERE  default_DOT_event_source.country = 'ABCD' AND default_DOT_event_source.event_latency > 1000000)
-                AS default_DOT_long_events
-                WHERE  default_DOT_long_events.country = 'ABCD'
-                """,
+            SELECT
+              default_DOT_event_source.event_id default_DOT_long_events_DOT_event_id,
+              default_DOT_event_source.event_latency default_DOT_long_events_DOT_event_latency,
+              default_DOT_event_source.device_id default_DOT_long_events_DOT_device_id,
+              default_DOT_event_source.country default_DOT_country_dim_DOT_country
+            FROM logs.log_events AS default_DOT_event_source
+            WHERE
+              default_DOT_event_source.country = 'ABCD'
+              AND default_DOT_event_source.event_latency > 1000000
+            """,
             [
                 {
                     "column": "event_id",
@@ -1575,6 +1565,7 @@ async def test_sql_with_filters(  # pylint: disable=too-many-arguments
         params={"dimensions": dimensions, "filters": filters},
     )
     data = response.json()
+    print("SQL!", str(parse(str(data["sql"]))))
     assert str(parse(str(data["sql"]))) == str(parse(str(sql)))
     assert data["columns"] == columns
 
@@ -3427,6 +3418,7 @@ async def test_measures_sql_with_filters(  # pylint: disable=too-many-arguments
         params=sql_params,
     )
     data = response.json()
+    print("SQL!", str(parse(str(data["sql"]))))
     assert str(parse(str(data["sql"]))) == str(parse(str(sql)))
     result = duckdb_conn.sql(data["sql"])
     assert result.fetchall() == rows
@@ -3703,3 +3695,58 @@ async def test_filter_on_source_nodes(
             """,
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_node_sql(  # pylint: disable=too-many-arguments
+    module__client_with_examples: AsyncClient,
+    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+):
+    """
+    Test ``GET /sql/{node}`` with various filters and dimensions.
+    """
+    node_name = "default.repair_orders_fact"
+    response = await module__client_with_examples.get(
+        f"/sql/{node_name}",
+        params={
+            "dimensions": ["default.dispatcher.dispatcher_id"],
+            "filters": ["default.us_state.state_name = 'NY'", "default.dispatcher.dispatcher_id > 0"],
+        },
+    )
+    data = response.json()
+    expected_sql = """
+    SELECT  repair_orders.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id,
+        repair_orders.municipality_id default_DOT_repair_orders_fact_DOT_municipality_id,
+        repair_orders.hard_hat_id default_DOT_repair_orders_fact_DOT_hard_hat_id,
+        repair_orders.dispatcher_id default_DOT_repair_orders_fact_DOT_dispatcher_id,
+        repair_orders.order_date default_DOT_repair_orders_fact_DOT_order_date,
+        repair_orders.dispatched_date default_DOT_repair_orders_fact_DOT_dispatched_date,
+        repair_orders.required_date default_DOT_repair_orders_fact_DOT_required_date,
+        repair_order_details.discount default_DOT_repair_orders_fact_DOT_discount,
+        repair_order_details.price default_DOT_repair_orders_fact_DOT_price,
+        repair_order_details.quantity default_DOT_repair_orders_fact_DOT_quantity,
+        repair_order_details.repair_type_id default_DOT_repair_orders_fact_DOT_repair_type_id,
+        repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+        repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+        repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay,
+        repair_orders.dispatcher_id default_DOT_dispatcher_DOT_dispatcher_id 
+    FROM roads.repair_orders AS repair_orders 
+    JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+    LEFT JOIN (SELECT  default_DOT_repair_orders.repair_order_id,
+        default_DOT_repair_orders.municipality_id,
+        default_DOT_repair_orders.hard_hat_id,
+        default_DOT_repair_orders.dispatcher_id 
+ FROM roads.repair_orders AS default_DOT_repair_orders 
+ WHERE  default_DOT_repair_orders.dispatcher_id > 0) AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
+LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
+        default_DOT_hard_hats.state 
+ FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+LEFT JOIN (SELECT  s.state_name,
+        s.state_abbr AS state_short 
+ FROM roads.us_states AS s) AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_short 
+ WHERE  repair_orders.dispatcher_id > 0 AND default_DOT_us_state.state_name = 'NY'
+    """
+    assert str(parse(str(data["sql"]))) == str(parse(str(expected_sql)))
+    result = duckdb_conn.sql(data["sql"])
+    assert result.fetchall() == []
+    # assert data["columns"] == columns

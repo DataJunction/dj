@@ -182,8 +182,8 @@ export default function NodeHistory({ node, djClient }) {
         <div className="history-left">
           Backfill created for materialization {event.details.materialization}{' '}
           for partition {event.details.partition.column_name} from{' '}
-          {event.details.partition.range[0]} to{' '}
-          {event.details.partition.range[1]}
+          {event.details.partition.range ? event.details.partition.range[0] : ''} to{' '}
+          {event.details.partition.range ? event.details.partition.range[1] : ''}
         </div>
       );
     }

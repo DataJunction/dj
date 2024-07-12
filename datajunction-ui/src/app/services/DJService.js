@@ -354,6 +354,14 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  userNodes: async function (username) {
+    return await (
+      await fetch(`${DJ_URL}/users/${username}/`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
   namespaces: async function () {
     return await (
       await fetch(`${DJ_URL}/namespaces/`, {
