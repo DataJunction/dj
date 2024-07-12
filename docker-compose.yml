@@ -178,10 +178,11 @@ services:
     networks:
       - core
 
-  trino-coordinator:
+  dj-trino:
+    container_name: dj-trino
+    profiles: ["trino"]
     image: 'trinodb/trino:latest'
     hostname: trino-coordinator
-    profiles: ["trino"]
     ports:
       - '8080:8080'
     networks:
