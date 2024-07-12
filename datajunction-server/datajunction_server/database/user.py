@@ -1,7 +1,7 @@
 """User database schema."""
 from typing import Optional
 
-from sqlalchemy import BigInteger, Enum, Integer
+from sqlalchemy import BigInteger, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from datajunction_server.database.base import Base
@@ -27,7 +27,7 @@ class User(Base):  # pylint: disable=too-few-public-methods
         BigInteger().with_variant(Integer, "sqlite"),
         primary_key=True,
     )
-    username: Mapped[str]
+    username: Mapped[str] = mapped_column(String, unique=True)
     password: Mapped[Optional[str]]
     email: Mapped[Optional[str]]
     name: Mapped[Optional[str]]

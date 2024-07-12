@@ -108,7 +108,7 @@ from datajunction_server.sql.dag import (
 from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
 from datajunction_server.utils import (
     Version,
-    get_current_user,
+    get_current_user_and_upsert,
     get_namespace_from_name,
     get_query_service_client,
     get_session,
@@ -153,7 +153,7 @@ async def validate_node(
 async def revalidate(
     name: str,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ) -> NodeStatusDetails:
     """
     Revalidate a single existing node and update its status appropriately
@@ -200,7 +200,7 @@ async def set_column_attributes(
     attributes: List[AttributeTypeIdentifier],
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ) -> List[ColumnOutput]:
     """
     Set column attributes for the node.
@@ -228,7 +228,7 @@ async def list_nodes(
     prefix: Optional[str] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -259,7 +259,7 @@ async def list_all_nodes_with_details(
     node_type: Optional[NodeType] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -333,7 +333,7 @@ async def delete_node(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ):
     """
     Delete (aka deactivate) the specified node.
@@ -349,7 +349,7 @@ async def delete_node(
 async def hard_delete(
     name: str,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ) -> JSONResponse:
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
@@ -374,7 +374,7 @@ async def restore_node(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ):
     """
     Restore (aka re-activate) the specified node.
@@ -409,7 +409,7 @@ async def create_source(
     data: CreateSourceNode,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -517,7 +517,7 @@ async def create_node(
     request: Request,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
@@ -615,7 +615,7 @@ async def create_cube(
     *,
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -669,7 +669,7 @@ async def register_table(
     *,
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
     background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
@@ -725,7 +725,7 @@ async def link_dimension(
     dimension: str,
     dimension_column: Optional[str] = None,  # pylint: disable=unused-argument
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ) -> JSONResponse:
     """
     Add information to a node column
@@ -808,7 +808,7 @@ async def add_complex_dimension_link(  # pylint: disable=too-many-locals
     node_name: str,
     link_input: LinkDimensionInput,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ) -> JSONResponse:
     """
     Links a source, dimension, or transform node to a dimension with a custom join query.
@@ -841,7 +841,7 @@ async def remove_complex_dimension_link(  # pylint: disable=too-many-locals
     node_name: str,
     link_identifier: LinkDimensionIdentifier,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ) -> JSONResponse:
     """
     Removes a complex dimension link based on the dimension node and its role (if any).
@@ -861,7 +861,7 @@ async def delete_dimension_link(
     dimension: str,
     dimension_column: Optional[str] = None,  # pylint: disable=unused-argument
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ) -> JSONResponse:
     """
     Remove the link between a node column and a dimension node
@@ -885,7 +885,7 @@ async def tags_node(
     tag_names: Optional[List[str]] = Query(default=None),
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ) -> JSONResponse:
     """
     Add a tag to a node
@@ -935,7 +935,7 @@ async def refresh_source_node(
     *,
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ) -> NodeOutput:
     """
     Refresh a source node with the latest columns from the query service.
@@ -1064,7 +1064,7 @@ async def update_node(
     *,
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -1261,7 +1261,7 @@ async def set_column_display_name(
     node_name: str,
     column_name: str,
     display_name: str,
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
     *,
     session: AsyncSession = Depends(get_session),
 ) -> ColumnOutput:
@@ -1304,7 +1304,7 @@ async def set_column_partition(  # pylint: disable=too-many-locals
     input_partition: PartitionInput,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ) -> ColumnOutput:
     """
     Add or update partition columns for the specified node.
@@ -1374,7 +1374,7 @@ async def copy_node(
     *,
     new_name: str,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_and_upsert),
 ) -> DAGNodeOutput:
     """
     Copy this node to a new name.
