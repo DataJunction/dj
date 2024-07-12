@@ -261,7 +261,7 @@ async def get_current_user(request: Request) -> Optional["User"]:
     return None  # pragma: no cover
 
 
-async def get_current_user_and_upsert(
+async def get_and_update_current_user(
     session: AsyncSession = Depends(get_session),
     current_user: Optional["User"] = Depends(get_current_user),
 ) -> Optional["User"]:
