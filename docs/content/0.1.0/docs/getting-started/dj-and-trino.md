@@ -111,6 +111,27 @@ sqlalchemy engine implementation for Trino.
 
 The `tpch` catalog is then defined and the `trino` engine is attached to it.
 
+### Add a Matching Catalog and Engine to the Core Service
+
+Although Trino and the TPCH catalog are configured in the query service running on port `8001`, the core DataJunction
+service running on port `8000` still needs to be made aware of them. Currently, the only way to do this is via the REST
+API, but there are plans to provide a simpler mechanism in the future such as a configuration file or a UI page.
+
+Navigate to the Swagger UI running at [http://localhost:8000/docs](http://localhost:8000/docs) and scroll to the
+`POST /catalogs` endpoint. For the request body, use `{"name": "tpch"}`.
+
+![create-catalog](/images/create-catalog.png)
+
+Next, scroll to the `POST /engines` endpoint. For the request body, use `{"name": "trino", "version": "451"}`. This
+will be included in requests to the query service which will map the queries to the configured Trino connection
+information.
+
+![create-engine](/images/create-engine.png)
+
+Finally, use the `POST /catalogs/{name}/engines` endpoint to attach the `trino` engine to the `tpch` catalog.
+
+![attach-engine-to-catalog](/images/attach-engine-to-catalog.png)
+
 ### Register Tables as Source Nodes
 
 In the DataJunction UI, you can start registering tables as source nodes:
