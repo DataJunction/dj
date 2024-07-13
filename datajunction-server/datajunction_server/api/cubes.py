@@ -45,6 +45,21 @@ async def get_cube(
     return await get_cube_revision_metadata(session, name)
 
 
+@router.get("/cubes", name="Get a Cube")
+async def get_cubes(
+    cube: List[str] = Query([]),
+    *,
+    session: AsyncSession = Depends(get_session),
+) -> List[CubeRevisionMetadata]:
+    """
+    Get information on a cube
+    """
+    return [
+        await get_cube_revision_metadata(session, name) 
+        for name in cube
+    ]
+
+
 @router.get("/cubes/{name}/dimensions/sql", name="Dimensions SQL for Cube")
 async def get_cube_dimension_sql(
     name: str,

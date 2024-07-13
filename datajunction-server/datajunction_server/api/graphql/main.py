@@ -8,6 +8,7 @@ from strawberry.fastapi import GraphQLRouter
 
 from datajunction_server.api.graphql.catalogs import CatalogInfo, list_catalogs
 from datajunction_server.api.graphql.engines import EngineInfo, list_engines
+from datajunction_server.api.graphql.nodes import FullNodeRevision, list_node
 from datajunction_server.utils import get_session, get_settings
 
 
@@ -32,6 +33,9 @@ class Query:  # pylint: disable=R0903
     )
     list_engines: List[EngineInfo] = strawberry.field(  # noqa: F811
         resolver=list_engines,
+    )
+    list_node: List[FullNodeRevision] = strawberry.field(
+        resolver=list_node,
     )
 
 
