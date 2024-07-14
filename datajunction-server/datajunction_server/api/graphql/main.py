@@ -9,7 +9,7 @@ from strawberry.types import Info
 
 from datajunction_server.api.graphql.catalogs import CatalogInfo, list_catalogs
 from datajunction_server.api.graphql.engines import EngineInfo, list_engines
-from datajunction_server.api.graphql.resolvers import get_nodes
+from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
 from datajunction_server.api.graphql.scalars.node import Node
 from datajunction_server.models.node import NodeType
 from datajunction_server.utils import get_session, get_settings
@@ -71,7 +71,7 @@ class Query:  # pylint: disable=R0903
         """
         Find nodes based on the search parameters.
         """
-        return await get_nodes(info, names, fragment, node_types, tags)  # type: ignore
+        return await find_nodes_by(info, names, fragment, node_types, tags)  # type: ignore
 
 
 schema = strawberry.Schema(query=Query)

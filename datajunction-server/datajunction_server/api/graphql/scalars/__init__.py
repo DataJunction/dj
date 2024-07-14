@@ -1,5 +1,5 @@
 """
-DJ graphql api
+GraphQL scalars
 """
 from typing import Union
 
