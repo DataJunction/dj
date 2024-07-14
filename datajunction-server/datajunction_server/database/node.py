@@ -358,7 +358,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         return result.unique().scalars().all()
 
     @classmethod
-    async def find_by(
+    async def find_by(  # pylint: disable=keyword-arg-before-vararg
         cls,
         session: AsyncSession,
         names: Optional[List[str]] = None,

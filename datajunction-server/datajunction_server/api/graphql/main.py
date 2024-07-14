@@ -71,7 +71,7 @@ class Query:  # pylint: disable=R0903
         """
         Find nodes based on the search parameters.
         """
-        return await get_nodes(info, names, fragment, node_types, tags)
+        return await get_nodes(info, names, fragment, node_types, tags)  # type: ignore
 
 
 schema = strawberry.Schema(query=Query)
