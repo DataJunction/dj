@@ -1,17 +1,23 @@
+"""Node-related scalars."""
 
-from typing import List, Optional, Union
+import datetime
+from typing import List, Optional
+
+import strawberry
 from strawberry.scalars import JSON
 
-from strawberry.types import Info
-import datetime
-import strawberry
-from datajunction_server.models.node import NodeType as NodeType_, NodeStatus as NodeStatus_, NodeMode as NodeMode_, MetricDirection as MetricDirection_, Dialect as Dialect_
-from datajunction_server.models.node import PartitionAvailability
-from datajunction_server.models.partition import PartitionBackfill, PartitionOutput, PartitionType as PartitionType_
-from datajunction_server.database.node import Column
-from datajunction_server.database.dimensionlink import DimensionLink, JoinType as JoinType_, JoinCardinality as JoinCardinality_
 from datajunction_server.api.graphql.scalars import BigInt
-
+from datajunction_server.database.dimensionlink import (
+    JoinCardinality as JoinCardinality_,
+)
+from datajunction_server.database.dimensionlink import JoinType as JoinType_
+from datajunction_server.database.node import NodeRevision as DBNodeRevision
+from datajunction_server.models.node import Dialect as Dialect_
+from datajunction_server.models.node import MetricDirection as MetricDirection_
+from datajunction_server.models.node import NodeMode as NodeMode_
+from datajunction_server.models.node import NodeStatus as NodeStatus_
+from datajunction_server.models.node import NodeType as NodeType_
+from datajunction_server.models.partition import PartitionType as PartitionType_
 
 # Import all existing enums as strawberry enums
 NodeType = strawberry.enum(NodeType_)
@@ -25,7 +31,7 @@ Dialect = strawberry.enum(Dialect_)
 
 
 @strawberry.type
-class PartitionAvailability:
+class PartitionAvailability:  # pylint: disable=too-few-public-methods
     """
     Partition-level availability
     """
@@ -43,7 +49,7 @@ class PartitionAvailability:
 
 
 @strawberry.type
-class AvailabilityState:
+class AvailabilityState:  # pylint: disable=too-few-public-methods
     """
     A materialized table that is available for the node
     """
@@ -70,7 +76,7 @@ class AvailabilityState:
 
 
 @strawberry.type
-class AttributeTypeName:
+class AttributeTypeName:  # pylint: disable=too-few-public-methods
     """
     Attribute type name.
     """
@@ -80,7 +86,7 @@ class AttributeTypeName:
 
 
 @strawberry.type
-class Attribute:
+class Attribute:  # pylint: disable=too-few-public-methods
     """
     Column attribute
     """
@@ -89,27 +95,28 @@ class Attribute:
 
 
 @strawberry.type
-class NodeName:
+class NodeName:  # pylint: disable=too-few-public-methods
     """
     Node name
     """
+
     name: str
 
 
 @strawberry.type
-class PartitionOutput:
+class Partition:  # pylint: disable=too-few-public-methods
     """
-    Output for partition
+    A partition configuration for a column
     """
 
-    type_: PartitionType
+    type_: PartitionType  # type: ignore
     format: Optional[str]
     granularity: Optional[str]
     expression: Optional[str]
 
 
 @strawberry.type
-class Column:
+class Column:  # pylint: disable=too-few-public-methods
     """
     A column on a node
     """
@@ -119,12 +126,12 @@ class Column:
     type: str
     attributes: Optional[List[Attribute]]
     dimension: Optional[NodeName]
-    partition: Optional[PartitionOutput]
+    partition: Optional[Partition]
     # order: Optional[int]
 
 
 @strawberry.type
-class Engine:
+class Engine:  # pylint: disable=too-few-public-methods
     """
     Database engine
     """
@@ -132,11 +139,11 @@ class Engine:
     name: str
     version: str
     uri: Optional[str]
-    dialect: Optional[Dialect]
+    dialect: Optional[Dialect]  # type: ignore
 
 
 @strawberry.type
-class Catalog:
+class Catalog:  # pylint: disable=too-few-public-methods
     """
     Catalog
     """
@@ -146,21 +153,21 @@ class Catalog:
 
 
 @strawberry.type
-class DimensionLink:
+class DimensionLink:  # pylint: disable=too-few-public-methods
     """
-    Input for linking a dimension to a node
+    A dimension link between a dimension and a node
     """
 
     dimension: NodeName
-    join_type: JoinType
+    join_type: JoinType  # type: ignore
     join_sql: str
-    join_cardinality: Optional[JoinCardinality]
+    join_cardinality: Optional[JoinCardinality]  # type: ignore
     role: Optional[str]
     foreign_keys: JSON
 
 
 @strawberry.type
-class PartitionBackfill:
+class PartitionBackfill:  # pylint: disable=too-few-public-methods
     """
     Used for setting backfilled values
     """
@@ -176,19 +183,21 @@ class PartitionBackfill:
 
 
 @strawberry.type
-class Backfill:
+class Backfill:  # pylint: disable=too-few-public-methods
     """
     Materialization job backfill
     """
+
     spec: Optional[List[PartitionBackfill]]
     urls: Optional[List[str]]
 
 
 @strawberry.type
-class MaterializationConfig:
+class MaterializationConfig:  # pylint: disable=too-few-public-methods
     """
     Materialization config
     """
+
     name: Optional[str]
     config: JSON
     schedule: str
@@ -198,7 +207,7 @@ class MaterializationConfig:
 
 
 @strawberry.type
-class Unit:
+class Unit:  # pylint: disable=too-few-public-methods
     """
     Metric unit
     """
@@ -210,31 +219,34 @@ class Unit:
     description: Optional[str]
 
 
-
 @strawberry.type
-class MetricMetadata:
+class MetricMetadata:  # pylint: disable=too-few-public-methods
     """
     Metric metadata output
     """
-    direction: Optional[MetricDirection]
+
+    direction: Optional[MetricDirection]  # type: ignore
     unit: Optional[Unit]
 
 
 @strawberry.type
-class CubeElement:
+class CubeElement:  # pylint: disable=too-few-public-methods
     """
     An element in a cube, either a metric or dimension
     """
 
     name: str
     display_name: str
-    # node: NodeName
     type: str
-    partition: Optional[PartitionOutput]
+    partition: Optional[Partition]
 
 
 @strawberry.type
-class DimensionAttribute:
+class DimensionAttribute:  # pylint: disable=too-few-public-methods
+    """
+    A dimensional column attribute
+    """
+
     name: str
     attribute: str
     role: str
@@ -248,12 +260,12 @@ class NodeRevision:
     """
 
     id: BigInt
-    type: NodeType
+    type: NodeType  # type: ignore
     name: str
     display_name: Optional[str]
     version: str
-    status: NodeStatus
-    mode: Optional[NodeMode]
+    status: NodeStatus  # type: ignore
+    mode: Optional[NodeMode]  # type: ignore
     description: str = ""
     updated_at: datetime.datetime
     catalog: Optional[Catalog]
@@ -278,7 +290,10 @@ class NodeRevision:
 
     # Only cubes will have these fields
     @strawberry.field
-    def cube_metrics(self, root: "NodeRevision") -> List["NodeRevision"]:
+    def cube_metrics(self, root: "DBNodeRevision") -> List["NodeRevision"]:
+        """
+        Metrics for a cube node
+        """
         if root.type != NodeType.CUBE:
             return []
         ordering = root.ordering()
@@ -292,18 +307,21 @@ class NodeRevision:
         )
 
     @strawberry.field
-    def cube_dimensions(self, root: "NodeRevision") -> List[DimensionAttribute]:
+    def cube_dimensions(self, root: "DBNodeRevision") -> List[DimensionAttribute]:
+        """
+        Dimensions for a cube node
+        """
         if root.type != NodeType.CUBE:
             return []
-        dimension_to_roles = {
-            col.name: col.dimension_column for col in root.columns
-        }
+        dimension_to_roles = {col.name: col.dimension_column for col in root.columns}
         ordering = root.ordering()
         return sorted(
             [
-                DimensionAttribute(
+                DimensionAttribute(  # type: ignore
                     name=(
-                        node_revision.name + "." + element.name 
+                        node_revision.name
+                        + "."
+                        + element.name
                         + dimension_to_roles.get(element.name, "")
                     ),
                     attribute=element.name,
@@ -318,7 +336,7 @@ class NodeRevision:
 
 
 @strawberry.type
-class Tag:
+class Tag:  # pylint: disable=too-few-public-methods
     """
     Tag metadata
     """
@@ -330,10 +348,14 @@ class Tag:
 
 
 @strawberry.type
-class Node:
+class Node:  # pylint: disable=too-few-public-methods
+    """
+    A DJ node
+    """
+
     id: BigInt
     name: str
-    type: NodeType
+    type: NodeType  # type: ignore
     current_version: str
     created_at: datetime.datetime
     deactivated_at: Optional[datetime.datetime]

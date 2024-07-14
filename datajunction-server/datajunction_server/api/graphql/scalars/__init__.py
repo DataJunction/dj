@@ -2,12 +2,12 @@
 DJ graphql api
 """
 from typing import Union
-import strawberry
 
+import strawberry
 
 BigInt = strawberry.scalar(
     Union[int, str],  # type: ignore
-    serialize=lambda v: int(v),
-    parse_value=lambda v: str(v),
+    serialize=int,
+    parse_value=str,
     description="BigInt field",
 )
