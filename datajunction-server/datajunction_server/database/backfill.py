@@ -1,3 +1,4 @@
+# pylint: disable=unsubscriptable-object
 """Backfill database schema."""
 from typing import TYPE_CHECKING, List, Optional
 

@@ -1,0 +1,105 @@
+"""
+Node resolvers
+"""
+from typing import List, Optional
+
+from sqlalchemy.orm import joinedload, selectinload
+from strawberry.types import Info
+
+from datajunction_server.api.graphql.utils import extract_fields
+from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.node import Column, ColumnAttribute
+from datajunction_server.database.node import Node as DBNode
+from datajunction_server.database.node import NodeRevision as DBNodeRevision
+from datajunction_server.models.node import NodeType
+
+
+async def find_nodes_by(
+    info: Info,
+    names: Optional[List[str]] = None,
+    fragment: Optional[str] = None,
+    node_types: Optional[List[NodeType]] = None,
+    tags: Optional[List[str]] = None,
+) -> List[DBNode]:
+    """
+    Finds nodes based on the search parameters. This function also tries to optimize
+    the database query by only retrieving joined-in fields if they were requested.
+    """
+    session = info.context["session"]  # type: ignore
+    fields = extract_fields(info)
+    options = load_node_options(fields)
+    return await DBNode.find_by(
+        session,
+        names,
+        fragment,
+        node_types,
+        tags,
+        *options,
+    )
+
+
+def load_node_options(fields):
+    """
+    Based on the GraphQL query input fields, builds a list of node load options.
+    """
+    options = []
+    if fields.get("current"):
+        node_revision_options = load_node_revision_options(fields)
+        options.append(joinedload(DBNode.current).options(*node_revision_options))
+
+    if "tags" in fields:
+        options.append(selectinload(DBNode.tags))
+    return options
+
+
+def load_node_revision_options(fields):
+    """
+    Based on the GraphQL query input fields, builds a list of node revision
+    load options.
+    """
+    options = []
+    is_cube_request = (
+        "cube_metrics" in fields["current"] or "cube_dimensions" in fields["current"]
+    )
+    if "columns" in fields["current"] or is_cube_request:
+        options.append(
+            selectinload(DBNodeRevision.columns).options(
+                joinedload(Column.attributes).joinedload(
+                    ColumnAttribute.attribute_type,
+                ),
+                joinedload(Column.dimension),
+                joinedload(Column.partition),
+            ),
+        )
+    if "catalog" in fields["current"]:
+        options.append(joinedload(DBNodeRevision.catalog))
+    if "parents" in fields["current"]:
+        options.append(selectinload(DBNodeRevision.parents))
+    if "materializations" in fields["current"]:
+        options.append(selectinload(DBNodeRevision.materializations))
+    if "metric_metadata" in fields["current"]:
+        options.append(selectinload(DBNodeRevision.metric_metadata))
+    if "availability" in fields["current"]:
+        options.append(selectinload(DBNodeRevision.availability))
+    if "dimension_links" in fields["current"]:
+        options.append(
+            selectinload(DBNodeRevision.dimension_links).options(
+                joinedload(DimensionLink.dimension).options(
+                    selectinload(DBNode.current),
+                ),
+            ),
+        )
+    if "required_dimensions" in fields["current"]:
+        options.append(
+            selectinload(DBNodeRevision.required_dimensions),
+        )
+
+    if "cube_elements" in fields["current"] or is_cube_request:
+        options.append(
+            selectinload(DBNodeRevision.cube_elements)
+            .selectinload(Column.node_revisions)
+            .options(
+                selectinload(DBNodeRevision.node),
+            ),
+        )
+    return options
