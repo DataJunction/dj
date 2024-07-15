@@ -18,7 +18,11 @@ from datajunction_server.internal.access.authentication.http import SecureAPIRou
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.tag import CreateTag, TagOutput, UpdateTag
-from datajunction_server.utils import get_current_user, get_session, get_settings
+from datajunction_server.utils import (
+    get_and_update_current_user,
+    get_session,
+    get_settings,
+)
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["tags"])
@@ -93,7 +97,7 @@ async def get_a_tag(
 async def create_a_tag(
     data: CreateTag,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
 ) -> TagOutput:
     """
     Create a tag.
@@ -130,7 +134,7 @@ async def update_a_tag(
     name: str,
     data: UpdateTag,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
 ) -> TagOutput:
     """
     Update a tag.

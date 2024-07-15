@@ -27,7 +27,11 @@ from datajunction_server.models.access import AccessControlStore
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.user import UserOutput
-from datajunction_server.utils import get_current_user, get_session, get_settings
+from datajunction_server.utils import (
+    get_and_update_current_user,
+    get_session,
+    get_settings,
+)
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -50,7 +54,7 @@ async def get_measures_sql_for_cube(
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -300,7 +304,7 @@ async def get_sql(  # pylint: disable=too-many-locals
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -336,7 +340,7 @@ async def get_sql_for_metrics(
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),

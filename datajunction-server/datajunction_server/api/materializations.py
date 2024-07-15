@@ -41,7 +41,7 @@ from datajunction_server.naming import amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
-    get_current_user,
+    get_and_update_current_user,
     get_query_service_client,
     get_session,
     get_settings,
@@ -84,7 +84,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
     *,
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -277,7 +277,7 @@ async def deactivate_node_materializations(
     *,
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
 ) -> List[MaterializationConfigInfoUnified]:
     """
     Deactivate the node materialization with the provided name.
@@ -334,7 +334,7 @@ async def run_materialization_backfill(  # pylint: disable=too-many-locals
     *,
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
 ) -> MaterializationInfo:
     """
     Start a backfill for a configured materialization.
