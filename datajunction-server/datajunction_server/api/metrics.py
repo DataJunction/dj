@@ -27,7 +27,11 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import get_dimensions, get_shared_dimensions
-from datajunction_server.utils import get_current_user, get_session, get_settings
+from datajunction_server.utils import (
+    get_and_update_current_user,
+    get_session,
+    get_settings,
+)
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["metrics"])
@@ -61,7 +65,7 @@ async def list_metrics(
     prefix: Optional[str] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),

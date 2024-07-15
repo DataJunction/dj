@@ -24,7 +24,11 @@ from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
     get_nodes_with_dimension,
 )
-from datajunction_server.utils import get_current_user, get_session, get_settings
+from datajunction_server.utils import (
+    get_and_update_current_user,
+    get_session,
+    get_settings,
+)
 
 settings = get_settings()
 _logger = logging.getLogger(__name__)
@@ -36,7 +40,7 @@ async def list_dimensions(
     prefix: Optional[str] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -67,7 +71,7 @@ async def find_nodes_with_dimension(
     *,
     node_type: List[NodeType] = Query([]),
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -100,7 +104,7 @@ async def find_nodes_with_common_dimensions(
     node_type: List[NodeType] = Query([]),
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
