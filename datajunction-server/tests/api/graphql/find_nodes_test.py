@@ -364,6 +364,12 @@ async def test_find_transform(
                     minTemporalPartition
                     maxTemporalPartition
                 }
+                cubeMetrics {
+                    name
+                }
+                cubeDimensions {
+                    name
+                }
             }
         }
     }
@@ -376,6 +382,8 @@ async def test_find_transform(
         {
             "current": {
                 "availability": None,
+                "cubeDimensions": [],
+                "cubeMetrics": [],
                 "materializations": [],
                 "parents": [
                     {
