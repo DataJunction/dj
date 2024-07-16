@@ -3481,10 +3481,12 @@ async def test_filter_pushdowns(
               SELECT
                 repair_orders.hard_hat_id AS hh_id
               FROM roads.repair_orders AS repair_orders
+              WHERE  repair_orders.hard_hat_id IN (123, 13)
+                AND repair_orders.hard_hat_id = 123
+                OR repair_orders.hard_hat_id = 13
             ) AS default_DOT_repair_orders_fact
-            WHERE  default_DOT_repair_orders_fact.hh_id IN (123, 13)
-              AND default_DOT_repair_orders_fact.hh_id = 123
-              OR default_DOT_repair_orders_fact.hh_id = 13
+            WHERE
+              default_DOT_repair_orders_fact.hh_id IN (123, 13) AND default_DOT_repair_orders_fact.hh_id = 123 OR default_DOT_repair_orders_fact.hh_id = 13
             """,
         ),
     )
