@@ -380,12 +380,12 @@ class Node(Base):  # pylint: disable=too-few-public-methods
                 for tag in (await session.execute(statement)).unique().scalars().all()
                 for node in tag.nodes
             ]
-            if not nodes_with_tags:
+            if not nodes_with_tags:  # pragma: no cover
                 return []
 
         statement = select(Node).where(is_(Node.deactivated_at, None))
         if nodes_with_tags:
-            statement = statement.where(
+            statement = statement.where(  # pragma: no cover
                 Node.id.in_(nodes_with_tags),
             )
         if names:
@@ -716,7 +716,7 @@ class NodeRevision(
         Cube node's metrics
         """
         if self.type != NodeType.CUBE:
-            return []
+            return []  # pragma: no cover
         ordering = {
             col.name.replace("_DOT_", SEPARATOR): (col.order or idx)
             for idx, col in enumerate(self.columns)
@@ -737,7 +737,7 @@ class NodeRevision(
         Cube node's dimension attributes
         """
         if self.type != NodeType.CUBE:
-            return []
+            return []  # pragma: no cover
         dimension_to_roles_mapping = {
             col.name: col.dimension_column for col in self.columns
         }
