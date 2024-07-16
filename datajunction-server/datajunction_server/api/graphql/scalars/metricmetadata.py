@@ -19,7 +19,6 @@ class Unit:  # pylint: disable=too-few-public-methods
     label: Optional[str]
     category: Optional[str]
     abbreviation: Optional[str]
-    description: Optional[str]
 
 
 @strawberry.type
