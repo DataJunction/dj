@@ -106,7 +106,7 @@ class NodeRevision:
 
     # Materialization-related outputs
     availability: Optional[AvailabilityState] = None
-    materializations: Optional[List[MaterializationConfig]]
+    materializations: Optional[List[MaterializationConfig]] = None
 
     # Only source nodes will have this
     schema_: Optional[str]
@@ -114,6 +114,7 @@ class NodeRevision:
 
     # Only metrics will have this field
     metric_metadata: Optional[MetricMetadata] = None
+    required_dimensions: Optional[List[Column]] = None
 
     # Only cubes will have these fields
     @strawberry.field
