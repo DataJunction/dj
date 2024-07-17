@@ -435,9 +435,10 @@ def build_filters(
                 dim.name = ast.Name(name=col_name)
                 if node_table:  # pragma: no cover
                     dim.add_table(node_table)
-            filter_asts.append(
-                temp_select.where,  # type: ignore
-            )
+            if temp_select.where:
+                filter_asts.append(
+                    temp_select.where,  # type: ignore
+                )
     return filter_asts
 
 
