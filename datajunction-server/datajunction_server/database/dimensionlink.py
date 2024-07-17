@@ -142,3 +142,14 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
             right.identifier(): left.identifier()
             for left, right in self.foreign_key_mapping().items()
         }
+
+    @hybrid_property
+    def foreign_keys_reversed(self):
+        """
+        Returns a mapping from the primary key column(s) on the dimension node to the
+        foreign key column(s) on the origin node. The dict values are column names.
+        """
+        return {
+            left.identifier(): right.identifier()
+            for left, right in self.foreign_key_mapping().items()
+        }
