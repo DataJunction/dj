@@ -3444,7 +3444,8 @@ async def test_filter_pushdowns(
         "/nodes/default.repair_orders_fact",
         json={
             "query": "SELECT repair_orders.hard_hat_id AS hh_id "
-            "FROM default.repair_orders repair_orders",
+            "FROM default.repair_orders repair_orders "
+            "WHERE repair_orders.hard_hat_id IN (1, 2, 3)",
         },
     )
     assert response.status_code == 200
@@ -3461,6 +3462,7 @@ async def test_filter_pushdowns(
     )
     assert response.status_code == 201
 
+    # All of the filters can push down
     response = await module__client_with_examples.get(
         "/sql/default.repair_orders_fact",
         params={
@@ -3481,12 +3483,50 @@ async def test_filter_pushdowns(
               SELECT
                 repair_orders.hard_hat_id AS hh_id
               FROM roads.repair_orders AS repair_orders
-              WHERE  repair_orders.hard_hat_id IN (123, 13)
+              WHERE  repair_orders.hard_hat_id IN (1, 2, 3)
+                AND repair_orders.hard_hat_id IN (123, 13)
                 AND repair_orders.hard_hat_id = 123
                 OR repair_orders.hard_hat_id = 13
             ) AS default_DOT_repair_orders_fact
             WHERE
               default_DOT_repair_orders_fact.hh_id IN (123, 13) AND default_DOT_repair_orders_fact.hh_id = 123 OR default_DOT_repair_orders_fact.hh_id = 13
+            """,
+        ),
+    )
+
+    # One of the filters cannot push down
+    response = await module__client_with_examples.get(
+        "/sql/default.repair_orders_fact",
+        params={
+            "dimensions": ["default.hard_hat.hard_hat_id"],
+            "filters": [
+                "default.hard_hat.hard_hat_id IN (123, 13)",
+                "default.hard_hat.state IN ('CA')",
+            ],
+        },
+    )
+    assert str(parse(response.json()["sql"])) == str(
+        parse(
+            """
+            SELECT
+              default_DOT_repair_orders_fact.hh_id default_DOT_repair_orders_fact_DOT_hh_id,
+              default_DOT_repair_orders_fact.hh_id default_DOT_hard_hat_DOT_hard_hat_id
+            FROM (
+              SELECT
+                repair_orders.hard_hat_id AS hh_id
+              FROM roads.repair_orders AS repair_orders
+              WHERE
+                repair_orders.hard_hat_id IN (1, 2, 3)
+            ) AS default_DOT_repair_orders_fact LEFT JOIN (
+              SELECT
+                default_DOT_hard_hats.hard_hat_id,
+                default_DOT_hard_hats.state
+              FROM roads.hard_hats AS default_DOT_hard_hats
+            ) AS default_DOT_hard_hat
+            ON default_DOT_repair_orders_fact.hh_id = default_DOT_hard_hat.hard_hat_id
+            WHERE
+              default_DOT_hard_hat.state IN ('CA')
+              AND default_DOT_repair_orders_fact.hh_id IN (123, 13)
             """,
         ),
     )
