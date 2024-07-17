@@ -353,7 +353,7 @@ async def test_link_complex_dimension_with_role(
     }
 
     response = await dimensions_link_client.get("/nodes/default.events")
-    assert response.json()["dimension_links"] == [
+    assert sorted(response.json()["dimension_links"], key=lambda x: x["role"]) == [
         {
             "dimension": {"name": "default.users"},
             "join_cardinality": "one_to_one",

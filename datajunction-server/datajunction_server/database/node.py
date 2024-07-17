@@ -340,7 +340,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
     async def find(
         cls,
         session: AsyncSession,
-        prefix: str,
+        prefix: Optional[str],
         node_type: NodeType,
         *options: ExecutableOption,
     ) -> List["Node"]:
@@ -354,6 +354,50 @@ class Node(Base):  # pylint: disable=too-few-public-methods
             )
         if node_type:
             statement = statement.where(Node.type == node_type)
+        result = await session.execute(statement.options(*options))
+        return result.unique().scalars().all()
+
+    @classmethod
+    async def find_by(  # pylint: disable=keyword-arg-before-vararg
+        cls,
+        session: AsyncSession,
+        names: Optional[List[str]] = None,
+        fragment: Optional[str] = None,
+        node_types: Optional[List[NodeType]] = None,
+        tags: Optional[List[str]] = None,
+        *options: ExecutableOption,
+    ) -> List["Node"]:
+        """
+        Finds a list of nodes by prefix
+        """
+        nodes_with_tags = []
+        if tags:
+            statement = (
+                select(Tag).where(Tag.name.in_(tags)).options(joinedload(Tag.nodes))
+            )
+            nodes_with_tags = [
+                node.id
+                for tag in (await session.execute(statement)).unique().scalars().all()
+                for node in tag.nodes
+            ]
+            if not nodes_with_tags:  # pragma: no cover
+                return []
+
+        statement = select(Node).where(is_(Node.deactivated_at, None))
+        if nodes_with_tags:
+            statement = statement.where(  # pragma: no cover
+                Node.id.in_(nodes_with_tags),
+            )
+        if names:
+            statement = statement.where(
+                Node.name.in_(names),  # type: ignore  # pylint: disable=no-member
+            )
+        if fragment:
+            statement = statement.where(
+                Node.name.like(f"%{fragment}%"),  # type: ignore  # pylint: disable=no-member
+            )
+        if node_types:
+            statement = statement.where(Node.type.in_(node_types))
         result = await session.execute(statement.options(*options))
         return result.unique().scalars().all()
 
@@ -649,6 +693,15 @@ class NodeRevision(
             )
         )
 
+    def ordering(self) -> Dict[str, int]:
+        """
+        Column ordering
+        """
+        return {
+            col.name.replace("_DOT_", SEPARATOR): (col.order or idx)
+            for idx, col in enumerate(self.columns)
+        }
+
     def cube_elements_with_nodes(self) -> List[Tuple[Column, Optional["NodeRevision"]]]:
         """
         Cube elements along with their nodes
@@ -663,9 +716,7 @@ class NodeRevision(
         Cube node's metrics
         """
         if self.type != NodeType.CUBE:
-            raise DJInvalidInputException(  # pragma: no cover
-                message="Cannot retrieve metrics for a non-cube node!",
-            )
+            return []  # pragma: no cover
         ordering = {
             col.name.replace("_DOT_", SEPARATOR): (col.order or idx)
             for idx, col in enumerate(self.columns)
@@ -686,9 +737,7 @@ class NodeRevision(
         Cube node's dimension attributes
         """
         if self.type != NodeType.CUBE:
-            raise DJInvalidInputException(  # pragma: no cover
-                "Cannot retrieve dimensions for a non-cube node!",
-            )
+            return []  # pragma: no cover
         dimension_to_roles_mapping = {
             col.name: col.dimension_column for col in self.columns
         }
