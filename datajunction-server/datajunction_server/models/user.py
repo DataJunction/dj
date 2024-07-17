@@ -20,3 +20,12 @@ class UserOutput(BaseModel):
 
     class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
         orm_mode = True
+
+
+class UserActivity(BaseModel):
+    """
+    User activity info
+    """
+
+    username: str
+    count: int
