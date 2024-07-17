@@ -39,7 +39,7 @@ export default function NodeListActions({ nodeName }) {
     <div>
       <a href={`/nodes/${nodeName}/edit`} style={{ marginLeft: '0.5rem' }}>
         {editButton}
-      </a>
+      </a>{' '}
       <Formik initialValues={initialValues} onSubmit={deleteNode}>
         {function Render({ status, setFieldValue }) {
           return (

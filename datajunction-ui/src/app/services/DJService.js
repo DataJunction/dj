@@ -34,6 +34,22 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  users: async function () {
+    return await (
+      await fetch(`${DJ_URL}/users`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
+  me: async function () {
+    return await (
+      await fetch(`${DJ_URL}/users/me`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
   node: async function (name) {
     const data = await (
       await fetch(`${DJ_URL}/nodes/${name}/`, {
@@ -349,6 +365,14 @@ export const DataJunctionAPI = {
   namespace: async function (nmspce) {
     return await (
       await fetch(`${DJ_URL}/namespaces/${nmspce}/`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
+  userNodes: async function (username) {
+    return await (
+      await fetch(`${DJ_URL}/users/${username}/`, {
         credentials: 'include',
       })
     ).json();

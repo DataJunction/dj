@@ -27,27 +27,28 @@ export default function Search() {
           return tag;
         }),
       );
-      const fuse = new Fuse(allEntities || [], {
-        keys: [
-          'name', // will be assigned a `weight` of 1
-          {
-            name: 'description',
-            weight: 2,
-          },
-          {
-            name: 'display_name',
-            weight: 3,
-          },
-          {
-            name: 'type',
-            weight: 4,
-          },
-          {
-            name: 'tag_type',
-            weight: 5,
-          },
-        ],
-      });
+      const options = { keys: [
+        'name', // will be assigned a `weight` of 1
+        {
+          name: 'description',
+          weight: 2,
+        },
+        {
+          name: 'display_name',
+          weight: 3,
+        },
+        {
+          name: 'type',
+          weight: 4,
+        },
+        {
+          name: 'tag_type',
+          weight: 5,
+        },
+      ] };
+
+      const index = Fuse.createIndex(options.keys, allEntities);
+      const fuse = new Fuse(allEntities || [], options, index);
       setFuse(fuse);
     };
     fetchNodes();

@@ -280,6 +280,7 @@ async def list_all_nodes_with_details(
             Node.type == node_type if node_type else True,
             is_(Node.deactivated_at, None),
         )
+        .order_by(NodeRevision.updated_at.desc())
         .limit(NODE_LIST_MAX)
     )  # Very high limit as a safeguard
     results = [

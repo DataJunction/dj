@@ -27,7 +27,7 @@ async def list_nodes_by_username(
     username: str,
     *,
     session: AsyncSession = Depends(get_session),
-    activity_types: List[str] = Query([ActivityType.CREATE, ActivityType.UPDATE]),
+    activity_types: List[str] = Query([ActivityType.CREATE]),
 ) -> List[NodeMinimumDetail]:
     """
     List all nodes with the specified activity type(s) by the user

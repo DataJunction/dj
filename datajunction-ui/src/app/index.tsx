@@ -7,6 +7,7 @@ import * as React from 'react';
 import { Helmet } from 'react-helmet-async';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
+import { DashboardPage } from './pages/DashboardPage/Loadable';
 import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
 import RevisionDiff from './pages/NodePage/RevisionDiff';
@@ -116,6 +117,14 @@ export function App() {
                       <Route path="tags" key="tags">
                         <Route path=":name" element={<TagPage />} />
                       </Route>
+                      <Route path="dashboard" key="dashboard" element={<DashboardPage />}>
+
+                      <Route
+                          path=":namespace"
+                          element={<DashboardPage />}
+                          key="dashboard"
+                        />
+                        </Route>
                     </>
                   }
                 />
