@@ -460,7 +460,10 @@ def push_down_direct_ref_filter(
         for filter_dim in referenced_filter_dims:
             if filter_dim.identifier() in node_columns_lookup:  # pragma: no cover
                 filter_dim_ref = node_columns_lookup[filter_dim.identifier()].copy()
-                filter_dim_ref.alias = None
+                if isinstance(filter_dim_ref, ast.Alias):
+                    filter_dim_ref = filter_dim_ref.child  # pragma: no cover
+                else:
+                    filter_dim_ref.alias = None  # pragma: no cover
                 cast(ast.Node, filter_dim.parent).replace(filter_dim, filter_dim_ref)
         if isinstance(query_ast.select.where, ast.BinaryOp):
             existing_filters = (
