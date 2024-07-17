@@ -27,7 +27,7 @@ from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from httpx import AsyncClient
 from pytest_mock import MockerFixture
-from sqlalchemy import StaticPool
+from sqlalchemy import StaticPool, insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
@@ -653,6 +653,14 @@ async def module__client(  # pylint: disable=too-many-statements
     """
     Create a client for testing APIs.
     """
+    statement = insert(User).values(
+        username="dj",
+        email=None,
+        name=None,
+        oauth_provider="basic",
+        is_admin=False,
+    )
+    await module__session.execute(statement)
 
     def get_query_service_client_override() -> QueryServiceClient:
         return module__query_service_client

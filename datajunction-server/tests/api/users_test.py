@@ -18,7 +18,26 @@ class TestUsers:
         """
 
         response = await module__client_with_roads.get("/users")
-        assert response.json() == ["dj"]
+        assert response.json() == [{"username": "dj", "count": 67}]
+
+    @pytest.mark.asyncio
+    async def test_get_current_user(
+        self,
+        module__client_with_roads: AsyncClient,
+    ) -> None:
+        """
+        Test ``POST /tags`` and ``GET /tags/{name}``
+        """
+
+        response = await module__client_with_roads.get("/users/me")
+        assert response.json() == {
+            "id": 1,
+            "username": "dj",
+            "email": None,
+            "name": None,
+            "oauth_provider": "basic",
+            "is_admin": False,
+        }
 
     @pytest.mark.asyncio
     async def test_list_nodes_by_user(
