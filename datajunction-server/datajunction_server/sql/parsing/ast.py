@@ -729,6 +729,7 @@ class Column(Aliasable, Named, Expression):
     _expression: Optional[Expression] = field(repr=False, default=None)
     _is_compiled: bool = False
     role: Optional[str] = None
+    dimension_ref: Optional[str] = None
 
     @property
     def type(self):
@@ -2551,6 +2552,13 @@ class SelectExpression(Aliasable, Expression):
                     filters.append(current_clause)
         return filters
 
+    @property
+    def column_mapping(self) -> Dict[str, "Column"]:
+        """
+        Returns a dictionary with the output column names mapped to the columns
+        """
+        return {col.alias_or_name.name: col for col in self.projection}
+
 
 class Select(SelectExpression):
     """
@@ -2660,6 +2668,17 @@ class Query(TableExpression, UnNamed):
         self.ctes = []
         return self
 
+    def to_cte(self, cte_name: Name, parent_ast: Optional["Query"] = None) -> "Query":
+        """
+        Prepares the query to be a CTE
+        """
+        self.alias = cte_name
+        self.parenthesized = True
+        self.as_ = True
+        if parent_ast:
+            self.set_parent(parent_ast, "ctes")
+        return self
+
     def __str__(self) -> str:
         is_cte = self.parent is not None and self.parent_key == "ctes"
         ctes = ",\n".join(str(cte) for cte in self.ctes)
@@ -2669,8 +2688,9 @@ class Query(TableExpression, UnNamed):
 
         parts = [f"{with_}{self.select}\n"]
         query = "".join(parts)
+        newline = "\n" if is_cte else ""
         if self.parenthesized:
-            query = f"({query.strip()})"
+            query = f"({newline}{query.strip()}{newline})"
         if self.alias:
             as_ = " AS " if self.as_ else " "
             if is_cte:

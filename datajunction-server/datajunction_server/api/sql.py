@@ -237,37 +237,37 @@ async def get_node_sql(  # pylint: disable=too-many-locals
     )
     validate_orderby(orderby, [node_name], dimensions)
 
-    if query_request := await QueryRequest.get_query_request(
-        session,
-        nodes=[node_name],
-        dimensions=dimensions,
-        filters=filters,
-        orderby=orderby,
-        limit=limit,
-        engine_name=engine.name if engine else None,
-        engine_version=engine.version if engine else None,
-        query_type=QueryBuildType.NODE,
-    ):
-        # Update the node SQL in a background task to keep it up-to-date
-        background_tasks.add_task(
-            build_and_save_node_sql,
-            node_name=node_name,
-            dimensions=dimensions,
-            filters=filters,
-            orderby=orderby,
-            limit=limit,
-            session=session,
-            engine=engine,
-            access_control=access_control,
-        )
-        return (
-            TranslatedSQL(
-                sql=query_request.query,
-                columns=query_request.columns,
-                dialect=engine.dialect if engine else None,
-            ),
-            query_request,
-        )
+    # if query_request := await QueryRequest.get_query_request(
+    #     session,
+    #     nodes=[node_name],
+    #     dimensions=dimensions,
+    #     filters=filters,
+    #     orderby=orderby,
+    #     limit=limit,
+    #     engine_name=engine.name if engine else None,
+    #     engine_version=engine.version if engine else None,
+    #     query_type=QueryBuildType.NODE,
+    # ):
+    #     # Update the node SQL in a background task to keep it up-to-date
+    #     background_tasks.add_task(
+    #         build_and_save_node_sql,
+    #         node_name=node_name,
+    #         dimensions=dimensions,
+    #         filters=filters,
+    #         orderby=orderby,
+    #         limit=limit,
+    #         session=session,
+    #         engine=engine,
+    #         access_control=access_control,
+    #     )
+    #     return (
+    #         TranslatedSQL(
+    #             sql=query_request.query,
+    #             columns=query_request.columns,
+    #             dialect=engine.dialect if engine else None,
+    #         ),
+    #         query_request,
+    #     )
 
     query_request = await build_and_save_node_sql(
         node_name=node_name,
