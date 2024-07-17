@@ -214,6 +214,7 @@ async def get_query(  # pylint: disable=too-many-arguments
         limit=limit,
         build_criteria=build_criteria,
         access_control=access_control,
+        top_level=True,
     )
     query_ast = rename_columns(query_ast, node.current)  # type: ignore
     return query_ast
