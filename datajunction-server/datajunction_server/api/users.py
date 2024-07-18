@@ -61,7 +61,8 @@ async def list_users_with_activity(
     with_activity: bool = False,
 ) -> List[Union[str, UserActivity]]:
     """
-    List all users ordered by activity count
+    Lists all users. The endpoint will include user activity counts if the
+    `with_activity` flag is set to true.
     """
     if not with_activity:
         statement = select(User.username)
@@ -86,13 +87,3 @@ async def list_users_with_activity(
         UserActivity(username=user_activity[0], count=user_activity[1])
         for user_activity in result.all()
     ]
-
-
-@router.get("/users", response_model=List[str])
-async def list_users(session: AsyncSession = Depends(get_session)) -> List[str]:
-    """
-    List all users
-    """
-    statement = select(User.username)
-    result = await session.execute(statement)
-    return result.scalars().all()
