@@ -2,7 +2,7 @@
 User related APIs.
 """
 
-from typing import List, Optional
+from typing import List, Union
 
 from fastapi import Depends, Query
 from sqlalchemy import distinct, func, select
@@ -15,23 +15,11 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.node import NodeMinimumDetail
-from datajunction_server.models.user import UserActivity, UserOutput
-from datajunction_server.utils import get_current_user, get_session, get_settings
+from datajunction_server.models.user import UserActivity
+from datajunction_server.utils import get_session, get_settings
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["users"])
-
-
-@router.get("/users/me", response_model=UserOutput)
-async def current_user(
-    current_user: Optional[User] = Depends(  # pylint: disable=redefined-outer-name
-        get_current_user,
-    ),
-) -> UserOutput:
-    """
-    Returns info on the current authenticated user, if any
-    """
-    return current_user  # type: ignore
 
 
 @router.get("/users/{username}", response_model=List[NodeMinimumDetail])
@@ -66,11 +54,21 @@ async def list_nodes_by_username(
     return [node.current for node in nodes]
 
 
-@router.get("/users", response_model=List[UserActivity])
-async def list_users(session: AsyncSession = Depends(get_session)) -> List[str]:
+@router.get("/users", response_model=List[Union[str, UserActivity]])
+async def list_users_with_activity(
+    session: AsyncSession = Depends(get_session),
+    *,
+    with_activity: bool = False,
+) -> List[Union[str, UserActivity]]:
     """
-    List all users ordered by activity count
+    Lists all users. The endpoint will include user activity counts if the
+    `with_activity` flag is set to true.
     """
+    if not with_activity:
+        statement = select(User.username)
+        result = await session.execute(statement)
+        return result.scalars().all()
+
     statement = (
         select(
             User.username,
