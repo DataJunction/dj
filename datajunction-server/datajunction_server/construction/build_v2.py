@@ -1,4 +1,5 @@
 import collections
+import logging
 import time
 from dataclasses import dataclass
 from typing import DefaultDict, Dict, List, Optional, Union, cast
@@ -38,6 +39,8 @@ from datajunction_server.sql.parsing.types import (
 )
 from datajunction_server.utils import SEPARATOR
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class FullColumnName:
@@ -54,6 +57,205 @@ class FullColumnName:
     @property
     def column_name(self):
         return self.name.split(SEPARATOR)[-1]
+
+
+@dataclass
+class DimensionJoin:
+    """
+    Info on a dimension join
+    """
+    join_path: List[ast.Join]
+    requested_dimensions: List[str]
+    node_query: Optional[ast.Query] = None
+
+
+async def build_node(  # pylint: disable=too-many-arguments
+    session: AsyncSession,
+    node: NodeRevision,
+    filters: Optional[List[str]] = None,
+    dimensions: Optional[List[str]] = None,
+    orderby: Optional[List[str]] = None,
+    limit: Optional[int] = None,
+    build_criteria: Optional[BuildCriteria] = None,
+    access_control: Optional[access.AccessControlStore] = None,
+    include_dimensions_in_groupby: bool = None,
+    top_level: bool = False,
+) -> ast.Query:
+    """
+    Determines the optimal way to build the node with the requested set of
+    dimensions, filter expressions, order by, and limit clauses.
+    """
+    logger.info(
+        "Building node %s with dimensions %s, filters %s, order by %s, limit %s",
+        node.name, dimensions, filters, orderby, limit,
+    )
+    start = time.time()
+    if access_control:
+        access_control.add_request_by_node(node)
+
+    if include_dimensions_in_groupby is None:
+        include_dimensions_in_groupby = node.type == NodeType.METRIC
+
+    # Set the dialect by finding available engines for this node, or default to Spark
+    build_criteria = build_criteria or get_default_criteria(node)
+
+    physical_table = get_table_for_node(node, build_criteria, as_select=True)
+    if physical_table:
+        return physical_table
+    node_ast = await compile_node_ast(session, node)
+
+    # Keep track of all the dimension nodes that need to be joined based on the
+    # requested dimensions and filters
+    requested_dimensions = await get_necessary_dimensions(session, node, dimensions)
+    dimension_node_joins = await find_dimension_node_joins(session, node, requested_dimensions)
+    pushdown_filters, join_filters, dimension_node_joins_ = await process_filters(
+        session,
+        node,
+        node_ast,
+        filters,
+        dimension_node_joins,
+    )
+    dimension_node_joins.update(dimension_node_joins_)
+    node_ast.select.where = combine_filter_conditions(
+        node_ast.select.where,
+        *pushdown_filters,
+    )
+
+    print("2. node_ast after pushing down filters and dimensions that don't need join", node_ast)
+
+    # Collect all necessary CTEs: the node query and the dimension node joins
+    cte_mapping = {}  # Track each node CTE that gets added
+
+    # Build node AST into a CTE
+    node_alias = ast.Name(amenable_name(node.name))
+    node_ast = await build_ast(
+        session,
+        node_ast,
+        build_criteria=build_criteria,
+    )
+    node_ast = node_ast.to_cte(node_alias)
+    cte_mapping[node.name] = node_ast
+
+    print("3. node_ast after calling build_ast", node_ast)
+    # Initialize the final query AST structure
+    final_ast = ast.Query(
+        select=ast.Select(
+            projection=[
+                ast.Column(
+                    ast.Name(col.alias_or_name.name),
+                    _table=node_ast,
+                    _type=col.type,
+                )
+                for col in node_ast.select.projection
+            ],
+            from_=ast.From(relations=[ast.Relation(node_alias)]),
+        ),
+        ctes=[node_ast],
+    )
+    print("4. final_ast with node CTE", final_ast)
+
+    # Start building the dimension joins
+    for dimension_node, dimension_join in dimension_node_joins.items():
+        join_path = dimension_join.join_path
+        requested_dimensions = list(dict.fromkeys(dimension_join.requested_dimensions))
+        print("joinnig dimension_node", dimension_node)
+
+        for link in join_path:
+            if all(dim in link.foreign_keys_reversed for dim in requested_dimensions):
+                continue
+
+            if link.dimension.name in cte_mapping:
+                dimension_join.node_query = cte_mapping[link.dimension.name]
+                continue
+
+            dimension_node_query = await build_dimension_node_query(
+                session, 
+                build_criteria,
+                link,
+                join_filters,
+                cte_mapping,
+            )
+            dimension_join.node_query = convert_to_cte(
+                dimension_node_query, final_ast, link.dimension.name,
+            )
+            # 5c. Add it to the list of CTEs
+            cte_mapping[link.dimension.name] = dimension_join.node_query
+            final_ast.ctes.append(dimension_join.node_query)
+
+            # 5d. Build the join statement
+            join_ast = build_join_for_link(
+                link,
+                cte_mapping,
+                dimension_node_query,
+            )
+            final_ast.select.from_.relations[-1].extensions.append(join_ast)
+            print("5. Building CTE for dimension join", final_ast)
+
+        # Add the requested dimensions to the final SELECT
+        dimensions_columns = build_requested_dimensions_columns(
+            requested_dimensions,
+            link,
+            dimension_node_joins,
+        )
+        final_ast.select.projection.extend(dimensions_columns)
+
+    # Add remaining join filters to the where clause
+    for filter_ast in join_filters:
+        filter_ast = replace_filter_dimension_refs(filter_ast, dimension_node_joins)
+    final_ast.select.where = combine_filter_conditions(
+        final_ast.select.where,
+        *join_filters,
+    )
+    print("Elapsed", time.time() - start)
+    return final_ast
+
+
+async def get_necessary_dimensions(
+    session: AsyncSession,
+    node: NodeRevision,
+    dimensions: List[str],
+):
+    """
+    Returns the necessary dimensions for this node, which are a combination of the requested
+    dimensions and the node's required dimensions
+    """
+    await session.refresh(node, ["required_dimensions"])
+    return list(
+        dict.fromkeys(
+            dimensions or [] + [required.name for required in node.required_dimensions],
+        )
+    )
+
+
+async def find_dimension_node_joins(
+    session: AsyncSession,
+    node: NodeRevision,
+    requested_dimensions: List[str],
+) -> Dict[str, DimensionJoin]:
+    """
+    Returns a list of dimension node joins that are necessary based on
+    the requested dimensions.
+    """
+    dimension_node_joins = {}
+    for dim in requested_dimensions:
+        dimension_attr = FullColumnName(dim)
+        dim_node = dimension_attr.node_name
+        if dim_node not in dimension_node_joins:
+            join_path = await dimension_join_path(session, node, dimension_attr.name)
+            if not join_path:
+                raise DJException(
+                    f"This dimension attribute cannot be joined in: {dimension_attr.name}. "
+                    f"Please make sure that {dimension_attr.node_name} is linked to {node.name}",
+                )
+            if await needs_dimension_join(session, dimension_attr.name, join_path):
+                dimension_node_joins[dim_node] = DimensionJoin(
+                    join_path=join_path,
+                    requested_dimensions=[dimension_attr.name],
+                )
+        else:
+            if dim not in dimension_node_joins[dim_node].requested_dimensions:
+                dimension_node_joins[dim_node].requested_dimensions.append(dim)
+    return dimension_node_joins
 
 
 async def dimension_join_path(
@@ -100,11 +302,90 @@ async def dimension_join_path(
     return None
 
 
-@dataclass
-class DimensionJoin:
-    join_path: List[ast.Join]
-    requested_dimensions: List[str]
-    node_query: Optional[ast.Query] = None
+async def build_dimension_node_query(
+    session: AsyncSession,
+    build_criteria: BuildCriteria,
+    link: DimensionLink,
+    join_filters: List[str],
+    cte_mapping: Dict[str, ast.Query]
+):
+    """
+    Builds a dimension node query with the requested filters
+    """
+    await session.refresh(link.dimension, ["current"])
+    await session.refresh(link.dimension.current, ["columns"])
+    # 1. Build the dimension node
+    dimension_node_ast = await compile_node_ast(session, link.dimension.current)
+    pushdown_filters, join_filters, _ = await process_filters(
+        session,
+        link.dimension.current,
+        dimension_node_ast,
+        join_filters,
+    )
+    dimension_node_ast.select.where = combine_filter_conditions(
+        dimension_node_ast.select.where,
+        *pushdown_filters,
+    )
+    print("1a. Building CTE for", link.dimension.name)
+    dimension_node_query = await build_ast(
+        session,
+        dimension_node_ast,
+        build_criteria=build_criteria,
+        ctes_mapping=cte_mapping,
+    )
+    return dimension_node_query
+
+
+def convert_to_cte(
+    inner_query: ast.Query,
+    outer_query: ast.Query,
+    cte_name: str,
+):
+    """
+    Convert the query to a CTE that can be used by the outer query
+    """
+    # Move all the CTEs used by the inner query to the outer query
+    for cte in inner_query.ctes:
+        cte.set_parent(outer_query, parent_key="ctes")
+    outer_query.ctes.extend(inner_query.ctes)
+    inner_query.ctes = []
+
+    # Convert the dimension node query to a CTE
+    inner_query = inner_query.to_cte(
+        ast.Name(amenable_name(cte_name)),
+        outer_query,
+    )
+    return inner_query
+
+
+def build_requested_dimensions_columns(requested_dimensions, link, dimension_node_joins):
+    dimensions_columns = []
+    for dim in requested_dimensions:
+        full_dimension_attr = FullColumnName(dim)
+        dim_node = full_dimension_attr.node_name
+        # Check if it's a foreign key reference on one of the dimensions
+        foreign_key_column_name = None
+        if dim in link.foreign_keys_reversed:
+            foreign_key_column_name = FullColumnName(
+                link.foreign_keys_reversed[dim],
+            ).column_name
+
+        if dim_node in dimension_node_joins:
+            for col in dimension_node_joins[dim_node].node_query.select.projection:
+                if col.alias_or_name.name == full_dimension_attr.column_name or (
+                    foreign_key_column_name
+                    and col.alias_or_name.identifier() == foreign_key_column_name
+                ):
+                    dimensions_columns.append(
+                        ast.Column(
+                            name=ast.Name(col.alias_or_name.name),
+                            # **({"alias": ast.Name(amenable_name(dim))} if full_dimension_attr.column_name in final_columns else {}),
+                            alias=ast.Name(amenable_name(dim)),
+                            _table=dimension_node_joins[dim_node].node_query,
+                            _type=col.type,
+                        ),
+                    )
+    return dimensions_columns
 
 
 async def compile_node_ast(session, node_revision: NodeRevision) -> ast.Query:
@@ -137,11 +418,36 @@ def update_filter_column_with_foreign_key(
             filter_dim.dimension_ref = dimension_attr
 
 
+def replace_filter_dimension_refs(
+    filter_ast: ast.Expression,
+    dimension_node_joins: Dict[str, ast.Query],
+):
+    for filter_dim in filter_ast.find_all(ast.Column):
+        dimension_attr = FullColumnName(filter_dim.identifier())
+        dim_node = dimension_attr.node_name
+        for col in dimension_node_joins[dim_node].node_query.select.projection:
+            if col.alias_or_name.name == dimension_attr.column_name:
+                filter_dim.parent.replace(
+                    filter_dim,
+                    ast.Column(
+                        name=ast.Name(col.alias_or_name.name),
+                        # alias=ast.Name(amenable_name(filter_dim.identifier())),
+                        _table=dimension_node_joins[dim_node].node_query,
+                        _type=col.type,
+                    ),
+                )
+    return filter_ast
+
+
 async def needs_dimension_join(
     session: AsyncSession,
     dimension_attribute: str,
     join_path: List["DimensionLink"],
 ) -> bool:
+    """
+    Checks if the requested dimension attribute needs a dimension join or
+    if it can be pulled from an existing column on the node.
+    """
     if len(join_path) == 1:
         link = join_path[0]
         await session.refresh(link.dimension, ["current"])
@@ -154,7 +460,9 @@ async def needs_dimension_join(
 def combine_filter_conditions(
     existing_condition, *new_conditions
 ) -> Optional[ast.BinaryOp]:
-    """Combines the existing where clause with"""
+    """
+    Combines the existing where clause with new filter conditions.
+    """
     if not existing_condition and not new_conditions:
         return None
     if not existing_condition:
@@ -164,7 +472,7 @@ def combine_filter_conditions(
 
 def build_join_for_link(
     link: "DimensionLink",
-    join_left: ast.Query,
+    cte_mapping: Dict[str, ast.Query],
     join_right: ast.Query,
 ):
     """
@@ -174,20 +482,19 @@ def build_join_for_link(
     join_ast = link.joins()[0]
     join_ast.right = join_right.alias
     dimension_node_columns = join_right.select.column_mapping
+    join_left = cte_mapping.get(link.node_revision.name)
     node_columns = join_left.select.column_mapping
     for col in join_ast.criteria.find_all(ast.Column):
         full_column = FullColumnName(col.identifier())
         is_dimension_node = full_column.node_name == link.dimension.name
-        col.parent.replace(
-            col,
-            ast.Column(
-                name=ast.Name(full_column.column_name),
-                _table=join_right if is_dimension_node else join_left,
-                _type=(dimension_node_columns if is_dimension_node else node_columns)
-                .get(full_column.column_name)
-                .type,
-            ),
+        replacement = ast.Column(
+            name=ast.Name(full_column.column_name),
+            _table=join_right if is_dimension_node else join_left,
+            _type=(dimension_node_columns if is_dimension_node else node_columns)
+            .get(full_column.column_name)
+            .type,
         )
+        col.parent.replace(col, replacement)
     return join_ast
 
 
@@ -222,6 +529,13 @@ async def process_filters(
     filters: List[str],
     dimension_node_joins: Optional[Dict[str, DimensionJoin]] = None,
 ):
+    """
+    Sort filter expressions into:
+    * pushdown filters: these filter expressions reference dimensions that do not
+      require a join and therefore can be "pushed" down
+    * join filters: these filters require one or more dimension node joins
+    Also returns the necessary dimension node joins
+    """
     filter_asts = [
         parse(f"select * where {filter_}").select.where for filter_ in filters or []
     ]
@@ -291,243 +605,79 @@ async def process_filters(
     return pushdown_filters, join_filters, dimension_node_joins
 
 
-async def build_node(  # pylint: disable=too-many-arguments
-    session: AsyncSession,
-    node: NodeRevision,
-    filters: Optional[List[str]] = None,
-    dimensions: Optional[List[str]] = None,
-    orderby: Optional[List[str]] = None,
-    limit: Optional[int] = None,
-    build_criteria: Optional[BuildCriteria] = None,
-    access_control: Optional[access.AccessControlStore] = None,
-    include_dimensions_in_groupby: bool = None,
-    top_level: bool = False,
-) -> ast.Query:
-    """
-    Determines the optimal way to build the Node and does so
-    """
-    start = time.time()
-    print("1. Building node", node.name, "with dimensions", dimensions)
-    if access_control:
-        access_control.add_request_by_node(node)
-
-    if include_dimensions_in_groupby is None:
-        include_dimensions_in_groupby = node.type == NodeType.METRIC
-
-    # Set the dialect by finding available engines for this node, or default to Spark
-    build_criteria = build_criteria or get_default_criteria(node)
-
-    physical_table = _get_node_table(node, build_criteria, as_select=True)
-    if physical_table:
-        return physical_table
-    node_ast = await compile_node_ast(session, node)
-
-    # Keep track of all the dimension nodes that need to be joined based on the
-    # requested dimensions and filters
-    dimension_node_joins: Dict[str, DimensionJoin] = {}
-    await session.refresh(node, ["required_dimensions"])
-    requested_dimensions = list(
-        set(
-            dimensions or [] + [required.name for required in node.required_dimensions],
-        ),
-    )
-    for dim in requested_dimensions:
-        dimension_attr = FullColumnName(dim)
-        dim_node = dimension_attr.node_name
-        if dim_node not in dimension_node_joins:
-            join_path = await dimension_join_path(session, node, dimension_attr.name)
-            if await needs_dimension_join(session, dimension_attr.name, join_path):
-                dimension_node_joins[dim_node] = DimensionJoin(
-                    join_path=join_path,
-                    requested_dimensions=[dimension_attr.name],
-                )
-        else:
-            if dim not in dimension_node_joins[dim_node].requested_dimensions:
-                dimension_node_joins[dim_node].requested_dimensions.append(dim)
-
-    pushdown_filters, join_filters, dimension_node_joins_ = await process_filters(
-        session,
-        node,
-        node_ast,
-        filters,
-        dimension_node_joins,
-    )
-    dimension_node_joins.update(dimension_node_joins_)
-    node_ast.select.where = combine_filter_conditions(
-        node_ast.select.where,
-        *pushdown_filters,
-    )
-    print("2. node_ast after adding filters and dims that dont need join", node_ast)
-
-    # Collect all necessary CTEs: the node query and the dimension node joins
-    node_alias = ast.Name(amenable_name(node.name))
-    node_ast = await build_ast(
-        session,
-        node_ast,
-        build_criteria=build_criteria,
-    )
-    node_ast = node_ast.to_cte(node_alias)
-
-    print("3. node_ast after calling build_ast", node_ast)
-    final_ast = ast.Query(
-        select=ast.Select(
-            projection=[
-                ast.Column(
-                    ast.Name(col.alias_or_name.name),
-                    _table=node_ast,
-                    _type=col.type,
-                )
-                for col in node_ast.select.projection
-            ],
-            from_=ast.From(relations=[ast.Relation(node_alias)]),
-        ),
-        ctes=[node_ast],
-    )
-    print("4. final_ast with node CTE", final_ast)
-
-    # Start building the joins using the CTEs
-    cte_mapping = {}  # Track dimension node CTEs that have been added
-    join_left = node_ast
-    for dimension_node, dimension_join in dimension_node_joins.items():
-        join_path = dimension_join.join_path
-        requested_dimensions = list(dict.fromkeys(dimension_join.requested_dimensions))
-
-        for link in join_path:
-            if all(dim in link.foreign_keys_reversed for dim in requested_dimensions):
-                continue
-
-            if link.dimension.name in cte_mapping:
-                dimension_join.node_query = cte_mapping[link.dimension.name]
-                continue
-
-            await session.refresh(link.dimension, ["current"])
-            await session.refresh(link.dimension.current, ["columns"])
-            # 1. Build the dimension node
-            dimension_node_ast = await compile_node_ast(session, link.dimension.current)
-            pushdown_filters, join_filters, _ = await process_filters(
-                session,
-                link.dimension.current,
-                dimension_node_ast,
-                join_filters,
-            )
-            dimension_node_ast.select.where = combine_filter_conditions(
-                dimension_node_ast.select.where,
-                *pushdown_filters,
-            )
-            dimension_node_query = await build_ast(
-                session,
-                dimension_node_ast,
-                build_criteria=build_criteria,
-            )
-            # 1a. Convert it to a CTE
-            dimension_node_query = dimension_node_query.to_cte(
-                ast.Name(amenable_name(link.dimension.name)),
-                final_ast,
-            )
-            dimension_join.node_query = dimension_node_query
-
-            # 2. Add it to the list of CTEs
-            cte_mapping[link.dimension.name] = dimension_node_query
-            final_ast.ctes.append(dimension_node_query)
-
-            # 3. Build the join statement
-            join_ast = build_join_for_link(
-                link,
-                join_left,
-                dimension_node_query,
-            )
-            final_ast.select.from_.relations[-1].extensions.append(join_ast)
-            print("5b. Building CTE for dimension join", final_ast)
-            join_left = dimension_node_query
-
-        # Add the requested dimensions to the final SELECT
-        for dim in requested_dimensions:
-            full_dimension_attr = FullColumnName(dim)
-            dim_node = full_dimension_attr.node_name
-            # Check if it's a foreign key reference on one of the dimensions
-            foreign_key_column_name = None
-            if dim in link.foreign_keys_reversed:
-                foreign_key_column_name = FullColumnName(
-                    link.foreign_keys_reversed[dim],
-                ).column_name
-
-            if dim_node in dimension_node_joins:
-                for col in dimension_node_joins[dim_node].node_query.select.projection:
-                    if col.alias_or_name.name == full_dimension_attr.column_name or (
-                        foreign_key_column_name
-                        and col.alias_or_name.identifier() == foreign_key_column_name
-                    ):
-                        final_ast.select.projection.append(
-                            ast.Column(
-                                name=ast.Name(col.alias_or_name.name),
-                                # **({"alias": ast.Name(amenable_name(dim))} if full_dimension_attr.column_name in final_columns else {}),
-                                alias=ast.Name(amenable_name(dim)),
-                                _table=dimension_node_joins[dim_node].node_query,
-                                _type=col.type,
-                            ),
-                        )
-    # Add remaining join filters to the where clause
-    for filter_ast in join_filters:
-        for filter_dim in filter_ast.find_all(ast.Column):
-            dimension_attr = FullColumnName(filter_dim.identifier())
-            dim_node = dimension_attr.node_name
-            for col in dimension_node_joins[dim_node].node_query.select.projection:
-                if col.alias_or_name.name == dimension_attr.column_name:
-                    filter_dim.parent.replace(
-                        filter_dim,
-                        ast.Column(
-                            name=ast.Name(col.alias_or_name.name),
-                            # alias=ast.Name(amenable_name(filter_dim.identifier())),
-                            _table=dimension_node_joins[dim_node].node_query,
-                            _type=col.type,
-                        ),
-                    )
-        final_ast.select.where = combine_filter_conditions(
-            final_ast.select.where,
-            filter_ast,
-        )
-    print("5. final_ast after joins", final_ast)
-    print("Elapse", time.time() - start)
-    return final_ast
-
-
 async def build_ast(  # pylint: disable=too-many-arguments
     session: AsyncSession,
     query: ast.Query,
     memoized_queries: Dict[int, ast.Query] = None,
     build_criteria: Optional[BuildCriteria] = None,
     access_control=None,
+    ctes_mapping: Dict[str, ast.Query] = None,
 ) -> ast.Query:
     """
-    Determines the optimal way to build the query AST and does so.
+    Builds the query AST, which involves replacing each of the DJ node references in
+    the query with their ASTs (either the referenced node's query or a materialized table).
     """
-    memoized_queries = memoized_queries or {}
-
-    start = time.time()
     context = CompileContext(session=session, exception=DJException())
-    hashed_query = hash(query)
-    if hashed_query in memoized_queries:
-        query = memoized_queries[hashed_query]  # pragma: no cover
-    else:
-        await query.compile(context)
-        memoized_queries[hashed_query] = query
-    end = time.time()
-    # _logger.info("Finished compiling query %s in %s", str(query)[-100:], end - start)
-
-    start = time.time()
-
+    await query.compile(context)
     query.bake_ctes()  # pylint: disable=W0212
-    await _build_select_ast(
-        session,
-        query.select,
-        memoized_queries,
-        build_criteria,
-        access_control,
-    )
-    query.select.add_aliases_to_unnamed_columns()
 
-    end = time.time()
-    # _logger.info("Finished building query in %s", end - start)
+    new_cte_mapping = {}
+
+    # Transforms a select expression by replacing dj node references with their ASTs
+    node_to_tables_mapping = _get_tables_from_select(query.select)
+    for referenced_node, table_expressions in node_to_tables_mapping.items():
+        await session.refresh(referenced_node, ["dimension_links"])
+
+        # Try to find a materialized table attached to this node, if one exists.
+        table_reference = cast(
+            Optional[ast.Table],
+            get_table_for_node(referenced_node, build_criteria),
+        )
+        if not table_reference:
+            if referenced_node.name not in ctes_mapping:
+                # Build a new CTE with the query AST otherwise
+                node_query = parse(cast(str, referenced_node.query))
+                query_ast = await build_ast(  # type: ignore
+                    session,
+                    node_query,
+                    memoized_queries,
+                    build_criteria,
+                    access_control,
+                )
+                cte_name = ast.Name(amenable_name(referenced_node.name))
+                query_ast = query_ast.to_cte(cte_name, parent_ast=query)
+                new_cte_mapping[referenced_node.name] = query_ast
+            
+            reference_cte = (
+                ctes_mapping[referenced_node.name] if referenced_node.name in ctes_mapping 
+                else new_cte_mapping[referenced_node.name]
+            )
+            query_ast = ast.Table(
+                reference_cte.alias,
+                _columns=reference_cte._columns,
+                _dj_node=referenced_node,
+            )
+        else:
+            alias = amenable_name(referenced_node.name)
+            query_ast = ast.Alias(ast.Name(alias), child=table_reference, as_=True)  # type: ignore
+
+        for table in table_expressions:
+            query.select.replace(
+                table,
+                query_ast,
+                copy=False,
+            )
+            await query.select.compile(context)
+            for col in query.select.find_all(ast.Column):
+                if (
+                    col._table
+                    and isinstance(col._table, ast.Table)
+                    and col._table.dj_node
+                    and col._table.dj_node.name == referenced_node.name
+                ):
+                    col._table = query_ast
+    query.ctes.extend(new_cte_mapping.values())
+    query.select.add_aliases_to_unnamed_columns()
     return query
 
 
@@ -546,58 +696,26 @@ def _get_tables_from_select(
     return tables
 
 
-# flake8: noqa: C901
-async def _build_select_ast(
-    session: AsyncSession,
-    select: ast.SelectExpression,
-    memoized_queries: Dict[int, ast.Query],
-    build_criteria: Optional[BuildCriteria] = None,
-    access_control=None,
-):
-    """
-    Transforms a select ast by replacing dj node references with their asts
-    Starts by extracting all dimensions-backed columns from filters + group bys.
-    Some of them can be sourced directly from tables on the select, others cannot
-    For the ones that cannot be sourced directly, attempt to join them via dimension links.
-    """
-    tables = _get_tables_from_select(select)
-    await _build_tables_on_select(
-        session,
-        select,
-        tables,
-        memoized_queries,
-        build_criteria,
-        access_control,
-    )
-
-
-def _get_node_table(
+def get_table_for_node(
     node: NodeRevision,
     build_criteria: Optional[BuildCriteria] = None,
     as_select: bool = False,
 ) -> Optional[Union[ast.Select, ast.Table]]:
     """
-    If a node has a materialization available, return the materialized table
+    If a node has a materialized table available, return the materialized table.
+    Source nodes should always have an associated table, whereas for all other nodes
+    we can check the materialization type.
     """
     table = None
     can_use_materialization = (
         build_criteria and node.name != build_criteria.target_node_name
     )
     if node.type == NodeType.SOURCE:
-        if node.table:
-            name = ast.Name(
-                node.table,
-                namespace=ast.Name(
-                    node.schema_,
-                    namespace=ast.Name(node.catalog.name)
-                    if node.schema_ == "iceberg"
-                    else None,
-                )
-                if node.schema_
-                else None,
-            )
-        else:
-            name = to_namespaced_name(node.name)
+        table_name = (
+            f"{node.catalog.name}.{node.schema_}.{node.table}" 
+            if node.schema_ == "iceberg" else f"{node.schema_}.{node.table}"
+        )
+        name = to_namespaced_name(table_name if node.table else node.name)
         table = ast.Table(
             name,
             _columns=[
@@ -634,67 +752,3 @@ def _get_node_table(
             from_=ast.From(relations=[ast.Relation(table)]),
         )
     return table
-
-
-async def _build_tables_on_select(
-    session: AsyncSession,
-    select: ast.SelectExpression,
-    tables: Dict[NodeRevision, List[ast.Table]],
-    memoized_queries: Dict[int, ast.Query],
-    build_criteria: Optional[BuildCriteria] = None,
-    access_control=None,
-):
-    """
-    Add all nodes referenced in the SELECT expression
-    """
-    context = CompileContext(session=session, exception=DJException())
-
-    # `tables` is a mapping between DJ nodes and table expressions on the query AST
-    # If there is more than one table expression on the AST, this means the same DJ
-    # node is referenced multiple times in the query, likely through being joined
-    # more than once.
-    for referenced_node, tbls in tables.items():
-        await session.refresh(referenced_node, ["dimension_links"])
-
-        # Try to find a physical table attached to this node, if one exists.
-        physical_table = cast(
-            Optional[ast.Table],
-            _get_node_table(referenced_node, build_criteria),
-        )
-
-        for tbl in tbls:
-            # If no attached physical table was found, recursively build the node
-            if physical_table is None:
-                node_query = parse(cast(str, referenced_node.query))
-                if hash(node_query) in memoized_queries:  # pragma: no cover
-                    query_ast = memoized_queries[hash(node_query)]  # type: ignore
-                else:
-                    query_ast = await build_ast(  # type: ignore
-                        session,
-                        node_query,
-                        memoized_queries,
-                        build_criteria,
-                        access_control,
-                    )
-                    memoized_queries[hash(node_query)] = query_ast
-
-                alias = amenable_name(referenced_node.name)
-                node_ast = ast.Alias(ast.Name(alias), child=query_ast, as_=True)  # type: ignore
-            else:
-                alias = amenable_name(referenced_node.name)
-                node_ast = ast.Alias(ast.Name(alias), child=physical_table, as_=True)  # type: ignore
-
-            select.replace(
-                tbl,
-                node_ast,
-                copy=False,
-            )
-            await select.compile(context)
-            for col in select.find_all(ast.Column):
-                if (
-                    col._table
-                    and isinstance(col._table, ast.Table)
-                    and col._table.dj_node
-                    and col._table.dj_node.name == referenced_node.name
-                ):
-                    col._table = node_ast
