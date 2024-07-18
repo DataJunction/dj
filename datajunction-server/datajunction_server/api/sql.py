@@ -4,7 +4,7 @@ SQL related APIs.
 """
 import logging
 from collections import OrderedDict
-from typing import List, Optional, Tuple, cast
+from typing import Dict, List, Optional, Tuple, cast
 
 from fastapi import BackgroundTasks, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,7 @@ from datajunction_server.api.helpers import (
     get_query,
     validate_orderby,
 )
-from datajunction_server.construction.build import get_measures_query
+from datajunction_server.construction.build_v2 import get_measures_query
 from datajunction_server.database import Engine, Node
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
@@ -38,7 +38,7 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["sql"])
 
 
-@router.get("/sql/measures/", response_model=TranslatedSQL, name="Get Measures SQL")
+@router.get("/sql/measures/", response_model=Dict[str, TranslatedSQL], name="Get Measures SQL")
 async def get_measures_sql_for_cube(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
@@ -58,34 +58,34 @@ async def get_measures_sql_for_cube(
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
-) -> TranslatedSQL:
+) -> Dict[str, TranslatedSQL]:
     """
     Return the measures SQL for a set of metrics with dimensions and filters.
     This SQL can be used to produce an intermediate table with all the measures
     and dimensions needed for an analytics database (e.g., Druid).
     """
-    if query_request := await QueryRequest.get_query_request(
-        session,
-        nodes=metrics,
-        dimensions=dimensions,
-        filters=filters,
-        orderby=[],
-        limit=None,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        query_type=QueryBuildType.MEASURES,
-        other_args={"include_all_columns": include_all_columns},
-    ):
-        engine = (
-            await get_engine(session, engine_name, engine_version)  # type: ignore
-            if engine_name
-            else None
-        )
-        return TranslatedSQL(
-            sql=query_request.query,
-            columns=query_request.columns,
-            dialect=engine.dialect if engine else None,
-        )
+    # if query_request := await QueryRequest.get_query_request(
+    #     session,
+    #     nodes=metrics,
+    #     dimensions=dimensions,
+    #     filters=filters,
+    #     orderby=[],
+    #     limit=None,
+    #     engine_name=engine_name,
+    #     engine_version=engine_version,
+    #     query_type=QueryBuildType.MEASURES,
+    #     other_args={"include_all_columns": include_all_columns},
+    # ):
+    #     engine = (
+    #         await get_engine(session, engine_name, engine_version)  # type: ignore
+    #         if engine_name
+    #         else None
+    #     )
+    #     return TranslatedSQL(
+    #         sql=query_request.query,
+    #         columns=query_request.columns,
+    #         dialect=engine.dialect if engine else None,
+    #     )
 
     measures_query = await get_measures_query(
         session=session,
@@ -99,20 +99,21 @@ async def get_measures_sql_for_cube(
         include_all_columns=include_all_columns,
     )
 
-    await QueryRequest.save_query_request(
-        session=session,
-        nodes=metrics,
-        dimensions=dimensions,
-        filters=filters,
-        orderby=[],
-        limit=None,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        query_type=QueryBuildType.MEASURES,
-        query=measures_query.sql,
-        columns=[col.dict() for col in measures_query.columns],  # type: ignore
-        other_args={"include_all_columns": include_all_columns},
-    )
+    # await QueryRequest.save_query_request(
+    #     session=session,
+    #     nodes=metrics,
+    #     dimensions=dimensions,
+    #     filters=filters,
+    #     orderby=[],
+    #     limit=None,
+    #     engine_name=engine_name,
+    #     engine_version=engine_version,
+    #     query_type=QueryBuildType.MEASURES,
+    #     query=measures_query.sql,
+    #     columns=[col.dict() for col in measures_query.columns],  # type: ignore
+    #     other_args={"include_all_columns": include_all_columns},
+    # )
+    print("measures_query", measures_query.keys())
     return measures_query
 
 

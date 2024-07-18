@@ -1,5 +1,6 @@
 import collections
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import DefaultDict, Dict, List, Optional, Union, cast
@@ -68,6 +69,135 @@ class DimensionJoin:
     join_path: List[ast.Join]
     requested_dimensions: List[str]
     node_query: Optional[ast.Query] = None
+
+
+async def get_measures_query(
+    session: AsyncSession,
+    metrics: List[str],
+    dimensions: List[str],
+    filters: List[str],
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
+    current_user: Optional[User] = None,
+    validate_access: access.ValidateAccessFn = None,
+    cast_timestamp_to_ms: bool = False,
+    include_all_columns: bool = False,
+) -> Dict[str, TranslatedSQL]:
+    """
+    Builds the measures SQL for a set of metrics with dimensions and filters.
+    This SQL can be used to produce an intermediate table with all the measures
+    and dimensions needed for an analytics database (e.g., Druid).
+    """
+    from datajunction_server.api.helpers import (  # pylint: disable=import-outside-toplevel
+        assemble_column_metadata,
+        validate_cube,
+    )
+
+    from datajunction_server.construction.build import (  # pylint: disable=import-outside-toplevel
+        metrics_to_measures,
+        group_metrics_by_parent,
+        rename_columns
+    )
+
+    engine = (
+        await get_engine(session, engine_name, engine_version)
+        if engine_name and engine_version
+        else None
+    )
+    build_criteria = BuildCriteria(
+        dialect=engine.dialect if engine and engine.dialect else Dialect.SPARK,
+    )
+    access_control = access.AccessControlStore(
+        validate_access=validate_access,
+        user=current_user,
+        base_verb=access.ResourceRequestVerb.READ,
+    )
+
+    if not filters:
+        filters = []
+
+    (_, metric_nodes, _, _, _) = await validate_cube(
+        session,
+        metrics,
+        dimensions,
+    )
+    context = CompileContext(session=session, exception=DJException())
+    common_parents = group_metrics_by_parent(metric_nodes)
+
+    # Mapping between each metric node and its measures
+    parents_to_measures, _ = await metrics_to_measures(
+        session,
+        metric_nodes,
+    )
+
+    column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
+    matcher = re.compile(column_name_regex)
+    dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
+
+    measures_sql_mapping = {}
+    for parent_node, _ in common_parents.items():  # type: ignore
+        measure_columns, dimensional_columns = [], []
+        parent_ast = await build_node(
+            session=session,
+            node=parent_node.current,
+            dimensions=dimensions,
+            filters=filters,
+            build_criteria=build_criteria,
+            include_dimensions_in_groupby=False,
+            access_control=access_control,
+        )
+        print("parent_ast", parent_ast)
+
+        # Select only columns that were one of the necessary measures
+        if not include_all_columns:
+            parent_ast.select.projection = [
+                expr
+                for expr in parent_ast.select.projection
+                if from_amenable_name(expr.alias_or_name.identifier(False)).split(  # type: ignore
+                    SEPARATOR,
+                )[
+                    -1
+                ]
+                in parents_to_measures[parent_node.name]
+                or from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
+                in dimensions_without_roles
+            ]
+        await session.refresh(parent_node.current, ["columns"])
+        parent_ast = rename_columns(parent_ast, parent_node.current)
+
+        # Sort the selected columns into dimension vs measure columns and
+        # generate identifiers for them
+        for expr in parent_ast.select.projection:
+            column_identifier = expr.alias_or_name.identifier(False)  # type: ignore
+            if from_amenable_name(column_identifier) in dimensions_without_roles:
+                dimensional_columns.append(expr)
+                expr.set_semantic_type(SemanticType.DIMENSION)  # type: ignore
+            else:
+                measure_columns.append(expr)
+                expr.set_semantic_type(SemanticType.MEASURE)  # type: ignore
+        await parent_ast.compile(context)
+
+        # Build translated SQL object
+        columns_metadata = [
+            assemble_column_metadata(  # pragma: no cover
+                cast(ast.Column, col),
+            )
+            for col in parent_ast.select.projection
+        ]
+        dependencies, _ = await parent_ast.extract_dependencies(
+            CompileContext(session, DJException()),
+        )
+        measures_sql_mapping[parent_node.name] = TranslatedSQL(
+            sql=str(parent_ast),
+            columns=columns_metadata,
+            dialect=build_criteria.dialect,
+            upstream_tables=[
+                f"{dep.catalog.name}.{dep.schema_}.{dep.table}"
+                for dep in dependencies
+                if dep.type == NodeType.SOURCE
+            ],
+        )
+    return measures_sql_mapping
 
 
 async def build_node(  # pylint: disable=too-many-arguments
