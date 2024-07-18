@@ -64,6 +64,7 @@ class DimensionJoin:
     """
     Info on a dimension join
     """
+
     join_path: List[ast.Join]
     requested_dimensions: List[str]
     node_query: Optional[ast.Query] = None
@@ -79,7 +80,6 @@ async def build_node(  # pylint: disable=too-many-arguments
     build_criteria: Optional[BuildCriteria] = None,
     access_control: Optional[access.AccessControlStore] = None,
     include_dimensions_in_groupby: bool = None,
-    top_level: bool = False,
 ) -> ast.Query:
     """
     Determines the optimal way to build the node with the requested set of
@@ -87,27 +87,41 @@ async def build_node(  # pylint: disable=too-many-arguments
     """
     logger.info(
         "Building node %s with dimensions %s, filters %s, order by %s, limit %s",
-        node.name, dimensions, filters, orderby, limit,
+        node.name,
+        dimensions,
+        filters,
+        orderby,
+        limit,
     )
     start = time.time()
     if access_control:
         access_control.add_request_by_node(node)
 
-    if include_dimensions_in_groupby is None:
-        include_dimensions_in_groupby = node.type == NodeType.METRIC
-
     # Set the dialect by finding available engines for this node, or default to Spark
     build_criteria = build_criteria or get_default_criteria(node)
 
-    physical_table = get_table_for_node(node, build_criteria, as_select=True)
-    if physical_table:
+    if include_dimensions_in_groupby is None:
+        include_dimensions_in_groupby = node.type == NodeType.METRIC
+
+    physical_table = get_table_for_node(node, build_criteria, as_query=True)
+    if physical_table and not filters and not dimensions:
         return physical_table
-    node_ast = await compile_node_ast(session, node)
+    node_ast = (
+        await compile_node_ast(session, node) if not physical_table else physical_table
+    )
+
+    ##################################
+    ## Gather join metadata
+    ##################################
 
     # Keep track of all the dimension nodes that need to be joined based on the
     # requested dimensions and filters
     requested_dimensions = await get_necessary_dimensions(session, node, dimensions)
-    dimension_node_joins = await find_dimension_node_joins(session, node, requested_dimensions)
+    dimension_node_joins = await find_dimension_node_joins(
+        session,
+        node,
+        requested_dimensions,
+    )
     pushdown_filters, join_filters, dimension_node_joins_ = await process_filters(
         session,
         node,
@@ -115,16 +129,20 @@ async def build_node(  # pylint: disable=too-many-arguments
         filters,
         dimension_node_joins,
     )
+
+    # Push down any filters and dimensions that don't need joins
     dimension_node_joins.update(dimension_node_joins_)
     node_ast.select.where = combine_filter_conditions(
         node_ast.select.where,
         *pushdown_filters,
     )
 
-    print("2. node_ast after pushing down filters and dimensions that don't need join", node_ast)
+    ###################
+    ## Build Node CTEs
+    ###################
 
-    # Collect all necessary CTEs: the node query and the dimension node joins
-    cte_mapping = {}  # Track each node CTE that gets added
+    # Start tracking node query CTEs as they get built
+    cte_mapping = {}  # Maps node name to its CTE
 
     # Build node AST into a CTE
     node_alias = ast.Name(amenable_name(node.name))
@@ -136,7 +154,6 @@ async def build_node(  # pylint: disable=too-many-arguments
     node_ast = node_ast.to_cte(node_alias)
     cte_mapping[node.name] = node_ast
 
-    print("3. node_ast after calling build_ast", node_ast)
     # Initialize the final query AST structure
     final_ast = ast.Query(
         select=ast.Select(
@@ -152,9 +169,8 @@ async def build_node(  # pylint: disable=too-many-arguments
         ),
         ctes=[node_ast],
     )
-    print("4. final_ast with node CTE", final_ast)
 
-    # Start building the dimension joins
+    # Start building the dimension joins and adding them to the CTEs
     for dimension_node, dimension_join in dimension_node_joins.items():
         join_path = dimension_join.join_path
         requested_dimensions = list(dict.fromkeys(dimension_join.requested_dimensions))
@@ -169,14 +185,16 @@ async def build_node(  # pylint: disable=too-many-arguments
                 continue
 
             dimension_node_query = await build_dimension_node_query(
-                session, 
+                session,
                 build_criteria,
                 link,
                 join_filters,
                 cte_mapping,
             )
             dimension_join.node_query = convert_to_cte(
-                dimension_node_query, final_ast, link.dimension.name,
+                dimension_node_query,
+                final_ast,
+                link.dimension.name,
             )
             # 5c. Add it to the list of CTEs
             cte_mapping[link.dimension.name] = dimension_join.node_query
@@ -223,7 +241,7 @@ async def get_necessary_dimensions(
     return list(
         dict.fromkeys(
             dimensions or [] + [required.name for required in node.required_dimensions],
-        )
+        ),
     )
 
 
@@ -307,7 +325,7 @@ async def build_dimension_node_query(
     build_criteria: BuildCriteria,
     link: DimensionLink,
     join_filters: List[str],
-    cte_mapping: Dict[str, ast.Query]
+    cte_mapping: Dict[str, ast.Query],
 ):
     """
     Builds a dimension node query with the requested filters
@@ -358,7 +376,11 @@ def convert_to_cte(
     return inner_query
 
 
-def build_requested_dimensions_columns(requested_dimensions, link, dimension_node_joins):
+def build_requested_dimensions_columns(
+    requested_dimensions,
+    link,
+    dimension_node_joins,
+):
     dimensions_columns = []
     for dim in requested_dimensions:
         full_dimension_attr = FullColumnName(dim)
@@ -647,9 +669,10 @@ async def build_ast(  # pylint: disable=too-many-arguments
                 cte_name = ast.Name(amenable_name(referenced_node.name))
                 query_ast = query_ast.to_cte(cte_name, parent_ast=query)
                 new_cte_mapping[referenced_node.name] = query_ast
-            
+
             reference_cte = (
-                ctes_mapping[referenced_node.name] if referenced_node.name in ctes_mapping 
+                ctes_mapping[referenced_node.name]
+                if referenced_node.name in ctes_mapping
                 else new_cte_mapping[referenced_node.name]
             )
             query_ast = ast.Table(
@@ -699,7 +722,7 @@ def _get_tables_from_select(
 def get_table_for_node(
     node: NodeRevision,
     build_criteria: Optional[BuildCriteria] = None,
-    as_select: bool = False,
+    as_query: bool = False,
 ) -> Optional[Union[ast.Select, ast.Table]]:
     """
     If a node has a materialized table available, return the materialized table.
@@ -712,8 +735,9 @@ def get_table_for_node(
     )
     if node.type == NodeType.SOURCE:
         table_name = (
-            f"{node.catalog.name}.{node.schema_}.{node.table}" 
-            if node.schema_ == "iceberg" else f"{node.schema_}.{node.table}"
+            f"{node.catalog.name}.{node.schema_}.{node.table}"
+            if node.schema_ == "iceberg"
+            else f"{node.schema_}.{node.table}"
         )
         name = to_namespaced_name(table_name if node.table else node.name)
         table = ast.Table(
@@ -746,9 +770,11 @@ def get_table_for_node(
             ],
             _dj_node=node,
         )
-    if table and as_select:  # pragma: no cover
-        return ast.Select(
-            projection=table.columns,  # type: ignore
-            from_=ast.From(relations=[ast.Relation(table)]),
+    if table and as_query:  # pragma: no cover
+        return ast.Query(
+            select=ast.Select(
+                projection=table.columns,  # type: ignore
+                from_=ast.From(relations=[ast.Relation(table)]),
+            ),
         )
     return table
