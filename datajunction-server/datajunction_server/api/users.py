@@ -80,7 +80,7 @@ async def list_users_with_activity(
             isouter=True,
         )
         .group_by(User.username)
-        .order_by(func.count(History.created_at).desc())  # pylint: disable=not-callable
+        .order_by(func.count(History.id).desc())  # pylint: disable=not-callable
     )
     result = await session.execute(statement)
     return [
