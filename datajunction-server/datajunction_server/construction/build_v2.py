@@ -1,9 +1,7 @@
 import collections
-from dataclasses import dataclass
-import logging
-import re
 import time
-from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
+from dataclasses import dataclass
+from typing import DefaultDict, Dict, List, Optional, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -11,10 +9,9 @@ from sqlalchemy.orm import selectinload
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
 from datajunction_server.database.column import Column
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
-from datajunction_server.database.dimensionlink import DimensionLink
-
 from datajunction_server.errors import (
     DJError,
     DJException,
@@ -47,8 +44,9 @@ class FullColumnName:
     """
     A fully qualified column name with the node name and the column.
     """
+
     name: str
-    
+
     @property
     def node_name(self):
         return SEPARATOR.join(self.name.split(SEPARATOR)[:-1])
@@ -84,9 +82,7 @@ async def dimension_join_path(
 
     # Start with first layer of linked dims
     processing_queue = collections.deque(
-        [
-            (link, [link]) for link in node.dimension_links
-        ],
+        [(link, [link]) for link in node.dimension_links],
     )
     while processing_queue:
         current_link, join_path = processing_queue.pop()
@@ -132,8 +128,8 @@ def update_filter_column_with_foreign_key(
     """
     foreign_key = link.foreign_keys_reversed[dimension_attr]
     for node_col in node_ast.select.projection:
-        if node_col.alias_or_name.identifier() == foreign_key.split(SEPARATOR)[-1]:
-            print("node_col", node_col)
+        fk_column = FullColumnName(foreign_key)
+        if node_col.alias_or_name.identifier() == fk_column.column_name:
             filter_dim.parent.replace(
                 filter_dim,
                 node_col.child if isinstance(node_col, ast.Alias) else node_col,
@@ -155,8 +151,12 @@ async def needs_dimension_join(
     return True
 
 
-def combine_filter_conditions(existing_condition, *new_conditions):
+def combine_filter_conditions(
+    existing_condition, *new_conditions
+) -> Optional[ast.BinaryOp]:
     """Combines the existing where clause with"""
+    if not existing_condition and not new_conditions:
+        return None
     if not existing_condition:
         return ast.BinaryOp.And(*new_conditions)
     return ast.BinaryOp.And(existing_condition, *new_conditions)
@@ -167,32 +167,27 @@ def build_join_for_link(
     join_left: ast.Query,
     join_right: ast.Query,
 ):
+    """
+    Build a join for the dimension link using the provided query table expression
+    on the left and the provided query table expression on the right.
+    """
     join_ast = link.joins()[0]
     join_ast.right = join_right.alias
     dimension_node_columns = join_right.select.column_mapping
     node_columns = join_left.select.column_mapping
     for col in join_ast.criteria.find_all(ast.Column):
-        chunks = col.identifier().split(SEPARATOR)
-        column_node = SEPARATOR.join(chunks[:-1])
-        column_name = chunks[-1]
-        if column_node == link.dimension.name:
-            col.parent.replace(
-                col,
-                ast.Column(
-                    name=ast.Name(column_name),
-                    _table=join_right,
-                    _type=dimension_node_columns.get(column_name),
-                ),
-            )
-        elif column_node == link.node_revision.name:
-            col.parent.replace(
-                col,
-                ast.Column(
-                    name=ast.Name(column_name),
-                    _table=join_left,
-                    _type=node_columns.get(column_name),
-                ),
-            )
+        full_column = FullColumnName(col.identifier())
+        is_dimension_node = full_column.node_name == link.dimension.name
+        col.parent.replace(
+            col,
+            ast.Column(
+                name=ast.Name(full_column.column_name),
+                _table=join_right if is_dimension_node else join_left,
+                _type=(dimension_node_columns if is_dimension_node else node_columns)
+                .get(full_column.column_name)
+                .type,
+            ),
+        )
     return join_ast
 
 
@@ -239,36 +234,51 @@ async def process_filters(
         join_required = {}
 
         for filter_dim in filter_ast.find_all(ast.Column):
-            dimension_attr = filter_dim.identifier()
-            join_required[dimension_attr] = True
-            dimension_node = SEPARATOR.join(dimension_attr.split(SEPARATOR)[:-1])
-            if dimension_node not in dimension_node_joins:
-                join_path = await dimension_join_path(session, node, dimension_attr)
-                print("links!", node.name, [link.node_revision.name for link in join_path])
-                join_required[dimension_attr] = await needs_dimension_join(
-                    session, dimension_attr, join_path,
+            dimension_attr = FullColumnName(filter_dim.identifier())
+            join_required[dimension_attr.name] = True
+            if dimension_attr.node_name not in dimension_node_joins:
+                join_path = await dimension_join_path(
+                    session,
+                    node,
+                    dimension_attr.name,
                 )
-                # Only add it to the dimension node joins tracker if a join is needed
-                if join_required[dimension_attr]:
-                    dimension_node_joins[dimension_node] = DimensionJoin(
-                        join_path=await dimension_join_path(
-                            session, node, dimension_attr,
-                        ),
-                        requested_dimensions=[dimension_attr],
+                # print("links!", node.name, dimension_node, join_path)
+                if join_path:
+                    join_required[dimension_attr.name] = await needs_dimension_join(
+                        session,
+                        dimension_attr.name,
+                        join_path,
                     )
+                    # Only add it to the dimension node joins tracker if a join is needed
+                    if join_required[dimension_attr.name]:
+                        dimension_node_joins[dimension_attr.node_name] = DimensionJoin(
+                            join_path=await dimension_join_path(
+                                session,
+                                node,
+                                dimension_attr.name,
+                            ),
+                            requested_dimensions=[dimension_attr.name],
+                        )
             else:
                 if (
-                    dimension_attr
-                    not in dimension_node_joins[dimension_node].requested_dimensions
+                    dimension_attr.name
+                    not in dimension_node_joins[
+                        dimension_attr.node_name
+                    ].requested_dimensions
                 ):
-                    dimension_node_joins[dimension_node].requested_dimensions.append(
-                        dimension_attr,
+                    dimension_node_joins[
+                        dimension_attr.node_name
+                    ].requested_dimensions.append(
+                        dimension_attr.name,
                     )
 
             # If it matches FK then update
-            if not join_required[dimension_attr] and join_path:
+            if not join_required[dimension_attr.name] and join_path:
                 update_filter_column_with_foreign_key(
-                    dimension_attr, filter_dim, node_ast, join_path[0],
+                    dimension_attr.name,
+                    filter_dim,
+                    node_ast,
+                    join_path[0],
                 )
 
         # If the entire filter expression does not need any joins, add it to the node
@@ -306,6 +316,10 @@ async def build_node(  # pylint: disable=too-many-arguments
 
     # Set the dialect by finding available engines for this node, or default to Spark
     build_criteria = build_criteria or get_default_criteria(node)
+
+    physical_table = _get_node_table(node, build_criteria, as_select=True)
+    if physical_table:
+        return physical_table
     node_ast = await compile_node_ast(session, node)
 
     # Keep track of all the dimension nodes that need to be joined based on the
@@ -313,20 +327,23 @@ async def build_node(  # pylint: disable=too-many-arguments
     dimension_node_joins: Dict[str, DimensionJoin] = {}
     await session.refresh(node, ["required_dimensions"])
     requested_dimensions = list(
-        set(dimensions or [] + [required.name for required in node.required_dimensions]),
+        set(
+            dimensions or [] + [required.name for required in node.required_dimensions],
+        ),
     )
     for dim in requested_dimensions:
-        dimension_node = SEPARATOR.join(dim.split(SEPARATOR)[:-1])
-        if dimension_node not in dimension_node_joins:
-            join_path = await dimension_join_path(session, node, dim)
-            if await needs_dimension_join(session, dim, join_path):
-                dimension_node_joins[dimension_node] = DimensionJoin(
+        dimension_attr = FullColumnName(dim)
+        dim_node = dimension_attr.node_name
+        if dim_node not in dimension_node_joins:
+            join_path = await dimension_join_path(session, node, dimension_attr.name)
+            if await needs_dimension_join(session, dimension_attr.name, join_path):
+                dimension_node_joins[dim_node] = DimensionJoin(
                     join_path=join_path,
-                    requested_dimensions=[dim],
+                    requested_dimensions=[dimension_attr.name],
                 )
         else:
-            if dim not in dimension_node_joins[dimension_node].requested_dimensions:
-                dimension_node_joins[dimension_node].requested_dimensions.append(dim)
+            if dim not in dimension_node_joins[dim_node].requested_dimensions:
+                dimension_node_joins[dim_node].requested_dimensions.append(dim)
 
     pushdown_filters, join_filters, dimension_node_joins_ = await process_filters(
         session,
@@ -337,7 +354,8 @@ async def build_node(  # pylint: disable=too-many-arguments
     )
     dimension_node_joins.update(dimension_node_joins_)
     node_ast.select.where = combine_filter_conditions(
-        node_ast.select.where, *pushdown_filters,
+        node_ast.select.where,
+        *pushdown_filters,
     )
     print("2. node_ast after adding filters and dims that dont need join", node_ast)
 
@@ -369,10 +387,10 @@ async def build_node(  # pylint: disable=too-many-arguments
 
     # Start building the joins using the CTEs
     cte_mapping = {}  # Track dimension node CTEs that have been added
+    join_left = node_ast
     for dimension_node, dimension_join in dimension_node_joins.items():
         join_path = dimension_join.join_path
-        requested_dimensions = set(dimension_join.requested_dimensions)
-        join_left = node_ast
+        requested_dimensions = list(dict.fromkeys(dimension_join.requested_dimensions))
 
         for link in join_path:
             if all(dim in link.foreign_keys_reversed for dim in requested_dimensions):
@@ -393,7 +411,8 @@ async def build_node(  # pylint: disable=too-many-arguments
                 join_filters,
             )
             dimension_node_ast.select.where = combine_filter_conditions(
-                dimension_node_ast.select.where, *pushdown_filters,
+                dimension_node_ast.select.where,
+                *pushdown_filters,
             )
             dimension_node_query = await build_ast(
                 session,
@@ -422,49 +441,50 @@ async def build_node(  # pylint: disable=too-many-arguments
             join_left = dimension_node_query
 
         # Add the requested dimensions to the final SELECT
-        for dim in set(requested_dimensions):
-            dim_node = SEPARATOR.join(dim.split(SEPARATOR)[:-1])
+        for dim in requested_dimensions:
+            full_dimension_attr = FullColumnName(dim)
+            dim_node = full_dimension_attr.node_name
             # Check if it's a foreign key reference on one of the dimensions
             foreign_key_column_name = None
             if dim in link.foreign_keys_reversed:
-                foreign_key_column_name = link.foreign_keys_reversed[dim].split(
-                    SEPARATOR,
-                )[-1]
+                foreign_key_column_name = FullColumnName(
+                    link.foreign_keys_reversed[dim],
+                ).column_name
 
             if dim_node in dimension_node_joins:
                 for col in dimension_node_joins[dim_node].node_query.select.projection:
-                    if col.alias_or_name.name == dim.split(SEPARATOR)[-1] or (
-                        foreign_key_column_name and
-                        col.alias_or_name.identifier() == foreign_key_column_name
+                    if col.alias_or_name.name == full_dimension_attr.column_name or (
+                        foreign_key_column_name
+                        and col.alias_or_name.identifier() == foreign_key_column_name
                     ):
                         final_ast.select.projection.append(
                             ast.Column(
                                 name=ast.Name(col.alias_or_name.name),
+                                # **({"alias": ast.Name(amenable_name(dim))} if full_dimension_attr.column_name in final_columns else {}),
                                 alias=ast.Name(amenable_name(dim)),
                                 _table=dimension_node_joins[dim_node].node_query,
                                 _type=col.type,
                             ),
                         )
-
+    # Add remaining join filters to the where clause
     for filter_ast in join_filters:
         for filter_dim in filter_ast.find_all(ast.Column):
-            dim_node = SEPARATOR.join(filter_dim.identifier().split(SEPARATOR)[:-1])
+            dimension_attr = FullColumnName(filter_dim.identifier())
+            dim_node = dimension_attr.node_name
             for col in dimension_node_joins[dim_node].node_query.select.projection:
-                if (
-                    col.alias_or_name.name
-                    == filter_dim.identifier().split(SEPARATOR)[-1]
-                ):
+                if col.alias_or_name.name == dimension_attr.column_name:
                     filter_dim.parent.replace(
                         filter_dim,
                         ast.Column(
                             name=ast.Name(col.alias_or_name.name),
-                            alias=ast.Name(amenable_name(filter_dim.identifier())),
+                            # alias=ast.Name(amenable_name(filter_dim.identifier())),
                             _table=dimension_node_joins[dim_node].node_query,
                             _type=col.type,
                         ),
                     )
         final_ast.select.where = combine_filter_conditions(
-            final_ast.select.where, filter_ast,
+            final_ast.select.where,
+            filter_ast,
         )
     print("5. final_ast after joins", final_ast)
     print("Elapse", time.time() - start)

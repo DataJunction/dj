@@ -17,17 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import and_, is_
 
-from datajunction_server.construction.build import (
+from datajunction_server.construction.build import (  # build_node,
     build_materialized_cube_node,
     build_metric_nodes,
-    # build_node,
     get_default_criteria,
     rename_columns,
     validate_shared_dimensions,
 )
-from datajunction_server.construction.build_v2 import (
-    build_node,
-)
+from datajunction_server.construction.build_v2 import build_node
 from datajunction_server.construction.dj_query import build_dj_query
 from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog

@@ -698,7 +698,7 @@ class NodeRevision(
         Column ordering
         """
         return {
-            col.name.replace("_DOT_", SEPARATOR): (col.order or idx)
+            col.name.replace("__", SEPARATOR): (col.order or idx)
             for idx, col in enumerate(self.columns)
         }
 
@@ -718,7 +718,7 @@ class NodeRevision(
         if self.type != NodeType.CUBE:
             return []  # pragma: no cover
         ordering = {
-            col.name.replace("_DOT_", SEPARATOR): (col.order or idx)
+            col.name.replace("__", SEPARATOR): (col.order or idx)
             for idx, col in enumerate(self.columns)
         }
         return sorted(
