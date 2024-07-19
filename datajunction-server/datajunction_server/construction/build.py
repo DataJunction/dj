@@ -1689,9 +1689,8 @@ async def get_measures_query(
         assemble_column_metadata,
         validate_cube,
     )
-
     from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel
-        build_node
+        build_node,
     )
 
     engine = (

@@ -73,6 +73,34 @@ async def events(session: AsyncSession) -> Node:
 
 
 @pytest_asyncio.fixture
+async def date_dim(session: AsyncSession, primary_key_attribute) -> Node:
+    date_node = Node(
+        name="shared.date",
+        display_name="Date",
+        type=NodeType.DIMENSION,
+        current_version="1",
+    )
+    date_node_revision = NodeRevision(
+        node=date_node,
+        name="shared.date",
+        display_name="Date",
+        type=NodeType.DIMENSION,
+        version="1",
+        query="SELECT 1, 2, 3, 4 AS dateint",
+        columns=[
+            Column(
+                name="dateint", type=ct.BigIntType(), order=0,
+                attributes=[ColumnAttribute(attribute_type=primary_key_attribute)],
+            ),
+        ],
+    )
+    session.add(date_node_revision)
+    await session.commit()
+    await session.refresh(date_node, ["current"])
+    return date_node
+
+
+@pytest_asyncio.fixture
 async def events_agg(session: AsyncSession) -> Node:
     events_agg_node = Node(
         name="agg.events",
@@ -421,6 +449,24 @@ async def events_agg_devices_link(
     return link
 
 
+@pytest_asyncio.fixture
+async def events_agg_date_dim_link(
+    session: AsyncSession,
+    events_agg: Node,
+    date_dim: Node,
+) -> Node:
+    link = DimensionLink(
+        node_revision=events_agg.current,
+        dimension=date_dim,
+        join_sql=f"{events_agg.name}.utc_date = {date_dim.name}.dateint",
+        join_type=JoinType.LEFT,
+    )
+    session.add(link)
+    await session.commit()
+    await session.refresh(link)
+    return link
+
+
 @pytest.mark.asyncio
 async def test_build_source_nodes(
     session: AsyncSession,
@@ -510,36 +556,39 @@ async def test_build_source_dimensions_filters(
         dimensions=["shared.devices.device_id"],
     )
 
-    assert (
-        str(query_ast).strip()
-        == str(
-            parse(
-                """
-        WITH
-        source_DOT_events AS (
-          SELECT
-            source_DOT_events.event_id,
-            source_DOT_events.user_id,
-            source_DOT_events.device_id,
-            source_DOT_events.country_code,
-            source_DOT_events.latency,
-            source_DOT_events.utc_date
-          FROM test.events AS source_DOT_events
-          WHERE
-            source_DOT_events.device_id = 111 AND source_DOT_events.device_id = 222
-        )
+    expected = """
+    WITH source_DOT_events AS (
+      SELECT
+        source_DOT_events.event_id,
+        source_DOT_events.user_id,
+        source_DOT_events.device_id,
+        source_DOT_events.country_code,
+        source_DOT_events.latency,
+        source_DOT_events.utc_date
+      FROM (
         SELECT
-          source_DOT_events.event_id,
-          source_DOT_events.user_id,
-          source_DOT_events.device_id,
-          source_DOT_events.country_code,
-          source_DOT_events.latency,
-          source_DOT_events.utc_date
-        FROM source_DOT_events
-        """,
-            ),
-        ).strip()
+          event_id,
+          user_id,
+          device_id,
+          country_code,
+          latency,
+          utc_date 
+        FROM test.events 
+        WHERE  device_id = 111 AND device_id = 222
+      ) AS source_DOT_events 
+      WHERE
+        source_DOT_events.device_id = 111 AND source_DOT_events.device_id = 222
     )
+    SELECT
+      source_DOT_events.event_id,
+      source_DOT_events.user_id,
+      source_DOT_events.device_id,
+      source_DOT_events.country_code,
+      source_DOT_events.latency,
+      source_DOT_events.utc_date
+    FROM source_DOT_events
+    """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
 
 
 @pytest.mark.asyncio
@@ -861,3 +910,43 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
             ),
         ).strip()
     )
+
+
+
+@pytest.mark.asyncio
+async def test_build_with_source_filters(
+    session: AsyncSession,
+    events: Node,
+    events_agg: Node,
+    date_dim: Node,
+    events_agg_date_dim_link: DimensionLink,
+):
+    """
+    Test build node with filters on source 
+    """
+    query_ast = await build_node(
+        session,
+        events_agg.current,
+        filters=["shared.date.dateint = 20250101"],
+    )
+    expected = """
+    WITH
+    agg_DOT_events AS (
+    SELECT  source_DOT_events.user_id,
+    	source_DOT_events.utc_date,
+    	source_DOT_events.device_id,
+    	source_DOT_events.country_code,
+    	SUM(source_DOT_events.latency) AS total_latency 
+     FROM test.events AS source_DOT_events 
+     WHERE  source_DOT_events.utc_date = 20250101 
+     GROUP BY  source_DOT_events.user_id, source_DOT_events.device_id, source_DOT_events.country_code
+    )
+    
+    SELECT  agg_DOT_events.user_id,
+    	agg_DOT_events.utc_date,
+    	agg_DOT_events.device_id,
+    	agg_DOT_events.country_code,
+    	agg_DOT_events.total_latency
+    FROM agg_DOT_events
+    """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
