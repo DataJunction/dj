@@ -266,6 +266,7 @@ async def build_node(  # pylint: disable=too-many-arguments
         node_ast.select.where,
         *pushdown_filters,
     )
+    print("node_ast after adding filters", node_ast)
 
     ###################
     ## Build Node CTEs
@@ -347,9 +348,11 @@ async def build_node(  # pylint: disable=too-many-arguments
         )
         final_ast.select.projection.extend(dimensions_columns)
 
-    # Add remaining join filters to the where clause
-    for filter_ast in join_filters:
-        filter_ast = replace_filter_dimension_refs(filter_ast, dimension_node_joins)
+        # Replace dimensions referenced in filters
+        for filter_ast in join_filters:
+            filter_ast = replace_filter_dimension_refs(filter_ast, link, dimension_node_joins)
+
+    # Add remaining filters to the where clause
     final_ast.select.where = combine_filter_conditions(
         final_ast.select.where,
         *join_filters,
@@ -513,30 +516,14 @@ def build_requested_dimensions_columns(
 ):
     dimensions_columns = []
     for dim in requested_dimensions:
-        full_dimension_attr = FullColumnName(dim)
-        dim_node = full_dimension_attr.node_name
-        # Check if it's a foreign key reference on one of the dimensions
-        foreign_key_column_name = None
-        if dim in link.foreign_keys_reversed:
-            foreign_key_column_name = FullColumnName(
-                link.foreign_keys_reversed[dim],
-            ).column_name
-
-        if dim_node in dimension_node_joins:
-            for col in dimension_node_joins[dim_node].node_query.select.projection:
-                if col.alias_or_name.name == full_dimension_attr.column_name or (
-                    foreign_key_column_name
-                    and col.alias_or_name.identifier() == foreign_key_column_name
-                ):
-                    dimensions_columns.append(
-                        ast.Column(
-                            name=ast.Name(col.alias_or_name.name),
-                            # **({"alias": ast.Name(amenable_name(dim))} if full_dimension_attr.column_name in final_columns else {}),
-                            alias=ast.Name(amenable_name(dim)),
-                            _table=dimension_node_joins[dim_node].node_query,
-                            _type=col.type,
-                        ),
-                    )
+        replacement = build_dimension_attribute(
+            dim,
+            dimension_node_joins,
+            link,
+            alias=amenable_name(dim),
+        )
+        if replacement:
+            dimensions_columns.append(replacement)
     return dimensions_columns
 
 
@@ -570,24 +557,52 @@ def update_filter_column_with_foreign_key(
             filter_dim.dimension_ref = dimension_attr
 
 
+def build_dimension_attribute(
+    full_column_name: str,
+    dimension_node_joins: Dict[str, ast.Query],
+    link: DimensionLink,
+    alias: Optional[str] = None,
+) -> Optional[ast.Column]:
+    """
+    Turn the canonical dimension attribute into a column on the query AST
+    """
+    dimension_attr = FullColumnName(full_column_name)
+    dim_node = dimension_attr.node_name
+    if dim_node in dimension_node_joins and dimension_node_joins[dim_node].node_query:
+        for col in dimension_node_joins[dim_node].node_query.select.projection:
+            # Check if it's a foreign key reference on one of the dimensions
+            foreign_key_column_name = None
+            if dimension_attr.name in link.foreign_keys_reversed:
+                foreign_key_column_name = FullColumnName(
+                    link.foreign_keys_reversed[dimension_attr.name],
+                ).column_name
+            if col.alias_or_name.name == dimension_attr.column_name or (
+                foreign_key_column_name
+                and col.alias_or_name.identifier() == foreign_key_column_name
+            ):
+                return ast.Column(
+                    name=ast.Name(col.alias_or_name.name),
+                    alias=ast.Name(alias) if alias else alias,
+                    _table=dimension_node_joins[dim_node].node_query,
+                    _type=col.type,
+                )
+    return None
+
+
 def replace_filter_dimension_refs(
     filter_ast: ast.Expression,
+    link: DimensionLink,
     dimension_node_joins: Dict[str, ast.Query],
 ):
     for filter_dim in filter_ast.find_all(ast.Column):
-        dimension_attr = FullColumnName(filter_dim.identifier())
-        dim_node = dimension_attr.node_name
-        for col in dimension_node_joins[dim_node].node_query.select.projection:
-            if col.alias_or_name.name == dimension_attr.column_name:
-                filter_dim.parent.replace(
-                    filter_dim,
-                    ast.Column(
-                        name=ast.Name(col.alias_or_name.name),
-                        # alias=ast.Name(amenable_name(filter_dim.identifier())),
-                        _table=dimension_node_joins[dim_node].node_query,
-                        _type=col.type,
-                    ),
-                )
+        replacement = build_dimension_attribute(
+            filter_dim.identifier(),
+            dimension_node_joins,
+            link,
+            alias=None,
+        )
+        if replacement:
+            filter_dim.parent.replace(filter_dim, replacement)
     return filter_ast
 
 
