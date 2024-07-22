@@ -249,7 +249,17 @@ def builder_client(session_with_examples: TestClient):
     """
     Returns a DJ client instance
     """
-    return DJBuilder(requests_session=session_with_examples)  # type: ignore
+    client = DJBuilder(requests_session=session_with_examples)  # type: ignore
+    client.create_user(
+        email="dj@datajunction.io",
+        username="datajunction",
+        password="datajunction",
+    )
+    client.basic_login(
+        username="datajunction",
+        password="datajunction",
+    )
+    return client
 
 
 @pytest.fixture
