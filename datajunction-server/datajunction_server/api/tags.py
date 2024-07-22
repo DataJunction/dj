@@ -97,7 +97,7 @@ async def get_a_tag(
 async def create_a_tag(
     data: CreateTag,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> TagOutput:
     """
     Create a tag.
@@ -121,7 +121,7 @@ async def create_a_tag(
             entity_type=EntityType.TAG,
             entity_name=tag.name,
             activity_type=ActivityType.CREATE,
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -134,7 +134,7 @@ async def update_a_tag(
     name: str,
     data: UpdateTag,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> TagOutput:
     """
     Update a tag.
@@ -159,7 +159,7 @@ async def update_a_tag(
             entity_name=tag.name,
             activity_type=ActivityType.UPDATE,
             details=data.dict(),
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()

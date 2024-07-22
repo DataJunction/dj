@@ -1673,10 +1673,10 @@ async def get_measures_query(
     metrics: List[str],
     dimensions: List[str],
     filters: List[str],
+    current_user: User,
+    validate_access: access.ValidateAccessFn,
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = None,
-    validate_access: access.ValidateAccessFn = None,
     cast_timestamp_to_ms: bool = False,
     include_all_columns: bool = False,
 ) -> TranslatedSQL:

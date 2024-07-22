@@ -53,7 +53,7 @@ async def add_availability_state(
     data: AvailabilityStateBase,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -147,7 +147,7 @@ async def add_availability_state(
             if old_availability
             else {},
             post=AvailabilityStateBase.from_orm(node_revision.availability).dict(),
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -177,7 +177,7 @@ async def get_data(  # pylint: disable=too-many-locals
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -248,7 +248,7 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -361,7 +361,7 @@ async def get_data_for_metrics(  # pylint: disable=R0914, R0913
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),

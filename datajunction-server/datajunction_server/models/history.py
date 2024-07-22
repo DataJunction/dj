@@ -38,8 +38,8 @@ def status_change_history(
     node_revision: "NodeRevision",
     start_status: "NodeStatus",
     end_status: "NodeStatus",
+    current_user: "User",
     parent_node: str = None,
-    current_user: Optional["User"] = None,
 ) -> History:
     """
     Returns a status change history activity entry
@@ -52,5 +52,5 @@ def status_change_history(
         pre={"status": start_status},
         post={"status": end_status},
         details={"upstream_node": parent_node if parent_node else None},
-        user=current_user.username if current_user else None,
+        user=current_user.username,
     )
