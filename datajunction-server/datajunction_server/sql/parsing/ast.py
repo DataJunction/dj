@@ -2297,7 +2297,7 @@ class FunctionTable(FunctionTableExpression):
             else ""
         )
         column_list_str = (
-            f"{cols}" if self.name.name.upper() != "UNNEST" else f"({cols})"
+            f"({cols})" if self.name.name.upper() in ("UNNEST", "EXPLODE") else f"{cols}"
         )
         args_str = f"({', '.join(str(col) for col in self.args)})" if self.args else ""
         return f"{self.name}{args_str}{alias}{as_}{column_list_str}"
