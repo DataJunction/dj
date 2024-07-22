@@ -54,7 +54,7 @@ async def get_measures_sql_for_cube(
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -216,7 +216,7 @@ async def get_node_sql(  # pylint: disable=too-many-locals
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User],
+    current_user: User,
     validate_access: access.ValidateAccessFn,  # pylint: disable=redefined-outer-name
     background_tasks: BackgroundTasks,
 ) -> Tuple[TranslatedSQL, QueryRequest]:
@@ -226,7 +226,7 @@ async def get_node_sql(  # pylint: disable=too-many-locals
     dimensions = [dim for dim in dimensions if dim and dim != ""]
     access_control = access.AccessControlStore(
         validate_access=validate_access,
-        user=UserOutput.from_orm(current_user) if current_user else None,
+        user=UserOutput.from_orm(current_user),
         base_verb=access.ResourceRequestVerb.READ,
     )
 
@@ -304,7 +304,7 @@ async def get_sql(  # pylint: disable=too-many-locals
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -340,7 +340,7 @@ async def get_sql_for_metrics(
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),

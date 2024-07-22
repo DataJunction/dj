@@ -248,7 +248,7 @@ def find_bound_dimensions(
 async def resolve_downstream_references(
     session: AsyncSession,
     node_revision: NodeRevision,
-    current_user: Optional[User] = None,
+    current_user: User,
 ) -> List[NodeRevision]:
     """
     Find all node revisions with missing parent references to `node` and resolve them
