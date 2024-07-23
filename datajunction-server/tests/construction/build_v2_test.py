@@ -1,4 +1,4 @@
-"""tests for building nodes"""
+"""Tests for building nodes"""
 
 from unittest.mock import MagicMock, patch
 
@@ -89,7 +89,9 @@ async def date_dim(session: AsyncSession, primary_key_attribute) -> Node:
         query="SELECT 1, 2, 3, 4 AS dateint",
         columns=[
             Column(
-                name="dateint", type=ct.BigIntType(), order=0,
+                name="dateint",
+                type=ct.BigIntType(),
+                order=0,
                 attributes=[ColumnAttribute(attribute_type=primary_key_attribute)],
             ),
         ],
@@ -468,7 +470,7 @@ async def events_agg_date_dim_link(
 
 
 @pytest.mark.asyncio
-async def test_build_source_nodes(
+async def test_build_source_node(
     session: AsyncSession,
     events: Node,
 ):
@@ -499,53 +501,77 @@ async def test_build_source_nodes(
 
 
 @pytest.mark.asyncio
-async def test_build_dimension_nodes(
+async def test_build_source_node_with_direct_filter(
     session: AsyncSession,
-    # events: Node,
-    devices: Node,
-    # events_devices_link: DimensionLink,
+    events: Node,
 ):
     """
-    Test building a dimension node
+    Test building a source node with a filter on an immediate column on the source node.
     """
     query_ast = await build_node(
         session,
-        devices.current,
+        events.current,
     )
     assert (
         str(query_ast).strip()
         == str(
             parse(
                 """
-        WITH
-        shared_DOT_devices AS (
-        SELECT  CAST(source_DOT_devices.device_id AS INT) device_id,
-            CAST(source_DOT_devices.device_name AS STRING) device_name,
-            source_DOT_devices.device_manufacturer
-        FROM test.devices AS source_DOT_devices
-        )
-
-        SELECT  shared_DOT_devices.device_id,
-            shared_DOT_devices.device_name,
-            shared_DOT_devices.device_manufacturer
-        FROM shared_DOT_devices
-        """,
+    SELECT
+      event_id,
+      user_id,
+      device_id,
+      country_code,
+      latency,
+      utc_date
+    FROM test.events
+    """,
             ),
         ).strip()
     )
 
+    query_ast = await build_node(
+        session,
+        events.current,
+        filters=[
+            "source.events.utc_date = 20210101",
+        ],
+    )
+    expected = """
+    WITH source_DOT_events AS (
+      SELECT
+        source_DOT_events.event_id,
+        source_DOT_events.user_id,
+        source_DOT_events.device_id,
+        source_DOT_events.country_code,
+        source_DOT_events.latency,
+        source_DOT_events.utc_date
+      FROM test.events AS source_DOT_events
+      WHERE  source_DOT_events.utc_date = 20210101
+    )
+    SELECT
+      source_DOT_events.event_id,
+      source_DOT_events.user_id,
+      source_DOT_events.device_id,
+      source_DOT_events.country_code,
+      source_DOT_events.latency,
+      source_DOT_events.utc_date
+    FROM source_DOT_events
+    """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
+
 
 @pytest.mark.asyncio
-async def test_build_source_dimensions_filters(
+async def test_build_source_with_pushdown_filters(
     session: AsyncSession,
     events: Node,
     devices: Node,
     events_devices_link: DimensionLink,
 ):
     """
-    Test building a dimension node
+    Test building a source node with a dimension attribute filter that can be
+    pushed down to an immediate column on the source node.
     """
-    # test where the filters are pushed down
     query_ast = await build_node(
         session,
         events.current,
@@ -565,17 +591,9 @@ async def test_build_source_dimensions_filters(
         source_DOT_events.country_code,
         source_DOT_events.latency,
         source_DOT_events.utc_date
-      FROM (
-        SELECT
-          event_id,
-          user_id,
-          device_id,
-          country_code,
-          latency,
-          utc_date 
-        FROM test.events 
-        WHERE  device_id = 111 AND device_id = 222
-      ) AS source_DOT_events
+      FROM test.events AS source_DOT_events
+      WHERE
+        source_DOT_events.device_id = 111 AND source_DOT_events.device_id = 222
     )
     SELECT
       source_DOT_events.event_id,
@@ -586,6 +604,134 @@ async def test_build_source_dimensions_filters(
       source_DOT_events.utc_date
     FROM source_DOT_events
     """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
+
+
+@pytest.mark.asyncio
+async def test_build_source_with_join_filters(
+    session: AsyncSession,
+    events: Node,
+    devices: Node,
+    events_devices_link: DimensionLink,
+):
+    """
+    Test building a source node with a dimension attribute filter that
+    requires a join to a dimension node.
+    """
+    query_ast = await build_node(
+        session,
+        events.current,
+        filters=[
+            "shared.devices.device_id = 111",
+            "shared.devices.device_name = 'iPhone'",
+        ],
+        dimensions=[
+            "shared.devices.device_name",
+            "shared.devices.device_manufacturer",
+        ],
+    )
+
+    expected = """
+    WITH
+    source_DOT_events AS (
+      SELECT  source_DOT_events.event_id,
+        source_DOT_events.user_id,
+        source_DOT_events.device_id,
+        source_DOT_events.country_code,
+        source_DOT_events.latency,
+        source_DOT_events.utc_date
+      FROM test.events AS source_DOT_events
+      WHERE  source_DOT_events.device_id = 111
+    ),
+    shared_DOT_devices AS (
+      SELECT
+        CAST(source_DOT_devices.device_id AS INT) device_id,
+        CAST(source_DOT_devices.device_name AS STRING) device_name,
+        source_DOT_devices.device_manufacturer
+      FROM test.devices AS source_DOT_devices
+      WHERE  CAST(source_DOT_devices.device_id AS INT) = 111 AND CAST(source_DOT_devices.device_name AS STRING) = 'iPhone'
+    )
+    SELECT  source_DOT_events.event_id,
+        source_DOT_events.user_id,
+        source_DOT_events.device_id,
+        source_DOT_events.country_code,
+        source_DOT_events.latency,
+        source_DOT_events.utc_date,
+        shared_DOT_devices.device_name shared_DOT_devices_DOT_device_name,
+        shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
+        shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id
+     FROM source_DOT_events LEFT JOIN shared_DOT_devices ON shared_DOT_devices.device_id = source_DOT_events.device_id
+    """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
+
+
+@pytest.mark.asyncio
+async def test_build_dimension_node(
+    session: AsyncSession,
+    devices: Node,
+):
+    """
+    Test building a dimension node
+    """
+    query_ast = await build_node(
+        session,
+        devices.current,
+    )
+    expected = """
+    WITH shared_DOT_devices AS (
+      SELECT
+        CAST(source_DOT_devices.device_id AS INT) device_id,
+        CAST(source_DOT_devices.device_name AS STRING) device_name,
+        source_DOT_devices.device_manufacturer
+      FROM test.devices AS source_DOT_devices
+    )
+    SELECT
+      shared_DOT_devices.device_id,
+      shared_DOT_devices.device_name,
+      shared_DOT_devices.device_manufacturer
+    FROM shared_DOT_devices
+    """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
+
+
+@pytest.mark.asyncio
+async def test_build_dimension_node_with_direct_and_pushdown_filter(
+    session: AsyncSession,
+    events: Node,
+    devices: Node,
+    events_agg_devices_link: DimensionLink,
+):
+    """
+    Test building a dimension node with a direct filter and a pushdown filter (the result
+    in this case is the same query)
+    """
+    expected = """
+    WITH shared_DOT_devices AS (
+      SELECT
+        CAST(source_DOT_devices.device_id AS INT) device_id,
+        CAST(source_DOT_devices.device_name AS STRING) device_name,
+        source_DOT_devices.device_manufacturer
+      FROM test.devices AS source_DOT_devices
+      WHERE  source_DOT_devices.device_manufacturer = 'Apple'
+    )
+    SELECT
+      shared_DOT_devices.device_id,
+      shared_DOT_devices.device_name,
+      shared_DOT_devices.device_manufacturer
+    FROM shared_DOT_devices
+    """
+    # Direct filter
+    query_ast = await build_node(
+        session,
+        devices.current,
+        filters=["shared.devices.device_manufacturer = 'Apple'"],
+    )
+    assert str(query_ast).strip() == str(parse(expected)).strip()
+
+    # Pushdown filter
+    query_ast = await build_node(
+        session, devices.current, filters=["shared.manufacturers.name = 'Apple'"],
+    )
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
 
@@ -611,40 +757,31 @@ async def test_build_transform_with_pushdown_dimensions_filters(
         ],
         dimensions=["shared.devices.device_id"],
     )
-
-    assert (
-        str(query_ast).strip()
-        == str(
-            parse(
-                """
-        WITH
-        agg_DOT_events AS (
-          SELECT
-            source_DOT_events.user_id,
-            source_DOT_events.utc_date,
-            source_DOT_events.device_id,
-            source_DOT_events.country_code,
-            SUM(source_DOT_events.latency) AS total_latency
-          FROM test.events AS source_DOT_events
-          WHERE
-            source_DOT_events.device_id = 111 AND source_DOT_events.device_id = 222
-          GROUP BY
-            source_DOT_events.user_id,
-            source_DOT_events.device_id,
-            source_DOT_events.country_code
-        )
-
-        SELECT
-          agg_DOT_events.user_id,
-          agg_DOT_events.utc_date,
-          agg_DOT_events.device_id,
-          agg_DOT_events.country_code,
-          agg_DOT_events.total_latency
-        FROM agg_DOT_events
-        """,
-            ),
-        ).strip()
+    expected = """
+    WITH agg_DOT_events AS (
+      SELECT
+        source_DOT_events.user_id,
+        source_DOT_events.utc_date,
+        source_DOT_events.device_id,
+        source_DOT_events.country_code,
+        SUM(source_DOT_events.latency) AS total_latency
+      FROM test.events AS source_DOT_events
+      WHERE
+        source_DOT_events.device_id = 111 AND source_DOT_events.device_id = 222
+      GROUP BY
+        source_DOT_events.user_id,
+        source_DOT_events.device_id,
+        source_DOT_events.country_code
     )
+    SELECT
+      agg_DOT_events.user_id,
+      agg_DOT_events.utc_date,
+      agg_DOT_events.device_id,
+      agg_DOT_events.country_code,
+      agg_DOT_events.total_latency
+    FROM agg_DOT_events
+    """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
 
 
 @pytest.mark.asyncio
@@ -668,12 +805,7 @@ async def test_build_transform_with_join_dimensions_filters(
         ],
         dimensions=["shared.devices.device_manufacturer"],
     )
-
-    assert (
-        str(query_ast).strip()
-        == str(
-            parse(
-                """
+    expected = """
         WITH agg_DOT_events AS (
           SELECT
             source_DOT_events.user_id,
@@ -705,10 +837,8 @@ async def test_build_transform_with_join_dimensions_filters(
           shared_DOT_devices.device_name shared_DOT_devices_DOT_device_name,
           shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id
         FROM agg_DOT_events LEFT JOIN shared_DOT_devices ON shared_DOT_devices.device_id = agg_DOT_events.device_id
-        """,
-            ),
-        ).strip()
-    )
+    """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
 
 
 @pytest.mark.asyncio
@@ -737,11 +867,7 @@ async def test_build_transform_with_multijoin_dimensions_filters(
         ],
         dimensions=["shared.devices.device_manufacturer"],
     )
-    assert (
-        str(query_ast).strip()
-        == str(
-            parse(
-                """
+    expected = """
         WITH
         agg_DOT_events AS (
           SELECT
@@ -786,10 +912,8 @@ async def test_build_transform_with_multijoin_dimensions_filters(
           shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name
         FROM agg_DOT_events LEFT JOIN shared_DOT_devices ON shared_DOT_devices.device_id = agg_DOT_events.device_id
         LEFT JOIN shared_DOT_manufacturers ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
-        """,
-            ),
-        ).strip()
-    )
+    """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
 
 
 @pytest.mark.asyncio
@@ -846,69 +970,62 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
             "shared.countries.region_name",
         ],
     )
-    assert (
-        str(query_ast).strip()
-        == str(
-            parse(
-                """
-        WITH
-        agg_DOT_events AS (
-          SELECT
-            source_DOT_events.user_id,
-            source_DOT_events.utc_date,
-            source_DOT_events.device_id,
-            source_DOT_events.country_code,
-            SUM(source_DOT_events.latency) AS total_latency
-          FROM test.events AS source_DOT_events
-          GROUP BY  source_DOT_events.user_id, source_DOT_events.device_id, source_DOT_events.country_code
-        ),
-        shared_DOT_devices AS (
-        SELECT  CAST(source_DOT_devices.device_id AS INT) device_id,
-            CAST(source_DOT_devices.device_name AS STRING) device_name,
-            source_DOT_devices.device_manufacturer
-         FROM test.devices AS source_DOT_devices
-        ),
-        shared_DOT_regions AS (
-          SELECT
-            source_DOT_regions.region_code,
-            source_DOT_regions.region_name
-          FROM test.regions AS source_DOT_regions
-        ),
-        shared_DOT_countries AS (
-        SELECT  source_DOT_countries.country_code,
-            source_DOT_countries.country_name,
-            shared_DOT_regions.region_code,
-            shared_DOT_regions.region_name,
-            source_DOT_countries.population
-         FROM test.countries AS source_DOT_countries
-         JOIN shared_DOT_regions ON source_DOT_countries.region_code = shared_DOT_regions.region_code
-         WHERE  shared_DOT_regions.region_name = 'APAC'
-        ),
-        shared_DOT_manufacturers AS (
-        SELECT  CAST(source_DOT_manufacturers.manufacturer_name AS STRING) name,
-            CAST(source_DOT_manufacturers.company_name AS STRING) company_name,
-            source_DOT_manufacturers.created_on,
-            COUNT( DISTINCT shared_DOT_devices.device_id) AS devices_produced
-         FROM test.manufacturers AS source_DOT_manufacturers JOIN shared_DOT_devices ON source_DOT_manufacturers.manufacturer_name = shared_DOT_devices.device_manufacturer
-         WHERE  CAST(source_DOT_manufacturers.company_name AS STRING) = 'Apple'
-        )
-
-        SELECT  agg_DOT_events.user_id,
-            agg_DOT_events.utc_date,
-            agg_DOT_events.device_id,
-            agg_DOT_events.country_code,
-            agg_DOT_events.total_latency,
-            shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
-            shared_DOT_countries.region_name shared_DOT_countries_DOT_region_name,
-            shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name
-         FROM agg_DOT_events LEFT JOIN shared_DOT_devices ON shared_DOT_devices.device_id = agg_DOT_events.device_id
-        LEFT JOIN shared_DOT_countries ON agg_DOT_events.country_code = shared_DOT_countries.country_code
-        LEFT JOIN shared_DOT_manufacturers ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
-        """,
-            ),
-        ).strip()
+    expected = """
+    WITH
+    agg_DOT_events AS (
+        SELECT
+        source_DOT_events.user_id,
+        source_DOT_events.utc_date,
+        source_DOT_events.device_id,
+        source_DOT_events.country_code,
+        SUM(source_DOT_events.latency) AS total_latency
+        FROM test.events AS source_DOT_events
+        GROUP BY  source_DOT_events.user_id, source_DOT_events.device_id, source_DOT_events.country_code
+    ),
+    shared_DOT_devices AS (
+    SELECT  CAST(source_DOT_devices.device_id AS INT) device_id,
+        CAST(source_DOT_devices.device_name AS STRING) device_name,
+        source_DOT_devices.device_manufacturer
+        FROM test.devices AS source_DOT_devices
+    ),
+    shared_DOT_regions AS (
+        SELECT
+        source_DOT_regions.region_code,
+        source_DOT_regions.region_name
+        FROM test.regions AS source_DOT_regions
+    ),
+    shared_DOT_countries AS (
+    SELECT  source_DOT_countries.country_code,
+        source_DOT_countries.country_name,
+        shared_DOT_regions.region_code,
+        shared_DOT_regions.region_name,
+        source_DOT_countries.population
+        FROM test.countries AS source_DOT_countries
+        JOIN shared_DOT_regions ON source_DOT_countries.region_code = shared_DOT_regions.region_code
+        WHERE  shared_DOT_regions.region_name = 'APAC'
+    ),
+    shared_DOT_manufacturers AS (
+    SELECT  CAST(source_DOT_manufacturers.manufacturer_name AS STRING) name,
+        CAST(source_DOT_manufacturers.company_name AS STRING) company_name,
+        source_DOT_manufacturers.created_on,
+        COUNT( DISTINCT shared_DOT_devices.device_id) AS devices_produced
+        FROM test.manufacturers AS source_DOT_manufacturers JOIN shared_DOT_devices ON source_DOT_manufacturers.manufacturer_name = shared_DOT_devices.device_manufacturer
+        WHERE  CAST(source_DOT_manufacturers.company_name AS STRING) = 'Apple'
     )
 
+    SELECT  agg_DOT_events.user_id,
+        agg_DOT_events.utc_date,
+        agg_DOT_events.device_id,
+        agg_DOT_events.country_code,
+        agg_DOT_events.total_latency,
+        shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
+        shared_DOT_countries.region_name shared_DOT_countries_DOT_region_name,
+        shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name
+        FROM agg_DOT_events LEFT JOIN shared_DOT_devices ON shared_DOT_devices.device_id = agg_DOT_events.device_id
+    LEFT JOIN shared_DOT_countries ON agg_DOT_events.country_code = shared_DOT_countries.country_code
+    LEFT JOIN shared_DOT_manufacturers ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
+    """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
 
 
 @pytest.mark.asyncio
@@ -920,7 +1037,7 @@ async def test_build_with_source_filters(
     events_agg_date_dim_link: DimensionLink,
 ):
     """
-    Test build node with filters on source 
+    Test build node with filters on source
     """
     query_ast = await build_node(
         session,
@@ -931,20 +1048,20 @@ async def test_build_with_source_filters(
     WITH
     agg_DOT_events AS (
     SELECT  source_DOT_events.user_id,
-    	source_DOT_events.utc_date,
-    	source_DOT_events.device_id,
-    	source_DOT_events.country_code,
-    	SUM(source_DOT_events.latency) AS total_latency 
-     FROM test.events AS source_DOT_events 
-     WHERE  source_DOT_events.utc_date = 20250101 
+        source_DOT_events.utc_date,
+        source_DOT_events.device_id,
+        source_DOT_events.country_code,
+        SUM(source_DOT_events.latency) AS total_latency
+     FROM test.events AS source_DOT_events
+     WHERE  source_DOT_events.utc_date = 20250101
      GROUP BY  source_DOT_events.user_id, source_DOT_events.device_id, source_DOT_events.country_code
     )
-    
+
     SELECT  agg_DOT_events.user_id,
-    	agg_DOT_events.utc_date,
-    	agg_DOT_events.device_id,
-    	agg_DOT_events.country_code,
-    	agg_DOT_events.total_latency
+        agg_DOT_events.utc_date,
+        agg_DOT_events.device_id,
+        agg_DOT_events.country_code,
+        agg_DOT_events.total_latency
     FROM agg_DOT_events
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()

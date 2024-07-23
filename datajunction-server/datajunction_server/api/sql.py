@@ -39,7 +39,9 @@ router = SecureAPIRouter(tags=["sql"])
 
 
 @router.get(
-    "/sql/measures/", response_model=Dict[str, TranslatedSQL], name="Get Measures SQL",
+    "/sql/measures/",
+    response_model=Dict[str, TranslatedSQL],
+    name="Get Measures SQL",
 )
 async def get_measures_sql_for_cube(
     metrics: List[str] = Query([]),
