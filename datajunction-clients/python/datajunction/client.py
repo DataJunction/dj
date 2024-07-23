@@ -169,7 +169,7 @@ class DJClient(_internal.DJClient):
         """
         endpoint = "/sql/"
         if measures:
-            endpoint = "/sql/measures/"
+            endpoint = "/sql/measures/v2"
         response = self._session.get(
             endpoint,
             params={
