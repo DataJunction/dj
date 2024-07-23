@@ -186,6 +186,37 @@ async def test_ast_compile_having(
 
 
 @pytest.mark.asyncio
+async def test_ast_compile_explode(session: AsyncSession):
+    """
+    Test explode
+    """
+    query_str = """
+        SELECT EXPLODE(foo.my_map) AS (col1, col2)
+        FROM (SELECT MAP(1.0, '2', 3.0, '4') AS my_map) AS foo
+    """
+    query = parse(query_str)
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+
+    assert query.columns[0].name == ast.Name(  # type: ignore
+        name="col1",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].name == ast.Name(  # type: ignore
+        name="col2",
+        quote_style="",
+        namespace=None,
+    )
+    assert isinstance(query.columns[0].type, types.FloatType)
+    assert isinstance(query.columns[1].type, types.StringType)
+
+    assert compare_query_strings(str(query), query_str)
+
+
+@pytest.mark.asyncio
 async def test_ast_compile_lateral_view_explode1(session: AsyncSession):
     """
     Test lateral view explode
