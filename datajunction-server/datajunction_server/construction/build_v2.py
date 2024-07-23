@@ -238,15 +238,16 @@ async def build_node(  # pylint: disable=too-many-arguments
     # Set the dialect by finding available engines for this node, or default to Spark
     build_criteria = build_criteria or get_default_criteria(node)
 
-    if include_dimensions_in_groupby is None:
-        include_dimensions_in_groupby = node.type == NodeType.METRIC
-
     physical_table = get_table_for_node(
         node, build_criteria=build_criteria, as_query=True,
     )
     if physical_table and not filters and not dimensions:
         physical_table.parenthesized = False
         return physical_table
+
+    if include_dimensions_in_groupby is None:
+        include_dimensions_in_groupby = node.type == NodeType.METRIC
+
     node_ast = (
         await compile_node_ast(session, node) if not physical_table else physical_table
     )
@@ -254,6 +255,67 @@ async def build_node(  # pylint: disable=too-many-arguments
     ##################################
     ## Gather join metadata
     ##################################
+
+    # The final query structure looks like this:
+    # For source nodes without filters:
+    #   test.source1
+    # For source nodes with filters:
+    #   SELECT ... FROM test.source1 WHERE ...
+    # For all other nodes:
+    #   filters: [],
+    #   dimensions: [dim1, dim2]
+    #   WITH 
+    #     parent_node_1 AS (
+    #       SELECT ... FROM test.source1
+    #       WHERE <applicable filters>
+    #     ),
+    #     parent_node_2 AS (
+    #       SELECT ... FROM parent_node_1
+    #       WHERE <applicable filters>
+    #     ),
+    #     node AS (
+    #       SELECT ... FROM parent_node_1
+    #       WHERE <applicable filters>
+    #     ),
+    #     dim_node_1 AS (
+    #       SELECT ... FROM test.source2
+    #       WHERE <applicable filters>
+    #     ),
+    #     parent_dim_node_2 AS (
+    #       SELECT ... FROM test.source3
+    #       WHERE <applicable filters>
+    #     ),
+    #     dim_node_2 AS (
+    #       SELECT ... FROM parent_dim_node_2
+    #       WHERE <applicable filters>
+    #     ),
+    #     SELECT ..., dim1, dim2 FROM node 
+    #     JOIN dim_node_1 ON ...
+    #     JOIN dim_node_2 ON ...
+
+    """
+    Build Strategy
+    pushdown filter = filter available directly on the node without additional joins
+
+    1. Explode out the nested references in node 
+        --> parse + compile node AST
+        --> recursively turn node references into query ASTs
+        --> apply pushdown filters to each referenced node's AST if possible
+        --> apply pushdown filters to the node AST if possible
+            apply_filters_to_node(node: NodeRevision, filters: List[ast.Expression])
+      build_ast(node: NodeRevision, filters: List[ast.Expression]) -> ast.Query
+      Add the node's query AST to the final query as a CTE
+    2. For the remaining filters / requested dimensions, they will need to be joined to dimension nodes.
+        Find all dim nodes that need joins based on remaining filters / requested dimensions
+        For each dimension node that needs a join, build the dimension node's query ast
+        --> Explode out the nested references in node 
+        --> ... same as 1
+        Add the dimension node's query AST to the final query as a CTE
+    3. Build the final query by using the various CTEs
+        --> do all the joins between the node + dim nodes
+        --> add all requested dimensions to the final select. if some can't be added, failure message
+        --> if there are remaining filters at this point, failure message
+    """
 
     # Keep track of all the dimension nodes that need to be joined based on the
     # requested dimensions and filters
@@ -273,10 +335,10 @@ async def build_node(  # pylint: disable=too-many-arguments
 
     # Push down any filters and dimensions that don't need joins
     dimension_node_joins.update(dimension_node_joins_)
-    node_ast.select.where = combine_filter_conditions(
-        node_ast.select.where,
-        *pushdown_filters,
-    )
+    # node_ast.select.where = combine_filter_conditions(
+    #     node_ast.select.where,
+    #     *pushdown_filters,
+    # )
 
     ###################
     ## Build Node CTEs
@@ -291,6 +353,7 @@ async def build_node(  # pylint: disable=too-many-arguments
     node_alias = ast.Name(amenable_name(node.name))
     node_ast = await build_ast(
         session,
+        node,
         node_ast,
         filters=to_filter_asts(filters),
         build_criteria=build_criteria,
@@ -371,10 +434,10 @@ async def build_node(  # pylint: disable=too-many-arguments
             )
 
     # Add remaining filters to the where clause
-    final_ast.select.where = combine_filter_conditions(
-        final_ast.select.where,
-        *join_filters,
-    )
+    # final_ast.select.where = combine_filter_conditions(
+    #     final_ast.select.where,
+    #     *join_filters,
+    # )
     print("final_ast.select.where", final_ast.select.where)
     print("Elapsed", time.time() - start)
     return final_ast
@@ -476,7 +539,7 @@ async def build_dimension_node_query(
     session: AsyncSession,
     build_criteria: BuildCriteria,
     link: DimensionLink,
-    join_filters: List[str],
+    filters: List[str],
     cte_mapping: Dict[str, ast.Query],
 ):
     """
@@ -484,26 +547,32 @@ async def build_dimension_node_query(
     """
     await session.refresh(link.dimension, ["current"])
     await session.refresh(link.dimension.current, ["columns"])
-    # 1. Build the dimension node
+    # 1. Parse and compile the dimension node query
     dimension_node_ast = await compile_node_ast(session, link.dimension.current)
-    pushdown_filters, join_filters, _ = await process_filters(
+
+    # Determine which filters can be applied, if any
+    # Some filters can be applied whereas others require pulling in another dimension
+    # pushdown_filters, filters, _ = await process_filters(
+    #     session,
+    #     link.dimension.current,
+    #     dimension_node_ast,
+    #     filters,
+    # )
+    # dimension_node_ast.select.where = combine_filter_conditions(
+    #     dimension_node_ast.select.where,
+    #     *pushdown_filters,
+    # )
+    # apply_filters_to_node(link.dimension, filters)
+    dimension_node_query = await build_ast(
         session,
         link.dimension.current,
         dimension_node_ast,
-        join_filters,
-    )
-    dimension_node_ast.select.where = combine_filter_conditions(
-        dimension_node_ast.select.where,
-        *pushdown_filters,
-    )
-    print("1a. Building CTE for", link.dimension.name)
-    dimension_node_query = await build_ast(
-        session,
-        dimension_node_ast,
-        filters=join_filters,
+        filters=filters,
         build_criteria=build_criteria,
         ctes_mapping=cte_mapping,
     )
+    print("1a. Building CTE for", link.dimension.name)
+    print("<start \n", dimension_node_query, "\n -- end>\n\n")
     return dimension_node_query
 
 
@@ -562,7 +631,7 @@ def update_filter_column_with_foreign_key(
     filter_dim: ast.Column,  # this is the referenced dimension column from a filter expression
     node_ast: ast.Query,
     link: "DimensionLink",
-):
+) -> bool:
     """
     Modifies the referenced dimension in the filter expression with the foreign key column from the node.
     """
@@ -575,6 +644,8 @@ def update_filter_column_with_foreign_key(
                 node_col.child if isinstance(node_col, ast.Alias) else node_col,
             )
             filter_dim.dimension_ref = dimension_attr
+            return True
+    return False
 
 
 def build_dimension_attribute(
@@ -735,13 +806,14 @@ async def process_filters(
         for filter_dim in filter_ast.find_all(ast.Column):
             dimension_attr = FullColumnName(filter_dim.identifier())
             join_required[dimension_attr.name] = True
+            join_path = None
             if dimension_attr.node_name not in dimension_node_joins:
                 join_path = await dimension_join_path(
                     session,
                     node,
                     dimension_attr.name,
                 )
-                # print("links!", node.name, dimension_node, join_path)
+                print("links!", node.name, join_path)
                 if join_path:
                     join_required[dimension_attr.name] = await needs_dimension_join(
                         session,
@@ -772,7 +844,7 @@ async def process_filters(
                     )
 
             # If it matches FK then update
-            if not join_required[dimension_attr.name] and join_path:
+            if (not join_required[dimension_attr.name] and join_path) or join_path == []:
                 update_filter_column_with_foreign_key(
                     dimension_attr.name,
                     filter_dim,
@@ -792,6 +864,7 @@ async def process_filters(
 
 async def build_ast(  # pylint: disable=too-many-arguments
     session: AsyncSession,
+    node: NodeRevision,
     query: ast.Query,
     filters: List[ast.Expression],
     memoized_queries: Dict[int, ast.Query] = None,
@@ -803,6 +876,7 @@ async def build_ast(  # pylint: disable=too-many-arguments
     Builds the query AST, which involves replacing each of the DJ node references in
     the query with their ASTs (either the referenced node's query or a materialized table).
     """
+    await session.refresh(node, ["dimension_links"])
     context = CompileContext(session=session, exception=DJException())
     await query.compile(context)
     query.bake_ctes()  # pylint: disable=W0212
@@ -828,6 +902,7 @@ async def build_ast(  # pylint: disable=too-many-arguments
                 node_query = parse(cast(str, referenced_node.query))
                 query_ast = await build_ast(  # type: ignore
                     session,
+                    referenced_node,
                     node_query,
                     filters=filters,
                     memoized_queries=memoized_queries,
@@ -867,8 +942,52 @@ async def build_ast(  # pylint: disable=too-many-arguments
                     and col._table.dj_node.name == referenced_node.name
                 ):
                     col._table = query_ast
+
+    # Apply pushdown filters if possible
+    apply_filters_to_node(node, query, filters)
+
     query.ctes.extend(new_cte_mapping.values())
     query.select.add_aliases_to_unnamed_columns()
+    return query
+
+
+def apply_filters_to_node(
+    node: NodeRevision,
+    query: ast.Query,
+    filters: List[ast.Expression],
+):
+    """
+    Apply pushdown filters if possible to the node's query AST.
+    """
+    print("query_ast for node BEFORE filter pushdown", query)
+    for filter_ast in filters:
+        is_pushdown_filter = True
+        for filter_dim in filter_ast.find_all(ast.Column):
+            dimension_attr = FullColumnName(filter_dim.identifier())
+            filter_on_node = dimension_attr.node_name == node.name
+            link = [link for link in node.dimension_links if dimension_attr.name in link.foreign_keys_reversed]
+            if link:
+                fk_column = FullColumnName(link[0].foreign_keys_reversed[dimension_attr.name])
+                node_col = query.column_mapping.get(fk_column.column_name)
+                if node_col:
+                    filter_ast.replace(
+                        filter_dim,
+                        node_col.child if isinstance(node_col, ast.Alias) else node_col,
+                    )
+            elif filter_on_node:
+                node_col = query.column_mapping.get(dimension_attr.column_name)
+                # print("replacing", dimension_attr.name, link[0].foreign_keys_reversed[dimension_attr.name], "with", node_col)
+                if node_col:
+                    filter_ast.replace(
+                        filter_dim,
+                        node_col.child if isinstance(node_col, ast.Alias) else node_col,
+                    )
+            else:
+                is_pushdown_filter = False
+        if is_pushdown_filter:
+            print("is_pushdown", filter_ast)
+            query.select.where = combine_filter_conditions(query.select.where, filter_ast)
+    print("query_ast for node AFTER filter pushdown", node.name, query)
     return query
 
 
@@ -941,6 +1060,12 @@ def get_table_for_node(
         )
     applicable_filters = []
     if filters and table:
+        node_ast = ast.Query(
+            select=ast.Select(
+                projection=table.columns,  # type: ignore
+                from_=ast.From(relations=[ast.Relation(table)]),
+            ),
+        )
         dimension_links_mapping = {
             link.dimension.name: link
             for link in node.dimension_links
@@ -949,21 +1074,17 @@ def get_table_for_node(
             all_true = True
             for filter_dim in filter_ast.find_all(ast.Column):
                 dimension_attr = FullColumnName(filter_dim.identifier())
-                if dimension_links_mapping.get(dimension_attr.node_name):
-                    replacement = None
-                    matching_link = dimension_links_mapping.get(dimension_attr.node_name)
-                    if dimension_attr.name in matching_link.foreign_keys_reversed:
-                        replacement_column = FullColumnName(
-                            matching_link.foreign_keys_reversed[dimension_attr.name],
-                        )
-                        replacement = [
-                            col
-                            for col in table._columns
-                            if col.identifier() == replacement_column.column_name
-                        ]
-                    if replacement:
-                        filter_dim.parent.replace(filter_dim, replacement[0])
-                    else:
+                if link := dimension_links_mapping.get(dimension_attr.node_name):
+                    if dimension_attr.name in link.foreign_keys_reversed:
+                        print("replaced1", True)
+                    replaced = update_filter_column_with_foreign_key(
+                        dimension_attr.name,
+                        filter_dim,
+                        node_ast,
+                        link,
+                    )
+                    print("replaced2", replaced)
+                    if not replaced:
                         all_true = False
                 else:
                     all_true = False
