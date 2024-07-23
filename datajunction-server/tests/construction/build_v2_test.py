@@ -575,9 +575,7 @@ async def test_build_source_dimensions_filters(
           utc_date 
         FROM test.events 
         WHERE  device_id = 111 AND device_id = 222
-      ) AS source_DOT_events 
-      WHERE
-        source_DOT_events.device_id = 111 AND source_DOT_events.device_id = 222
+      ) AS source_DOT_events
     )
     SELECT
       source_DOT_events.event_id,
@@ -684,6 +682,7 @@ async def test_build_transform_with_join_dimensions_filters(
             source_DOT_events.country_code,
             SUM(source_DOT_events.latency) AS total_latency
           FROM test.events AS source_DOT_events
+          WHERE source_DOT_events.device_id = 222
           GROUP BY
             source_DOT_events.user_id,
             source_DOT_events.device_id,
@@ -694,6 +693,7 @@ async def test_build_transform_with_join_dimensions_filters(
             CAST(source_DOT_devices.device_name AS STRING) device_name,
             source_DOT_devices.device_manufacturer
           FROM test.devices AS source_DOT_devices
+          WHERE  CAST(source_DOT_devices.device_name AS STRING) = 'iOS' AND CAST(source_DOT_devices.device_id AS INT) = 222
         )
         SELECT
           agg_DOT_events.user_id,
@@ -705,8 +705,6 @@ async def test_build_transform_with_join_dimensions_filters(
           shared_DOT_devices.device_name shared_DOT_devices_DOT_device_name,
           shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id
         FROM agg_DOT_events LEFT JOIN shared_DOT_devices ON shared_DOT_devices.device_id = agg_DOT_events.device_id
-        WHERE
-          shared_DOT_devices.device_name = 'iOS' AND shared_DOT_devices.device_id = 222
         """,
             ),
         ).strip()
@@ -734,7 +732,7 @@ async def test_build_transform_with_multijoin_dimensions_filters(
         events_agg.current,
         filters=[
             "shared.manufacturers.company_name = 'Apple'",
-            "shared.manufacturers.name = 'Something'",
+            "shared.devices.device_id = 123",
             "shared.devices.device_manufacturer = 'Something'",
         ],
         dimensions=["shared.devices.device_manufacturer"],
@@ -753,6 +751,7 @@ async def test_build_transform_with_multijoin_dimensions_filters(
             source_DOT_events.country_code,
             SUM(source_DOT_events.latency) AS total_latency
           FROM test.events AS source_DOT_events
+          WHERE  source_DOT_events.device_id = 123
           GROUP BY
             source_DOT_events.user_id,
             source_DOT_events.device_id,
@@ -764,6 +763,7 @@ async def test_build_transform_with_multijoin_dimensions_filters(
             CAST(source_DOT_devices.device_name AS STRING) device_name,
             source_DOT_devices.device_manufacturer
           FROM test.devices AS source_DOT_devices
+          WHERE  CAST(source_DOT_devices.device_id AS INT) = 123 AND source_DOT_devices.device_manufacturer = 'Something'
         ),
         shared_DOT_manufacturers AS (
           SELECT
@@ -773,6 +773,7 @@ async def test_build_transform_with_multijoin_dimensions_filters(
             COUNT( DISTINCT shared_DOT_devices.device_id) AS devices_produced
           FROM test.manufacturers AS source_DOT_manufacturers
           JOIN shared_DOT_devices ON source_DOT_manufacturers.manufacturer_name = shared_DOT_devices.device_manufacturer
+          WHERE  CAST(source_DOT_manufacturers.company_name AS STRING) = 'Apple'
         )
         SELECT
           agg_DOT_events.user_id,
@@ -781,14 +782,10 @@ async def test_build_transform_with_multijoin_dimensions_filters(
           agg_DOT_events.country_code,
           agg_DOT_events.total_latency,
           shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
-          shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name,
-          shared_DOT_manufacturers.name shared_DOT_manufacturers_DOT_name
+          shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id,
+          shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name
         FROM agg_DOT_events LEFT JOIN shared_DOT_devices ON shared_DOT_devices.device_id = agg_DOT_events.device_id
         LEFT JOIN shared_DOT_manufacturers ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
-        WHERE
-          shared_DOT_manufacturers.company_name = 'Apple'
-          AND shared_DOT_manufacturers.name = 'Something'
-          AND shared_DOT_devices.device_manufacturer = 'Something'
         """,
             ),
         ).strip()
@@ -885,6 +882,7 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
             source_DOT_countries.population
          FROM test.countries AS source_DOT_countries
          JOIN shared_DOT_regions ON source_DOT_countries.region_code = shared_DOT_regions.region_code
+         WHERE  shared_DOT_regions.region_name = 'APAC'
         ),
         shared_DOT_manufacturers AS (
         SELECT  CAST(source_DOT_manufacturers.manufacturer_name AS STRING) name,
@@ -892,6 +890,7 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
             source_DOT_manufacturers.created_on,
             COUNT( DISTINCT shared_DOT_devices.device_id) AS devices_produced
          FROM test.manufacturers AS source_DOT_manufacturers JOIN shared_DOT_devices ON source_DOT_manufacturers.manufacturer_name = shared_DOT_devices.device_manufacturer
+         WHERE  CAST(source_DOT_manufacturers.company_name AS STRING) = 'Apple'
         )
 
         SELECT  agg_DOT_events.user_id,
@@ -905,7 +904,6 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
          FROM agg_DOT_events LEFT JOIN shared_DOT_devices ON shared_DOT_devices.device_id = agg_DOT_events.device_id
         LEFT JOIN shared_DOT_countries ON agg_DOT_events.country_code = shared_DOT_countries.country_code
         LEFT JOIN shared_DOT_manufacturers ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
-         WHERE  shared_DOT_manufacturers.company_name = 'Apple' AND shared_DOT_countries.region_name = 'APAC'
         """,
             ),
         ).strip()
