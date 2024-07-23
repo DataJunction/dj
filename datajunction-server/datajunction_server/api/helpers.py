@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import and_, is_
 
-from datajunction_server.construction.build import (  # build_node,
+from datajunction_server.construction.build import (
     build_materialized_cube_node,
     build_metric_nodes,
     build_node,
