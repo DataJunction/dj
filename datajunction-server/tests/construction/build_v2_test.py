@@ -1,29 +1,25 @@
+# pylint: disable=redefined-outer-name,too-many-lines
 """Tests for building nodes"""
-
-from unittest.mock import MagicMock, patch
-
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import datajunction_server.sql.parsing.types as ct
-from datajunction_server.construction.build_v2 import build_node
+from datajunction_server.construction.build_v2 import build_node, dimension_join_path
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink, JoinType
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJException
-from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.naming import amenable_name
-from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
-
-from ..sql.utils import compare_query_strings
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
 @pytest_asyncio.fixture
 async def primary_key_attribute(session: AsyncSession) -> AttributeType:
+    """
+    Primary key attribute entry
+    """
     attribute_type = AttributeType(
         namespace="system",
         name="primary_key",
@@ -43,6 +39,9 @@ async def primary_key_attribute(session: AsyncSession) -> AttributeType:
 
 @pytest_asyncio.fixture
 async def events(session: AsyncSession) -> Node:
+    """
+    Events source node
+    """
     events_node = Node(
         name="source.events",
         display_name="Events",
@@ -74,6 +73,9 @@ async def events(session: AsyncSession) -> Node:
 
 @pytest_asyncio.fixture
 async def date_dim(session: AsyncSession, primary_key_attribute) -> Node:
+    """
+    Date dimension node
+    """
     date_node = Node(
         name="shared.date",
         display_name="Date",
@@ -104,6 +106,9 @@ async def date_dim(session: AsyncSession, primary_key_attribute) -> Node:
 
 @pytest_asyncio.fixture
 async def events_agg(session: AsyncSession) -> Node:
+    """
+    Events aggregation transform node
+    """
     events_agg_node = Node(
         name="agg.events",
         display_name="Events Aggregated",
@@ -145,6 +150,9 @@ async def devices(
     session: AsyncSession,
     primary_key_attribute: AttributeType,
 ) -> Node:
+    """
+    Devices source node + devices dimension node
+    """
     devices_source_node = Node(
         name="source.devices",
         display_name="Devices",
@@ -178,7 +186,13 @@ async def devices(
         display_name="Devices",
         type=NodeType.DIMENSION,
         version="1",
-        query="""SELECT CAST(device_id AS INT) device_id, CAST(device_name AS STR) device_name, device_manufacturer FROM source.devices""",
+        query="""
+        SELECT
+          CAST(device_id AS INT) device_id,
+          CAST(device_name AS STR) device_name,
+          device_manufacturer
+        FROM source.devices
+        """,
         columns=[
             Column(
                 name="device_id",
@@ -203,6 +217,9 @@ async def manufacturers_dim(
     session: AsyncSession,
     primary_key_attribute: AttributeType,
 ) -> Node:
+    """
+    Manufacturers source node + dimension node
+    """
     manufacturers_source_node = Node(
         name="source.manufacturers",
         display_name="Manufacturers",
@@ -243,7 +260,9 @@ async def manufacturers_dim(
           created_on,
           COUNT(DISTINCT devices.device_id) AS devices_produced
         FROM source.manufacturers manufacturers
-        JOIN shared.devices devices ON manufacturers.manufacturer_name = devices.device_manufacturer""",
+        JOIN shared.devices devices
+          ON manufacturers.manufacturer_name = devices.device_manufacturer
+        """,
         columns=[
             Column(
                 name="name",
@@ -268,6 +287,9 @@ async def country_dim(
     session: AsyncSession,
     primary_key_attribute: AttributeType,
 ) -> Node:
+    """
+    Countries source node + dimension node & regions source + dim
+    """
     countries_source_node = Node(
         name="source.countries",
         display_name="Countries",
@@ -358,7 +380,8 @@ async def country_dim(
           region_name,
           population
         FROM source.countries countries
-        JOIN shared.regions ON countries.region_code = shared.regions.region_code""",
+        JOIN shared.regions ON countries.region_code = shared.regions.region_code
+        """,
         columns=[
             Column(
                 name="country_code",
@@ -390,6 +413,9 @@ async def events_agg_countries_link(
     events_agg: Node,
     country_dim: Node,
 ) -> Node:
+    """
+    Link between agg.events and shared.countries
+    """
     link = DimensionLink(
         node_revision=events_agg.current,
         dimension=country_dim,
@@ -408,6 +434,9 @@ async def events_devices_link(
     events: Node,
     devices: Node,
 ) -> Node:
+    """
+    Link between source.events and shared.devices
+    """
     link = DimensionLink(
         node_revision=events.current,
         dimension=devices,
@@ -427,6 +456,9 @@ async def events_agg_devices_link(
     devices: Node,
     manufacturers_dim: Node,
 ) -> Node:
+    """
+    Link between agg.events and shared.devices
+    """
     link = DimensionLink(
         node_revision=events_agg.current,
         dimension=devices,
@@ -457,6 +489,9 @@ async def events_agg_date_dim_link(
     events_agg: Node,
     date_dim: Node,
 ) -> Node:
+    """
+    Link between agg.events and shared.date
+    """
     link = DimensionLink(
         node_revision=events_agg.current,
         dimension=date_dim,
@@ -467,6 +502,55 @@ async def events_agg_date_dim_link(
     await session.commit()
     await session.refresh(link)
     return link
+
+
+@pytest.mark.asyncio
+async def test_dimension_join_path(
+    session: AsyncSession,
+    events: Node,
+    events_agg: Node,
+    events_agg_devices_link: Node,  # pylint: disable=unused-argument
+):
+    """
+    Test finding a join path between the dimension attribute and the node.
+    """
+    path = await dimension_join_path(
+        session,
+        events_agg.current,
+        "shared.devices.device_manufacturer",
+    )
+    assert [link.dimension.name for link in path] == ["shared.devices"]  # type: ignore
+
+    path = await dimension_join_path(
+        session,
+        events_agg.current,
+        "shared.manufacturers.name",
+    )
+    assert [link.dimension.name for link in path] == [  # type: ignore
+        "shared.devices",
+        "shared.manufacturers",
+    ]
+
+    path = await dimension_join_path(
+        session,
+        events.current,
+        "shared.manufacturers.name",
+    )
+    assert path is None
+
+    path = await dimension_join_path(
+        session,
+        events.current,
+        "source.events.country_code",
+    )
+    assert path == []
+
+    path = await dimension_join_path(
+        session,
+        events_agg.current,
+        "agg.events.country_code",
+    )
+    assert path == []
 
 
 @pytest.mark.asyncio
@@ -565,8 +649,8 @@ async def test_build_source_node_with_direct_filter(
 async def test_build_source_with_pushdown_filters(
     session: AsyncSession,
     events: Node,
-    devices: Node,
-    events_devices_link: DimensionLink,
+    devices: Node,  # pylint: disable=unused-argument
+    events_devices_link: DimensionLink,  # pylint: disable=unused-argument
 ):
     """
     Test building a source node with a dimension attribute filter that can be
@@ -611,8 +695,8 @@ async def test_build_source_with_pushdown_filters(
 async def test_build_source_with_join_filters(
     session: AsyncSession,
     events: Node,
-    devices: Node,
-    events_devices_link: DimensionLink,
+    devices: Node,  # pylint: disable=unused-argument
+    events_devices_link: DimensionLink,  # pylint: disable=unused-argument
 ):
     """
     Test building a source node with a dimension attribute filter that
@@ -649,7 +733,9 @@ async def test_build_source_with_join_filters(
         CAST(source_DOT_devices.device_name AS STRING) device_name,
         source_DOT_devices.device_manufacturer
       FROM test.devices AS source_DOT_devices
-      WHERE  CAST(source_DOT_devices.device_id AS INT) = 111 AND CAST(source_DOT_devices.device_name AS STRING) = 'iPhone'
+      WHERE
+        CAST(source_DOT_devices.device_id AS INT) = 111
+        AND CAST(source_DOT_devices.device_name AS STRING) = 'iPhone'
     )
     SELECT  source_DOT_events.event_id,
         source_DOT_events.user_id,
@@ -660,7 +746,9 @@ async def test_build_source_with_join_filters(
         shared_DOT_devices.device_name shared_DOT_devices_DOT_device_name,
         shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
         shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id
-     FROM source_DOT_events LEFT JOIN shared_DOT_devices ON shared_DOT_devices.device_id = source_DOT_events.device_id
+    FROM source_DOT_events
+    LEFT JOIN shared_DOT_devices
+      ON shared_DOT_devices.device_id = source_DOT_events.device_id
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -697,9 +785,9 @@ async def test_build_dimension_node(
 @pytest.mark.asyncio
 async def test_build_dimension_node_with_direct_and_pushdown_filter(
     session: AsyncSession,
-    events: Node,
+    events: Node,  # pylint: disable=unused-argument
     devices: Node,
-    events_agg_devices_link: DimensionLink,
+    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
 ):
     """
     Test building a dimension node with a direct filter and a pushdown filter (the result
@@ -730,7 +818,9 @@ async def test_build_dimension_node_with_direct_and_pushdown_filter(
 
     # Pushdown filter
     query_ast = await build_node(
-        session, devices.current, filters=["shared.manufacturers.name = 'Apple'"],
+        session,
+        devices.current,
+        filters=["shared.manufacturers.name = 'Apple'"],
     )
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -738,11 +828,11 @@ async def test_build_dimension_node_with_direct_and_pushdown_filter(
 @pytest.mark.asyncio
 async def test_build_transform_with_pushdown_dimensions_filters(
     session: AsyncSession,
-    events: Node,
+    events: Node,  # pylint: disable=unused-argument
     events_agg: Node,
-    devices: Node,
-    events_agg_devices_link: DimensionLink,
-    manufacturers_dim: Node,
+    devices: Node,  # pylint: disable=unused-argument
+    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
+    manufacturers_dim: Node,  # pylint: disable=unused-argument
 ):
     """
     Test building a transform node with filters and dimensions that can be pushed down
@@ -787,11 +877,11 @@ async def test_build_transform_with_pushdown_dimensions_filters(
 @pytest.mark.asyncio
 async def test_build_transform_with_join_dimensions_filters(
     session: AsyncSession,
-    events: Node,
+    events: Node,  # pylint: disable=unused-argument
     events_agg: Node,
-    devices: Node,
-    events_agg_devices_link: DimensionLink,
-    manufacturers_dim: Node,
+    devices: Node,  # pylint: disable=unused-argument
+    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
+    manufacturers_dim: Node,  # pylint: disable=unused-argument
 ):
     """
     Test building a transform node with filters and dimensions that require a join
@@ -825,7 +915,9 @@ async def test_build_transform_with_join_dimensions_filters(
             CAST(source_DOT_devices.device_name AS STRING) device_name,
             source_DOT_devices.device_manufacturer
           FROM test.devices AS source_DOT_devices
-          WHERE  CAST(source_DOT_devices.device_name AS STRING) = 'iOS' AND CAST(source_DOT_devices.device_id AS INT) = 222
+          WHERE
+            CAST(source_DOT_devices.device_name AS STRING) = 'iOS'
+            AND CAST(source_DOT_devices.device_id AS INT) = 222
         )
         SELECT
           agg_DOT_events.user_id,
@@ -836,7 +928,9 @@ async def test_build_transform_with_join_dimensions_filters(
           shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
           shared_DOT_devices.device_name shared_DOT_devices_DOT_device_name,
           shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id
-        FROM agg_DOT_events LEFT JOIN shared_DOT_devices ON shared_DOT_devices.device_id = agg_DOT_events.device_id
+        FROM agg_DOT_events
+        LEFT JOIN shared_DOT_devices
+          ON shared_DOT_devices.device_id = agg_DOT_events.device_id
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -844,12 +938,12 @@ async def test_build_transform_with_join_dimensions_filters(
 @pytest.mark.asyncio
 async def test_build_transform_with_multijoin_dimensions_filters(
     session: AsyncSession,
-    events: Node,
+    events: Node,  # pylint: disable=unused-argument
     events_agg: Node,
-    devices: Node,
-    events_agg_devices_link: DimensionLink,
-    manufacturers_dim: Node,
-    country_dim: Node,
+    devices: Node,  # pylint: disable=unused-argument
+    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
+    manufacturers_dim: Node,  # pylint: disable=unused-argument
+    country_dim: Node,  # pylint: disable=unused-argument
 ):
     """
     Test building a transform node with filters and dimensions that require
@@ -889,7 +983,9 @@ async def test_build_transform_with_multijoin_dimensions_filters(
             CAST(source_DOT_devices.device_name AS STRING) device_name,
             source_DOT_devices.device_manufacturer
           FROM test.devices AS source_DOT_devices
-          WHERE  CAST(source_DOT_devices.device_id AS INT) = 123 AND source_DOT_devices.device_manufacturer = 'Something'
+          WHERE
+            CAST(source_DOT_devices.device_id AS INT) = 123
+            AND source_DOT_devices.device_manufacturer = 'Something'
         ),
         shared_DOT_manufacturers AS (
           SELECT
@@ -898,7 +994,9 @@ async def test_build_transform_with_multijoin_dimensions_filters(
             source_DOT_manufacturers.created_on,
             COUNT( DISTINCT shared_DOT_devices.device_id) AS devices_produced
           FROM test.manufacturers AS source_DOT_manufacturers
-          JOIN shared_DOT_devices ON source_DOT_manufacturers.manufacturer_name = shared_DOT_devices.device_manufacturer
+          JOIN shared_DOT_devices
+            ON source_DOT_manufacturers.manufacturer_name =
+               shared_DOT_devices.device_manufacturer
           WHERE  CAST(source_DOT_manufacturers.company_name AS STRING) = 'Apple'
         )
         SELECT
@@ -910,8 +1008,11 @@ async def test_build_transform_with_multijoin_dimensions_filters(
           shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
           shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id,
           shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name
-        FROM agg_DOT_events LEFT JOIN shared_DOT_devices ON shared_DOT_devices.device_id = agg_DOT_events.device_id
-        LEFT JOIN shared_DOT_manufacturers ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
+        FROM agg_DOT_events
+        LEFT JOIN shared_DOT_devices
+          ON shared_DOT_devices.device_id = agg_DOT_events.device_id
+        LEFT JOIN shared_DOT_manufacturers
+          ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -919,9 +1020,9 @@ async def test_build_transform_with_multijoin_dimensions_filters(
 @pytest.mark.asyncio
 async def test_build_fail_no_join_path_found(
     session: AsyncSession,
-    events: Node,
+    events: Node,  # pylint: disable=unused-argument
     events_agg: Node,
-    country_dim: Node,
+    country_dim: Node,  # pylint: disable=unused-argument
 ):
     """
     Test failed node building due to not being able to find a join path to the dimension
@@ -944,13 +1045,13 @@ async def test_build_fail_no_join_path_found(
 @pytest.mark.asyncio
 async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
     session: AsyncSession,
-    events: Node,
+    events: Node,  # pylint: disable=unused-argument
     events_agg: Node,
-    devices: Node,
-    events_agg_devices_link: DimensionLink,
-    manufacturers_dim: Node,
-    country_dim: Node,
-    events_agg_countries_link: DimensionLink,
+    devices: Node,  # pylint: disable=unused-argument
+    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
+    manufacturers_dim: Node,  # pylint: disable=unused-argument
+    country_dim: Node,  # pylint: disable=unused-argument
+    events_agg_countries_link: DimensionLink,  # pylint: disable=unused-argument
 ):
     """
     Test building a transform node with filters and dimensions that require
@@ -980,7 +1081,10 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
         source_DOT_events.country_code,
         SUM(source_DOT_events.latency) AS total_latency
         FROM test.events AS source_DOT_events
-        GROUP BY  source_DOT_events.user_id, source_DOT_events.device_id, source_DOT_events.country_code
+        GROUP BY
+          source_DOT_events.user_id,
+          source_DOT_events.device_id,
+          source_DOT_events.country_code
     ),
     shared_DOT_devices AS (
     SELECT  CAST(source_DOT_devices.device_id AS INT) device_id,
@@ -1001,8 +1105,10 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
         shared_DOT_regions.region_name,
         source_DOT_countries.population
         FROM test.countries AS source_DOT_countries
-        JOIN shared_DOT_regions ON source_DOT_countries.region_code = shared_DOT_regions.region_code
-        WHERE  shared_DOT_regions.region_name = 'APAC'
+        JOIN shared_DOT_regions
+          ON source_DOT_countries.region_code = shared_DOT_regions.region_code
+        WHERE
+          shared_DOT_regions.region_name = 'APAC'
     ),
     shared_DOT_manufacturers AS (
     SELECT  CAST(source_DOT_manufacturers.manufacturer_name AS STRING) name,
@@ -1021,9 +1127,13 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
         shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
         shared_DOT_countries.region_name shared_DOT_countries_DOT_region_name,
         shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name
-        FROM agg_DOT_events LEFT JOIN shared_DOT_devices ON shared_DOT_devices.device_id = agg_DOT_events.device_id
-    LEFT JOIN shared_DOT_countries ON agg_DOT_events.country_code = shared_DOT_countries.country_code
-    LEFT JOIN shared_DOT_manufacturers ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
+        FROM agg_DOT_events
+    LEFT JOIN shared_DOT_devices
+      ON shared_DOT_devices.device_id = agg_DOT_events.device_id
+    LEFT JOIN shared_DOT_countries
+      ON agg_DOT_events.country_code = shared_DOT_countries.country_code
+    LEFT JOIN shared_DOT_manufacturers
+     ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -1031,10 +1141,10 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
 @pytest.mark.asyncio
 async def test_build_with_source_filters(
     session: AsyncSession,
-    events: Node,
+    events: Node,  # pylint: disable=unused-argument
     events_agg: Node,
-    date_dim: Node,
-    events_agg_date_dim_link: DimensionLink,
+    date_dim: Node,  # pylint: disable=unused-argument
+    events_agg_date_dim_link: DimensionLink,  # pylint: disable=unused-argument
 ):
     """
     Test build node with filters on source
@@ -1054,7 +1164,10 @@ async def test_build_with_source_filters(
         SUM(source_DOT_events.latency) AS total_latency
      FROM test.events AS source_DOT_events
      WHERE  source_DOT_events.utc_date = 20250101
-     GROUP BY  source_DOT_events.user_id, source_DOT_events.device_id, source_DOT_events.country_code
+     GROUP BY
+       source_DOT_events.user_id,
+       source_DOT_events.device_id,
+       source_DOT_events.country_code
     )
 
     SELECT  agg_DOT_events.user_id,

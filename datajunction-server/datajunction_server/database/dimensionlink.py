@@ -1,5 +1,5 @@
 """Dimension links table."""
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Integer
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -95,7 +95,7 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
             f"{self.join_type} join {self.dimension.name} on {self.join_sql}",
         )
 
-    def joins(self) -> "ast.Join":
+    def joins(self) -> List["ast.Join"]:
         """
         The join ASTs for this dimension link
         """

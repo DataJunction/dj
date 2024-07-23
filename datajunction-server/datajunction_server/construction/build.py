@@ -1689,9 +1689,6 @@ async def get_measures_query(
         assemble_column_metadata,
         validate_cube,
     )
-    from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel
-        build_node,
-    )
 
     engine = (
         await get_engine(session, engine_name, engine_version)
@@ -1746,7 +1743,6 @@ async def get_measures_query(
             include_dimensions_in_groupby=False,
             access_control=access_control,
         )
-        print("parent_ast", parent_ast)
 
         # Select only columns that were one of the necessary measures
         if not include_all_columns:
