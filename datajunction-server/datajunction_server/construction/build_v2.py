@@ -1,43 +1,28 @@
+"""Building node SQL functions"""
 import collections
 import logging
 import re
-import time
 from dataclasses import dataclass
 from typing import DefaultDict, Dict, List, Optional, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
-from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.user import User
-from datajunction_server.errors import (
-    DJError,
-    DJException,
-    DJInvalidInputException,
-    ErrorCode,
-)
+from datajunction_server.errors import DJException
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.engine import Dialect
-from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.naming import LOOKUP_CHARS, amenable_name, from_amenable_name
-from datajunction_server.sql.dag import get_dimensions, get_shared_dimensions
+from datajunction_server.naming import amenable_name, from_amenable_name
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
-from datajunction_server.sql.parsing.types import (
-    ColumnType,
-    DoubleType,
-    LongType,
-    TimestampType,
-)
 from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
@@ -53,10 +38,16 @@ class FullColumnName:
 
     @property
     def node_name(self):
+        """
+        Gets the node name part of the full column name.
+        """
         return SEPARATOR.join(self.name.split(SEPARATOR)[:-1])
 
     @property
     def column_name(self):
+        """
+        Gets the column name part of the full column name.
+        """
         return self.name.split(SEPARATOR)[-1]
 
 
@@ -66,7 +57,7 @@ class DimensionJoin:
     Info on a dimension join
     """
 
-    join_path: List[ast.Join]
+    join_path: List[DimensionLink]
     requested_dimensions: List[str]
     node_query: Optional[ast.Query] = None
 
@@ -199,7 +190,7 @@ async def get_measures_query(
     return measures_sql_mapping
 
 
-def to_filter_asts(filters: List[str]):
+def to_filter_asts(filters: Optional[List[str]] = None):
     """
     Converts a list of filter expresisons to ASTs
     """
@@ -222,16 +213,28 @@ async def build_node(  # pylint: disable=too-many-arguments
     """
     Determines the optimal way to build the node with the requested set of
     dimensions, filter expressions, order by, and limit clauses.
+
+    Note: A pushdown filter = filter available directly on the node without additional joins
+    Build Strategy
+    ---------------
+    1. Explode out the nested references in node
+        --> parse + compile node AST
+        --> recursively turn node references into query ASTs
+        --> apply pushdown filters to each referenced node's AST if possible
+            apply_filters_to_node(node: NodeRevision, filters: List[ast.Expression])
+      build_ast(node: NodeRevision, filters: List[ast.Expression]) -> ast.Query
+      Add the node's query AST to the final query as a CTE
+    2. For the remaining filters / requested dimensions, they will need to be joined to
+    dimension nodes.
+        Find all dim nodes that need joins based on remaining filters / requested dimensions
+        For each dimension node that needs a join, build the dimension node's query ast
+        --> Explode out the nested references in node
+        --> Apply pushdown filters to each referenced node's AST if possible
+        Add the dimension node's query AST to the final query as a CTE
+    3. Build the final query by using the various CTEs
+        --> do all the joins between the node + dim nodes
+        --> add all requested dimensions to the final select
     """
-    logger.info(
-        "Building node %s with dimensions %s, filters %s, order by %s, limit %s",
-        node.name,
-        dimensions,
-        filters,
-        orderby,
-        limit,
-    )
-    start = time.time()
     if access_control:
         access_control.add_request_by_node(node)
 
@@ -269,70 +272,13 @@ async def build_node(  # pylint: disable=too-many-arguments
     ## Gather join metadata
     ##################################
 
-    # The final query structure looks like this:
-    # For source nodes without filters:
-    #   test.source1
-    # For source nodes with filters:
-    #   SELECT ... FROM test.source1 WHERE ...
-    # For all other nodes:
-    #   filters: [],
-    #   dimensions: [dim1, dim2]
-    #   WITH
-    #     parent_node_1 AS (
-    #       SELECT ... FROM test.source1
-    #       WHERE <applicable filters>
-    #     ),
-    #     parent_node_2 AS (
-    #       SELECT ... FROM parent_node_1
-    #       WHERE <applicable filters>
-    #     ),
-    #     node AS (
-    #       SELECT ... FROM parent_node_1
-    #       WHERE <applicable filters>
-    #     ),
-    #     dim_node_1 AS (
-    #       SELECT ... FROM test.source2
-    #       WHERE <applicable filters>
-    #     ),
-    #     parent_dim_node_2 AS (
-    #       SELECT ... FROM test.source3
-    #       WHERE <applicable filters>
-    #     ),
-    #     dim_node_2 AS (
-    #       SELECT ... FROM parent_dim_node_2
-    #       WHERE <applicable filters>
-    #     ),
-    #     SELECT ..., dim1, dim2 FROM node
-    #     JOIN dim_node_1 ON ...
-    #     JOIN dim_node_2 ON ...
-
-    """
-    Build Strategy
-    pushdown filter = filter available directly on the node without additional joins
-
-    1. Explode out the nested references in node
-        --> parse + compile node AST
-        --> recursively turn node references into query ASTs
-        --> apply pushdown filters to each referenced node's AST if possible
-        --> apply pushdown filters to the node AST if possible
-            apply_filters_to_node(node: NodeRevision, filters: List[ast.Expression])
-      build_ast(node: NodeRevision, filters: List[ast.Expression]) -> ast.Query
-      Add the node's query AST to the final query as a CTE
-    2. For the remaining filters / requested dimensions, they will need to be joined to dimension nodes.
-        Find all dim nodes that need joins based on remaining filters / requested dimensions
-        For each dimension node that needs a join, build the dimension node's query ast
-        --> Explode out the nested references in node
-        --> ... same as 1
-        Add the dimension node's query AST to the final query as a CTE
-    3. Build the final query by using the various CTEs
-        --> do all the joins between the node + dim nodes
-        --> add all requested dimensions to the final select. if some can't be added, failure message
-        --> if there are remaining filters at this point, failure message
-    """
-
     # Augment the dimensions to request based on the node's required dimensions
     # and the user-requested dimensions
-    requested_dimensions = await get_necessary_dimensions(session, node, dimensions)
+    requested_dimensions = await get_necessary_dimensions(
+        session,
+        node,
+        dimensions or [],
+    )
 
     # Find all dimension node joins necessary for the requested dimensions and filters
     dimension_node_joins = await find_dimension_node_joins(
@@ -367,28 +313,27 @@ async def build_node(  # pylint: disable=too-many-arguments
         select=ast.Select(
             projection=[
                 ast.Column(
-                    ast.Name(col.alias_or_name.name),
+                    ast.Name(col.alias_or_name.name),  # type: ignore
                     _table=node_ast,
-                    _type=col.type,
+                    _type=col.type,  # type: ignore
                 )
                 for col in node_ast.select.projection
             ],
-            from_=ast.From(relations=[ast.Relation(node_alias)]),
+            from_=ast.From(relations=[ast.Relation(node_alias)]),  # type: ignore
         ),
         ctes=[*node_ast.ctes, node_ast],
     )
     node_ast.ctes = []
     node_ast = node_ast.to_cte(node_alias)
     cte_mapping[node.name] = node_ast
-    print("node_ast after adding filters", node_ast)
 
     # Start building the dimension joins and adding them to the CTEs
     for dimension_node, dimension_join in dimension_node_joins.items():
         join_path = dimension_join.join_path
         requested_dimensions = list(dict.fromkeys(dimension_join.requested_dimensions))
-        print("joinnig dimension_node", dimension_node)
 
         for link in join_path:
+            link = cast(DimensionLink, link)
             if all(dim in link.foreign_keys_reversed for dim in requested_dimensions):
                 continue
 
@@ -409,8 +354,8 @@ async def build_node(  # pylint: disable=too-many-arguments
                 link.dimension.name,
             )
             # Add it to the list of CTEs
-            cte_mapping[link.dimension.name] = dimension_join.node_query
-            final_ast.ctes.append(dimension_join.node_query)
+            cte_mapping[link.dimension.name] = dimension_join.node_query  # type: ignore
+            final_ast.ctes.append(dimension_join.node_query)  # type: ignore
 
             # Build the join statement
             join_ast = build_join_for_link(
@@ -418,19 +363,17 @@ async def build_node(  # pylint: disable=too-many-arguments
                 cte_mapping,
                 dimension_node_query,
             )
-            final_ast.select.from_.relations[-1].extensions.append(join_ast)
+            final_ast.select.from_.relations[-1].extensions.append(join_ast)  # type: ignore
 
         # Add the requested dimensions to the final SELECT
-        dimensions_columns = build_requested_dimensions_columns(
-            requested_dimensions,
-            link,
-            dimension_node_joins,
-        )
+        if join_path:
+            dimensions_columns = build_requested_dimensions_columns(
+                requested_dimensions,
+                join_path[-1],
+                dimension_node_joins,
+            )
         final_ast.select.projection.extend(dimensions_columns)
 
-    # There shouldn't be any remaining filters to apply
-    print("final_ast.select.where", final_ast.select.where)
-    print("Elapsed", time.time() - start)
     return final_ast
 
 
@@ -455,18 +398,21 @@ async def find_dimension_node_joins(
     session: AsyncSession,
     node: NodeRevision,
     requested_dimensions: List[str],
-    filters: List[str],
+    filters: Optional[List[str]] = None,
 ) -> Dict[str, DimensionJoin]:
     """
     Returns a list of dimension node joins that are necessary based on
     the requested dimensions and filters
     """
     dimension_node_joins = {}
+
+    # Combine necessary dimensions from filters and requested dimensions
     necessary_dimensions = requested_dimensions.copy()
     for filter_ast in to_filter_asts(filters):
         for filter_dim in filter_ast.find_all(ast.Column):
             necessary_dimensions.append(filter_dim.identifier())
 
+    # For dimensions that need a join, build metadata on the join path
     for dim in necessary_dimensions:
         dimension_attr = FullColumnName(dim)
         dim_node = dimension_attr.node_name
@@ -481,7 +427,7 @@ async def find_dimension_node_joins(
                 )
             if await needs_dimension_join(session, dimension_attr.name, join_path):
                 dimension_node_joins[dim_node] = DimensionJoin(
-                    join_path=join_path,
+                    join_path=join_path,  # type: ignore
                     requested_dimensions=[dimension_attr.name],
                 )
         else:
@@ -505,7 +451,11 @@ async def dimension_join_path(
     # Check if it is a local dimension
     if dimension.startswith(node.name):
         for col in node.columns:
-            if f"{node.name}.{col.name}" == dimension and col.is_dimensional():
+            # Decide if we should restrict this to only columns marked as dimensional
+            # await session.refresh(col, ["attributes"])
+            # if col.is_dimensional():
+            #     ...
+            if f"{node.name}.{col.name}" == dimension:
                 return []
 
     dimension_attr = FullColumnName(dimension)
@@ -551,7 +501,7 @@ async def build_dimension_node_query(
         session,
         link.dimension.current,
         dimension_node_ast,
-        filters=filters,
+        filters=filters,  # type: ignore
         build_criteria=build_criteria,
         ctes_mapping=cte_mapping,
     )
@@ -608,31 +558,9 @@ async def compile_node_ast(session, node_revision: NodeRevision) -> ast.Query:
     return node_ast
 
 
-def update_filter_column_with_foreign_key(
-    dimension_attr: str,  # this is the canonical dimension
-    filter_dim: ast.Column,  # this is the referenced dimension column from a filter expression
-    node_ast: ast.Query,
-    link: "DimensionLink",
-) -> bool:
-    """
-    Modifies the referenced dimension in the filter expression with the foreign key column from the node.
-    """
-    foreign_key = link.foreign_keys_reversed[dimension_attr]
-    for node_col in node_ast.select.projection:
-        fk_column = FullColumnName(foreign_key)
-        if node_col.alias_or_name.name == fk_column.column_name:
-            filter_dim.parent.replace(
-                filter_dim,
-                node_col.child if isinstance(node_col, ast.Alias) else node_col,
-            )
-            filter_dim.dimension_ref = dimension_attr
-            return True
-    return False
-
-
 def build_dimension_attribute(
     full_column_name: str,
-    dimension_node_joins: Dict[str, ast.Query],
+    dimension_node_joins: Dict[str, DimensionJoin],
     link: DimensionLink,
     alias: Optional[str] = None,
 ) -> Optional[ast.Column]:
@@ -641,23 +569,30 @@ def build_dimension_attribute(
     """
     dimension_attr = FullColumnName(full_column_name)
     dim_node = dimension_attr.node_name
-    if dim_node in dimension_node_joins and dimension_node_joins[dim_node].node_query:
-        for col in dimension_node_joins[dim_node].node_query.select.projection:
-            # Check if it's a foreign key reference on one of the dimensions
-            foreign_key_column_name = None
-            if dimension_attr.name in link.foreign_keys_reversed:
-                foreign_key_column_name = FullColumnName(
-                    link.foreign_keys_reversed[dimension_attr.name],
-                ).column_name
-            if col.alias_or_name.name == dimension_attr.column_name or (
+    node_query = (
+        dimension_node_joins[dim_node].node_query
+        if dim_node in dimension_node_joins
+        else None
+    )
+
+    if node_query:
+        foreign_key_column_name = (
+            FullColumnName(
+                link.foreign_keys_reversed.get(dimension_attr.name),
+            ).column_name
+            if dimension_attr.name in link.foreign_keys_reversed
+            else None
+        )
+        for col in node_query.select.projection:
+            if col.alias_or_name.name == dimension_attr.column_name or (  # type: ignore
                 foreign_key_column_name
-                and col.alias_or_name.identifier() == foreign_key_column_name
+                and col.alias_or_name.identifier() == foreign_key_column_name  # type: ignore
             ):
                 return ast.Column(
-                    name=ast.Name(col.alias_or_name.name),
-                    alias=ast.Name(alias) if alias else alias,
-                    _table=dimension_node_joins[dim_node].node_query,
-                    _type=col.type,
+                    name=ast.Name(col.alias_or_name.name),  # type: ignore
+                    alias=ast.Name(alias) if alias else None,
+                    _table=node_query,
+                    _type=col.type,  # type: ignore
                 )
     return None
 
@@ -682,7 +617,7 @@ async def needs_dimension_join(
 
 def combine_filter_conditions(
     existing_condition, *new_conditions
-) -> Optional[ast.BinaryOp]:
+) -> Optional[Union[ast.BinaryOp, ast.Expression]]:
     """
     Combines the existing where clause with new filter conditions.
     """
@@ -703,21 +638,21 @@ def build_join_for_link(
     on the left and the provided query table expression on the right.
     """
     join_ast = link.joins()[0]
-    join_ast.right = join_right.alias
+    join_ast.right = join_right.alias  # type: ignore
     dimension_node_columns = join_right.select.column_mapping
     join_left = cte_mapping.get(link.node_revision.name)
-    node_columns = join_left.select.column_mapping
-    for col in join_ast.criteria.find_all(ast.Column):
+    node_columns = join_left.select.column_mapping  # type: ignore
+    for col in join_ast.criteria.find_all(ast.Column):  # type: ignore
         full_column = FullColumnName(col.identifier())
         is_dimension_node = full_column.node_name == link.dimension.name
         replacement = ast.Column(
             name=ast.Name(full_column.column_name),
             _table=join_right if is_dimension_node else join_left,
-            _type=(dimension_node_columns if is_dimension_node else node_columns)
+            _type=(dimension_node_columns if is_dimension_node else node_columns)  # type: ignore
             .get(full_column.column_name)
             .type,
         )
-        col.parent.replace(col, replacement)
+        col.parent.replace(col, replacement)  # type: ignore
     return join_ast
 
 
@@ -765,7 +700,7 @@ async def build_ast(  # pylint: disable=too-many-arguments
     await query.compile(context)
     query.bake_ctes()  # pylint: disable=W0212
 
-    new_cte_mapping = {}
+    new_cte_mapping: Dict[str, ast.Query] = {}
     if not ctes_mapping:
         ctes_mapping = new_cte_mapping
 
@@ -803,8 +738,8 @@ async def build_ast(  # pylint: disable=too-many-arguments
                 if referenced_node.name in ctes_mapping
                 else new_cte_mapping[referenced_node.name]
             )
-            query_ast = ast.Table(
-                reference_cte.alias,
+            query_ast = ast.Table(  # type: ignore
+                reference_cte.alias,  # type: ignore
                 _columns=reference_cte._columns,
                 _dj_node=referenced_node,
             )
@@ -844,51 +779,47 @@ def apply_filters_to_node(
     """
     Apply pushdown filters if possible to the node's query AST.
     """
-    print(node.name, "query_ast for node BEFORE filter pushdown", query)
     for filter_ast in filters:
-        print("->-> trying", filter_ast)
-        is_pushdown_filter = True
+        all_referenced_dimensions_can_pushdown = True
+        # Check each dimension referenced in the filter expression
         for filter_dim in filter_ast.find_all(ast.Column):
             dimension_attr = FullColumnName(filter_dim.identifier())
+            column_name = None
+
+            # Dimension referenced was on node directly
             filter_on_node = dimension_attr.node_name == node.name
-            print("found filter_dim", filter_dim.identifier(), filter_on_node)
-            link = [
-                link
-                for link in node.dimension_links
-                if dimension_attr.name in link.foreign_keys_reversed
-            ]
+            if filter_on_node:
+                column_name = dimension_attr.column_name
+
+            # Dimension referenced was foreign key of dimension link
+            link = next(
+                (
+                    link
+                    for link in node.dimension_links
+                    if dimension_attr.name in link.foreign_keys_reversed
+                ),
+                None,
+            )
             if link:
-                fk_column = FullColumnName(
-                    link[0].foreign_keys_reversed[dimension_attr.name],
+                column_name = FullColumnName(
+                    link.foreign_keys_reversed[dimension_attr.name],
+                ).column_name
+
+            # Replace if possible
+            node_col = query.column_mapping.get(column_name) if column_name else None
+            if node_col:
+                replacement = (
+                    node_col.child if isinstance(node_col, ast.Alias) else node_col  # type: ignore
                 )
-                node_col = query.column_mapping.get(fk_column.column_name)
-                if node_col:
-                    filter_ast.replace(
-                        filter_dim,
-                        node_col.child if isinstance(node_col, ast.Alias) else node_col,
-                    )
-            elif filter_on_node:
-                node_col = query.column_mapping.get(dimension_attr.column_name)
-                print(
-                    "replacing",
-                    dimension_attr.column_name,
-                    query.column_mapping.keys(),
-                    node_col,
-                )
-                if node_col:
-                    filter_ast.replace(
-                        filter_dim,
-                        node_col.child if isinstance(node_col, ast.Alias) else node_col,
-                    )
+                filter_ast.replace(filter_dim, replacement)
             else:
-                is_pushdown_filter = False
-        if is_pushdown_filter:
-            print("is_pushdown", filter_ast)
+                all_referenced_dimensions_can_pushdown = False
+
+        if all_referenced_dimensions_can_pushdown:
             query.select.where = combine_filter_conditions(
                 query.select.where,
                 filter_ast,
             )
-    print("query_ast for node AFTER filter pushdown", node.name, query)
     return query
 
 

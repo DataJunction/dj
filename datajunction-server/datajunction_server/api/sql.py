@@ -15,7 +15,6 @@ from datajunction_server.api.helpers import (
     get_query,
     validate_orderby,
 )
-from datajunction_server.construction.build_v2 import get_measures_query
 from datajunction_server.database import Engine, Node
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
@@ -40,7 +39,7 @@ router = SecureAPIRouter(tags=["sql"])
 
 @router.get(
     "/sql/measures/",
-    response_model=Dict[str, TranslatedSQL],
+    response_model=TranslatedSQL,
     name="Get Measures SQL",
 )
 async def get_measures_sql_for_cube(
@@ -62,34 +61,36 @@ async def get_measures_sql_for_cube(
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
-) -> Dict[str, TranslatedSQL]:
+) -> TranslatedSQL:
     """
     Return the measures SQL for a set of metrics with dimensions and filters.
     This SQL can be used to produce an intermediate table with all the measures
     and dimensions needed for an analytics database (e.g., Druid).
     """
-    # if query_request := await QueryRequest.get_query_request(
-    #     session,
-    #     nodes=metrics,
-    #     dimensions=dimensions,
-    #     filters=filters,
-    #     orderby=[],
-    #     limit=None,
-    #     engine_name=engine_name,
-    #     engine_version=engine_version,
-    #     query_type=QueryBuildType.MEASURES,
-    #     other_args={"include_all_columns": include_all_columns},
-    # ):
-    #     engine = (
-    #         await get_engine(session, engine_name, engine_version)  # type: ignore
-    #         if engine_name
-    #         else None
-    #     )
-    #     return TranslatedSQL(
-    #         sql=query_request.query,
-    #         columns=query_request.columns,
-    #         dialect=engine.dialect if engine else None,
-    #     )
+    from datajunction_server.construction.build import get_measures_query
+
+    if query_request := await QueryRequest.get_query_request(
+        session,
+        nodes=metrics,
+        dimensions=dimensions,
+        filters=filters,
+        orderby=[],
+        limit=None,
+        engine_name=engine_name,
+        engine_version=engine_version,
+        query_type=QueryBuildType.MEASURES,
+        other_args={"include_all_columns": include_all_columns},
+    ):
+        engine = (
+            await get_engine(session, engine_name, engine_version)  # type: ignore
+            if engine_name
+            else None
+        )
+        return TranslatedSQL(
+            sql=query_request.query,
+            columns=query_request.columns,
+            dialect=engine.dialect if engine else None,
+        )
 
     measures_query = await get_measures_query(
         session=session,
@@ -103,21 +104,66 @@ async def get_measures_sql_for_cube(
         include_all_columns=include_all_columns,
     )
 
-    # await QueryRequest.save_query_request(
-    #     session=session,
-    #     nodes=metrics,
-    #     dimensions=dimensions,
-    #     filters=filters,
-    #     orderby=[],
-    #     limit=None,
-    #     engine_name=engine_name,
-    #     engine_version=engine_version,
-    #     query_type=QueryBuildType.MEASURES,
-    #     query=measures_query.sql,
-    #     columns=[col.dict() for col in measures_query.columns],  # type: ignore
-    #     other_args={"include_all_columns": include_all_columns},
-    # )
-    print("measures_query", measures_query.keys())
+    await QueryRequest.save_query_request(
+        session=session,
+        nodes=metrics,
+        dimensions=dimensions,
+        filters=filters,
+        orderby=[],
+        limit=None,
+        engine_name=engine_name,
+        engine_version=engine_version,
+        query_type=QueryBuildType.MEASURES,
+        query=measures_query.sql,
+        columns=[col.dict() for col in measures_query.columns],  # type: ignore
+        other_args={"include_all_columns": include_all_columns},
+    )
+    return measures_query
+
+
+@router.get(
+    "/sql/measures/v2/",
+    response_model=Dict[str, TranslatedSQL],
+    name="Get Measures SQL",
+)
+async def get_measures_sql_for_cube_v2(
+    metrics: List[str] = Query([]),
+    dimensions: List[str] = Query([]),
+    filters: List[str] = Query([]),
+    *,
+    include_all_columns: bool = Query(
+        False,
+        description=(
+            "Whether to include all columns or only those necessary "
+            "for the metrics and dimensions in the cube"
+        ),
+    ),
+    session: AsyncSession = Depends(get_session),
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_and_update_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
+) -> Dict[str, TranslatedSQL]:
+    """
+    Return the measures SQL for a set of metrics with dimensions and filters.
+    This SQL can be used to produce an intermediate table with all the measures
+    and dimensions needed for an analytics database (e.g., Druid).
+    """
+    from datajunction_server.construction.build_v2 import get_measures_query
+
+    measures_query = await get_measures_query(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        filters=filters,
+        engine_name=engine_name,
+        engine_version=engine_version,
+        current_user=current_user,
+        validate_access=validate_access,
+        include_all_columns=include_all_columns,
+    )
     return measures_query
 
 
@@ -242,37 +288,37 @@ async def get_node_sql(  # pylint: disable=too-many-locals
     )
     validate_orderby(orderby, [node_name], dimensions)
 
-    # if query_request := await QueryRequest.get_query_request(
-    #     session,
-    #     nodes=[node_name],
-    #     dimensions=dimensions,
-    #     filters=filters,
-    #     orderby=orderby,
-    #     limit=limit,
-    #     engine_name=engine.name if engine else None,
-    #     engine_version=engine.version if engine else None,
-    #     query_type=QueryBuildType.NODE,
-    # ):
-    #     # Update the node SQL in a background task to keep it up-to-date
-    #     background_tasks.add_task(
-    #         build_and_save_node_sql,
-    #         node_name=node_name,
-    #         dimensions=dimensions,
-    #         filters=filters,
-    #         orderby=orderby,
-    #         limit=limit,
-    #         session=session,
-    #         engine=engine,
-    #         access_control=access_control,
-    #     )
-    #     return (
-    #         TranslatedSQL(
-    #             sql=query_request.query,
-    #             columns=query_request.columns,
-    #             dialect=engine.dialect if engine else None,
-    #         ),
-    #         query_request,
-    #     )
+    if query_request := await QueryRequest.get_query_request(
+        session,
+        nodes=[node_name],
+        dimensions=dimensions,
+        filters=filters,
+        orderby=orderby,
+        limit=limit,
+        engine_name=engine.name if engine else None,
+        engine_version=engine.version if engine else None,
+        query_type=QueryBuildType.NODE,
+    ):
+        # Update the node SQL in a background task to keep it up-to-date
+        background_tasks.add_task(
+            build_and_save_node_sql,
+            node_name=node_name,
+            dimensions=dimensions,
+            filters=filters,
+            orderby=orderby,
+            limit=limit,
+            session=session,
+            engine=engine,
+            access_control=access_control,
+        )
+        return (
+            TranslatedSQL(
+                sql=query_request.query,
+                columns=query_request.columns,
+                dialect=engine.dialect if engine else None,
+            ),
+            query_request,
+        )
 
     query_request = await build_and_save_node_sql(
         node_name=node_name,

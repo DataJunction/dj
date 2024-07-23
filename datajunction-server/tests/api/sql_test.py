@@ -3427,8 +3427,7 @@ async def test_measures_sql_with_filters(  # pylint: disable=too-many-arguments
         params=sql_params,
     )
     data = response.json()
-    print("SQLL", data["sql"])
-    # assert str(parse(str(data["sql"]))) == str(parse(str(sql)))
+    assert str(parse(str(data["sql"]))) == str(parse(str(sql)))
     result = duckdb_conn.sql(data["sql"])
     assert result.fetchall() == rows
     assert data["columns"] == columns
