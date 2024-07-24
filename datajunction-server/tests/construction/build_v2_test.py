@@ -682,7 +682,7 @@ async def test_build_source_with_pushdown_filters(
     SELECT
       source_DOT_events.event_id,
       source_DOT_events.user_id,
-      source_DOT_events.device_id,
+      source_DOT_events.device_id shared_DOT_devices_DOT_device_id,
       source_DOT_events.country_code,
       source_DOT_events.latency,
       source_DOT_events.utc_date
@@ -739,7 +739,7 @@ async def test_build_source_with_join_filters(
     )
     SELECT  source_DOT_events.event_id,
         source_DOT_events.user_id,
-        source_DOT_events.device_id,
+        source_DOT_events.device_id shared_DOT_devices_DOT_device_id,
         source_DOT_events.country_code,
         source_DOT_events.latency,
         source_DOT_events.utc_date,
@@ -866,7 +866,7 @@ async def test_build_transform_with_pushdown_dimensions_filters(
     SELECT
       agg_DOT_events.user_id,
       agg_DOT_events.utc_date,
-      agg_DOT_events.device_id,
+      agg_DOT_events.device_id shared_DOT_devices_DOT_device_id,
       agg_DOT_events.country_code,
       agg_DOT_events.total_latency
     FROM agg_DOT_events
@@ -922,7 +922,7 @@ async def test_build_transform_with_join_dimensions_filters(
         SELECT
           agg_DOT_events.user_id,
           agg_DOT_events.utc_date,
-          agg_DOT_events.device_id,
+          agg_DOT_events.device_id shared_DOT_devices_DOT_device_id,
           agg_DOT_events.country_code,
           agg_DOT_events.total_latency,
           shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
