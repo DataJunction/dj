@@ -145,9 +145,15 @@ async def get_measures_sql_for_cube_v2(
     ),
 ) -> Dict[str, TranslatedSQL]:
     """
-    Return the measures SQL for a set of metrics with dimensions and filters.
-    This SQL can be used to produce an intermediate table with all the measures
-    and dimensions needed for an analytics database (e.g., Druid).
+    Return measures SQL for a set of metrics with dimensions and filters.
+
+    The measures query can be used to produce intermediate table(s) with all the measures
+    and dimensions needed prior to applying specific metric aggregations.
+
+    This endpoint returns one SQL query per upstream node of the requested metrics.
+    For example, if some of your metrics are aggregations on measures in parent node A
+    and others are aggregations on measures in parent node B, this endpoint will generate
+    two measures queries, one for A and one for B.
     """
     from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel,line-too-long
         get_measures_query,

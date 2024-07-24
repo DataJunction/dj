@@ -76,8 +76,11 @@ async def get_measures_query(  # pylint: disable=too-many-locals
 ) -> Dict[str, TranslatedSQL]:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.
-    This SQL can be used to produce an intermediate table with all the measures
-    and dimensions needed for an analytics database (e.g., Druid).
+
+    Measures queries are generated at the grain of each of the metrics' upstream nodes.
+    For example, if some of your metrics are aggregations on measures in parent node A
+    and others are aggregations on measures in parent node B, this function will return a
+    dictionary that maps A to the measures query for A, and B to the measures query for B.
     """
     from datajunction_server.api.helpers import (  # pylint: disable=import-outside-toplevel
         assemble_column_metadata,

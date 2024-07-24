@@ -393,8 +393,8 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
         params=sql_params,
     )
     data = response.json()
-    com = list(data.values())[0]
-    assert str(parse(str(sql))) == str(parse(str(com["sql"])))
-    result = duckdb_conn.sql(com["sql"])
+    translated_sql = data["default.repair_orders_fact"]
+    assert str(parse(str(sql))) == str(parse(str(translated_sql["sql"])))
+    result = duckdb_conn.sql(translated_sql["sql"])
     assert set(result.fetchall()) == set(rows)
-    assert com["columns"] == columns
+    assert translated_sql["columns"] == columns
