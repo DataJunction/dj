@@ -802,7 +802,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
                     and col.table.dj_node
                     and col.table.dj_node.name == referenced_node.name
                 ):
-                    col._table = query_ast
+                    col._table = query_ast  # pylint: disable=protected-access
 
     # Apply pushdown filters if possible
     apply_filters_to_node(node, query, filters)
