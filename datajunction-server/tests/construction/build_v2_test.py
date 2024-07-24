@@ -146,6 +146,56 @@ async def events_agg(session: AsyncSession) -> Node:
 
 
 @pytest_asyncio.fixture
+async def events_agg_complex(session: AsyncSession) -> Node:
+    """
+    Events aggregation transform node with CTEs
+    """
+    events_agg_node = Node(
+        name="agg.events_complex",
+        display_name="Events Aggregated (Unnecessarily Complex)",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+    )
+    events_agg_node_revision = NodeRevision(
+        node=events_agg_node,
+        name="agg.events_complex",
+        display_name="Events Aggregated (Unnecessarily Complex)",
+        type=NodeType.TRANSFORM,
+        version="1",
+        query="""
+        WITH complexity AS (
+          SELECT
+            user_id,
+            utc_date,
+            device_id,
+            country_code,
+            SUM(latency) AS total_latency
+          FROM source.events
+          GROUP BY user_id, utc_date, device_id, country_code
+        )
+        SELECT
+          CAST(user_id AS BIGINT) user_id,
+          CAST(utc_date AS BIGINT) utc_date,
+          CAST(device_id AS BIGINT) device_id,
+          CAST(country_code AS STR) country_code,
+          CAST(total_latency AS BIGINT) total_latency
+        FROM complexity
+        """,
+        columns=[
+            Column(name="user_id", type=ct.BigIntType(), order=1),
+            Column(name="utc_date", type=ct.BigIntType(), order=2),
+            Column(name="device_id", type=ct.BigIntType(), order=3),
+            Column(name="country_code", type=ct.StringType(), order=4),
+            Column(name="total_latency", type=ct.BigIntType(), order=5),
+        ],
+    )
+    session.add(events_agg_node_revision)
+    await session.commit()
+    await session.refresh(events_agg_node, ["current"])
+    return events_agg_node
+
+
+@pytest_asyncio.fixture
 async def devices(
     session: AsyncSession,
     primary_key_attribute: AttributeType,
@@ -420,7 +470,7 @@ async def events_agg_countries_link(
         node_revision=events_agg.current,
         dimension=country_dim,
         join_sql=f"{events_agg.name}.country_code = {country_dim.name}.country_code",
-        join_type=JoinType.LEFT,
+        join_type=JoinType.INNER,
     )
     session.add(link)
     await session.commit()
@@ -441,7 +491,7 @@ async def events_devices_link(
         node_revision=events.current,
         dimension=devices,
         join_sql=f"{devices.name}.device_id = {events.name}.device_id",
-        join_type=JoinType.LEFT,
+        join_type=JoinType.INNER,
     )
     session.add(link)
     await session.commit()
@@ -463,7 +513,7 @@ async def events_agg_devices_link(
         node_revision=events_agg.current,
         dimension=devices,
         join_sql=f"{devices.name}.device_id = {events_agg.name}.device_id",
-        join_type=JoinType.LEFT,
+        join_type=JoinType.INNER,
     )
     session.add(link)
     await session.commit()
@@ -473,13 +523,35 @@ async def events_agg_devices_link(
         node_revision=devices.current,
         dimension=manufacturers_dim,
         join_sql=f"{manufacturers_dim.name}.name = {devices.name}.device_manufacturer",
-        join_type=JoinType.LEFT,
+        join_type=JoinType.INNER,
     )
     session.add(link2)
     await session.commit()
     await session.refresh(link2)
     await session.refresh(devices, ["current"])
     await session.refresh(events_agg, ["current"])
+    return link
+
+
+@pytest_asyncio.fixture
+async def events_agg_complex_devices_link(
+    session: AsyncSession,
+    events_agg_complex: Node,
+    devices: Node,
+) -> Node:
+    """
+    Link between agg.events and shared.devices
+    """
+    link = DimensionLink(
+        node_revision=events_agg_complex.current,
+        dimension=devices,
+        join_sql=f"{devices.name}.device_id = {events_agg_complex.name}.device_id",
+        join_type=JoinType.INNER,
+    )
+    session.add(link)
+    await session.commit()
+    await session.refresh(link)
+    await session.refresh(events_agg_complex, ["current"])
     return link
 
 
@@ -496,7 +568,7 @@ async def events_agg_date_dim_link(
         node_revision=events_agg.current,
         dimension=date_dim,
         join_sql=f"{events_agg.name}.utc_date = {date_dim.name}.dateint",
-        join_type=JoinType.LEFT,
+        join_type=JoinType.INNER,
     )
     session.add(link)
     await session.commit()
@@ -630,7 +702,17 @@ async def test_build_source_node_with_direct_filter(
         source_DOT_events.country_code,
         source_DOT_events.latency,
         source_DOT_events.utc_date
-      FROM test.events AS source_DOT_events
+      FROM (
+        SELECT
+          event_id,
+          user_id,
+          device_id,
+          country_code,
+          latency,
+          utc_date
+        FROM test.events
+        WHERE  utc_date = 20210101
+      ) source_DOT_events
       WHERE  source_DOT_events.utc_date = 20210101
     )
     SELECT
@@ -675,7 +757,17 @@ async def test_build_source_with_pushdown_filters(
         source_DOT_events.country_code,
         source_DOT_events.latency,
         source_DOT_events.utc_date
-      FROM test.events AS source_DOT_events
+      FROM (
+        SELECT
+          event_id,
+          user_id,
+          device_id,
+          country_code,
+          latency,
+          utc_date
+        FROM test.events
+        WHERE  device_id = 111 AND device_id = 222
+      ) source_DOT_events
       WHERE
         source_DOT_events.device_id = 111 AND source_DOT_events.device_id = 222
     )
@@ -724,7 +816,17 @@ async def test_build_source_with_join_filters(
         source_DOT_events.country_code,
         source_DOT_events.latency,
         source_DOT_events.utc_date
-      FROM test.events AS source_DOT_events
+      FROM (
+        SELECT
+          event_id,
+          user_id,
+          device_id,
+          country_code,
+          latency,
+          utc_date
+        FROM test.events
+        WHERE  device_id = 111
+      ) source_DOT_events
       WHERE  source_DOT_events.device_id = 111
     ),
     shared_DOT_devices AS (
@@ -747,7 +849,7 @@ async def test_build_source_with_join_filters(
         shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
         shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id
     FROM source_DOT_events
-    LEFT JOIN shared_DOT_devices
+    INNER JOIN shared_DOT_devices
       ON shared_DOT_devices.device_id = source_DOT_events.device_id
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
@@ -836,6 +938,7 @@ async def test_build_transform_with_pushdown_dimensions_filters(
 ):
     """
     Test building a transform node with filters and dimensions that can be pushed down
+    on to the transform's columns directly.
     """
     await session.refresh(events_agg.current, ["dimension_links"])
     query_ast = await build_node(
@@ -870,6 +973,137 @@ async def test_build_transform_with_pushdown_dimensions_filters(
       agg_DOT_events.country_code,
       agg_DOT_events.total_latency
     FROM agg_DOT_events
+    """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
+
+
+@pytest.mark.asyncio
+async def test_build_transform_with_deeper_pushdown_dimensions_filters(
+    session: AsyncSession,
+    events: Node,  # pylint: disable=unused-argument
+    events_agg: Node,
+    events_devices_link: DimensionLink,  # pylint: disable=unused-argument
+    devices: Node,  # pylint: disable=unused-argument
+    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
+    manufacturers_dim: Node,  # pylint: disable=unused-argument
+):
+    """
+    Test building a transform node with filters and dimensions that can be pushed down
+    both onto the transform's columns and onto its upstream source node's columns.
+    """
+    await session.refresh(events_agg.current, ["dimension_links"])
+    query_ast = await build_node(
+        session,
+        events_agg.current,
+        filters=[
+            "shared.devices.device_id = 111",
+            "shared.devices.device_id = 222",
+        ],
+        dimensions=["shared.devices.device_id"],
+    )
+    expected = """
+    WITH agg_DOT_events AS (
+      SELECT
+        source_DOT_events.user_id,
+        source_DOT_events.utc_date,
+        source_DOT_events.device_id,
+        source_DOT_events.country_code,
+        SUM(source_DOT_events.latency) AS total_latency
+      FROM (
+        SELECT
+          event_id,
+          user_id,
+          device_id,
+          country_code,
+          latency,
+          utc_date
+        FROM test.events
+        WHERE  device_id = 111 AND device_id = 222
+      ) source_DOT_events
+      WHERE
+        source_DOT_events.device_id = 111 AND source_DOT_events.device_id = 222
+      GROUP BY
+        source_DOT_events.user_id,
+        source_DOT_events.device_id,
+        source_DOT_events.country_code
+    )
+    SELECT
+      agg_DOT_events.user_id,
+      agg_DOT_events.utc_date,
+      agg_DOT_events.device_id shared_DOT_devices_DOT_device_id,
+      agg_DOT_events.country_code,
+      agg_DOT_events.total_latency
+    FROM agg_DOT_events
+    """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
+
+
+@pytest.mark.asyncio
+async def test_build_transform_w_cte_and_pushdown_dimensions_filters(
+    session: AsyncSession,
+    events: Node,  # pylint: disable=unused-argument
+    events_agg_complex: Node,
+    events_devices_link: DimensionLink,  # pylint: disable=unused-argument
+    devices: Node,  # pylint: disable=unused-argument
+    events_agg_complex_devices_link: DimensionLink,  # pylint: disable=unused-argument
+    manufacturers_dim: Node,  # pylint: disable=unused-argument
+):
+    """
+    Test building a transform node that has CTEs in the node query, built with
+    filters and dimensions that can be pushed down, both immediately on the transform and
+    at the upstream source node level.
+    """
+    await session.refresh(events_agg_complex.current, ["dimension_links"])
+    query_ast = await build_node(
+        session,
+        events_agg_complex.current,
+        filters=[
+            "shared.devices.device_id = 111",
+            "shared.devices.device_id = 222",
+        ],
+        dimensions=["shared.devices.device_id"],
+    )
+    expected = """
+    WITH agg_DOT_events_complex AS (
+      SELECT
+        CAST(user_id AS BIGINT) user_id,
+        CAST(utc_date AS BIGINT) utc_date,
+        CAST(device_id AS BIGINT) device_id,
+        CAST(country_code AS STRING) country_code,
+        CAST(total_latency AS BIGINT) total_latency
+      FROM (
+        SELECT
+          source_DOT_events.user_id,
+          source_DOT_events.utc_date,
+          source_DOT_events.device_id,
+          source_DOT_events.country_code,
+          SUM(source_DOT_events.latency) AS total_latency
+        FROM (
+          SELECT
+            event_id,
+            user_id,
+            device_id,
+            country_code,
+            latency,
+            utc_date
+          FROM test.events
+          WHERE device_id = 111 AND device_id = 222
+        ) source_DOT_events
+        GROUP BY
+          source_DOT_events.user_id,
+          source_DOT_events.utc_date,
+          source_DOT_events.device_id,
+          source_DOT_events.country_code
+      ) AS complexity
+      WHERE CAST(device_id AS BIGINT) = 111 AND CAST(device_id AS BIGINT) = 222
+    )
+    SELECT
+      agg_DOT_events_complex.user_id,
+      agg_DOT_events_complex.utc_date,
+      agg_DOT_events_complex.device_id shared_DOT_devices_DOT_device_id,
+      agg_DOT_events_complex.country_code,
+      agg_DOT_events_complex.total_latency
+    FROM agg_DOT_events_complex
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -929,7 +1163,7 @@ async def test_build_transform_with_join_dimensions_filters(
           shared_DOT_devices.device_name shared_DOT_devices_DOT_device_name,
           shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id
         FROM agg_DOT_events
-        LEFT JOIN shared_DOT_devices
+        INNER JOIN shared_DOT_devices
           ON shared_DOT_devices.device_id = agg_DOT_events.device_id
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
@@ -1009,9 +1243,9 @@ async def test_build_transform_with_multijoin_dimensions_filters(
           shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id,
           shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name
         FROM agg_DOT_events
-        LEFT JOIN shared_DOT_devices
+        INNER JOIN shared_DOT_devices
           ON shared_DOT_devices.device_id = agg_DOT_events.device_id
-        LEFT JOIN shared_DOT_manufacturers
+        INNER JOIN shared_DOT_manufacturers
           ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
@@ -1128,11 +1362,11 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
         shared_DOT_countries.region_name shared_DOT_countries_DOT_region_name,
         shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name
         FROM agg_DOT_events
-    LEFT JOIN shared_DOT_devices
+    INNER JOIN shared_DOT_devices
       ON shared_DOT_devices.device_id = agg_DOT_events.device_id
-    LEFT JOIN shared_DOT_countries
+    INNER JOIN shared_DOT_countries
       ON agg_DOT_events.country_code = shared_DOT_countries.country_code
-    LEFT JOIN shared_DOT_manufacturers
+    INNER JOIN shared_DOT_manufacturers
      ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
