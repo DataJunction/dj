@@ -210,7 +210,7 @@ async def build_node(  # pylint: disable=too-many-arguments,too-many-locals
     Build Strategy
     ---------------
     1. Recursively turn node references into query ASTs + apply any filters that can
-    be pushed down.
+    be pushed down. If the node query has CTEs, unwind them into the query.
     2. Initialize the final query with the node's query AST added to it as a CTE.
     3. For any dimensions or filters requested for the node, determine if a join is
     needed to bring in the dimension or filter. Keep track of all the necessary dimension
@@ -292,7 +292,7 @@ async def build_node(  # pylint: disable=too-many-arguments,too-many-locals
         session,
         node,
         node_ast,
-        filters=to_filter_asts(filters),
+        filters=filters,
         build_criteria=build_criteria,
         ctes_mapping=cte_mapping,
     )
@@ -724,7 +724,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
     session: AsyncSession,
     node: NodeRevision,
     query: ast.Query,
-    filters: List[ast.Expression],
+    filters: Optional[List[str]],
     memoized_queries: Dict[int, ast.Query] = None,
     build_criteria: Optional[BuildCriteria] = None,
     access_control=None,
@@ -760,8 +760,8 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
             ),
         )
         if not table_reference:
+            # Build a new CTE with the query AST if there is no materialized table
             if referenced_node.name not in ctes_mapping:
-                # Build a new CTE with the query AST otherwise
                 node_query = parse(cast(str, referenced_node.query))
                 query_ast = await build_ast(  # type: ignore
                     session,
@@ -787,8 +787,23 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
                 _dj_node=referenced_node,
             )
         else:
+            # Otherwise use the materialized table and apply filters where possible
             alias = amenable_name(referenced_node.name)
-            query_ast = ast.Alias(ast.Name(alias), child=table_reference, as_=True)  # type: ignore
+            query_ast = ast.Query(
+                select=ast.Select(
+                    projection=table_reference.columns,  # type: ignore
+                    from_=ast.From(relations=[ast.Relation(table_reference)]),
+                ),
+                alias=ast.Name(alias),
+            )
+            query_ast.parenthesized = True
+            apply_filters_to_node(referenced_node, query_ast, to_filter_asts(filters))
+            if not query_ast.select.where:
+                query_ast = ast.Alias(  # type: ignore
+                    ast.Name(alias),
+                    child=table_reference,
+                    as_=True,
+                )
 
         for table in table_expressions:
             query.select.replace(
@@ -807,7 +822,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
                     col._table = query_ast  # pylint: disable=protected-access
 
     # Apply pushdown filters if possible
-    apply_filters_to_node(node, query, filters)
+    apply_filters_to_node(node, query, to_filter_asts(filters))
 
     query.ctes.extend(new_cte_mapping.values())
     query.select.add_aliases_to_unnamed_columns()
@@ -834,7 +849,9 @@ def apply_filters_to_node(
                 filter_dim.identifier(),
                 node,
             )
-            node_col = query.column_mapping.get(column_name) if column_name else None
+            node_col = (
+                query.select.column_mapping.get(column_name) if column_name else None
+            )
             if node_col:
                 replacement = (
                     node_col.child if isinstance(node_col, ast.Alias) else node_col  # type: ignore
