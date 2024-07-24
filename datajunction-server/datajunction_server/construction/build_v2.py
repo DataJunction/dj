@@ -192,15 +192,6 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     return measures_sql_mapping
 
 
-def to_filter_asts(filters: Optional[List[str]] = None):
-    """
-    Converts a list of filter expresisons to ASTs
-    """
-    return [
-        parse(f"select * where {filter_}").select.where for filter_ in filters or []
-    ]
-
-
 async def build_node(  # pylint: disable=too-many-arguments,too-many-locals
     session: AsyncSession,
     node: NodeRevision,
@@ -213,29 +204,25 @@ async def build_node(  # pylint: disable=too-many-arguments,too-many-locals
     include_dimensions_in_groupby: bool = None,
 ) -> ast.Query:
     """
-    Determines the optimal way to build the node with the requested set of
-    dimensions, filter expressions, order by, and limit clauses.
+    Builds the node SQL with the requested set of dimensions, filter expressions,
+    order by, and limit clauses.
 
-    Note: A pushdown filter = filter available directly on the node without additional joins
     Build Strategy
     ---------------
-    1. Explode out the nested references in node
-        --> parse + compile node AST
-        --> recursively turn node references into query ASTs
-        --> apply pushdown filters to each referenced node's AST if possible
-            apply_filters_to_node(node: NodeRevision, filters: List[ast.Expression])
-      build_ast(node: NodeRevision, filters: List[ast.Expression]) -> ast.Query
-      Add the node's query AST to the final query as a CTE
-    2. For the remaining filters / requested dimensions, they will need to be joined to
-    dimension nodes.
-        Find all dim nodes that need joins based on remaining filters / requested dimensions
-        For each dimension node that needs a join, build the dimension node's query ast
-        --> Explode out the nested references in node
-        --> Apply pushdown filters to each referenced node's AST if possible
-        Add the dimension node's query AST to the final query as a CTE
-    3. Build the final query by using the various CTEs
-        --> do all the joins between the node + dim nodes
-        --> add all requested dimensions to the final select
+    1. Recursively turn node references into query ASTs + apply any filters that can
+    be pushed down.
+    2. Initialize the final query with the node's query AST added to it as a CTE.
+    3. For any dimensions or filters requested for the node, determine if a join is
+    needed to bring in the dimension or filter. Keep track of all the necessary dimension
+    joins in a dict that maps dimension nodes to join paths.
+    4. For each of the necessary dimension joins, build the dimension node's query in the
+    same manner as above, recursively replacing any node references and pushing down requested
+    filters where possible.
+    5. Add each dimension node's query AST to the final query as a CTE.
+    6. Build the final query using the various CTEs. This does all the joins between the node
+    query AST and the dimension nodes' ASTs using the join logic from the dimension links.
+    7. Add all requested dimensions to the final select.
+    8. Add order by and limit to the final select (TODO)
     """
     if access_control:
         access_control.add_request_by_node(node)
@@ -435,6 +422,15 @@ async def get_necessary_dimensions(
     )
 
 
+def to_filter_asts(filters: Optional[List[str]] = None):
+    """
+    Converts a list of filter expresisons to ASTs
+    """
+    return [
+        parse(f"select * where {filter_}").select.where for filter_ in filters or []
+    ]
+
+
 async def find_dimension_node_joins(
     session: AsyncSession,
     node: NodeRevision,
@@ -493,7 +489,7 @@ async def dimension_join_path(
     if dimension.startswith(node.name):
         for col in node.columns:
             # Decide if we should restrict this to only columns marked as dimensional
-            # await session.refresh(col, ["attributes"])
+            # await session.refresh(col, ["attributes"]) TODO
             # if col.is_dimensional():
             #     ...
             if f"{node.name}.{col.name}" == dimension:
@@ -735,9 +731,12 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
     ctes_mapping: Dict[str, ast.Query] = None,
 ) -> ast.Query:
     """
-    Builds the query AST, which involves replacing each of the DJ node references in
-    the query with their ASTs (either the referenced node's query or a materialized table)
-    and applying the filters that can be applied.
+    Recursively replaces DJ node references with query ASTs. These are replaced with
+    materialized tables where possible (i.e., source nodes will always be replaced with a
+    materialized table), but otherwise we generate the SQL of each upstream node reference.
+
+    This function will apply any filters that can be pushed down to each referenced node's AST
+    (filters are only applied if they don't require dimension node joins).
     """
     await session.refresh(node, ["dimension_links"])
     context = CompileContext(session=session, exception=DJException())
@@ -748,7 +747,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
     if not ctes_mapping:
         ctes_mapping = new_cte_mapping
 
-    node_to_tables_mapping = extract_tables_from_select(query.select)
+    node_to_tables_mapping = get_dj_node_references_from_select(query.select)
     for referenced_node, table_expressions in node_to_tables_mapping.items():
         await session.refresh(referenced_node, ["dimension_links"])
 
@@ -822,9 +821,11 @@ def apply_filters_to_node(
 ):
     """
     Apply pushdown filters if possible to the node's query AST.
+
     A pushdown filter is defined as a filter with references to dimensions that
     already exist on the node query without any additional dimension joins. We can
-    apply these filters directly to the query AST.
+    apply these filters directly to the query AST by renaming the dimension ref in
+    the filter expression.
     """
     for filter_ast in filters:
         all_referenced_dimensions_can_pushdown = True
@@ -850,12 +851,13 @@ def apply_filters_to_node(
     return query
 
 
-def extract_tables_from_select(
+def get_dj_node_references_from_select(
     select: ast.SelectExpression,
 ) -> DefaultDict[NodeRevision, List[ast.Table]]:
     """
-    Extract all tables (source, transform, dimensions)
-    directly on the select that have an attached DJ node
+    Extract all DJ node references (source, transform, dimensions) from the select
+    expression. DJ node references are represented in the AST as table expressions
+    and have an attached DJ node.
     """
     tables: DefaultDict[NodeRevision, List[ast.Table]] = collections.defaultdict(list)
 
