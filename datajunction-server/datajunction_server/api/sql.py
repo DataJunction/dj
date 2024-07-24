@@ -63,7 +63,9 @@ async def get_measures_sql_for_cube(
     This SQL can be used to produce an intermediate table with all the measures
     and dimensions needed for an analytics database (e.g., Druid).
     """
-    from datajunction_server.construction.build import get_measures_query
+    from datajunction_server.construction.build import (  # pylint: disable=import-outside-toplevel,line-too-long
+        get_measures_query,
+    )
 
     if query_request := await QueryRequest.get_query_request(
         session,
@@ -147,7 +149,9 @@ async def get_measures_sql_for_cube_v2(
     This SQL can be used to produce an intermediate table with all the measures
     and dimensions needed for an analytics database (e.g., Druid).
     """
-    from datajunction_server.construction.build_v2 import get_measures_query
+    from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel,line-too-long
+        get_measures_query,
+    )
 
     measures_query = await get_measures_query(
         session=session,
