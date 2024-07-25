@@ -36,7 +36,12 @@ def decrypt(value: str) -> str:
     return jwe.decrypt(value, settings.secret).decode("utf-8")
 
 
-def create_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_token(
+    data: dict,
+    secret: str,
+    iss: str,
+    expires_delta: Optional[timedelta] = None,
+) -> str:
     """
     Encode data into a signed JWT that's then encrypted using JWE.
 
@@ -46,17 +51,16 @@ def create_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     in any form other than an HTTP-only cookie, it's important that a reasonably
     small expires_delta is provided, such as 24 hours.
     """
-    settings = get_settings()
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:  # pragma: no cover
         expire = datetime.utcnow() + timedelta(minutes=15)
     to_encode.update({"exp": expire})
-    to_encode.update({"iss": settings.url})
+    to_encode.update({"iss": iss})
     encoded_jwt = jwt.encode(
         to_encode,
-        settings.secret,
+        secret,
         algorithm="HS256",
     )
     return encrypt(encoded_jwt)

@@ -99,7 +99,12 @@ async def get_access_token(
     response = RedirectResponse(url=urljoin(settings.frontend_host, state))  # type: ignore
     response.set_cookie(
         AUTH_COOKIE,
-        create_token({"username": user.email}, expires_delta=timedelta(days=365)),
+        create_token(
+            {"username": user.email},
+            secret=settings.secret,
+            iss=settings.url,
+            expires_delta=timedelta(days=365),
+        ),
         httponly=True,
         samesite="none",
         secure=True,
