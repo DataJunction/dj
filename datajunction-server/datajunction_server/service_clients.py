@@ -131,8 +131,6 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         """
         Submit a query to the query service
         """
-        if not request_headers:
-            request_headers = {"Cache-Control": ""}
         response = self.requests_session.post(
             "/queries/",
             headers={**self.requests_session.headers, **request_headers}
