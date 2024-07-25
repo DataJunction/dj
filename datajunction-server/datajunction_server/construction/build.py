@@ -435,56 +435,10 @@ def build_filters(
                 dim.name = ast.Name(name=col_name)
                 if node_table:  # pragma: no cover
                     dim.add_table(node_table)
-            if temp_select.where:
-                filter_asts.append(
-                    temp_select.where,  # type: ignore
-                )
-    return filter_asts
-
-
-def push_down_direct_ref_filter(
-    filter_ast: ast.Expression,
-    query_ast: ast.Query,
-    node_columns_lookup: Dict[str, ast.Node],
-) -> bool:
-    """
-    Pushes down a filter to the query AST if it is a direct reference
-    to an output column on the query. Returns True if the pushdown was
-    successful and False otherwise.
-    """
-    referenced_filter_dims = list(filter_ast.find_all(ast.Column))
-    if all(
-        filter_dim.identifier() in node_columns_lookup
-        for filter_dim in referenced_filter_dims
-    ):
-        for filter_dim in referenced_filter_dims:
-            if filter_dim.identifier() in node_columns_lookup:  # pragma: no cover
-                filter_dim_ref = node_columns_lookup[filter_dim.identifier()].copy()
-                if isinstance(filter_dim_ref, ast.Alias):
-                    filter_dim_ref = filter_dim_ref.child  # pragma: no cover
-                else:
-                    filter_dim_ref.alias = None  # pragma: no cover
-                cast(ast.Node, filter_dim.parent).replace(filter_dim, filter_dim_ref)
-        if isinstance(query_ast.select.where, ast.BinaryOp):
-            existing_filters = (
-                cast(ast.BinaryOp, query_ast.select.where).split(
-                    ast.BinaryOpKind.And,
-                )
-                if query_ast.select.where
-                else None
+            filter_asts.append(
+                temp_select.where,  # type: ignore
             )
-        else:
-            existing_filters = [query_ast.select.where]  # type: ignore
-        if not existing_filters or filter_ast not in existing_filters:
-            if query_ast.select.where:
-                query_ast.select.where = ast.BinaryOp.And(
-                    query_ast.select.where,
-                    filter_ast,
-                )
-            else:
-                query_ast.select.where = filter_ast  # pragma: no cover
-        return True
-    return False  # pragma: no cover
+    return filter_asts
 
 
 async def _build_tables_on_select(
@@ -536,22 +490,13 @@ async def _build_tables_on_select(
                 alias = amenable_name(node.name)
                 node_ast = ast.Alias(ast.Name(alias), child=query_ast, as_=True)  # type: ignore
                 query_ast.parenthesized = True  # type: ignore
-                node_columns_lookup = get_node_columns_lookup(node, query_ast)
+
                 filter_asts = build_filters(node, node_ast, filters)  # type: ignore
-                remaining = []
-                for filter_ast in filter_asts:
-                    push_down_success = push_down_direct_ref_filter(
-                        filter_ast,
-                        query_ast,
-                        node_columns_lookup,
-                    )
-                    if not push_down_success:
-                        remaining.append(filter_ast)  # pragma: no cover
-                filter_asts = remaining
             else:
                 alias = amenable_name(node.name)
                 node_ast = ast.Alias(ast.Name(alias), child=physical_table, as_=True)  # type: ignore
                 filter_asts = build_filters(node, physical_table, filters)
+
             # Remove columns that are not part of the table expression reference
             if (
                 isinstance(node_ast, ast.Alias)
@@ -722,17 +667,6 @@ def rename_dimension_primary_keys_to_foreign_keys(
     return col
 
 
-def get_node_columns_lookup(node: "Node", query: ast.Query):
-    """
-    Returns a lookup dictionary that maps the node columns as they would be referenced by
-    in a filter expression or dimension request to the column expression itself.
-    """
-    return {
-        node.name + SEPARATOR + node_col.alias_or_name.name: node_col  # type: ignore
-        for node_col in query.select.projection
-    }
-
-
 # pylint: disable=R0915
 async def add_filters_dimensions_orderby_limit_to_query_ast(
     session: AsyncSession,
@@ -745,7 +679,6 @@ async def add_filters_dimensions_orderby_limit_to_query_ast(
     limit: Optional[int] = None,
     include_dimensions_in_groupby: bool = True,
     access_control: Optional[access.AccessControlStore] = None,
-    top_level: bool = False,
 ):
     """
     Add filters and dimensions to a query ast
@@ -830,20 +763,10 @@ async def add_filters_dimensions_orderby_limit_to_query_ast(
                             node,
                             col,
                         )
-
-            node_columns_lookup = get_node_columns_lookup(node, query)
-            if (  # pragma: no cover
-                not all(
-                    filter_dim.identifier() in node_columns_lookup
-                    for filter_dim in temp_select.find_all(ast.Column)
-                )
-                or top_level
-            ):
-                filter_asts.append(
-                    temp_select.where,  # type:ignore
-                )
-        if filter_asts:  # pragma: no cover
-            query.select.where = ast.BinaryOp.And(*filter_asts)
+            filter_asts.append(
+                temp_select.where,  # type:ignore
+            )
+        query.select.where = ast.BinaryOp.And(*filter_asts)
 
     if not query.select.organization:
         query.select.organization = ast.Organization([])
@@ -989,7 +912,6 @@ async def build_node(  # pylint: disable=too-many-arguments
     build_criteria: Optional[BuildCriteria] = None,
     access_control: Optional[access.AccessControlStore] = None,
     include_dimensions_in_groupby: bool = None,
-    top_level: bool = False,
 ) -> ast.Query:
     """
     Determines the optimal way to build the Node and does so
@@ -1052,7 +974,6 @@ async def build_node(  # pylint: disable=too-many-arguments
         limit,
         include_dimensions_in_groupby=include_dimensions_in_groupby,
         access_control=access_control,
-        top_level=top_level,
     )
 
     if access_control:
@@ -1299,7 +1220,6 @@ async def build_metric_nodes(
             build_criteria=build_criteria,
             include_dimensions_in_groupby=True,
             access_control=access_control,
-            top_level=True,
         )
 
         # Select only columns that were one of the chosen dimensions

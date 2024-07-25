@@ -1482,23 +1482,6 @@ class BinaryOp(Operation):
             (left, right, *rest),
         )
 
-    def split(self, op: BinaryOpKind) -> List[Expression]:
-        """
-        Splits the expression by the operator into a list of expressions.
-        """
-        if self.op == op:
-            if not isinstance(self.left, BinaryOp) and isinstance(self.right, BinaryOp):
-                return [self.left] + self.right.split(op)
-            if not isinstance(self.right, BinaryOp) and isinstance(self.left, BinaryOp):
-                return self.left.split(op) + [self.right]
-            if not isinstance(self.right, BinaryOp) and not isinstance(
-                self.left,
-                BinaryOp,
-            ):
-                return [self.left, self.right]
-            return self.left.split(op) + self.right.split(op)
-        return [self]
-
     @classmethod
     def Eq(  # pylint: disable=invalid-name
         cls,
