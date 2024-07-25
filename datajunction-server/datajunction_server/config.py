@@ -71,7 +71,7 @@ class Settings(
     sql_transpilation_library: Optional[str] = None
 
     # 128 bit DJ secret, used to encrypt passwords and JSON web tokens
-    secret: str
+    secret: str = "a-fake-secretkey"
 
     # GitHub OAuth application client ID
     github_oauth_client_id: Optional[str] = None
