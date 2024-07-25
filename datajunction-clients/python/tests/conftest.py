@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 from cachelib import SimpleCache
+from datajunction_server.api.access.authentication import basic
 from datajunction_server.api.main import app
 from datajunction_server.config import Settings
 from datajunction_server.database.base import Base
@@ -52,6 +53,7 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
         celery_broker=None,
         redis_cache=None,
         query_service=None,
+        secret="a-fake-secretkey",
     )
 
     mocker.patch(
@@ -219,7 +221,24 @@ def server(  # pylint: disable=too-many-statements
         get_query_service_client
     ] = get_query_service_client_override
 
+    app.include_router(basic.router)
     with TestClient(app) as test_client:
+
+        test_client.post(
+            "/basic/user/",
+            data={
+                "email": "dj@datajunction.io",
+                "username": "datajunction",
+                "password": "datajunction",
+            },
+        )
+        test_client.post(
+            "/basic/login/",
+            data={
+                "username": "datajunction",
+                "password": "datajunction",
+            },
+        )
         yield test_client
 
     app.dependency_overrides.clear()
