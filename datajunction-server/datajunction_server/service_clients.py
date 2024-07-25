@@ -87,6 +87,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         catalog: str,
         schema: str,
         table: str,
+        request_headers: Optional[Dict[str, str]] = None,
         engine: Optional["Engine"] = None,
     ) -> List[Column]:
         """
@@ -100,6 +101,9 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             }
             if engine
             else {},
+            headers={**self.requests_session.headers, **request_headers}
+            if request_headers
+            else self.requests_session.headers,
         )
         if response.status_code not in (200, 201):
             if response.status_code == HTTPStatus.NOT_FOUND:
@@ -122,16 +126,18 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
     def submit_query(  # pylint: disable=too-many-arguments
         self,
         query_create: QueryCreate,
-        headers: Optional[Dict[str, str]] = None,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
         """
         Submit a query to the query service
         """
-        if not headers:
-            headers = {"Cache-Control": ""}
+        if not request_headers:
+            request_headers = {"Cache-Control": ""}
         response = self.requests_session.post(
             "/queries/",
-            headers=headers,
+            headers={**self.requests_session.headers, **request_headers}
+            if request_headers
+            else self.requests_session.headers,
             json=query_create.dict(),
         )
         response_data = response.json()
@@ -150,11 +156,17 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
     def get_query(
         self,
         query_id: str,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
         """
         Get a previously submitted query
         """
-        response = self.requests_session.get(f"/queries/{query_id}/")
+        response = self.requests_session.get(
+            f"/queries/{query_id}/",
+            headers={**self.requests_session.headers, **request_headers}
+            if request_headers
+            else self.requests_session.headers,
+        )
         if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
                 message=f"Error response from query service: {response.text}",
@@ -168,6 +180,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             GenericMaterializationInput,
             DruidMaterializationInput,
         ],
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> MaterializationInfo:
         """
         Post a request to the query service asking it to set up a scheduled materialization
@@ -177,6 +190,9 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         response = self.requests_session.post(
             "/materialization/",
             json=materialization_input.dict(),
+            headers={**self.requests_session.headers, **request_headers}
+            if request_headers
+            else self.requests_session.headers,
         )
         if response.status_code not in (200, 201):  # pragma: no cover
             return MaterializationInfo(urls=[], output_tables=[])
@@ -187,12 +203,16 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         self,
         node_name: str,
         materialization_name: str,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> MaterializationInfo:
         """
         Deactivates the specified node materialization
         """
         response = self.requests_session.delete(
             f"/materialization/{node_name}/{materialization_name}/",
+            headers={**self.requests_session.headers, **request_headers}
+            if request_headers
+            else self.requests_session.headers,
         )
         if response.status_code not in (200, 201):  # pragma: no cover
             return MaterializationInfo(urls=[], output_tables=[])
@@ -204,6 +224,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         node_name: str,
         node_version: str,
         materialization_name: str,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> MaterializationInfo:
         """
         Gets materialization info for the node and materialization config name.
@@ -211,6 +232,9 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         response = self.requests_session.get(
             f"/materialization/{node_name}/{node_version}/{materialization_name}/",
             timeout=3,
+            headers={**self.requests_session.headers, **request_headers}
+            if request_headers
+            else self.requests_session.headers,
         )
         if response.status_code not in (200, 201):
             return MaterializationInfo(output_tables=[], urls=[])
@@ -221,11 +245,15 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         node_name: str,
         materialization_name: str,
         partitions: List[PartitionBackfill],
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> MaterializationInfo:
         """Kicks off a backfill with the given backfill spec"""
         response = self.requests_session.post(
             f"/materialization/run/{node_name}/{materialization_name}/",
             json=[partition.dict() for partition in partitions],
+            headers={**self.requests_session.headers, **request_headers}
+            if request_headers
+            else self.requests_session.headers,
             timeout=20,
         )
         if response.status_code not in (200, 201):

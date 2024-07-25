@@ -47,10 +47,10 @@ from datajunction_server.internal.access.authorization import (
     validate_access_requests,
 )
 from datajunction_server.internal.nodes import (
-    _create_node_from_inactive,
     activate_node,
     copy_to_new_node,
     create_cube_node_revision,
+    create_node_from_inactive,
     create_node_revision,
     deactivate_node,
     get_column_level_lineage,
@@ -410,6 +410,7 @@ async def create_source(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -420,14 +421,16 @@ async def create_source(
     Create a source node. If columns are not provided, the source node's schema
     will be inferred using the configured query service.
     """
+    request_headers = dict(request.headers)
     await raise_if_node_exists(session, data.name)
 
     # if the node previously existed and now is inactive
-    if recreated_node := await _create_node_from_inactive(
+    if recreated_node := await create_node_from_inactive(
         new_node_type=NodeType.SOURCE,
         data=data,
         session=session,
         current_user=current_user,
+        request_headers=request_headers,
         query_service_client=query_service_client,
         validate_access=validate_access,
         background_tasks=background_tasks,
@@ -527,6 +530,7 @@ async def create_node(
     """
     Create a node.
     """
+    request_headers = dict(request.headers)
     node_type = NodeType(os.path.basename(os.path.normpath(request.url.path)))
 
     if node_type == NodeType.DIMENSION and not data.primary_key:
@@ -535,11 +539,12 @@ async def create_node(
     await raise_if_node_exists(session, data.name)
 
     # if the node previously existed and now is inactive
-    if recreated_node := await _create_node_from_inactive(
+    if recreated_node := await create_node_from_inactive(
         new_node_type=node_type,
         data=data,
         session=session,
         current_user=current_user,
+        request_headers=request_headers,
         query_service_client=query_service_client,
         background_tasks=background_tasks,
         validate_access=validate_access,
@@ -614,6 +619,7 @@ async def create_cube(
     data: CreateCubeNode,
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
     background_tasks: BackgroundTasks,
@@ -624,14 +630,16 @@ async def create_cube(
     """
     Create a cube node.
     """
+    request_headers = dict(request.headers)
     await raise_if_node_exists(session, data.name)
 
     # if the node previously existed and now is inactive
-    if recreated_node := await _create_node_from_inactive(
+    if recreated_node := await create_node_from_inactive(
         new_node_type=NodeType.CUBE,
         data=data,
         session=session,
         current_user=current_user,
+        request_headers=request_headers,
         query_service_client=query_service_client,
         background_tasks=background_tasks,
         validate_access=validate_access,
@@ -668,6 +676,7 @@ async def register_table(
     table: str,
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
     background_tasks: BackgroundTasks,
@@ -676,6 +685,7 @@ async def register_table(
     Register a table. This creates a source node in the SOURCE_NODE_NAMESPACE and
     the source node's schema will be inferred using the configured query service.
     """
+    request_headers = dict(request.headers)
     if not query_service_client:
         raise DJException(
             message="Registering tables requires that a query "
@@ -698,6 +708,7 @@ async def register_table(
         _catalog.name,
         schema_,
         table,
+        request_headers,
         _catalog.engines[0] if len(_catalog.engines) >= 1 else None,
     )
 
@@ -715,6 +726,7 @@ async def register_table(
         session=session,
         current_user=current_user,
         background_tasks=background_tasks,
+        request=request,
     )
 
 
@@ -934,12 +946,14 @@ async def refresh_source_node(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
 ) -> NodeOutput:
     """
     Refresh a source node with the latest columns from the query service.
     """
+    request_headers = dict(request.headers)
     source_node = await Node.get_by_name(
         session,
         name,
@@ -957,6 +971,7 @@ async def refresh_source_node(
             current_revision.catalog.name,
             current_revision.schema_,  # type: ignore
             current_revision.table,  # type: ignore
+            request_headers,
             current_revision.catalog.engines[0]
             if len(current_revision.catalog.engines) >= 1
             else None,
@@ -1063,6 +1078,7 @@ async def update_node(
     data: UpdateNode,
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
     background_tasks: BackgroundTasks,
@@ -1073,6 +1089,7 @@ async def update_node(
     """
     Update a node.
     """
+    request_headers = dict(request.headers)
     await update_any_node(
         name,
         data,
@@ -1081,6 +1098,7 @@ async def update_node(
         current_user=current_user,
         background_tasks=background_tasks,
         validate_access=validate_access,
+        request_headers=request_headers,
     )
     node = await Node.get_by_name(
         session,

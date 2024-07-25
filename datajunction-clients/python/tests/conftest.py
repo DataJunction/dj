@@ -127,6 +127,9 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         schema: str,
         table: str,
         engine: Optional[Engine] = None,  # pylint: disable=unused-argument
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
     ) -> List[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
@@ -138,7 +141,9 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
 
     def mock_submit_query(
         query_create: QueryCreate,
-        headers: Optional[Dict[str, str]] = None,  # pylint: disable=unused-argument
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
     ) -> QueryWithResults:
         results = QUERY_DATA_MAPPINGS[
             query_create.submitted_query.strip()
