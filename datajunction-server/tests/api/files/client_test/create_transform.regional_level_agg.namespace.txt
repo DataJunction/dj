@@ -12,14 +12,16 @@ regional_level_agg = dj.create_transform(
     ],
     tags=[],
     query=f"""WITH
-ro AS (SELECT  repair_order_id,
+ro AS (
+SELECT  repair_order_id,
 	municipality_id,
 	hard_hat_id,
 	order_date,
 	required_date,
 	dispatched_date,
 	dispatcher_id
- FROM {namespace}.repair_orders)
+ FROM {namespace}.repair_orders
+)
 
 SELECT  usr.us_region_id,
 	us.state_name,
