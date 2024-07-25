@@ -227,7 +227,6 @@ async def build_node(  # pylint: disable=too-many-arguments,too-many-locals
     if access_control:
         access_control.add_request_by_node(node)
 
-    # Set the dialect by finding available engines for this node, or default to Spark
     build_criteria = build_criteria or get_default_criteria(node)
 
     physical_table = get_table_for_node(
