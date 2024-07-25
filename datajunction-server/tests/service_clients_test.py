@@ -52,7 +52,6 @@ class TestRequestsSessionWithEndpoint:
             "GET",
             f"{self.example_endpoint}/pies/?flavor=blueberry",
             data=None,
-            headers=ANY,
         )
         prepped = requests_session.prepare_request(req)
         assert prepped.headers["Connection"] == "keep-alive"
