@@ -13,7 +13,7 @@ def test_create_and_get_token():
     jwe_string = tokens.create_token(
         data={"foo": "bar"},
         secret="a-fake-secretkey",
-        iss="https://foo.bar",
+        iss="http://localhost:8000/",
         expires_delta=timedelta(minutes=30),
     )
     data = tokens.decode_token(jwe_string)
