@@ -5,13 +5,18 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import datajunction_server.sql.parsing.types as ct
-from datajunction_server.construction.build_v2 import build_node, dimension_join_path
+from datajunction_server.construction.build_v2 import (
+    build_node,
+    combine_filter_conditions,
+    dimension_join_path,
+)
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink, JoinType
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJException
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
@@ -1412,3 +1417,59 @@ async def test_build_with_source_filters(
     FROM agg_DOT_events
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
+
+
+def test_combine_filter_conditions():
+    """
+    Tests combining filter conditions
+    """
+    assert combine_filter_conditions(None) is None
+    assert combine_filter_conditions(None, None) is None
+    assert (
+        str(
+            combine_filter_conditions(
+                None,
+                ast.BinaryOp(
+                    op=ast.BinaryOpKind.Eq,
+                    left=ast.Column(name=ast.Name("abc")),
+                    right=ast.String("'one'"),
+                ),
+            ),
+        )
+        == "abc = 'one'"
+    )
+    assert (
+        str(
+            combine_filter_conditions(
+                None,
+                ast.BinaryOp(
+                    op=ast.BinaryOpKind.Eq,
+                    left=ast.Column(name=ast.Name("abc")),
+                    right=ast.String("'one'"),
+                ),
+                ast.BinaryOp(
+                    op=ast.BinaryOpKind.Eq,
+                    left=ast.Column(name=ast.Name("def")),
+                    right=ast.String("'two'"),
+                ),
+            ),
+        )
+        == "abc = 'one' AND def = 'two'"
+    )
+    assert (
+        str(
+            combine_filter_conditions(
+                ast.BinaryOp(
+                    op=ast.BinaryOpKind.Eq,
+                    left=ast.Column(name=ast.Name("abc")),
+                    right=ast.String("'one'"),
+                ),
+                ast.BinaryOp(
+                    op=ast.BinaryOpKind.Eq,
+                    left=ast.Column(name=ast.Name("def")),
+                    right=ast.String("'two'"),
+                ),
+            ),
+        )
+        == "abc = 'one' AND def = 'two'"
+    )
