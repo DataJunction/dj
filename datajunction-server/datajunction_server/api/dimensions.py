@@ -40,7 +40,7 @@ async def list_dimensions(
     prefix: Optional[str] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -71,7 +71,7 @@ async def find_nodes_with_dimension(
     *,
     node_type: List[NodeType] = Query([]),
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -104,7 +104,7 @@ async def find_nodes_with_common_dimensions(
     node_type: List[NodeType] = Query([]),
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),

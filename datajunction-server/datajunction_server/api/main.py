@@ -44,7 +44,7 @@ from datajunction_server.api import (
     tags,
     users,
 )
-from datajunction_server.api.access.authentication import whoami
+from datajunction_server.api.access.authentication import basic, whoami
 from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.api.catalogs import default_catalog
 from datajunction_server.api.graphql.main import graphql_app
@@ -111,6 +111,7 @@ app.include_router(dimensions.router)
 app.include_router(graphql_app, prefix="/graphql")
 app.include_router(whoami.router)
 app.include_router(users.router)
+app.include_router(basic.router)
 
 
 @app.on_event("startup")
@@ -141,12 +142,6 @@ async def dj_exception_handler(  # pylint: disable=unused-argument
         response.delete_cookie(LOGGED_IN_FLAG_COOKIE)
     return response
 
-
-# Only mount basic auth router if a server secret is configured
-if settings.secret:  # pragma: no cover
-    from datajunction_server.api.access.authentication import basic
-
-    app.include_router(basic.router)
 
 # Only mount github auth router if a github client id and secret are configured
 if all(

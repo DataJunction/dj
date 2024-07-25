@@ -168,7 +168,3 @@ async def test_get_and_update_current_user(session: AsyncSession):
     assert found_user.name == "djuser"
     assert found_user.email == "userfoo@datajunction.io"
     assert found_user.oauth_provider == "basic"
-
-    # Confirm that if current_user is None, this also returns None
-    current_user = await get_and_update_current_user(session=session, current_user=None)
-    assert current_user is None
