@@ -2,9 +2,9 @@
 Data related APIs.
 """
 
-from typing import Annotated, Optional
+from typing import Optional
 
-from fastapi import Depends, Header, Request
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -31,7 +31,6 @@ async def get_data_for_djsql(  # pylint: disable=R0914, R0913
     query: str,
     async_: bool = False,
     *,
-    cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -67,7 +66,6 @@ async def get_data_for_djsql(  # pylint: disable=R0914, R0913
         async_=async_,
     )
 
-    request_headers.update({"Cache-Control": cache_control})
     result = query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
@@ -84,7 +82,6 @@ async def get_data_for_djsql(  # pylint: disable=R0914, R0913
 async def get_data_stream_for_djsql(
     query: str,
     *,
-    cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -121,7 +118,6 @@ async def get_data_stream_for_djsql(
     )
 
     # Submits the query, equivalent to calling POST /data/ directly
-    request_headers.update({"Cache-Control": cache_control})
     initial_query_info = query_service_client.submit_query(
         query_create,
         request_headers=request_headers,

@@ -3,9 +3,9 @@
 Data related APIs.
 """
 from http import HTTPStatus
-from typing import Annotated, Dict, List, Optional
+from typing import Dict, List, Optional
 
-from fastapi import BackgroundTasks, Depends, Header, Query, Request
+from fastapi import BackgroundTasks, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -172,7 +172,6 @@ async def get_data(  # pylint: disable=too-many-locals
         default=False,
         description="Whether to run the query async or wait for results from the query engine",
     ),
-    cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -221,7 +220,6 @@ async def get_data(  # pylint: disable=too-many-locals
         submitted_query=query.sql,
         async_=async_,
     )
-    request_headers.update({"Cache-Control": cache_control})
     result = query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
@@ -245,7 +243,6 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
         None,
         description="Number of rows to limit the data retrieved to",
     ),
-    cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -310,7 +307,6 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
         submitted_query=query.sql,
         async_=True,
     )
-    request_headers.update({"Cache-Control": cache_control or "max-age=86400"})
     initial_query_info = query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
@@ -368,7 +364,6 @@ async def get_data_for_metrics(  # pylint: disable=R0914, R0913
     limit: Optional[int] = None,
     async_: bool = False,
     *,
-    cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -408,7 +403,6 @@ async def get_data_for_metrics(  # pylint: disable=R0914, R0913
         submitted_query=translated_sql.sql,
         async_=async_,
     )
-    request_headers.update({"Cache-Control": cache_control})
     result = query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
@@ -428,7 +422,6 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
-    cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -458,7 +451,6 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
         async_=True,
     )
     # Submits the query, equivalent to calling POST /data/ directly
-    request_headers.update({"Cache-Control": cache_control})
     initial_query_info = query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
