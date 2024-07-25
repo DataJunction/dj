@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api import helpers
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.internal.nodes import propagate_valid_status
 from datajunction_server.models.node import NodeStatus
@@ -46,11 +47,20 @@ async def test_propagate_valid_status(module__session: AsyncSession):
         name="foo",
         status=NodeStatus.INVALID,
     )
+    example_user = User(
+        id=1,
+        username="userfoo",
+        password="passwordfoo",
+        name="djuser",
+        email="userfoo@datajunction.io",
+        oauth_provider=OAuthProvider.BASIC,
+    )
     with pytest.raises(DJException) as exc_info:
         await propagate_valid_status(
             session=module__session,
             valid_nodes=[invalid_node],
             catalog_id=1,
+            current_user=example_user,
         )
 
     assert "Cannot propagate valid status: Node `foo` is not valid" in str(

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.dimensions import build_dimensions_from_cube_query
 from datajunction_server.database.node import Node
+from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.internal.nodes import get_cube_revision_metadata
@@ -25,6 +26,7 @@ from datajunction_server.models.query import QueryCreate
 from datajunction_server.naming import from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
+    get_and_update_current_user,
     get_query_service_client,
     get_session,
     get_settings,
@@ -60,6 +62,7 @@ async def get_cube_dimension_sql(
     ),
     include_counts: bool = False,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=redefined-outer-name
         validate_access,
     ),
@@ -73,10 +76,11 @@ async def get_cube_dimension_sql(
         session,
         node_revision,
         dimensions,
+        current_user,
+        validate_access,
         filters,
         limit,
         include_counts,
-        validate_access=validate_access,
     )
 
 
@@ -101,6 +105,7 @@ async def get_cube_dimension_values(  # pylint: disable=too-many-locals
     cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=redefined-outer-name
         validate_access,
     ),
@@ -114,10 +119,11 @@ async def get_cube_dimension_values(  # pylint: disable=too-many-locals
         session,
         cube,
         dimensions,
+        current_user,
+        validate_access,
         filters,
         limit,
         include_counts,
-        validate_access,
     )
     if cube.availability:
         catalog = await get_catalog_by_name(  # pragma: no cover

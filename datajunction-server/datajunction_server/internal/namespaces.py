@@ -4,7 +4,7 @@ Helper methods for namespaces endpoints.
 import os
 import re
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -109,8 +109,8 @@ async def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
 async def mark_namespace_deactivated(
     session: AsyncSession,
     namespace: NodeNamespace,
+    current_user: User,
     message: str = None,
-    current_user: Optional[User] = None,
 ):
     """
     Deactivates the node namespace and updates history indicating so
@@ -131,7 +131,7 @@ async def mark_namespace_deactivated(
             node=None,
             activity_type=ActivityType.DELETE,
             details={"message": message or ""},
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -140,8 +140,8 @@ async def mark_namespace_deactivated(
 async def mark_namespace_restored(
     session: AsyncSession,
     namespace: NodeNamespace,
+    current_user: User,
     message: str = None,
-    current_user: Optional[User] = None,
 ):
     """
     Restores the node namespace and updates history indicating so
@@ -154,7 +154,7 @@ async def mark_namespace_restored(
             node=None,
             activity_type=ActivityType.RESTORE,
             details={"message": message or ""},
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -188,8 +188,8 @@ def get_parent_namespaces(namespace: str):
 async def create_namespace(
     session: AsyncSession,
     namespace: str,
+    current_user: User,
     include_parents: bool = True,
-    current_user: Optional[User] = None,
 ) -> List[str]:
     """
     Creates a namespace entry in the database table.
@@ -213,7 +213,7 @@ async def create_namespace(
                     entity_name=namespace,
                     node=None,
                     activity_type=ActivityType.CREATE,
-                    user=current_user.username if current_user else None,
+                    user=current_user.username,
                 ),
             )
     await session.commit()
@@ -223,8 +223,8 @@ async def create_namespace(
 async def hard_delete_namespace(
     session: AsyncSession,
     namespace: str,
+    current_user: User,
     cascade: bool = False,
-    current_user: Optional[User] = None,
 ):
     """
     Hard delete a node namespace.
