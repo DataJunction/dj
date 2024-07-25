@@ -1,7 +1,7 @@
 """
 Tests for ``datajunction_server.service_clients``.
 """
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 import pytest
 from pytest_mock import MockerFixture
@@ -52,7 +52,7 @@ class TestRequestsSessionWithEndpoint:
             "GET",
             f"{self.example_endpoint}/pies/?flavor=blueberry",
             data=None,
-            headers=None,
+            headers=ANY,
         )
         prepped = requests_session.prepare_request(req)
         assert prepped.headers["Connection"] == "keep-alive"
@@ -107,6 +107,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "http://queryservice:8001/table/hive.test.pies/columns/",
             params={},
             allow_redirects=True,
+            headers=ANY,
         )
 
         query_service_client.get_columns_for_table(
@@ -120,6 +121,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "http://queryservice:8001/table/hive.test.pies/columns/",
             params={"engine": "spark", "engine_version": "2.4.4"},
             allow_redirects=True,
+            headers=ANY,
         )
 
         # failed request with unknown reason
@@ -198,7 +200,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
 
         mock_request.assert_called_with(
             "/queries/",
-            headers={"Cache-Control": ""},
+            headers=ANY,
             json={
                 "catalog_name": "default",
                 "engine_name": "postgres",
@@ -252,6 +254,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
 
         mock_request.assert_called_with(
             "/queries/ef209eef-c31a-4089-aae6-833259a08e22/",
+            headers=ANY,
         )
 
     def test_query_service_client_materialize(self, mocker: MockerFixture) -> None:
@@ -304,6 +307,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
                 "upstream_tables": ["default.hard_hats"],
                 "columns": [],
             },
+            headers=ANY,
         )
 
     def test_query_service_client_deactivate_materialization(
@@ -333,6 +337,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
 
         mock_request.assert_called_with(
             "/materialization/default.hard_hat/default/",
+            headers=ANY,
         )
 
     def test_query_service_client_raising_error(self, mocker: MockerFixture) -> None:
@@ -370,7 +375,6 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         with pytest.raises(DJQueryServiceClientException) as exc_info:
             query_service_client.submit_query(
                 query_create,
-                headers={"Cache-Control": "no-cache"},
             )
         assert "Error response from query service" in str(exc_info.value)
         assert exc_info.value.errors == [
@@ -437,6 +441,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
                 "partitions": [],
                 "columns": [],
             },
+            headers=ANY,
         )
         assert response == {
             "urls": ["http://fake.url/job"],
@@ -468,6 +473,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         mock_request.assert_called_with(
             "/materialization/default.hard_hat/v3.1/default/",
             timeout=3,
+            headers=ANY,
         )
         assert response == {
             "urls": ["http://fake.url/job"],
@@ -539,6 +545,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
                 },
             ],
             timeout=20,
+            headers=ANY,
         )
 
         mocked_call.reset_mock()
@@ -577,4 +584,5 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
                 },
             ],
             timeout=20,
+            headers=ANY,
         )

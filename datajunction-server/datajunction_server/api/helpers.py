@@ -732,6 +732,7 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
 
 async def query_event_stream(  # pylint: disable=too-many-arguments
     query: QueryWithResults,
+    request_headers: Optional[Dict[str, str]],
     query_service_client: QueryServiceClient,
     columns: List[Column],
     request,
@@ -763,6 +764,7 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
         # Check the current state of the query
         query_next = query_service_client.get_query(  # type: ignore # pragma: no cover
             query_id=query_id,
+            request_headers=request_headers,
         )
         if query_next.state in END_JOB_STATES:  # pragma: no cover
             _logger.info(  # pragma: no cover

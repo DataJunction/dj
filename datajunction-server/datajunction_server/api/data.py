@@ -174,6 +174,7 @@ async def get_data(  # pylint: disable=too-many-locals
     ),
     cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -186,6 +187,7 @@ async def get_data(  # pylint: disable=too-many-locals
     """
     Gets data for a node
     """
+    request_headers = dict(request.headers)
     query, query_request = await get_node_sql(
         node_name,
         dimensions,
@@ -219,9 +221,10 @@ async def get_data(  # pylint: disable=too-many-locals
         submitted_query=query.sql,
         async_=async_,
     )
+    request_headers.update({"Cache-Control": cache_control})
     result = query_service_client.submit_query(
         query_create,
-        headers={"Cache-Control": cache_control},
+        request_headers=request_headers,
     )
     query_request.query_id = result.id
 
@@ -257,6 +260,7 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
     """
     Return data for a node using server side events
     """
+    request_headers = dict(request.headers)
     query, query_request = await get_node_sql(
         node_name,
         dimensions,
@@ -280,6 +284,7 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
                     errors=[],
                 ),
                 query_service_client=query_service_client,
+                request_headers=request_headers,
                 columns=query.columns,  # type: ignore
                 request=request,
             ),
@@ -305,9 +310,10 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
         submitted_query=query.sql,
         async_=True,
     )
+    request_headers.update({"Cache-Control": cache_control or "max-age=86400"})
     initial_query_info = query_service_client.submit_query(
         query_create,
-        headers={"Cache-Control": cache_control or "max-age=86400"},
+        request_headers=request_headers,
     )
 
     # Save the external query id reference
@@ -318,6 +324,7 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
     return EventSourceResponse(
         query_event_stream(
             query=initial_query_info,
+            request_headers=request_headers,
             query_service_client=query_service_client,
             columns=query.columns,  # type: ignore
             request=request,
@@ -333,13 +340,18 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
 def get_data_for_query(
     query_id: str,
     *,
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> QueryWithResults:
     """
     Return data for a specific query ID.
     """
+    request_headers = dict(request.headers)
     try:
-        return query_service_client.get_query(query_id=query_id)
+        return query_service_client.get_query(
+            query_id=query_id,
+            request_headers=request_headers,
+        )
     except DJQueryServiceClientException as exc:
         raise DJException(
             message=str(exc.message),
@@ -358,6 +370,7 @@ async def get_data_for_metrics(  # pylint: disable=R0914, R0913
     *,
     cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -369,6 +382,7 @@ async def get_data_for_metrics(  # pylint: disable=R0914, R0913
     """
     Return data for a set of metrics with dimensions and filters
     """
+    request_headers = dict(request.headers)
     access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=current_user,
@@ -394,9 +408,10 @@ async def get_data_for_metrics(  # pylint: disable=R0914, R0913
         submitted_query=translated_sql.sql,
         async_=async_,
     )
+    request_headers.update({"Cache-Control": cache_control})
     result = query_service_client.submit_query(
         query_create,
-        headers={"Cache-Control": cache_control},
+        request_headers=request_headers,
     )
 
     # Inject column info if there are results
@@ -423,6 +438,7 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
     """
     Return data for a set of metrics with dimensions and filters using server side events
     """
+    request_headers = dict(request.headers)
     translated_sql, engine, catalog = await build_sql_for_multiple_metrics(
         session,
         metrics,
@@ -442,13 +458,15 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
         async_=True,
     )
     # Submits the query, equivalent to calling POST /data/ directly
+    request_headers.update({"Cache-Control": cache_control})
     initial_query_info = query_service_client.submit_query(
         query_create,
-        headers={"Cache-Control": cache_control},
+        request_headers=request_headers,
     )
     return EventSourceResponse(
         query_event_stream(
             query=initial_query_info,
+            request_headers=request_headers,
             query_service_client=query_service_client,
             columns=translated_sql.columns,  # type: ignore
             request=request,
