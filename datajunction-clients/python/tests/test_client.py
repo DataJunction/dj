@@ -408,7 +408,12 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             filters=["default.hard_hat.state = 'NY'"],
             measures=True,
         )
-        assert isinstance(result, str)
+        for upstream_key, translated_sql in result.items():
+            assert upstream_key in (
+                "default.repair_order_details",
+                "default.repair_orders",
+            )
+            assert isinstance(translated_sql["sql"], str)
 
     #
     # Data Catalog and Engines
