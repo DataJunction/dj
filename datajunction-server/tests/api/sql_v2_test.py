@@ -7,6 +7,40 @@ from httpx import AsyncClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
+async def fix_dimension_links(module__client_with_roads: AsyncClient):
+    """
+    Override some dimension links with inner join instead of left join.
+    """
+    await module__client_with_roads.post(
+        "/nodes/default.repair_orders_fact/link",
+        json={
+            "dimension_node": "default.hard_hat",
+            "join_type": "inner",
+            "join_on": (
+                "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id"
+            ),
+        },
+    )
+    await module__client_with_roads.post(
+        "/nodes/default.repair_orders_fact/link",
+        json={
+            "dimension_node": "default.dispatcher",
+            "join_type": "left",
+            "join_on": (
+                "default.repair_orders_fact.dispatcher_id = default.dispatcher.dispatcher_id"
+            ),
+        },
+    )
+    await module__client_with_roads.post(
+        "/nodes/default.hard_hat/link",
+        json={
+            "dimension_node": "default.us_state",
+            "join_type": "inner",
+            "join_on": ("default.hard_hat.state = default.us_state.state_short"),
+        },
+    )
+
+
 @pytest.mark.parametrize(
     "metrics, dimensions, filters, sql, columns, rows",
     [
@@ -355,34 +389,7 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
     """
     Test ``GET /sql/measures`` with various metrics, filters, and dimensions.
     """
-    await module__client_with_roads.post(
-        "/nodes/default.repair_orders_fact/link",
-        json={
-            "dimension_node": "default.hard_hat",
-            "join_type": "inner",
-            "join_on": (
-                "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id"
-            ),
-        },
-    )
-    await module__client_with_roads.post(
-        "/nodes/default.repair_orders_fact/link",
-        json={
-            "dimension_node": "default.dispatcher",
-            "join_type": "left",
-            "join_on": (
-                "default.repair_orders_fact.dispatcher_id = default.dispatcher.dispatcher_id"
-            ),
-        },
-    )
-    await module__client_with_roads.post(
-        "/nodes/default.hard_hat/link",
-        json={
-            "dimension_node": "default.us_state",
-            "join_type": "inner",
-            "join_on": ("default.hard_hat.state = default.us_state.state_short"),
-        },
-    )
+    await fix_dimension_links(module__client_with_roads)
     sql_params = {
         "metrics": metrics,
         "dimensions": dimensions,
@@ -398,3 +405,107 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
     result = duckdb_conn.sql(translated_sql["sql"])
     assert set(result.fetchall()) == set(rows)
     assert translated_sql["columns"] == columns
+
+
+@pytest.mark.asyncio
+async def test_measures_sql_include_all_columns(
+    module__client_with_roads: AsyncClient,
+    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+):
+    """
+    Test ``GET /sql/measures/v2`` with include_all_columns set to true.
+    """
+    await fix_dimension_links(module__client_with_roads)
+
+    response = await module__client_with_roads.get(
+        "/sql/measures/v2",
+        params={
+            "metrics": ["default.avg_time_to_dispatch"],
+            "dimensions": [
+                "default.us_state.state_name",
+                "default.dispatcher.company_name",
+                "default.hard_hat.last_name",
+            ],
+            "filters": [
+                "default.us_state.state_name = 'New Jersey'",
+                "default.hard_hat.last_name IN ('Brian')",
+            ],
+            "include_all_columns": True,
+        },
+    )
+    data = response.json()
+    translated_sql = data["default.repair_orders_fact"]
+
+    expected_sql = """
+    WITH default_DOT_repair_orders_fact AS (
+    SELECT  default_DOT_repair_orders.repair_order_id,
+        default_DOT_repair_orders.municipality_id,
+        default_DOT_repair_orders.hard_hat_id,
+        default_DOT_repair_orders.dispatcher_id,
+        default_DOT_repair_orders.order_date,
+        default_DOT_repair_orders.dispatched_date,
+        default_DOT_repair_orders.required_date,
+        default_DOT_repair_order_details.discount,
+        default_DOT_repair_order_details.price,
+        default_DOT_repair_order_details.quantity,
+        default_DOT_repair_order_details.repair_type_id,
+        default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost,
+        default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
+        default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay
+     FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id
+    ),
+    default_DOT_hard_hat AS (
+    SELECT  default_DOT_hard_hats.hard_hat_id,
+        default_DOT_hard_hats.last_name,
+        default_DOT_hard_hats.first_name,
+        default_DOT_hard_hats.title,
+        default_DOT_hard_hats.birth_date,
+        default_DOT_hard_hats.hire_date,
+        default_DOT_hard_hats.address,
+        default_DOT_hard_hats.city,
+        default_DOT_hard_hats.state,
+        default_DOT_hard_hats.postal_code,
+        default_DOT_hard_hats.country,
+        default_DOT_hard_hats.manager,
+        default_DOT_hard_hats.contractor_id
+     FROM roads.hard_hats AS default_DOT_hard_hats
+     WHERE  default_DOT_hard_hats.last_name IN ('Brian')
+    ),
+    default_DOT_us_state AS (
+    SELECT  default_DOT_us_states.state_id,
+        default_DOT_us_states.state_name,
+        default_DOT_us_states.state_abbr AS state_short,
+        default_DOT_us_states.state_region
+     FROM roads.us_states AS default_DOT_us_states
+     WHERE  default_DOT_us_states.state_name = 'New Jersey'
+    ),
+    default_DOT_dispatcher AS (
+    SELECT  default_DOT_dispatchers.dispatcher_id,
+        default_DOT_dispatchers.company_name,
+        default_DOT_dispatchers.phone
+     FROM roads.dispatchers AS default_DOT_dispatchers
+    )
+    SELECT  default_DOT_repair_orders_fact.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id,
+        default_DOT_repair_orders_fact.municipality_id default_DOT_repair_orders_fact_DOT_municipality_id,
+        default_DOT_repair_orders_fact.hard_hat_id default_DOT_repair_orders_fact_DOT_hard_hat_id,
+        default_DOT_repair_orders_fact.dispatcher_id default_DOT_repair_orders_fact_DOT_dispatcher_id,
+        default_DOT_repair_orders_fact.order_date default_DOT_repair_orders_fact_DOT_order_date,
+        default_DOT_repair_orders_fact.dispatched_date default_DOT_repair_orders_fact_DOT_dispatched_date,
+        default_DOT_repair_orders_fact.required_date default_DOT_repair_orders_fact_DOT_required_date,
+        default_DOT_repair_orders_fact.discount default_DOT_repair_orders_fact_DOT_discount,
+        default_DOT_repair_orders_fact.price default_DOT_repair_orders_fact_DOT_price,
+        default_DOT_repair_orders_fact.quantity default_DOT_repair_orders_fact_DOT_quantity,
+        default_DOT_repair_orders_fact.repair_type_id default_DOT_repair_orders_fact_DOT_repair_type_id,
+        default_DOT_repair_orders_fact.total_repair_cost default_DOT_repair_orders_fact_DOT_total_repair_cost,
+        default_DOT_repair_orders_fact.time_to_dispatch default_DOT_repair_orders_fact_DOT_time_to_dispatch,
+        default_DOT_repair_orders_fact.dispatch_delay default_DOT_repair_orders_fact_DOT_dispatch_delay,
+        default_DOT_us_state.state_name default_DOT_us_state_DOT_state_name,
+        default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
+        default_DOT_hard_hat.last_name default_DOT_hard_hat_DOT_last_name
+     FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+    INNER JOIN default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_short
+    LEFT JOIN default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+    """
+    assert str(parse(str(expected_sql))) == str(parse(str(translated_sql["sql"])))
+    result = duckdb_conn.sql(translated_sql["sql"])
+    assert len(result.fetchall()) == 4
