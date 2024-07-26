@@ -2,9 +2,9 @@
 Data related APIs.
 """
 
-from typing import Annotated, Optional
+from typing import Optional
 
-from fastapi import Depends, Header, Request
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -31,8 +31,8 @@ async def get_data_for_djsql(  # pylint: disable=R0914, R0913
     query: str,
     async_: bool = False,
     *,
-    cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -44,6 +44,7 @@ async def get_data_for_djsql(  # pylint: disable=R0914, R0913
     """
     Return data for a DJ SQL query
     """
+    request_headers = dict(request.headers)
     access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=current_user,
@@ -67,7 +68,7 @@ async def get_data_for_djsql(  # pylint: disable=R0914, R0913
 
     result = query_service_client.submit_query(
         query_create,
-        headers={"Cache-Control": cache_control},
+        request_headers=request_headers,
     )
 
     # Inject column info if there are results
@@ -81,7 +82,6 @@ async def get_data_for_djsql(  # pylint: disable=R0914, R0913
 async def get_data_stream_for_djsql(
     query: str,
     *,
-    cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -95,6 +95,7 @@ async def get_data_stream_for_djsql(
     """
     Return data for a DJ SQL query using server side events
     """
+    request_headers = dict(request.headers)
     access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=current_user,
@@ -119,11 +120,12 @@ async def get_data_stream_for_djsql(
     # Submits the query, equivalent to calling POST /data/ directly
     initial_query_info = query_service_client.submit_query(
         query_create,
-        headers={"Cache-Control": cache_control},
+        request_headers=request_headers,
     )
     return EventSourceResponse(
         query_event_stream(
             query=initial_query_info,
+            request_headers=request_headers,
             query_service_client=query_service_client,
             columns=translated_sql.columns,  # type: ignore
             request=request,

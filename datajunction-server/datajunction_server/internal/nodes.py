@@ -4,7 +4,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime
 from http import HTTPStatus
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from fastapi import BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -529,6 +529,7 @@ async def update_any_node(
     name: str,
     data: UpdateNode,
     session: AsyncSession,
+    request_headers: Dict[str, str],
     query_service_client: QueryServiceClient,
     current_user: User,
     background_tasks: BackgroundTasks = None,
@@ -553,6 +554,7 @@ async def update_any_node(
             session,
             node.current,  # type: ignore
             data,
+            request_headers=request_headers,
             query_service_client=query_service_client,
             current_user=current_user,
             background_tasks=background_tasks,
@@ -563,6 +565,7 @@ async def update_any_node(
         name,
         data,
         session,
+        request_headers=request_headers,
         query_service_client=query_service_client,
         current_user=current_user,
         background_tasks=background_tasks,
@@ -575,6 +578,7 @@ async def update_node_with_query(
     data: UpdateNode,
     session: AsyncSession,
     *,
+    request_headers: Dict[str, str],
     query_service_client: QueryServiceClient,
     current_user: User,
     background_tasks: BackgroundTasks,
@@ -663,6 +667,7 @@ async def update_node_with_query(
                 mat.name for mat in node.current.materializations  # type: ignore
             ],
             query_service_client=query_service_client,
+            request_headers=request_headers,
         )
         session.add(new_revision)
         await session.commit()
@@ -740,6 +745,7 @@ async def update_cube_node(  # pylint: disable=too-many-locals
     node_revision: NodeRevision,
     data: UpdateNode,
     *,
+    request_headers: Dict[str, str],
     query_service_client: QueryServiceClient,
     current_user: User,
     background_tasks: BackgroundTasks = None,
@@ -840,6 +846,7 @@ async def update_cube_node(  # pylint: disable=too-many-locals
                 mat.name for mat in new_cube_revision.materializations
             ],
             query_service_client=query_service_client,
+            request_headers=request_headers,
         )
     else:
         await schedule_materialization_jobs(  # pragma: no cover
@@ -849,6 +856,7 @@ async def update_cube_node(  # pylint: disable=too-many-locals
                 mat.name for mat in new_cube_revision.materializations
             ],
             query_service_client=query_service_client,
+            request_headers=request_headers,
         )
 
     await session.refresh(new_cube_revision)
@@ -964,12 +972,13 @@ def copy_existing_node_revision(old_revision: NodeRevision):
     )
 
 
-async def _create_node_from_inactive(  # pylint: disable=too-many-arguments
+async def create_node_from_inactive(  # pylint: disable=too-many-arguments
     new_node_type: NodeType,
     data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
     session: AsyncSession,
     *,
     current_user: User,
+    request_headers: Dict[str, str],
     query_service_client: QueryServiceClient,
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn = None,
@@ -1017,6 +1026,7 @@ async def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 name=data.name,
                 data=update_node,
                 session=session,
+                request_headers=request_headers,
                 query_service_client=query_service_client,
                 current_user=current_user,
                 background_tasks=background_tasks,
@@ -1027,6 +1037,7 @@ async def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 session,
                 previous_inactive_node.current,
                 data,
+                request_headers=request_headers,
                 query_service_client=query_service_client,
                 current_user=current_user,
                 background_tasks=background_tasks,

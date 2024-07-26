@@ -1,6 +1,6 @@
 """Node materialization helper functions"""
 import zlib
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from pydantic import ValidationError
 from sqlalchemy.exc import InvalidRequestError
@@ -282,6 +282,7 @@ async def schedule_materialization_jobs(
     node_revision_id: int,
     materialization_names: List[str],
     query_service_client: QueryServiceClient,
+    request_headers: Optional[Dict[str, str]] = None,
 ) -> Dict[str, MaterializationInfo]:
     """
     Schedule recurring materialization jobs
@@ -301,6 +302,7 @@ async def schedule_materialization_jobs(
             materialization_to_output[materialization.name] = clazz().schedule(  # type: ignore
                 materialization,
                 query_service_client,
+                request_headers=request_headers,
             )
     return materialization_to_output
 
