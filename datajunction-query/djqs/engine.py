@@ -26,9 +26,6 @@ from djqs.models.query import (
 )
 from djqs.typing import ColumnType, Description, SQLADialect, Stream, TypeEnum
 
-# Determine the base directory relative to the script
-
-
 _logger = logging.getLogger(__name__)
 
 QUERY_USER = None
@@ -217,7 +214,9 @@ def process_query(
     try:
         root = []
         for sql, columns, stream in run_query(
-            session=session, query=query, headers=headers,
+            session=session,
+            query=query,
+            headers=headers,
         ):
             rows = list(stream)
             root.append(
