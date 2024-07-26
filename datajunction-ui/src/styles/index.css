@@ -730,6 +730,11 @@ pre {
   margin: 0;
   list-style: none;
 }
+.menu-link {
+  display: inline-grid;
+  margin: 2em 1em 0 0;
+  float: right;
+}
 .menu-item .menu-link {
   cursor: pointer;
   align-items: center;
@@ -773,6 +778,7 @@ pre {
 
 .card-header h2 {
   font-family: 'Jost';
+  display: inline-block;
 }
 
 .text-gray-400 {
