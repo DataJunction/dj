@@ -5,7 +5,7 @@ import json
 import logging
 import uuid
 from http import HTTPStatus
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import msgpack
 from accept_types import get_best_match
@@ -100,11 +100,7 @@ async def submit_query(  # pylint: disable=too-many-arguments
     create_query = QueryCreate(**data)
 
     query_with_results = save_query_and_run(
-        create_query,
-        session,
-        settings,
-        response,
-        background_tasks,
+        create_query, session, settings, response, background_tasks, request.headers,
     )
 
     return_type = get_best_match(accept, ["application/json", "application/msgpack"])
@@ -135,6 +131,7 @@ def save_query_and_run(
     settings: Settings,
     response: Response,
     background_tasks: BackgroundTasks,
+    headers: Optional[Dict[str, str]] = None,
 ) -> QueryResults:
     """
     Store a new query to the DB and run it.
@@ -147,12 +144,12 @@ def save_query_and_run(
     session.refresh(query)
 
     if query.async_:
-        background_tasks.add_task(process_query, session, settings, query)
+        background_tasks.add_task(process_query, session, settings, query, headers)
 
         response.status_code = HTTPStatus.CREATED
         return QueryResults(results=[], errors=[], **query.dict())
 
-    return process_query(session, settings, query)
+    return process_query(session, settings, query, headers)
 
 
 def load_query_results(
