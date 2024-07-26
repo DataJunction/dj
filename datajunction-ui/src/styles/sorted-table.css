@@ -1,0 +1,19 @@
+.sortable {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-weight: bold;
+    font-family: inherit;
+    color: inherit;
+    text-transform: uppercase;
+  }
+.sortable::after {
+    content: ' ';
+}
+.sortable.ascending::after {
+  content: ' ▲';
+}
+
+.sortable.descending::after {
+  content: ' ▼';
+}
