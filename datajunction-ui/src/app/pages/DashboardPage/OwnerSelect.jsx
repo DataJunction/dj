@@ -13,6 +13,7 @@ export default function OwnerSelect() {
   useEffect(() => {
     const fetchData = async () => {
       const users = await djClient.users();
+      console.log('users', users);
       setUsers(users);
       setRetrieved(true);
     };
@@ -26,9 +27,9 @@ export default function OwnerSelect() {
       isClearable
       label='Edited By'
       components={{ Control }}
-      defaultValue={{value: 'yshang@netflix.com', label: 'yshang@netflix.com (3152)'}}
+      defaultValue={{value: 'yshang@netflix.com', label: 'yshang@netflix.com'}}
       options={users?.map(user => {
-        return {value: user.username, label: `${user.username} (${user.count})`};
+        return {value: user.username, label: `${user.username}`};
       })}
       /> : ''}
     </span>

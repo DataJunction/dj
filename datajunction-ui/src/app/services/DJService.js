@@ -36,7 +36,7 @@ export const DataJunctionAPI = {
 
   users: async function () {
     return await (
-      await fetch(`${DJ_URL}/users`, {
+      await fetch(`${DJ_URL}/users?with_activity=true`, {
         credentials: 'include',
       })
     ).json();
