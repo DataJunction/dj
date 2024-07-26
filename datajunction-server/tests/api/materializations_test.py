@@ -3,7 +3,6 @@
 import json
 import os
 from pathlib import Path
-from unittest.mock import call
 
 import pytest
 import pytest_asyncio
@@ -829,19 +828,17 @@ async def test_spark_sql_full(
             },
         ],
     )
-    assert module__query_service_client.run_backfill.call_args_list == [  # type: ignore
-        call(
-            "default.hard_hat",
-            "spark_sql__full__birth_date__country",
-            [
-                PartitionBackfill(
-                    column_name="birth_date",
-                    values=None,
-                    range=["20230101", "20230201"],
-                ),
-            ],
-        ),
-    ]
+    assert module__query_service_client.run_backfill.call_args_list[0].args == (  # type: ignore
+        "default.hard_hat",
+        "spark_sql__full__birth_date__country",
+        [
+            PartitionBackfill(
+                column_name="birth_date",
+                values=None,
+                range=["20230101", "20230201"],
+            ),
+        ],
+    )
     assert response.json() == {"output_tables": [], "urls": ["http://fake.url/job"]}
 
 
@@ -941,7 +938,7 @@ async def test_spark_sql_incremental(
             },
         ],
     )
-    assert module__query_service_client.run_backfill.call_args_list[-1] == call(  # type: ignore
+    assert module__query_service_client.run_backfill.call_args_list[-1].args == (  # type: ignore
         "default.hard_hat_2",
         "spark_sql__incremental_time__birth_date",
         [

@@ -3,9 +3,9 @@
 Cube related APIs.
 """
 import logging
-from typing import Annotated, List, Optional
+from typing import List, Optional
 
-from fastapi import Depends, Header, Query
+from fastapi import Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_catalog_by_name
@@ -102,8 +102,8 @@ async def get_cube_dimension_values(  # pylint: disable=too-many-locals
     ),
     include_counts: bool = False,
     async_: bool = False,
-    cache_control: Annotated[str, Header()] = "",
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=redefined-outer-name
@@ -113,6 +113,7 @@ async def get_cube_dimension_values(  # pylint: disable=too-many-locals
     """
     All unique values of a dimension from the cube
     """
+    request_headers = dict(request.headers)
     node = await Node.get_cube_by_name(session, name)
     cube = node.current  # type: ignore
     translated_sql = await build_dimensions_from_cube_query(
@@ -141,7 +142,7 @@ async def get_cube_dimension_values(  # pylint: disable=too-many-locals
     )
     result = query_service_client.submit_query(
         query_create,
-        headers={"Cache-Control": cache_control},
+        request_headers=request_headers,
     )
     count_column = [
         idx
