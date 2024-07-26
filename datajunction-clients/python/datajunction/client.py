@@ -169,7 +169,7 @@ class DJClient(_internal.DJClient):
         """
         endpoint = "/sql/"
         if measures:
-            endpoint = "/sql/measures/"
+            endpoint = "/sql/measures/v2"
         response = self._session.get(
             endpoint,
             params={
@@ -180,7 +180,9 @@ class DJClient(_internal.DJClient):
                 "engine_version": engine_version or self.engine_version,
             },
         )
-        if response.status_code == 200:
+        if response.status_code != 200:
+            return response.json()
+        if not measures:
             return response.json()["sql"]
         return response.json()
 
