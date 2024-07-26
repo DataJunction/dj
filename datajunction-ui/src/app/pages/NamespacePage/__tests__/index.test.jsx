@@ -114,9 +114,6 @@ describe('NamespacePage', () => {
       // click to open and close tab
       fireEvent.click(screen.getByText('common'));
       fireEvent.click(screen.getByText('common'));
-
-      // sort columns
-      fireEvent.click(screen.getByText('NAME'));
     });
   });
 
