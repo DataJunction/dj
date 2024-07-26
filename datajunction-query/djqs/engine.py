@@ -5,7 +5,8 @@ Query related functions.
 import logging
 import os
 from datetime import datetime, timezone
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import duckdb
 import snowflake.connector
@@ -25,7 +26,14 @@ from djqs.models.query import (
 )
 from djqs.typing import ColumnType, Description, SQLADialect, Stream, TypeEnum
 
+# Determine the base directory relative to the script
+
+
 _logger = logging.getLogger(__name__)
+
+QUERY_USER = None
+QUERY_PASSWORD = None
+HTTP_SCHEME = None
 
 
 def get_columns_from_description(
@@ -66,9 +74,37 @@ def get_columns_from_description(
     return columns
 
 
+def create_trino_engine(engine: Engine, headers: Optional[Dict[str, str]]) -> "Engine":
+    """
+    Create a SQLAlchemy engine for Trino.
+    """
+    # Parsing the URI
+    parsed_uri = urlparse(engine.uri)
+    scheme = parsed_uri.scheme
+    host = parsed_uri.hostname
+    port = parsed_uri.port
+    path = parsed_uri.path.lstrip("/")
+    catalog, schema = path.split("/", 1) if "/" in path else (path, None)
+
+    global QUERY_USER, QUERY_PASSWORD, HTTP_SCHEME
+
+    # Override user and password from headers if available
+    if headers and "QUERY_USER" in headers and "QUERY_PASSWORD" in headers:
+        QUERY_USER = headers.get("QUERY_USER")
+        QUERY_PASSWORD = headers.get("QUERY_PASSWORD")
+
+    if HTTP_SCHEME == "https":
+        engine_str = f"{scheme}://{QUERY_USER}:{QUERY_PASSWORD}@{host}:{port}/{catalog}/{schema}?protocol={HTTP_SCHEME}"
+        return create_engine(engine_str)
+    else:
+        engine_str = engine.uri
+        return create_engine(engine_str, connect_args=engine.extra_params)
+
+
 def run_query(
     session: Session,
     query: Query,
+    headers: Optional[Dict[str, str]] = None,
 ) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
     """
     Run a query and return its results.
@@ -76,12 +112,23 @@ def run_query(
     For each statement we return a tuple with the statement SQL, a description of the
     columns (name and type) and a stream of rows (tuples).
     """
+
     _logger.info("Running query on catalog %s", query.catalog_name)
+
     engine = session.exec(
         select(Engine)
         .where(Engine.name == query.engine_name)
         .where(Engine.version == query.engine_version),
     ).one()
+
+    parsed_uri = urlparse(engine.uri)
+    scheme = parsed_uri.scheme
+
+    global QUERY_USER, QUERY_PASSWORD, HTTP_SCHEME
+    QUERY_USER = engine.extra_params["user"]
+    QUERY_PASSWORD = engine.extra_params["password"]
+    HTTP_SCHEME = "https"
+
     if engine.type == EngineType.DUCKDB:
         conn = (
             duckdb.connect()
@@ -92,7 +139,7 @@ def run_query(
             )
         )
         return run_duckdb_query(query, conn)
-    if engine.type == EngineType.SNOWFLAKE:
+    elif engine.type == EngineType.SNOWFLAKE:
         conn = snowflake.connector.connect(
             **engine.extra_params,
             password=os.getenv("SNOWSQL_PWD"),
@@ -100,24 +147,28 @@ def run_query(
         cur = conn.cursor()
 
         return run_snowflake_query(query, cur)
-    sqla_engine = create_engine(engine.uri, connect_args=engine.extra_params)
-    connection = sqla_engine.connect()
+    else:
+        if scheme == "trino":
+            sqla_engine = create_trino_engine(engine, headers)
+        else:
+            sqla_engine = create_engine(engine.uri, connect_args=engine.extra_params)
 
-    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
-    statements = sqlparse.parse(query.executed_query)
-    for statement in statements:
-        # Druid doesn't like statements that end in a semicolon...
-        sql = str(statement).strip().rstrip(";")
+        connection = sqla_engine.connect()
 
-        results = connection.execute(text(sql))
-        stream = (tuple(row) for row in results)
-        columns = get_columns_from_description(
-            results.cursor.description,
-            sqla_engine.dialect,
-        )
-        output.append((sql, columns, stream))
+        output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
+        statements = sqlparse.parse(query.executed_query)
+        for statement in statements:
+            sql = str(statement).strip().rstrip(";")
 
-    return output
+            results = connection.execute(text(sql))
+            stream = (tuple(row) for row in results)
+            columns = get_columns_from_description(
+                results.cursor.description,
+                sqla_engine.dialect,
+            )
+            output.append((sql, columns, stream))
+
+        return output
 
 
 def run_duckdb_query(
@@ -152,6 +203,7 @@ def process_query(
     session: Session,
     settings: Settings,
     query: Query,
+    headers: Optional[Dict[str, str]] = None,
 ) -> QueryResults:
     """
     Process a query.
@@ -164,7 +216,9 @@ def process_query(
     query.started = datetime.now(timezone.utc)
     try:
         root = []
-        for sql, columns, stream in run_query(session=session, query=query):
+        for sql, columns, stream in run_query(
+            session=session, query=query, headers=headers,
+        ):
             rows = list(stream)
             root.append(
                 StatementResults(
