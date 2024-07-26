@@ -42,9 +42,9 @@ export const DataJunctionAPI = {
     ).json();
   },
 
-  me: async function () {
+  tags: async function () {
     return await (
-      await fetch(`${DJ_URL}/users/me`, {
+      await fetch(`${DJ_URL}/tags`, {
         credentials: 'include',
       })
     ).json();

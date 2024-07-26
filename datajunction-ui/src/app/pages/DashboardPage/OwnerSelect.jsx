@@ -22,9 +22,9 @@ export default function OwnerSelect() {
   return (
     <span className="menu-link" style={{marginLeft: '30px', width: '400px'}}>
       {retrieved ?       <Select
-      name="owner"
+      name="edited_by"
       isClearable
-      label='Owner'
+      label='Edited By'
       components={{ Control }}
       defaultValue={{value: 'yshang@netflix.com', label: 'yshang@netflix.com (3152)'}}
       options={users?.map(user => {

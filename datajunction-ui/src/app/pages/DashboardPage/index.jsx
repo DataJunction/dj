@@ -17,20 +17,40 @@ import CubeGrouping from './CubeGrouping';
 import OwnerSelect from './OwnerSelect';
 import GroupBySelect from './GroupBySelect';
 import NodeTypeSelect from './NodeTypeSelect';
+import TagSelect from './TagSelect';
 import DJClientContext from '../../providers/djclient';
 import NodeListActions from '../../components/NodeListActions';
 import NamespaceHierarchy from '../../components/NamespaceHierarchy';
 import LoadingIcon from '../../icons/LoadingIcon';
 
 import 'styles/node-list.css';
+import 'styles/sorted-table.css';
 
 export function DashboardPage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   var { namespace } = useParams();
   const [retrieved, setRetrieved] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'ascending' });
 
   const [nodes, setNodes] = useState({});
+
+  const sortedData = React.useMemo(() => {
+    let sortableData = [...Object.values(nodes)];
+    if (sortConfig !== null) {
+      sortableData.sort((a, b) => {
+        if (a[sortConfig.key] < b[sortConfig.key]) {
+          return sortConfig.direction === 'ascending' ? -1 : 1;
+        }
+        if (a[sortConfig.key] > b[sortConfig.key]) {
+          return sortConfig.direction === 'ascending' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    return sortableData;
+  }, [nodes, sortConfig]);
+
   const [groupHeaders, setGroupHeaders] = useState([]);
   const initialValues = {
     groupby: 'namespace',
@@ -40,7 +60,7 @@ export function DashboardPage() {
   
   useEffect(() => {
     const fetchData = async () => {
-      const currentUser = await djClient.me();
+      const currentUser = await djClient.whoami();
       setCurrentUser(currentUser);
 
       const nodes = await djClient.userNodes(namespace);
@@ -63,13 +83,27 @@ export function DashboardPage() {
     fetchData().catch(console.error);
   }, [djClient, namespace]);
 
+  const requestSort = (key) => {
+    let direction = 'ascending';
+    if (sortConfig.key === key && sortConfig.direction === 'ascending') {
+      direction = 'descending';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const getClassNamesFor = (name) => {
+    if (sortConfig.key === name) {
+      return sortConfig.direction;
+    }
+    return undefined;
+  };
+
   return (
     <div className="mid">
       <div className="card">
         <div className="card-header">
           <h2>Explore</h2>
           <div class="menu" style={{margin: '0 0 20px 0'}}>
-            {/* style={{margin: '0 0 0 250px'}}> */}
             <Formik initialValues={initialValues} 
               // onSubmit={handleSubmit}
               >
@@ -78,6 +112,7 @@ export function DashboardPage() {
                   <Form style={{display: 'flex'}}>
                     <GroupBySelect />
                     <NodeTypeSelect />
+                    <TagSelect />
                     <OwnerSelect />
                     <AddNodeDropDown />
                   </Form>
@@ -98,9 +133,40 @@ export function DashboardPage() {
               })} */}
               {<div className="table__body card-table" style={{width: '-webkit-fill-available', minWidth: '80%'}}>
               <table className="card-table table">
+              <thead>
+                <tr>
+                  <th>
+                    <button type="button" onClick={() => requestSort('name')} className={'sortable ' + getClassNamesFor('name')}>
+                      Name
+                    </button>
+                  </th>
+                  <th>
+                    <button type="button" onClick={() => requestSort('display_name')} className={'sortable ' + getClassNamesFor('display_name')}>
+                      Display Name
+                    </button>
+                  </th>
+                  <th>
+                    <button type="button" onClick={() => requestSort('type')} className={'sortable ' + getClassNamesFor('type')}>
+                      Type
+                    </button>
+                  </th>
+                  <th>
+                    <button type="button" onClick={() => requestSort('status')} className={'sortable ' + getClassNamesFor('status')}>
+                      Status
+                    </button>
+                  </th>
+                  {/* <th>Mode</th> */}
+                  <th>
+                    <button type="button" onClick={() => requestSort('updated_at')} className={'sortable ' + getClassNamesFor('updated_at')}>
+                      Updated
+                    </button>
+                  </th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
               <tbody>
               {retrieved ? (
-              Object.values(nodes)?.map(node => {
+              Object.values(sortedData)?.map(node => {
                   // const node = nodes[nodeName];
                   return (
               <tr>

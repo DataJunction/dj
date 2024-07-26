@@ -3,11 +3,11 @@ import Control from './FieldControl';
 
 export default function NodeTypeSelect() {
   return (
-    <span className="menu-link" style={{marginLeft: '30px', width: '600px'}}>
+    <span className="menu-link" style={{marginLeft: '30px', width: '300px'}}>
       <Select
         name="node_type"
         isClearable
-        isMulti
+        // isMulti
         label='Node Type'
         components={{ Control }}
         styles={{
