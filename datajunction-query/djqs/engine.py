@@ -5,6 +5,9 @@ Query related functions.
 import logging
 import os
 from datetime import datetime, timezone
+from http import HTTPStatus
+from http.client import HTTPException
+from pathlib import PurePosixPath
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -76,8 +79,14 @@ def create_trino_engine(engine: Engine, headers: Optional[Dict[str, str]]) -> "E
     scheme = parsed_uri.scheme
     host = parsed_uri.hostname
     port = parsed_uri.port
-    path = parsed_uri.path.lstrip("/")
-    catalog, schema = path.split("/", 1) if "/" in path else (path, None)
+    path_parts = PurePosixPath(parsed_uri.path).parts
+    if len(path_parts) < 2:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail="Cannot create a Trino engine, catalog or schema missing",
+        )
+    catalog = path_parts[1] if len(path_parts) > 1 else None
+    schema = path_parts[2] if len(path_parts) > 2 else None
 
     query_user = headers.get("QUERY_USER") or engine.extra_params["user"]
     query_password = headers.get("QUERY_PASSWORD") or engine.extra_params["password"]
