@@ -26,11 +26,10 @@ from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.base import Base
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
+from datajunction_server.database.history import History
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.tag import Tag
-from datajunction_server.database.history import History
-
 from datajunction_server.errors import DJInvalidInputException, DJNodeNotFound
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import (
@@ -227,7 +226,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
     history: Mapped[List[History]] = relationship(
         primaryjoin="History.entity_name==Node.name",
         order_by="History.created_at",
-        foreign_keys='History.entity_name',
+        foreign_keys="History.entity_name",
     )
 
     def __hash__(self) -> int:

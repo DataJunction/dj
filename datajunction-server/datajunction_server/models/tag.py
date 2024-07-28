@@ -46,6 +46,7 @@ class TagMinimum(BaseModel):
     """
     Output tag model.
     """
+
     name: str
 
     class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods

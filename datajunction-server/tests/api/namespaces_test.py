@@ -1,6 +1,8 @@
 """
 Tests for the namespaces API.
 """
+from unittest import mock
+
 import pytest
 from httpx import AsyncClient
 
@@ -79,6 +81,23 @@ async def test_list_nodes_by_namespace(
         "basic.paint_colors_spark",
         "basic.paint_colors_trino",
         "basic.patches",
+    }
+    countries_dim = [
+        n for n in response.json() if n["name"] == "basic.dimension.countries"
+    ][0]
+    assert countries_dim == {
+        "description": "Country dimension",
+        "display_name": "Basic: Dimension: Countries",
+        "edited_by": [
+            "dj",
+        ],
+        "mode": "published",
+        "name": "basic.dimension.countries",
+        "status": "valid",
+        "tags": [],
+        "type": "dimension",
+        "updated_at": mock.ANY,
+        "version": "v1.0",
     }
 
     response = await module__client_with_all_examples.get(
