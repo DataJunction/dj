@@ -12,7 +12,6 @@ export default function UserSelect({ onChange, currentUser }) {
   useEffect(() => {
     const fetchData = async () => {
       const users = await djClient.users();
-      console.log('users', users);
       setUsers(users);
       setRetrieved(true);
     };
@@ -20,7 +19,7 @@ export default function UserSelect({ onChange, currentUser }) {
   }, [djClient]);
 
   return (
-    <span className="menu-link" style={{ marginLeft: '30px', width: '400px' }}>
+    <span className="menu-link" style={{ marginLeft: '30px', width: '400px' }} data-testid="select-user">
       {retrieved ? (
         <Select
           name="edited_by"

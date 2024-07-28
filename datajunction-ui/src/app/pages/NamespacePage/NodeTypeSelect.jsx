@@ -3,7 +3,8 @@ import Control from './FieldControl';
 
 export default function NodeTypeSelect({ onChange }) {
   return (
-    <span className="menu-link" style={{ marginLeft: '30px', width: '300px' }}>
+    <span className="menu-link" style={{ marginLeft: '30px', width: '300px' }}
+                             data-testid="select-node-type">
       <Select
         name="node_type"
         isClearable

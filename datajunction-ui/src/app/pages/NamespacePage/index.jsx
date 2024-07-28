@@ -29,15 +29,14 @@ export function NamespacePage() {
     namespace: namespace,
     nodes: [],
   });
+  const [retrieved, setRetrieved] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
 
   const [filters, setFilters] = useState({
     tags: [],
     node_type: '',
     edited_by: currentUser?.username,
   });
-
-  const [retrieved, setRetrieved] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
 

@@ -3,12 +3,11 @@ from typing import List, Optional
 
 from sqlalchemy import DateTime, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, mapped_column, selectinload, joinedload, load_only
+from sqlalchemy.orm import Mapped, joinedload, load_only, mapped_column, selectinload
 from sqlalchemy.sql.operators import is_, or_
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.tag import Tag, TagNodeRelationship
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
@@ -91,29 +90,33 @@ class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
         """
         await cls.get(session, namespace)
 
-        list_nodes_query = select(Node).where(
-            or_(
-                Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
-                Node.namespace == namespace,
-            ),
-            Node.type == node_type if node_type else True,
-        ).options(
-            load_only(
-                Node.name,
-                Node.type,
-                Node.current_version,
-            ),
-            joinedload(Node.current).options(
-                load_only(
-                    NodeRevision.display_name,
-                    NodeRevision.description,
-                    NodeRevision.status,
-                    NodeRevision.mode,
-                    NodeRevision.updated_at,
+        list_nodes_query = (
+            select(Node)
+            .where(
+                or_(
+                    Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
+                    Node.namespace == namespace,
                 ),
-            ),
-            selectinload(Node.tags),
-            selectinload(Node.history),
+                Node.type == node_type if node_type else True,
+            )
+            .options(
+                load_only(
+                    Node.name,
+                    Node.type,
+                    Node.current_version,
+                ),
+                joinedload(Node.current).options(
+                    load_only(
+                        NodeRevision.display_name,
+                        NodeRevision.description,
+                        NodeRevision.status,
+                        NodeRevision.mode,
+                        NodeRevision.updated_at,
+                    ),
+                ),
+                selectinload(Node.tags),
+                selectinload(Node.history),
+            )
         )
         if include_deactivated is False:
             list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))

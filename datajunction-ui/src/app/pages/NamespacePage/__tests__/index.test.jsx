@@ -9,6 +9,9 @@ const mockDjClient = {
   namespaces: jest.fn(),
   namespace: jest.fn(),
   addNamespace: jest.fn(),
+  whoami: jest.fn(),
+  users: jest.fn(),
+  listTags: jest.fn(),
 };
 
 describe('NamespacePage', () => {
@@ -34,6 +37,9 @@ describe('NamespacePage', () => {
 
   beforeEach(() => {
     fetch.resetMocks();
+    mockDjClient.whoami.mockResolvedValue({username: 'dj'});
+    mockDjClient.users.mockResolvedValue([{username: 'dj'}, {username: 'user1'}]);
+    mockDjClient.listTags.mockResolvedValue([{name: 'tag1'}, {name: 'tag2'}]);
     mockDjClient.namespaces.mockResolvedValue([
       {
         namespace: 'common.one',
@@ -75,6 +81,8 @@ describe('NamespacePage', () => {
         type: 'transform',
         mode: 'active',
         updated_at: new Date(),
+        tags: [{name: 'tag1'}],
+        edited_by: ['dj'],
       },
     ]);
   });
@@ -110,6 +118,30 @@ describe('NamespacePage', () => {
 
       // check that it renders nodes
       expect(screen.getByText('Test Node')).toBeInTheDocument();
+
+      // check that it sorts nodes
+      fireEvent.click(screen.getByText('name'));
+      fireEvent.click(screen.getByText('display name'));
+
+      // check that we can filter by node type
+      const selectNodeType = screen.getAllByTestId('select-node-type')[0];
+      expect(selectNodeType).toBeDefined();
+      expect(selectNodeType).not.toBeNull();
+      fireEvent.keyDown(selectNodeType.firstChild, { key: 'ArrowDown' });
+      fireEvent.click(screen.getByText('Source'));
+
+      // check that we can filter by tag
+      const selectTag = screen.getAllByTestId('select-tag')[0];
+      expect(selectTag).toBeDefined();
+      expect(selectTag).not.toBeNull();
+      fireEvent.keyDown(selectTag.firstChild, { key: 'ArrowDown' });
+
+      // check that we can filter by user
+      const selectUser = screen.getAllByTestId('select-user')[0];
+      expect(selectUser).toBeDefined();
+      expect(selectUser).not.toBeNull();
+      fireEvent.keyDown(selectUser.firstChild, { key: 'ArrowDown' });
+      // fireEvent.click(screen.getByText('dj'));
 
       // click to open and close tab
       fireEvent.click(screen.getByText('common'));
