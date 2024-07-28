@@ -238,6 +238,7 @@ export function NamespacePage() {
               onChange={entry =>
                 setFilters({ ...filters, edited_by: entry ? entry.value : '' })
               }
+              currentUser={currentUser?.username}
             />
             <AddNodeDropdown namespace={namespace} />
           </div>

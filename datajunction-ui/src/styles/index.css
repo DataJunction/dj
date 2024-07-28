@@ -290,7 +290,8 @@ tr {
   padding: 8px;
 }
 .table-responsive {
-  width: max-content;
+  width: auto;
+  grid-template-columns: 200px auto;
 }
 .table-vertical {
   display: contents;

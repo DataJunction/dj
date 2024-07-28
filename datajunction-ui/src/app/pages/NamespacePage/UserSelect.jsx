@@ -4,7 +4,7 @@ import Control from './FieldControl';
 
 import Select from 'react-select';
 
-export default function UserSelect({ onChange }) {
+export default function UserSelect({ onChange, currentUser }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [retrieved, setRetrieved] = useState(false);
   const [users, setUsers] = useState([]);
@@ -29,11 +29,11 @@ export default function UserSelect({ onChange }) {
           components={{ Control }}
           onChange={e => onChange(e)}
           defaultValue={{
-            value: 'yshang@netflix.com',
-            label: 'yshang@netflix.com',
+            value: currentUser,
+            label: currentUser,
           }}
           options={users?.map(user => {
-            return { value: user.username, label: `${user.username}` };
+            return { value: user.username, label: user.username };
           })}
         />
       ) : (

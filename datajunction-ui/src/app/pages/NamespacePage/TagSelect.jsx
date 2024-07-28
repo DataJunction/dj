@@ -28,42 +28,10 @@ export default function TagSelect({ onChange }) {
         label="Tags"
         components={{ Control }}
         onChange={e => onChange(e)}
-        styles={{
-          control: styles => ({ ...styles, backgroundColor: 'white' }),
-          option: (styles, { data, isDisabled, isFocused, isSelected }) => {
-            return {
-              ...styles,
-              color: data.color,
-              cursor: isDisabled ? 'not-allowed' : 'default',
-              className: `node_type__${data.value}`,
-              ':active': {
-                ...styles[':active'],
-                backgroundColor: data.backgroundColor,
-              },
-            };
-          },
-          valueContainer: (provided, state) => ({
-            ...provided,
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-          }),
-          multiValue: (styles, { data }) => {
-            return {
-              ...styles,
-              backgroundColor: data.backgroundColor,
-            };
-          },
-          multiValueLabel: (styles, { data }) => ({
-            ...styles,
-            color: data.color,
-          }),
-        }}
         options={tags?.map(tag => {
           return {
             value: tag.name,
             label: tag.display_name,
-            backgroundColor: '#eee',
           };
         })}
       />
