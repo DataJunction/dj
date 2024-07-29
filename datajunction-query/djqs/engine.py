@@ -88,12 +88,13 @@ def create_trino_engine(engine: Engine, headers: Optional[Dict[str, str]]) -> "E
     catalog = path_parts[1] if len(path_parts) > 1 else None
     schema = path_parts[2] if len(path_parts) > 2 else None
 
+    trino_server = headers.get("TRINO_SERVER") or f"{host}:{port}"
     query_user = headers.get("QUERY_USER") or engine.extra_params["user"]
     query_password = headers.get("QUERY_PASSWORD") or engine.extra_params["password"]
     http_scheme = headers.get("TRINO_HTTP_SCHEME") or engine.extra_params["http_scheme"]
 
     if http_scheme == "https" and query_user and query_password:
-        engine_str = f"{scheme}://{query_user}:{query_password}@{host}:{port}/{catalog}/{schema}?protocol={http_scheme}"
+        engine_str = f"{scheme}://{query_user}:{query_password}@{trino_server}/{catalog}/{schema}?protocol={http_scheme}"
         return create_engine(engine_str)
     else:
         engine_str = engine.uri
