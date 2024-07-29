@@ -5,9 +5,7 @@ Query related functions.
 import logging
 import os
 from datetime import datetime, timezone
-from http import HTTPStatus
 from http.client import HTTPException
-from pathlib import PurePosixPath
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -70,37 +68,6 @@ def get_columns_from_description(
     return columns
 
 
-def create_trino_engine(engine: Engine, headers: Optional[Dict[str, str]]) -> "Engine":
-    """
-    Create a SQLAlchemy engine for Trino.
-    """
-    # Parsing the URI
-    parsed_uri = urlparse(engine.uri)
-    scheme = parsed_uri.scheme
-    host = parsed_uri.hostname
-    port = parsed_uri.port
-    path_parts = PurePosixPath(parsed_uri.path).parts
-    if len(path_parts) < 2:
-        raise HTTPException(
-            status_code=HTTPStatus.BAD_REQUEST,
-            detail="Cannot create a Trino engine, catalog or schema missing",
-        )
-    catalog = path_parts[1] if len(path_parts) > 1 else None
-    schema = path_parts[2] if len(path_parts) > 2 else None
-
-    trino_server = headers.get("TRINO_SERVER") or f"{host}:{port}"
-    query_user = headers.get("QUERY_USER") or engine.extra_params["user"]
-    query_password = headers.get("QUERY_PASSWORD") or engine.extra_params["password"]
-    http_scheme = headers.get("TRINO_HTTP_SCHEME") or engine.extra_params["http_scheme"]
-
-    if http_scheme == "https" and query_user and query_password:
-        engine_str = f"{scheme}://{query_user}:{query_password}@{trino_server}/{catalog}/{schema}?protocol={http_scheme}"
-        return create_engine(engine_str)
-    else:
-        engine_str = engine.uri
-        return create_engine(engine_str, connect_args=engine.extra_params)
-
-
 def run_query(
     session: Session,
     query: Query,
@@ -124,7 +91,11 @@ def run_query(
     parsed_uri = urlparse(engine.uri)
     scheme = parsed_uri.scheme
 
-    if engine.type == EngineType.DUCKDB:
+    query_server = headers.get("QUERY_ENGINE_SERVER")
+
+    if query_server:
+        sqla_engine = create_engine(query_server)
+    elif engine.type == EngineType.DUCKDB:
         conn = (
             duckdb.connect()
             if engine.uri == "duckdb:///:memory:"
@@ -143,10 +114,7 @@ def run_query(
 
         return run_snowflake_query(query, cur)
     else:
-        if scheme == "trino":
-            sqla_engine = create_trino_engine(engine, headers)
-        else:
-            sqla_engine = create_engine(engine.uri, connect_args=engine.extra_params)
+        sqla_engine = create_engine(engine.uri, connect_args=engine.extra_params)
 
         connection = sqla_engine.connect()
 
