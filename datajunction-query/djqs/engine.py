@@ -1,13 +1,10 @@
 """
 Query related functions.
 """
-
 import logging
 import os
 from datetime import datetime, timezone
-from http.client import HTTPException
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import urlparse
 
 import duckdb
 import snowflake.connector
@@ -114,12 +111,10 @@ def run_query(
         sqla_engine = create_engine(engine.uri, connect_args=engine.extra_params)
 
         connection = sqla_engine.connect()
-
         output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
         statements = sqlparse.parse(query.executed_query)
         for statement in statements:
             sql = str(statement).strip().rstrip(";")
-
             results = connection.execute(text(sql))
             stream = (tuple(row) for row in results)
             columns = get_columns_from_description(
