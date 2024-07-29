@@ -107,23 +107,24 @@ def run_query(
         cur = conn.cursor()
 
         return run_snowflake_query(query, cur)
-    else:
-        sqla_engine = create_engine(engine.uri, connect_args=engine.extra_params)
+    sqla_engine = create_engine(engine.uri, connect_args=engine.extra_params)
+    connection = sqla_engine.connect()
 
-        connection = sqla_engine.connect()
-        output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
-        statements = sqlparse.parse(query.executed_query)
-        for statement in statements:
-            sql = str(statement).strip().rstrip(";")
-            results = connection.execute(text(sql))
-            stream = (tuple(row) for row in results)
-            columns = get_columns_from_description(
-                results.cursor.description,
-                sqla_engine.dialect,
-            )
-            output.append((sql, columns, stream))
+    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
+    statements = sqlparse.parse(query.executed_query)
+    for statement in statements:
+        # Druid doesn't like statements that end in a semicolon...
+        sql = str(statement).strip().rstrip(";")
 
-        return output
+        results = connection.execute(text(sql))
+        stream = (tuple(row) for row in results)
+        columns = get_columns_from_description(
+            results.cursor.description,
+            sqla_engine.dialect,
+        )
+        output.append((sql, columns, stream))
+
+    return output
 
 
 def run_duckdb_query(
