@@ -85,7 +85,7 @@ def run_query(
         .where(Engine.version == query.engine_version),
     ).one()
 
-    query_server = headers.get("QUERY_ENGINE_SERVER")
+    query_server = headers.get("SQLALCHEMY_URI")
 
     if query_server:
         sqla_engine = create_engine(query_server)
