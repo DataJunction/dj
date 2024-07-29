@@ -88,9 +88,6 @@ def run_query(
         .where(Engine.version == query.engine_version),
     ).one()
 
-    parsed_uri = urlparse(engine.uri)
-    scheme = parsed_uri.scheme
-
     query_server = headers.get("QUERY_ENGINE_SERVER")
 
     if query_server:
