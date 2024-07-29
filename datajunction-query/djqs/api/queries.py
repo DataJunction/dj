@@ -100,7 +100,12 @@ async def submit_query(  # pylint: disable=too-many-arguments
     create_query = QueryCreate(**data)
 
     query_with_results = save_query_and_run(
-        create_query, session, settings, response, background_tasks, request.headers,
+        create_query,
+        session,
+        settings,
+        response,
+        background_tasks,
+        request.headers,
     )
 
     return_type = get_best_match(accept, ["application/json", "application/msgpack"])
