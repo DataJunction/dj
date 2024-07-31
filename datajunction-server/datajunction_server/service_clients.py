@@ -69,6 +69,8 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
     Client for the query service.
     """
 
+    HEADERS_TO_IGNORE = ("accept-encoding",)
+
     def __init__(self, uri: str, retries: int = 0):
         self.uri = uri
         retry_strategy = Retry(
@@ -101,7 +103,14 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             }
             if engine
             else {},
-            headers={**self.requests_session.headers, **request_headers}
+            headers={
+                **self.requests_session.headers,
+                **{
+                    key: value
+                    for key, value in request_headers.items()
+                    if key.lower() not in self.HEADERS_TO_IGNORE
+                },
+            }
             if request_headers
             else self.requests_session.headers,
         )
