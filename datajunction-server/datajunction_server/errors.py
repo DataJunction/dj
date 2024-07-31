@@ -291,3 +291,15 @@ class DJPluginNotFoundException(DJException):
     """
     Exception raised when plugin is not found.
     """
+
+
+class DJQueryBuildException(DJException):
+    """
+    Exception raised when query building fails.
+    """
+
+
+class DJQueryBuildError(DJError):
+    """
+    Query build error
+    """

@@ -400,11 +400,13 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
         params=sql_params,
     )
     data = response.json()
-    translated_sql = data["default.repair_orders_fact"]
-    assert str(parse(str(sql))) == str(parse(str(translated_sql["sql"])))
-    result = duckdb_conn.sql(translated_sql["sql"])
+    generated_sql = data[0]
+    assert generated_sql["node"]["name"] == "default.repair_orders_fact"
+    assert generated_sql["node"]["version"] == "v1.0"
+    assert str(parse(str(sql))) == str(parse(str(generated_sql["sql"])))
+    result = duckdb_conn.sql(generated_sql["sql"])
     assert set(result.fetchall()) == set(rows)
-    assert translated_sql["columns"] == columns
+    assert generated_sql["columns"] == columns
 
 
 @pytest.mark.asyncio
@@ -434,7 +436,9 @@ async def test_measures_sql_include_all_columns(
         },
     )
     data = response.json()
-    translated_sql = data["default.repair_orders_fact"]
+    generated_sql = data[0]
+    assert generated_sql["node"]["name"] == "default.repair_orders_fact"
+    assert generated_sql["node"]["version"] == "v1.0"
 
     expected_sql = """
     WITH default_DOT_repair_orders_fact AS (
@@ -506,6 +510,6 @@ async def test_measures_sql_include_all_columns(
     INNER JOIN default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_short
     LEFT JOIN default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
     """
-    assert str(parse(str(expected_sql))) == str(parse(str(translated_sql["sql"])))
-    result = duckdb_conn.sql(translated_sql["sql"])
+    assert str(parse(str(expected_sql))) == str(parse(str(generated_sql["sql"])))
+    result = duckdb_conn.sql(generated_sql["sql"])
     assert len(result.fetchall()) == 4
