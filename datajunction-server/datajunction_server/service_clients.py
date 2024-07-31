@@ -84,6 +84,17 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             retry_strategy=retry_strategy,
         )
 
+    @staticmethod
+    def filtered_headers(request_headers: Dict[str, str]):
+        """
+        The request headers with the headers to ignore filtered out.
+        """
+        return {
+            key: value
+            for key, value in request_headers.items()
+            if key.lower() not in QueryServiceClient.HEADERS_TO_IGNORE
+        }
+
     def get_columns_for_table(
         self,
         catalog: str,
@@ -105,11 +116,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             else {},
             headers={
                 **self.requests_session.headers,
-                **{
-                    key: value
-                    for key, value in request_headers.items()
-                    if key.lower() not in self.HEADERS_TO_IGNORE
-                },
+                **QueryServiceClient.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
@@ -197,7 +204,10 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         response = self.requests_session.post(
             "/materialization/",
             json=materialization_input.dict(),
-            headers={**self.requests_session.headers, **request_headers}
+            headers={
+                **self.requests_session.headers,
+                **QueryServiceClient.filtered_headers(request_headers),
+            }
             if request_headers
             else self.requests_session.headers,
         )
@@ -217,7 +227,10 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         """
         response = self.requests_session.delete(
             f"/materialization/{node_name}/{materialization_name}/",
-            headers={**self.requests_session.headers, **request_headers}
+            headers={
+                **self.requests_session.headers,
+                **QueryServiceClient.filtered_headers(request_headers),
+            }
             if request_headers
             else self.requests_session.headers,
         )
@@ -239,7 +252,10 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         response = self.requests_session.get(
             f"/materialization/{node_name}/{node_version}/{materialization_name}/",
             timeout=3,
-            headers={**self.requests_session.headers, **request_headers}
+            headers={
+                **self.requests_session.headers,
+                **QueryServiceClient.filtered_headers(request_headers),
+            }
             if request_headers
             else self.requests_session.headers,
         )
@@ -258,7 +274,10 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         response = self.requests_session.post(
             f"/materialization/run/{node_name}/{materialization_name}/",
             json=[partition.dict() for partition in partitions],
-            headers={**self.requests_session.headers, **request_headers}
+            headers={
+                **self.requests_session.headers,
+                **QueryServiceClient.filtered_headers(request_headers),
+            }
             if request_headers
             else self.requests_session.headers,
             timeout=20,
