@@ -348,7 +348,7 @@ export const DataJunctionAPI = {
 
   namespace: async function (nmspce) {
     return await (
-      await fetch(`${DJ_URL}/namespaces/${nmspce}/`, {
+      await fetch(`${DJ_URL}/namespaces/${nmspce}/?with_edited_by=true`, {
         credentials: 'include',
       })
     ).json();

@@ -84,6 +84,7 @@ class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
         namespace: str,
         node_type: Optional[NodeType] = None,
         include_deactivated: bool = False,
+        with_edited_by: bool = False,
     ) -> List["NodeMinimumDetail"]:
         """
         List node names in namespace.
@@ -115,7 +116,7 @@ class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
                     ),
                 ),
                 selectinload(Node.tags),
-                selectinload(Node.history),
+                *([selectinload(Node.history)] if with_edited_by else []),
             )
         )
         if include_deactivated is False:
@@ -133,7 +134,11 @@ class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
                 mode=row.current.mode,
                 updated_at=row.current.updated_at,
                 tags=row.tags,
-                edited_by=list({entry.user for entry in row.history if entry.user}),
+                edited_by=(
+                    None
+                    if not with_edited_by
+                    else list({entry.user for entry in row.history if entry.user})
+                ),
             )
             for row in result.unique().scalars().all()
         ]

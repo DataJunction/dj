@@ -232,6 +232,15 @@ class Node(Base):  # pylint: disable=too-few-public-methods
     def __hash__(self) -> int:
         return hash(self.id)
 
+    @hybrid_property
+    def edited_by(self) -> List[str]:
+        """
+        Editors of the node
+        """
+        return list(  # pragma: no cover
+            {entry.user for entry in self.history if entry.user},
+        )
+
     @classmethod
     async def get_by_name(
         cls,
