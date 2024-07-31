@@ -5,6 +5,7 @@ from pytest_mock import MockerFixture
 from datajunction_server.errors import DJPluginNotFoundException
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.metric import TranslatedSQL
+from datajunction_server.models.sql import GeneratedSQL, NodeNameVersion
 from datajunction_server.transpilation import get_transpilation_plugin
 
 
@@ -55,6 +56,13 @@ def test_translated_sql(mocker: MockerFixture) -> None:
         dialect=Dialect.SPARK,
     )
     assert translated_sql.sql == "1"
+    generated_sql = GeneratedSQL(
+        node=NodeNameVersion(name="a", version="v1.0"),
+        sql="1",
+        columns=[],
+        dialect=Dialect.SPARK,
+    )
+    assert generated_sql.sql == "1"
 
 
 def test_druid_sql(mocker: MockerFixture) -> None:
@@ -70,3 +78,10 @@ def test_druid_sql(mocker: MockerFixture) -> None:
         dialect=Dialect.DRUID,
     )
     assert translated_sql.sql == "SELECT 1"
+    generated_sql = GeneratedSQL(
+        node=NodeNameVersion(name="a", version="v1.0"),
+        sql="SELECT 1",
+        columns=[],
+        dialect=Dialect.DRUID,
+    )
+    assert generated_sql.sql == "SELECT 1"

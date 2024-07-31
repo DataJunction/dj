@@ -264,11 +264,15 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes
             self.add_dimension(dimension)
         return self
 
-    def order_by(self, orderby: Optional[List[str]] = None):
+    def order_by(self, orderby: Optional[Union[str, List[str]]] = None):
         """Set order by for the query builder."""
-        for order in orderby or []:
-            if order not in self._orderby:
-                self._orderby.append(order)
+        if isinstance(orderby, str):
+            if orderby not in self._orderby:
+                self._orderby.append(orderby)
+        else:
+            for order in orderby or []:
+                if order not in self._orderby:
+                    self._orderby.append(order)
         return self
 
     def limit(self, limit: Optional[int] = None):
@@ -279,7 +283,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes
 
     def with_build_criteria(self, build_criteria: Optional[BuildCriteria] = None):
         """Set build criteria for the query builder."""
-        if build_criteria:
+        if build_criteria:  # pragma: no cover
             self._build_criteria = build_criteria
         return self
 
@@ -290,7 +294,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes
         """
         Set access control for the query builder.
         """
-        if access_control:
+        if access_control:  # pragma: no cover
             access_control.add_request_by_node(self.node_revision)
             self._access_control = access_control
         return self
@@ -601,23 +605,6 @@ def get_column_from_canonical_dimension(
             link.foreign_keys_reversed[dimension_attr.name],
         ).column_name
     return column_name
-
-
-async def get_necessary_dimensions(
-    session: AsyncSession,
-    node: NodeRevision,
-    dimensions: List[str],
-):
-    """
-    Returns the necessary dimensions for this node, which are a combination of the requested
-    dimensions and the node's required dimensions
-    """
-    await session.refresh(node, ["required_dimensions"])
-    return list(
-        dict.fromkeys(
-            dimensions or [] + [required.name for required in node.required_dimensions],
-        ),
-    )
 
 
 def to_filter_asts(filters: Optional[List[str]] = None):
