@@ -144,12 +144,21 @@ async def list_nodes_in_namespace(
         default=None,
         description="Filter the list of nodes to this type",
     ),
+    with_edited_by: bool = Query(
+        default=False,
+        description="Whether to include a list of users who edited each node",
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> List[NodeMinimumDetail]:
     """
     List node names in namespace, filterable to a given type if desired.
     """
-    return await NodeNamespace.list_nodes(session, namespace, type_)
+    return await NodeNamespace.list_nodes(
+        session,
+        namespace,
+        type_,
+        with_edited_by=with_edited_by,
+    )
 
 
 @router.delete("/namespaces/{namespace}/", status_code=HTTPStatus.OK)
