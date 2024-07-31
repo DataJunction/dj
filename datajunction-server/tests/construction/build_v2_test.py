@@ -1292,6 +1292,42 @@ async def test_build_fail_no_join_path_found(
 
 
 @pytest.mark.asyncio
+async def test_query_builder(
+    session: AsyncSession,
+    events: Node,  # pylint: disable=unused-argument
+    events_agg: Node,
+    country_dim: Node,  # pylint: disable=unused-argument
+):
+    """
+    Test failed node building due to not being able to find a join path to the dimension
+    """
+    query_builder = (
+        (
+            await QueryBuilder.create(
+                session,
+                events_agg.current,
+            )
+        )
+        .filter_by("shared.countries.region_name = 'APAC'")
+        .filter_by("shared.countries.region_name = 'APAC'")
+        .add_dimension("shared.countries.region_name")
+        .add_dimension("shared.countries.region_name")
+        .order_by(["shared.countries.region_name DESC"])
+        .order_by("shared.countries.region_name DESC")
+        .order_by("shared.countries.region_name ASC")
+        .limit(100)
+    )
+    assert query_builder.filters == ["shared.countries.region_name = 'APAC'"]
+    assert query_builder.dimensions == ["shared.countries.region_name"]
+    assert query_builder._orderby == [  # pylint: disable=protected-access
+        "shared.countries.region_name DESC",
+        "shared.countries.region_name ASC",
+    ]
+    assert query_builder._limit == 100  # pylint: disable=protected-access
+    assert not query_builder.include_dimensions_in_groupby
+
+
+@pytest.mark.asyncio
 async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
     session: AsyncSession,
     events: Node,  # pylint: disable=unused-argument
