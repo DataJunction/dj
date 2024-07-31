@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import datajunction_server.sql.parsing.types as ct
 from datajunction_server.construction.build_v2 import (
-    build_node,
+    QueryBuilder,
     combine_filter_conditions,
     dimension_join_path,
 )
@@ -14,7 +14,7 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink, JoinType
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJQueryBuildException
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -638,10 +638,11 @@ async def test_build_source_node(
     """
     Test building a source node
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events.current,
     )
+    query_ast = await query_builder.build()
     assert (
         str(query_ast).strip()
         == str(
@@ -669,10 +670,11 @@ async def test_build_source_node_with_direct_filter(
     """
     Test building a source node with a filter on an immediate column on the source node.
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events.current,
     )
+    query_ast = await query_builder.build()
     assert (
         str(query_ast).strip()
         == str(
@@ -691,12 +693,8 @@ async def test_build_source_node_with_direct_filter(
         ).strip()
     )
 
-    query_ast = await build_node(
-        session,
-        events.current,
-        filters=[
-            "source.events.utc_date = 20210101",
-        ],
+    query_ast = await (
+        query_builder.add_filters(["source.events.utc_date = 20210101"]).build()
     )
     expected = """
     WITH source_DOT_events AS (
@@ -743,14 +741,15 @@ async def test_build_source_with_pushdown_filters(
     Test building a source node with a dimension attribute filter that can be
     pushed down to an immediate column on the source node.
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events.current,
-        filters=[
-            "shared.devices.device_id = 111",
-            "shared.devices.device_id = 222",
-        ],
-        dimensions=["shared.devices.device_id"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_id = 111")
+        .filter_by("shared.devices.device_id = 222")
+        .add_dimension("shared.devices.device_id")
+        .build()
     )
 
     expected = """
@@ -799,19 +798,18 @@ async def test_build_source_with_join_filters(
     Test building a source node with a dimension attribute filter that
     requires a join to a dimension node.
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events.current,
-        filters=[
-            "shared.devices.device_id = 111",
-            "shared.devices.device_name = 'iPhone'",
-        ],
-        dimensions=[
-            "shared.devices.device_name",
-            "shared.devices.device_manufacturer",
-        ],
     )
-
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_id = 111")
+        .filter_by("shared.devices.device_name = 'iPhone'")
+        .add_dimension("shared.devices.device_id")
+        .add_dimension("shared.devices.device_name")
+        .add_dimension("shared.devices.device_manufacturer")
+        .build()
+    )
     expected = """
     WITH
     source_DOT_events AS (
@@ -846,7 +844,7 @@ async def test_build_source_with_join_filters(
     )
     SELECT  source_DOT_events.event_id,
         source_DOT_events.user_id,
-        source_DOT_events.device_id shared_DOT_devices_DOT_device_id,
+        source_DOT_events.device_id,
         source_DOT_events.country_code,
         source_DOT_events.latency,
         source_DOT_events.utc_date,
@@ -868,10 +866,11 @@ async def test_build_dimension_node(
     """
     Test building a dimension node
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         devices.current,
     )
+    query_ast = await query_builder.build()
     expected = """
     WITH shared_DOT_devices AS (
       SELECT
@@ -916,19 +915,23 @@ async def test_build_dimension_node_with_direct_and_pushdown_filter(
     FROM shared_DOT_devices
     """
     # Direct filter
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         devices.current,
-        filters=["shared.devices.device_manufacturer = 'Apple'"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_manufacturer = 'Apple'").build()
     )
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
     # Pushdown filter
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         devices.current,
-        filters=["shared.manufacturers.name = 'Apple'"],
     )
+    query_ast = await (
+        query_builder.filter_by("shared.manufacturers.name = 'Apple'")
+    ).build()
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
 
@@ -945,15 +948,16 @@ async def test_build_transform_with_pushdown_dimensions_filters(
     Test building a transform node with filters and dimensions that can be pushed down
     on to the transform's columns directly.
     """
-    await session.refresh(events_agg.current, ["dimension_links"])
-    query_ast = await build_node(
+    # await session.refresh(events_agg.current, ["dimension_links"])
+    query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
-        filters=[
-            "shared.devices.device_id = 111",
-            "shared.devices.device_id = 222",
-        ],
-        dimensions=["shared.devices.device_id"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_id = 111")
+        .filter_by("shared.devices.device_id = 222")
+        .add_dimension("shared.devices.device_id")
+        .build()
     )
     expected = """
     WITH agg_DOT_events AS (
@@ -997,14 +1001,15 @@ async def test_build_transform_with_deeper_pushdown_dimensions_filters(
     both onto the transform's columns and onto its upstream source node's columns.
     """
     await session.refresh(events_agg.current, ["dimension_links"])
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
-        filters=[
-            "shared.devices.device_id = 111",
-            "shared.devices.device_id = 222",
-        ],
-        dimensions=["shared.devices.device_id"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_id = 111")
+        .filter_by("shared.devices.device_id = 222")
+        .add_dimension("shared.devices.device_id")
+        .build()
     )
     expected = """
     WITH agg_DOT_events AS (
@@ -1059,14 +1064,15 @@ async def test_build_transform_w_cte_and_pushdown_dimensions_filters(
     at the upstream source node level.
     """
     await session.refresh(events_agg_complex.current, ["dimension_links"])
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events_agg_complex.current,
-        filters=[
-            "shared.devices.device_id = 111",
-            "shared.devices.device_id = 222",
-        ],
-        dimensions=["shared.devices.device_id"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_id = 111")
+        .filter_by("shared.devices.device_id = 222")
+        .add_dimension("shared.devices.device_id")
+        .build()
     )
     expected = """
     WITH agg_DOT_events_complex AS (
@@ -1125,14 +1131,16 @@ async def test_build_transform_with_join_dimensions_filters(
     """
     Test building a transform node with filters and dimensions that require a join
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
-        filters=[
-            "shared.devices.device_name = 'iOS'",
-            "shared.devices.device_id = 222",
-        ],
-        dimensions=["shared.devices.device_manufacturer"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_name = 'iOS'")
+        .filter_by("shared.devices.device_id = 222")
+        .add_dimension("shared.devices.device_manufacturer")
+        .add_dimension("shared.devices.device_id")
+        .build()
     )
     expected = """
         WITH agg_DOT_events AS (
@@ -1161,12 +1169,12 @@ async def test_build_transform_with_join_dimensions_filters(
         SELECT
           agg_DOT_events.user_id,
           agg_DOT_events.utc_date,
-          agg_DOT_events.device_id shared_DOT_devices_DOT_device_id,
+          agg_DOT_events.device_id,
           agg_DOT_events.country_code,
           agg_DOT_events.total_latency,
           shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
-          shared_DOT_devices.device_name shared_DOT_devices_DOT_device_name,
-          shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id
+          shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id,
+          shared_DOT_devices.device_name shared_DOT_devices_DOT_device_name
         FROM agg_DOT_events
         INNER JOIN shared_DOT_devices
           ON shared_DOT_devices.device_id = agg_DOT_events.device_id
@@ -1190,15 +1198,16 @@ async def test_build_transform_with_multijoin_dimensions_filters(
     where dimension nodes themselves have a query that references an existing CTE
     in the query.
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
-        filters=[
-            "shared.manufacturers.company_name = 'Apple'",
-            "shared.devices.device_id = 123",
-            "shared.devices.device_manufacturer = 'Something'",
-        ],
-        dimensions=["shared.devices.device_manufacturer"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.manufacturers.company_name = 'Apple'")
+        .filter_by("shared.devices.device_id = 123")
+        .filter_by("shared.devices.device_manufacturer = 'Something'")
+        .add_dimension("shared.devices.device_manufacturer")
+        .build()
     )
     expected = """
         WITH
@@ -1266,14 +1275,15 @@ async def test_build_fail_no_join_path_found(
     """
     Test failed node building due to not being able to find a join path to the dimension
     """
-    with pytest.raises(DJException) as exc_info:
-        await build_node(
+    with pytest.raises(DJQueryBuildException) as exc_info:
+        query_builder = await QueryBuilder.create(
             session,
             events_agg.current,
-            filters=["shared.countries.region_name = 'APAC'"],
-            dimensions=[
-                "shared.countries.region_name",
-            ],
+        )
+        await (
+            query_builder.filter_by("shared.countries.region_name = 'APAC'")
+            .add_dimension("shared.countries.region_name")
+            .build()
         )
     assert (
         "This dimension attribute cannot be joined in: shared.countries.region_name. "
@@ -1298,17 +1308,13 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
     where dimension nodes themselves have a query that brings in an additional node that
     is not already a CTE on the query.
     """
-    query_ast = await build_node(
-        session,
-        events_agg.current,
-        filters=[
-            "shared.manufacturers.company_name = 'Apple'",
-            "shared.countries.region_name = 'APAC'",
-        ],
-        dimensions=[
-            "shared.devices.device_manufacturer",
-            "shared.countries.region_name",
-        ],
+    query_builder = await QueryBuilder.create(session, events_agg.current)
+    query_ast = await (
+        query_builder.filter_by("shared.manufacturers.company_name = 'Apple'")
+        .filter_by("shared.countries.region_name = 'APAC'")
+        .add_dimension("shared.devices.device_manufacturer")
+        .add_dimension("shared.countries.region_name")
+        .build()
     )
     expected = """
     WITH
@@ -1388,10 +1394,12 @@ async def test_build_with_source_filters(
     """
     Test build node with filters on source
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
-        filters=["shared.date.dateint = 20250101"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.date.dateint = 20250101").build()
     )
     expected = """
     WITH

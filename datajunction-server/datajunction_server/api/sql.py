@@ -4,7 +4,7 @@ SQL related APIs.
 """
 import logging
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple, cast
+from typing import List, Optional, Tuple, cast
 
 from fastapi import BackgroundTasks, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,7 @@ from datajunction_server.models import access
 from datajunction_server.models.access import AccessControlStore
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.sql import GeneratedSQL
 from datajunction_server.models.user import UserOutput
 from datajunction_server.utils import (
     get_and_update_current_user,
@@ -121,7 +122,7 @@ async def get_measures_sql_for_cube(
 
 @router.get(
     "/sql/measures/v2/",
-    response_model=Dict[str, TranslatedSQL],
+    response_model=List[GeneratedSQL],
     name="Get Measures SQL",
 )
 async def get_measures_sql_for_cube_v2(
@@ -143,7 +144,7 @@ async def get_measures_sql_for_cube_v2(
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
-) -> Dict[str, TranslatedSQL]:
+) -> List[GeneratedSQL]:
     """
     Return measures SQL for a set of metrics with dimensions and filters.
 
