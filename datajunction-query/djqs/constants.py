@@ -15,3 +15,6 @@ DEFAULT_DIMENSION_COLUMN = "id"
 # used by the SQLAlchemy client
 QUERY_EXECUTE_TIMEOUT = timedelta(seconds=60)
 GET_COLUMNS_TIMEOUT = timedelta(seconds=60)
+
+# Request header configuration params
+SQLALCHEMY_URI = "SQLALCHEMY_URI"
