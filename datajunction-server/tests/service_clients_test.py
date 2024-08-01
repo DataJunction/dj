@@ -585,3 +585,28 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             timeout=20,
             headers=ANY,
         )
+
+    def test_filtered_headers(self):
+        """
+        We should filter out certain headers.
+        """
+        assert QueryServiceClient.filtered_headers(
+            {
+                "User-Agent": "python-requests/2.29.0",
+                "Accept-Encoding": "gzip, deflate",
+                "Accept": "*/*",
+            },
+        ) == {
+            "User-Agent": "python-requests/2.29.0",
+            "Accept": "*/*",
+        }
+        assert QueryServiceClient.filtered_headers(
+            {
+                "User-Agent": "python-requests/2.29.0",
+                "accept-encoding": "gzip, deflate",
+                "Accept": "*/*",
+            },
+        ) == {
+            "User-Agent": "python-requests/2.29.0",
+            "Accept": "*/*",
+        }
