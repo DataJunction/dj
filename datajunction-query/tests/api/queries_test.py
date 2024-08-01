@@ -86,6 +86,71 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     assert data["errors"] == []
 
 
+def test_submit_query_with_sqlalchemy_uri_header(
+    session: Session,
+    client: TestClient,
+) -> None:
+    """
+    Test ``POST /queries/`` with the SQLALCHEMY_URI defined in the header.
+    """
+    engine = Engine(
+        name="test_engine",
+        type=EngineType.DUCKDB,
+        version="1.0",
+        uri="duckdb:///:memory:",
+    )
+    catalog = Catalog(name="test_catalog", engines=[engine])
+    session.add(catalog)
+    session.commit()
+    session.refresh(catalog)
+
+    query_create = QueryCreate(
+        catalog_name=catalog.name,
+        engine_name=engine.name,
+        engine_version=engine.version,
+        submitted_query="SELECT 1 AS col",
+    )
+    payload = query_create.json(by_alias=True)
+    assert payload == json.dumps(
+        {
+            "catalog_name": "test_catalog",
+            "engine_name": "test_engine",
+            "engine_version": "1.0",
+            "submitted_query": "SELECT 1 AS col",
+            "async_": False,
+        },
+    )
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "SQLALCHEMY_URI": "trino://example@foo.bar/catalog/schema",
+            },
+        )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["catalog_name"] == "test_catalog"
+    assert data["engine_name"] == "test_engine"
+    assert data["engine_version"] == "1.0"
+    assert data["submitted_query"] == "SELECT 1 AS col"
+    assert data["executed_query"] == "SELECT 1 AS col"
+    assert data["scheduled"] == "2021-01-01T00:00:00"
+    assert data["started"] == "2021-01-01T00:00:00"
+    assert data["finished"] == "2021-01-01T00:00:00"
+    assert data["state"] == "FINISHED"
+    assert data["progress"] == 1.0
+    assert len(data["results"]) == 1
+    assert data["results"][0]["sql"] == "SELECT 1 AS col"
+    assert data["results"][0]["columns"] == [{"name": "col", "type": "STR"}]
+    assert data["results"][0]["rows"] == [[1]]
+    assert data["errors"] == []
+
+
 def test_submit_query_msgpack(session: Session, client: TestClient) -> None:
     """
     Test ``POST /queries/`` using msgpack.
