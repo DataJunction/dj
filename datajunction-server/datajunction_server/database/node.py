@@ -26,6 +26,7 @@ from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.base import Base
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
+from datajunction_server.database.history import History
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.tag import Tag
@@ -222,8 +223,23 @@ class Node(Base):  # pylint: disable=too-few-public-methods
 
     missing_table: Mapped[bool] = mapped_column(sa.Boolean, default=False)
 
+    history: Mapped[List[History]] = relationship(
+        primaryjoin="History.entity_name==Node.name",
+        order_by="History.created_at",
+        foreign_keys="History.entity_name",
+    )
+
     def __hash__(self) -> int:
         return hash(self.id)
+
+    @hybrid_property
+    def edited_by(self) -> List[str]:
+        """
+        Editors of the node
+        """
+        return list(  # pragma: no cover
+            {entry.user for entry in self.history if entry.user},
+        )
 
     @classmethod
     async def get_by_name(

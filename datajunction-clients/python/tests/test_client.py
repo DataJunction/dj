@@ -61,7 +61,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
 
         # partial list
         dims = client.list_dimensions(namespace="foo.bar")
-        assert dims == [
+        assert set(dims) == {
             "foo.bar.repair_order",
             "foo.bar.contractor",
             "foo.bar.hard_hat",
@@ -69,7 +69,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "foo.bar.us_state",
             "foo.bar.dispatcher",
             "foo.bar.municipality_dim",
-        ]
+        }
 
     def test_list_metrics(self, client):
         """
@@ -156,7 +156,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
 
         # partial list
         nodes = client.list_sources(namespace="foo.bar")
-        assert nodes == [
+        assert set(nodes) == {
             "foo.bar.repair_orders",
             "foo.bar.repair_order_details",
             "foo.bar.repair_type",
@@ -169,7 +169,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "foo.bar.hard_hat_state",
             "foo.bar.us_states",
             "foo.bar.us_region",
-        ]
+        }
 
     def test_list_transforms(self, client):
         """

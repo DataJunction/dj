@@ -348,7 +348,7 @@ export const DataJunctionAPI = {
 
   namespace: async function (nmspce) {
     return await (
-      await fetch(`${DJ_URL}/namespaces/${nmspce}/`, {
+      await fetch(`${DJ_URL}/namespaces/${nmspce}/?with_edited_by=true`, {
         credentials: 'include',
       })
     ).json();
@@ -453,16 +453,22 @@ export const DataJunctionAPI = {
   },
 
   notebookExportCube: async function (cube) {
-    return await fetch(`${DJ_URL}/datajunction-clients/python/notebook/?cube=${cube}`, {
-      credentials: 'include',
-    });
+    return await fetch(
+      `${DJ_URL}/datajunction-clients/python/notebook/?cube=${cube}`,
+      {
+        credentials: 'include',
+      },
+    );
   },
 
   notebookExportNamespace: async function (namespace) {
     return await (
-      await fetch(`${DJ_URL}/datajunction-clients/python/notebook/?namespace=${namespace}`, {
-        credentials: 'include',
-      })
+      await fetch(
+        `${DJ_URL}/datajunction-clients/python/notebook/?namespace=${namespace}`,
+        {
+          credentials: 'include',
+        },
+      )
     ).json();
   },
 
@@ -731,6 +737,13 @@ export const DataJunctionAPI = {
       credentials: 'include',
     });
     return await response.json();
+  },
+  users: async function () {
+    return await (
+      await fetch(`${DJ_URL}/users?with_activity=true`, {
+        credentials: 'include',
+      })
+    ).json();
   },
   getTag: async function (tagName) {
     const response = await fetch(`${DJ_URL}/tags/${tagName}`, {
