@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):  # pylint: disable=W0621,W0613
     """
     try:
         load_djqs_config(settings=settings, session=session)
-    except Exception as e:  # pylint: disable=W0718
+    except Exception as e:  # pylint: disable=W0718,C0103
         _logger.warning("Could not load DJQS config: %s", e)
     yield
 

@@ -13,6 +13,7 @@ from sqlalchemy import create_engine, text
 from sqlmodel import Session, select
 
 from djqs.config import Settings
+from djqs.constants import SQLALCHEMY_URI
 from djqs.models.engine import Engine, EngineType
 from djqs.models.query import (
     ColumnMetadata,
@@ -65,7 +66,7 @@ def get_columns_from_description(
     return columns
 
 
-def run_query(
+def run_query(  # pylint: disable=R0914
     session: Session,
     query: Query,
     headers: Optional[Dict[str, str]] = None,
@@ -88,8 +89,13 @@ def run_query(
     query_server = headers.get("SQLALCHEMY_URI") if headers else None
 
     if query_server:
+        _logger.info(
+            "Creating sqlalchemy engine using request header param %s",
+            SQLALCHEMY_URI,
+        )
         sqla_engine = create_engine(query_server)
     elif engine.type == EngineType.DUCKDB:
+        _logger.info("Creating duckdb connection")
         conn = (
             duckdb.connect()
             if engine.uri == "duckdb:///:memory:"
@@ -100,6 +106,7 @@ def run_query(
         )
         return run_duckdb_query(query, conn)
     elif engine.type == EngineType.SNOWFLAKE:
+        _logger.info("Creating snowflake connection")
         conn = snowflake.connector.connect(
             **engine.extra_params,
             password=os.getenv("SNOWSQL_PWD"),
@@ -107,6 +114,10 @@ def run_query(
         cur = conn.cursor()
 
         return run_snowflake_query(query, cur)
+
+    _logger.info(
+        "Creating sqlalchemy engine using engine name and version defined on query",
+    )
     sqla_engine = create_engine(engine.uri, connect_args=engine.extra_params)
     connection = sqla_engine.connect()
 

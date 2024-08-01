@@ -130,7 +130,7 @@ async def submit_query(  # pylint: disable=too-many-arguments
     )
 
 
-def save_query_and_run(
+def save_query_and_run(  # pylint: disable=R0913
     create_query: QueryCreate,
     session: Session,
     settings: Settings,
