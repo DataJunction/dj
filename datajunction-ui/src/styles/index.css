@@ -289,6 +289,10 @@ tr {
   grid-gap: 8px;
   padding: 8px;
 }
+.table-responsive {
+  width: auto;
+  grid-template-columns: 200px auto;
+}
 .table-vertical {
   display: contents;
 }
@@ -732,7 +736,7 @@ pre {
 }
 .menu-link {
   display: inline-grid;
-  margin: 2em 1em 0 0;
+  margin: 0;
   float: right;
 }
 .menu-item .menu-link {

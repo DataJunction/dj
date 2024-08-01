@@ -26,7 +26,7 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.node_type import NodeNameOutput, NodeType
 from datajunction_server.models.partition import PartitionOutput
-from datajunction_server.models.tag import TagOutput
+from datajunction_server.models.tag import TagMinimum, TagOutput
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import Version
@@ -534,6 +534,8 @@ class NodeMinimumDetail(BaseModel):
     status: NodeStatus
     mode: NodeMode
     updated_at: UTCDatetime
+    tags: Optional[List[TagMinimum]]
+    edited_by: Optional[List[str]]
 
     class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
         orm_mode = True
