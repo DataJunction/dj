@@ -28,6 +28,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.sql import GeneratedSQL
 from datajunction_server.models.user import UserOutput
 from datajunction_server.utils import (
+    Settings,
     get_and_update_current_user,
     get_session,
     get_settings,
@@ -137,6 +138,7 @@ async def get_measures_sql_for_cube_v2(
             "for the metrics and dimensions in the cube"
         ),
     ),
+    settings: Settings = Depends(get_settings),  # pylint: disable=redefined-outer-name
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -170,6 +172,7 @@ async def get_measures_sql_for_cube_v2(
         current_user=current_user,
         validate_access=validate_access,
         include_all_columns=include_all_columns,
+        sql_transpilation_library=settings.sql_transpilation_library,
     )
     return measures_query
 
