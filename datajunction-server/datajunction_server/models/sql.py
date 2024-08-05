@@ -10,7 +10,6 @@ from datajunction_server.errors import DJQueryBuildError
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.transpilation import get_transpilation_plugin
-from datajunction_server.utils import get_settings
 
 
 class NodeNameVersion(BaseModel):
@@ -32,6 +31,7 @@ class GeneratedSQL(BaseModel):
 
     node: NodeNameVersion
     sql: str
+    sql_transpilation_library: Optional[str] = None
     columns: Optional[List[ColumnMetadata]] = None  # pragma: no-cover
     dialect: Optional[Dialect] = None
     upstream_tables: Optional[List[str]] = None
@@ -46,9 +46,8 @@ class GeneratedSQL(BaseModel):
         Transpiles SQL to the specified dialect with the configured transpilation plugin.
         If no plugin is configured, it will just return the original generated query.
         """
-        settings = get_settings()
-        if settings.sql_transpilation_library:
-            plugin = get_transpilation_plugin(settings.sql_transpilation_library)
+        if values.get("sql_transpilation_library"):
+            plugin = get_transpilation_plugin(values.get("sql_transpilation_library"))
             values["sql"] = plugin.transpile_sql(
                 values["sql"],
                 input_dialect=Dialect.SPARK,
