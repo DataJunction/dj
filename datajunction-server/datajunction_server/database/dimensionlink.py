@@ -1,5 +1,5 @@
 """Dimension links table."""
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Integer
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -95,7 +95,7 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
             f"{self.join_type} join {self.dimension.name} on {self.join_sql}",
         )
 
-    def joins(self) -> "ast.Join":
+    def joins(self) -> List["ast.Join"]:
         """
         The join ASTs for this dimension link
         """
@@ -140,5 +140,16 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
         """
         return {
             right.identifier(): left.identifier()
+            for left, right in self.foreign_key_mapping().items()
+        }
+
+    @hybrid_property
+    def foreign_keys_reversed(self):
+        """
+        Returns a mapping from the primary key column(s) on the dimension node to the
+        foreign key column(s) on the origin node. The dict values are column names.
+        """
+        return {
+            left.identifier(): right.identifier()
             for left, right in self.foreign_key_mapping().items()
         }

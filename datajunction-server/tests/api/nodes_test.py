@@ -1737,6 +1737,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "default",
             "roads",
             "repair_orders",
+            request_headers={},
         )
 
         # Columns have changed, so the new node revision should be bumped to a new version

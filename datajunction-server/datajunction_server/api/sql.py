@@ -4,7 +4,7 @@ SQL related APIs.
 """
 import logging
 from collections import OrderedDict
-from typing import List, Optional, Tuple, cast
+from typing import Dict, List, Optional, Tuple, cast
 
 from fastapi import BackgroundTasks, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,6 @@ from datajunction_server.api.helpers import (
     get_query,
     validate_orderby,
 )
-from datajunction_server.construction.build import get_measures_query
 from datajunction_server.database import Engine, Node
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
@@ -54,7 +53,7 @@ async def get_measures_sql_for_cube(
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -64,6 +63,10 @@ async def get_measures_sql_for_cube(
     This SQL can be used to produce an intermediate table with all the measures
     and dimensions needed for an analytics database (e.g., Druid).
     """
+    from datajunction_server.construction.build import (  # pylint: disable=import-outside-toplevel,line-too-long
+        get_measures_query,
+    )
+
     if query_request := await QueryRequest.get_query_request(
         session,
         nodes=metrics,
@@ -112,6 +115,60 @@ async def get_measures_sql_for_cube(
         query=measures_query.sql,
         columns=[col.dict() for col in measures_query.columns],  # type: ignore
         other_args={"include_all_columns": include_all_columns},
+    )
+    return measures_query
+
+
+@router.get(
+    "/sql/measures/v2/",
+    response_model=Dict[str, TranslatedSQL],
+    name="Get Measures SQL",
+)
+async def get_measures_sql_for_cube_v2(
+    metrics: List[str] = Query([]),
+    dimensions: List[str] = Query([]),
+    filters: List[str] = Query([]),
+    *,
+    include_all_columns: bool = Query(
+        False,
+        description=(
+            "Whether to include all columns or only those necessary "
+            "for the metrics and dimensions in the cube"
+        ),
+    ),
+    session: AsyncSession = Depends(get_session),
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_and_update_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
+) -> Dict[str, TranslatedSQL]:
+    """
+    Return measures SQL for a set of metrics with dimensions and filters.
+
+    The measures query can be used to produce intermediate table(s) with all the measures
+    and dimensions needed prior to applying specific metric aggregations.
+
+    This endpoint returns one SQL query per upstream node of the requested metrics.
+    For example, if some of your metrics are aggregations on measures in parent node A
+    and others are aggregations on measures in parent node B, this endpoint will generate
+    two measures queries, one for A and one for B.
+    """
+    from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel,line-too-long
+        get_measures_query,
+    )
+
+    measures_query = await get_measures_query(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        filters=filters,
+        engine_name=engine_name,
+        engine_version=engine_version,
+        current_user=current_user,
+        validate_access=validate_access,
+        include_all_columns=include_all_columns,
     )
     return measures_query
 
@@ -216,7 +273,7 @@ async def get_node_sql(  # pylint: disable=too-many-locals
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User],
+    current_user: User,
     validate_access: access.ValidateAccessFn,  # pylint: disable=redefined-outer-name
     background_tasks: BackgroundTasks,
 ) -> Tuple[TranslatedSQL, QueryRequest]:
@@ -226,7 +283,7 @@ async def get_node_sql(  # pylint: disable=too-many-locals
     dimensions = [dim for dim in dimensions if dim and dim != ""]
     access_control = access.AccessControlStore(
         validate_access=validate_access,
-        user=UserOutput.from_orm(current_user) if current_user else None,
+        user=UserOutput.from_orm(current_user),
         base_verb=access.ResourceRequestVerb.READ,
     )
 
@@ -304,7 +361,7 @@ async def get_sql(  # pylint: disable=too-many-locals
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -340,7 +397,7 @@ async def get_sql_for_metrics(
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),

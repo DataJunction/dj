@@ -729,6 +729,7 @@ class Column(Aliasable, Named, Expression):
     _expression: Optional[Expression] = field(repr=False, default=None)
     _is_compiled: bool = False
     role: Optional[str] = None
+    dimension_ref: Optional[str] = None
 
     @property
     def type(self):
@@ -1480,23 +1481,6 @@ class BinaryOp(Operation):
             ),
             (left, right, *rest),
         )
-
-    def split(self, op: BinaryOpKind) -> List[Expression]:
-        """
-        Splits the expression by the operator into a list of expressions.
-        """
-        if self.op == op:
-            if not isinstance(self.left, BinaryOp) and isinstance(self.right, BinaryOp):
-                return [self.left] + self.right.split(op)
-            if not isinstance(self.right, BinaryOp) and isinstance(self.left, BinaryOp):
-                return self.left.split(op) + [self.right]
-            if not isinstance(self.right, BinaryOp) and not isinstance(
-                self.left,
-                BinaryOp,
-            ):
-                return [self.left, self.right]
-            return self.left.split(op) + self.right.split(op)
-        return [self]
 
     @classmethod
     def Eq(  # pylint: disable=invalid-name
@@ -2296,9 +2280,15 @@ class FunctionTable(FunctionTableExpression):
             if self.column_list
             else ""
         )
-        column_list_str = (
-            f"{cols}" if self.name.name.upper() != "UNNEST" else f"({cols})"
-        )
+
+        column_parens = False
+        if self.name.name.upper() == "UNNEST" or (
+            self.name.name.upper() == "EXPLODE"
+            and not isinstance(self.parent, LateralView)
+        ):
+            column_parens = True
+
+        column_list_str = f"({cols})" if column_parens else f"{cols}"
         args_str = f"({', '.join(str(col) for col in self.args)})" if self.args else ""
         return f"{self.name}{args_str}{alias}{as_}{column_list_str}"
 
@@ -2545,6 +2535,13 @@ class SelectExpression(Aliasable, Expression):
                     filters.append(current_clause)
         return filters
 
+    @property
+    def column_mapping(self) -> Dict[str, "Column"]:
+        """
+        Returns a dictionary with the output column names mapped to the columns
+        """
+        return {col.alias_or_name.name: col for col in self.projection}
+
 
 class Select(SelectExpression):
     """
@@ -2654,6 +2651,17 @@ class Query(TableExpression, UnNamed):
         self.ctes = []
         return self
 
+    def to_cte(self, cte_name: Name, parent_ast: Optional["Query"] = None) -> "Query":
+        """
+        Prepares the query to be a CTE
+        """
+        self.alias = cte_name
+        self.parenthesized = True
+        self.as_ = True
+        if parent_ast:
+            self.set_parent(parent_ast, "ctes")
+        return self
+
     def __str__(self) -> str:
         is_cte = self.parent is not None and self.parent_key == "ctes"
         ctes = ",\n".join(str(cte) for cte in self.ctes)
@@ -2663,8 +2671,9 @@ class Query(TableExpression, UnNamed):
 
         parts = [f"{with_}{self.select}\n"]
         query = "".join(parts)
+        newline = "\n" if is_cte else ""
         if self.parenthesized:
-            query = f"({query.strip()})"
+            query = f"({newline}{query.strip()}{newline})"
         if self.alias:
             as_ = " AS " if self.as_ else " "
             if is_cte:

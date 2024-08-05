@@ -47,10 +47,10 @@ from datajunction_server.internal.access.authorization import (
     validate_access_requests,
 )
 from datajunction_server.internal.nodes import (
-    _create_node_from_inactive,
     activate_node,
     copy_to_new_node,
     create_cube_node_revision,
+    create_node_from_inactive,
     create_node_revision,
     deactivate_node,
     get_column_level_lineage,
@@ -153,7 +153,7 @@ async def validate_node(
 async def revalidate(
     name: str,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> NodeStatusDetails:
     """
     Revalidate a single existing node and update its status appropriately
@@ -200,7 +200,7 @@ async def set_column_attributes(
     attributes: List[AttributeTypeIdentifier],
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> List[ColumnOutput]:
     """
     Set column attributes for the node.
@@ -228,7 +228,7 @@ async def list_nodes(
     prefix: Optional[str] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -259,7 +259,7 @@ async def list_all_nodes_with_details(
     node_type: Optional[NodeType] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -333,12 +333,12 @@ async def delete_node(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ):
     """
     Delete (aka deactivate) the specified node.
     """
-    await deactivate_node(session, name, current_user=current_user)
+    await deactivate_node(session=session, name=name, current_user=current_user)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully deleted."},
@@ -349,7 +349,7 @@ async def delete_node(
 async def hard_delete(
     name: str,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
@@ -374,12 +374,12 @@ async def restore_node(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ):
     """
     Restore (aka re-activate) the specified node.
     """
-    await activate_node(session, name, current_user=current_user)
+    await activate_node(session=session, name=name, current_user=current_user)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully restored."},
@@ -409,7 +409,8 @@ async def create_source(
     data: CreateSourceNode,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -420,14 +421,16 @@ async def create_source(
     Create a source node. If columns are not provided, the source node's schema
     will be inferred using the configured query service.
     """
+    request_headers = dict(request.headers)
     await raise_if_node_exists(session, data.name)
 
     # if the node previously existed and now is inactive
-    if recreated_node := await _create_node_from_inactive(
+    if recreated_node := await create_node_from_inactive(
         new_node_type=NodeType.SOURCE,
         data=data,
         session=session,
         current_user=current_user,
+        request_headers=request_headers,
         query_service_client=query_service_client,
         validate_access=validate_access,
         background_tasks=background_tasks,
@@ -517,7 +520,7 @@ async def create_node(
     request: Request,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
@@ -527,6 +530,7 @@ async def create_node(
     """
     Create a node.
     """
+    request_headers = dict(request.headers)
     node_type = NodeType(os.path.basename(os.path.normpath(request.url.path)))
 
     if node_type == NodeType.DIMENSION and not data.primary_key:
@@ -535,11 +539,12 @@ async def create_node(
     await raise_if_node_exists(session, data.name)
 
     # if the node previously existed and now is inactive
-    if recreated_node := await _create_node_from_inactive(
+    if recreated_node := await create_node_from_inactive(
         new_node_type=node_type,
         data=data,
         session=session,
         current_user=current_user,
+        request_headers=request_headers,
         query_service_client=query_service_client,
         background_tasks=background_tasks,
         validate_access=validate_access,
@@ -614,8 +619,9 @@ async def create_cube(
     data: CreateCubeNode,
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -624,14 +630,16 @@ async def create_cube(
     """
     Create a cube node.
     """
+    request_headers = dict(request.headers)
     await raise_if_node_exists(session, data.name)
 
     # if the node previously existed and now is inactive
-    if recreated_node := await _create_node_from_inactive(
+    if recreated_node := await create_node_from_inactive(
         new_node_type=NodeType.CUBE,
         data=data,
         session=session,
         current_user=current_user,
+        request_headers=request_headers,
         query_service_client=query_service_client,
         background_tasks=background_tasks,
         validate_access=validate_access,
@@ -668,14 +676,16 @@ async def register_table(
     table: str,
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
     Register a table. This creates a source node in the SOURCE_NODE_NAMESPACE and
     the source node's schema will be inferred using the configured query service.
     """
+    request_headers = dict(request.headers)
     if not query_service_client:
         raise DJException(
             message="Registering tables requires that a query "
@@ -698,6 +708,7 @@ async def register_table(
         _catalog.name,
         schema_,
         table,
+        request_headers,
         _catalog.engines[0] if len(_catalog.engines) >= 1 else None,
     )
 
@@ -715,6 +726,7 @@ async def register_table(
         session=session,
         current_user=current_user,
         background_tasks=background_tasks,
+        request=request,
     )
 
 
@@ -725,7 +737,7 @@ async def link_dimension(
     dimension: str,
     dimension_column: Optional[str] = None,  # pylint: disable=unused-argument
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Add information to a node column
@@ -808,7 +820,7 @@ async def add_complex_dimension_link(  # pylint: disable=too-many-locals
     node_name: str,
     link_input: LinkDimensionInput,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Links a source, dimension, or transform node to a dimension with a custom join query.
@@ -841,7 +853,7 @@ async def remove_complex_dimension_link(  # pylint: disable=too-many-locals
     node_name: str,
     link_identifier: LinkDimensionIdentifier,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Removes a complex dimension link based on the dimension node and its role (if any).
@@ -861,7 +873,7 @@ async def delete_dimension_link(
     dimension: str,
     dimension_column: Optional[str] = None,  # pylint: disable=unused-argument
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Remove the link between a node column and a dimension node
@@ -885,7 +897,7 @@ async def tags_node(
     tag_names: Optional[List[str]] = Query(default=None),
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Add a tag to a node
@@ -906,7 +918,7 @@ async def tags_node(
             details={
                 "tags": tag_names,
             },
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -934,12 +946,14 @@ async def refresh_source_node(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> NodeOutput:
     """
     Refresh a source node with the latest columns from the query service.
     """
+    request_headers = dict(request.headers)
     source_node = await Node.get_by_name(
         session,
         name,
@@ -957,6 +971,7 @@ async def refresh_source_node(
             current_revision.catalog.name,
             current_revision.schema_,  # type: ignore
             current_revision.table,  # type: ignore
+            request_headers,
             current_revision.catalog.engines[0]
             if len(current_revision.catalog.engines) >= 1
             else None,
@@ -1040,7 +1055,7 @@ async def refresh_source_node(
             node=source_node.name,  # type: ignore
             activity_type=ActivityType.REFRESH,
             details=refresh_details,
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -1063,8 +1078,9 @@ async def update_node(
     data: UpdateNode,
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
@@ -1073,6 +1089,7 @@ async def update_node(
     """
     Update a node.
     """
+    request_headers = dict(request.headers)
     await update_any_node(
         name,
         data,
@@ -1081,6 +1098,7 @@ async def update_node(
         current_user=current_user,
         background_tasks=background_tasks,
         validate_access=validate_access,
+        request_headers=request_headers,
     )
     node = await Node.get_by_name(
         session,
@@ -1261,7 +1279,7 @@ async def set_column_display_name(
     node_name: str,
     column_name: str,
     display_name: str,
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     *,
     session: AsyncSession = Depends(get_session),
 ) -> ColumnOutput:
@@ -1285,7 +1303,7 @@ async def set_column_display_name(
                 "column": column.name,
                 "display_name": display_name,
             },
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -1304,7 +1322,7 @@ async def set_column_partition(  # pylint: disable=too-many-locals
     input_partition: PartitionInput,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> ColumnOutput:
     """
     Add or update partition columns for the specified node.
@@ -1328,7 +1346,7 @@ async def set_column_partition(  # pylint: disable=too-many-locals
             "column": column_name,
             "partition": input_partition.dict(),
         },
-        user=current_user.username if current_user else None,
+        user=current_user.username,
     )
 
     if input_partition.type_ == PartitionType.TEMPORAL:
@@ -1374,7 +1392,7 @@ async def copy_node(
     *,
     new_name: str,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> DAGNodeOutput:
     """
     Copy this node to a new name.

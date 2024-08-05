@@ -42,6 +42,17 @@ class CreateTag(ImmutableTagFields, MutableTagFields):
     """
 
 
+class TagMinimum(BaseModel):
+    """
+    Output tag model.
+    """
+
+    name: str
+
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
+
+
 class TagOutput(ImmutableTagFields, MutableTagFields):
     """
     Output tag model.

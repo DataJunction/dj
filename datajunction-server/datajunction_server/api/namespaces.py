@@ -48,7 +48,7 @@ async def create_node_namespace(
     namespace: str,
     include_parents: Optional[bool] = False,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Create a node namespace
@@ -79,9 +79,9 @@ async def create_node_namespace(
         )
     validate_namespace(namespace)
     created_namespaces = await create_namespace(
-        session,
-        namespace,
-        include_parents,  # type: ignore
+        session=session,
+        namespace=namespace,
+        include_parents=include_parents,  # type: ignore
         current_user=current_user,
     )
     return JSONResponse(
@@ -102,7 +102,7 @@ async def create_node_namespace(
 )
 async def list_namespaces(
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -144,12 +144,21 @@ async def list_nodes_in_namespace(
         default=None,
         description="Filter the list of nodes to this type",
     ),
+    with_edited_by: bool = Query(
+        default=False,
+        description="Whether to include a list of users who edited each node",
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> List[NodeMinimumDetail]:
     """
     List node names in namespace, filterable to a given type if desired.
     """
-    return await NodeNamespace.list_nodes(session, namespace, type_)
+    return await NodeNamespace.list_nodes(
+        session,
+        namespace,
+        type_,
+        with_edited_by=with_edited_by,
+    )
 
 
 @router.delete("/namespaces/{namespace}/", status_code=HTTPStatus.OK)
@@ -160,7 +169,7 @@ async def deactivate_a_namespace(
         description="Cascade the deletion down to the nodes in the namespace",
     ),
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Deactivates a node namespace
@@ -181,7 +190,12 @@ async def deactivate_a_namespace(
     node_names = [node.name for node in node_list]
     if len(node_names) == 0:
         message = f"Namespace `{namespace}` has been deactivated."
-        await mark_namespace_deactivated(session, node_namespace, message)  # type: ignore
+        await mark_namespace_deactivated(
+            session=session,
+            namespace=node_namespace,  # type: ignore
+            message=message,
+            current_user=current_user,
+        )
         return JSONResponse(
             status_code=HTTPStatus.OK,
             content={"message": message},
@@ -192,9 +206,9 @@ async def deactivate_a_namespace(
     if cascade:
         for node_name in node_names:
             await deactivate_node(
-                session,
-                node_name,
-                f"Cascaded from deactivating namespace `{namespace}`",
+                session=session,
+                name=node_name,
+                message=f"Cascaded from deactivating namespace `{namespace}`",
                 current_user=current_user,
             )
         message = (
@@ -202,9 +216,9 @@ async def deactivate_a_namespace(
             f" have also been deactivated: {','.join(node_names)}"
         )
         await mark_namespace_deactivated(
-            session,
-            node_namespace,  # type: ignore
-            message,
+            session=session,
+            namespace=node_namespace,  # type: ignore
+            message=message,
             current_user=current_user,
         )
 
@@ -232,7 +246,7 @@ async def restore_a_namespace(
         description="Cascade the restore down to the nodes in the namespace",
     ),
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Restores a node namespace
@@ -268,7 +282,12 @@ async def restore_a_namespace(
             f"Namespace `{namespace}` has been restored. The following nodes"
             f" have also been restored: {','.join(node_names)}"
         )
-        await mark_namespace_restored(session, node_namespace, message)
+        await mark_namespace_restored(
+            session=session,
+            namespace=node_namespace,
+            message=message,
+            current_user=current_user,
+        )
 
         return JSONResponse(
             status_code=HTTPStatus.CREATED,
@@ -280,9 +299,9 @@ async def restore_a_namespace(
     # Otherwise just restore this namespace
     message = f"Namespace `{namespace}` has been restored."
     await mark_namespace_restored(
-        session,
-        node_namespace,
-        message,
+        session=session,
+        namespace=node_namespace,
+        message=message,
         current_user=current_user,
     )
     return JSONResponse(
@@ -297,7 +316,7 @@ async def hard_delete_node_namespace(
     *,
     cascade: bool = False,
     session: AsyncSession = Depends(get_session),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
     Hard delete a namespace, which will completely remove the namespace. Additionally,

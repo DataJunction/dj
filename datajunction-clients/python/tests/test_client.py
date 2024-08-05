@@ -42,7 +42,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         """
         # full list
         dims = client.list_dimensions()
-        assert dims == [
+        assert set(dims) == {
             "default.repair_order",
             "default.contractor",
             "default.hard_hat",
@@ -57,11 +57,11 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "foo.bar.us_state",
             "foo.bar.dispatcher",
             "foo.bar.municipality_dim",
-        ]
+        }
 
         # partial list
         dims = client.list_dimensions(namespace="foo.bar")
-        assert dims == [
+        assert set(dims) == {
             "foo.bar.repair_order",
             "foo.bar.contractor",
             "foo.bar.hard_hat",
@@ -69,7 +69,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "foo.bar.us_state",
             "foo.bar.dispatcher",
             "foo.bar.municipality_dim",
-        ]
+        }
 
     def test_list_metrics(self, client):
         """
@@ -112,7 +112,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         """
         # full list
         cubes = client.list_cubes()
-        assert cubes == ["foo.bar.cube_one", "default.cube_two"]
+        assert set(cubes) == {"foo.bar.cube_one", "default.cube_two"}
 
         # partial list
         cubes = client.list_cubes(namespace="foo.bar")
@@ -127,7 +127,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         """
         # full list
         nodes = client.list_sources()
-        assert nodes == [
+        assert set(nodes) == {
             "default.repair_orders",
             "default.repair_order_details",
             "default.repair_type",
@@ -152,11 +152,11 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "foo.bar.hard_hat_state",
             "foo.bar.us_states",
             "foo.bar.us_region",
-        ]
+        }
 
         # partial list
         nodes = client.list_sources(namespace="foo.bar")
-        assert nodes == [
+        assert set(nodes) == {
             "foo.bar.repair_orders",
             "foo.bar.repair_order_details",
             "foo.bar.repair_type",
@@ -169,7 +169,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "foo.bar.hard_hat_state",
             "foo.bar.us_states",
             "foo.bar.us_region",
-        ]
+        }
 
     def test_list_transforms(self, client):
         """
@@ -177,7 +177,10 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         """
         # full list
         nodes = client.list_transforms()
-        assert nodes == ["default.repair_orders_thin", "foo.bar.repair_orders_thin"]
+        assert set(nodes) == {
+            "default.repair_orders_thin",
+            "foo.bar.repair_orders_thin",
+        }
 
         # partial list
         nodes = client.list_transforms(namespace="foo.bar")
@@ -405,7 +408,12 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             filters=["default.hard_hat.state = 'NY'"],
             measures=True,
         )
-        assert isinstance(result, str)
+        for upstream_key, translated_sql in result.items():
+            assert upstream_key in (
+                "default.repair_order_details",
+                "default.repair_orders",
+            )
+            assert isinstance(translated_sql["sql"], str)
 
     #
     # Data Catalog and Engines
