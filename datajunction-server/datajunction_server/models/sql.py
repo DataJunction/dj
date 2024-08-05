@@ -6,6 +6,7 @@ from typing import List, Optional
 from pydantic.class_validators import root_validator
 from pydantic.main import BaseModel
 
+from datajunction_server.errors import DJQueryBuildError
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.transpilation import get_transpilation_plugin
@@ -34,6 +35,7 @@ class GeneratedSQL(BaseModel):
     columns: Optional[List[ColumnMetadata]] = None  # pragma: no-cover
     dialect: Optional[Dialect] = None
     upstream_tables: Optional[List[str]] = None
+    errors: Optional[List[DJQueryBuildError]] = None
 
     @root_validator(pre=False)
     def transpile_sql(  # pylint: disable=no-self-argument

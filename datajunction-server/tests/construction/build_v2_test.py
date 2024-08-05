@@ -14,7 +14,11 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink, JoinType
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.errors import DJQueryBuildException
+from datajunction_server.errors import (
+    DJQueryBuildError,
+    DJQueryBuildException,
+    ErrorCode,
+)
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -312,7 +316,7 @@ async def manufacturers_dim(
         SELECT
           CAST(manufacturer_name AS STR) name,
           CAST(company_name AS STR) company_name,
-          created_on,
+          created_on AS created_at,
           COUNT(DISTINCT devices.device_id) AS devices_produced
         FROM source.manufacturers manufacturers
         JOIN shared.devices devices
@@ -1239,7 +1243,7 @@ async def test_build_transform_with_multijoin_dimensions_filters(
           SELECT
             CAST(source_DOT_manufacturers.manufacturer_name AS STRING) name,
             CAST(source_DOT_manufacturers.company_name AS STRING) company_name,
-            source_DOT_manufacturers.created_on,
+            source_DOT_manufacturers.created_on AS created_at,
             COUNT( DISTINCT shared_DOT_devices.device_id) AS devices_produced
           FROM test.manufacturers AS source_DOT_manufacturers
           JOIN shared_DOT_devices
@@ -1281,7 +1285,8 @@ async def test_build_fail_no_join_path_found(
             events_agg.current,
         )
         await (
-            query_builder.filter_by("shared.countries.region_name = 'APAC'")
+            query_builder.raise_errors()
+            .filter_by("shared.countries.region_name = 'APAC'")
             .add_dimension("shared.countries.region_name")
             .build()
         )
@@ -1289,6 +1294,30 @@ async def test_build_fail_no_join_path_found(
         "This dimension attribute cannot be joined in: shared.countries.region_name. "
         "Please make sure that shared.countries is linked to agg.events"
     ) in str(exc_info.value)
+
+    # Setting ignore errors will save them to the errors list on the query builder
+    # object but will not raise a build exception
+    query_builder = await QueryBuilder.create(
+        session,
+        events_agg.current,
+    )
+    query_ast = await (
+        query_builder.ignore_errors()
+        .filter_by("shared.countries.region_name = 'APAC'")
+        .add_dimension("shared.countries.region_name")
+        .build()
+    )
+    assert (
+        DJQueryBuildError(
+            code=ErrorCode.INVALID_DIMENSION_JOIN,
+            message="This dimension attribute cannot be joined in: shared.countries.region_name. "
+            "Please make sure that shared.countries is linked to agg.events",
+            debug=None,
+            context=str(query_builder),
+        )
+        in query_builder.errors
+    )
+    assert query_builder.final_ast == query_ast
 
 
 @pytest.mark.asyncio
@@ -1347,6 +1376,7 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
     query_builder = await QueryBuilder.create(session, events_agg.current)
     query_ast = await (
         query_builder.filter_by("shared.manufacturers.company_name = 'Apple'")
+        .filter_by("shared.manufacturers.created_at > 20240101")
         .filter_by("shared.countries.region_name = 'APAC'")
         .add_dimension("shared.devices.device_manufacturer")
         .add_dimension("shared.countries.region_name")
@@ -1392,12 +1422,17 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
           shared_DOT_regions.region_name = 'APAC'
     ),
     shared_DOT_manufacturers AS (
-    SELECT  CAST(source_DOT_manufacturers.manufacturer_name AS STRING) name,
+      SELECT
+        CAST(source_DOT_manufacturers.manufacturer_name AS STRING) name,
         CAST(source_DOT_manufacturers.company_name AS STRING) company_name,
-        source_DOT_manufacturers.created_on,
+        source_DOT_manufacturers.created_on AS created_at,
         COUNT( DISTINCT shared_DOT_devices.device_id) AS devices_produced
-        FROM test.manufacturers AS source_DOT_manufacturers JOIN shared_DOT_devices ON source_DOT_manufacturers.manufacturer_name = shared_DOT_devices.device_manufacturer
-        WHERE  CAST(source_DOT_manufacturers.company_name AS STRING) = 'Apple'
+      FROM test.manufacturers AS source_DOT_manufacturers
+      JOIN shared_DOT_devices ON source_DOT_manufacturers.manufacturer_name =
+        shared_DOT_devices.device_manufacturer
+      WHERE
+        CAST(source_DOT_manufacturers.company_name AS STRING) = 'Apple'
+        AND source_DOT_manufacturers.created_on > 20240101
     )
 
     SELECT  agg_DOT_events.user_id,
@@ -1407,8 +1442,9 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
         agg_DOT_events.total_latency,
         shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
         shared_DOT_countries.region_name shared_DOT_countries_DOT_region_name,
-        shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name
-        FROM agg_DOT_events
+        shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name,
+        shared_DOT_manufacturers.created_at shared_DOT_manufacturers_DOT_created_at
+    FROM agg_DOT_events
     INNER JOIN shared_DOT_devices
       ON shared_DOT_devices.device_id = agg_DOT_events.device_id
     INNER JOIN shared_DOT_countries
