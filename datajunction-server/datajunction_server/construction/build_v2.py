@@ -4,6 +4,7 @@ import collections
 import logging
 import re
 from dataclasses import dataclass
+from functools import cached_property
 from typing import DefaultDict, Dict, List, Optional, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -345,6 +346,16 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         """
         return self.node_revision.type == NodeType.METRIC
 
+    @cached_property
+    def physical_table(self) -> Optional[ast.Table]:
+        """
+        A physical table for the node, if one exists
+        """
+        return get_table_for_node(
+            self.node_revision,
+            build_criteria=self._build_criteria,
+        )
+
     async def build(self) -> ast.Query:
         """
         Builds the node SQL with the requested set of dimensions, filter expressions,
@@ -367,17 +378,13 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         7. Add all requested dimensions to the final select.
         8. Add order by and limit to the final select (TODO)
         """
-        physical_table = get_table_for_node(
-            self.node_revision,
-            build_criteria=self._build_criteria,
-        )
         node_ast = (
             await compile_node_ast(self.session, self.node_revision)
-            if not physical_table
-            else self.create_query_from_physical_table(physical_table)
+            if not self.physical_table
+            else self.create_query_from_physical_table(self.physical_table)
         )
 
-        if physical_table and not self._filters and not self.dimensions:
+        if self.physical_table and not self._filters and not self.dimensions:
             self.final_ast = node_ast
         else:
             node_alias, node_ast = await self.build_current_node_ast(node_ast)
@@ -1039,7 +1046,7 @@ def get_dj_node_references_from_select(
 def get_table_for_node(
     node: NodeRevision,
     build_criteria: Optional[BuildCriteria] = None,
-) -> Optional[Union[ast.Select, ast.Table]]:
+) -> Optional[ast.Table]:
     """
     If a node has a materialized table available, return the materialized table.
     Source nodes should always have an associated table, whereas for all other nodes
