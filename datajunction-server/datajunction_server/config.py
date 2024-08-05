@@ -103,6 +103,9 @@ class Settings(
     db_keepalives_interval = 10
     db_keepalives_count = 5
 
+    class Config:
+        env_prefix = "DJ_CORE_" 
+
     @property
     def celery(self) -> Celery:
         """

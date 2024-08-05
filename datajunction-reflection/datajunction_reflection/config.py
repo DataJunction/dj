@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     polling_interval: int = 3600  # Default value
 
     class Config:
-        env_prefix = "REFLECTION_"  # Prefix for environment variables
+        env_prefix = "DJ_REFLECTION_"
 
 
 @lru_cache
