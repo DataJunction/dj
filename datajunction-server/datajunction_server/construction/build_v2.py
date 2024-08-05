@@ -80,6 +80,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     validate_access: access.ValidateAccessFn = None,
     cast_timestamp_to_ms: bool = False,  # pylint: disable=unused-argument
     include_all_columns: bool = False,
+    sql_transpilation_library: Optional[str] = None,
 ) -> List[GeneratedSQL]:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.
@@ -186,10 +187,10 @@ async def get_measures_query(  # pylint: disable=too-many-locals
         dependencies, _ = await parent_ast.extract_dependencies(
             CompileContext(session, DJException()),
         )
-        print("Measures SQL!", parent_node.name, str(parent_ast))
         measures_queries.append(
             GeneratedSQL(
                 node=parent_node.current,
+                sql_transpilation_library=sql_transpilation_library,
                 sql=str(parent_ast),
                 columns=columns_metadata,
                 dialect=build_criteria.dialect,
