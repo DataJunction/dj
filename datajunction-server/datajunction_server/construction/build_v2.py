@@ -138,7 +138,8 @@ async def get_measures_query(  # pylint: disable=too-many-locals
         measure_columns, dimensional_columns = [], []
         query_builder = await QueryBuilder.create(session, parent_node.current)
         parent_ast = await (
-            query_builder.with_access_control(access_control)
+            query_builder.ignore_errors()
+            .with_access_control(access_control)
             .with_build_criteria(build_criteria)
             .add_dimensions(dimensions)
             .add_filters(filters)
@@ -184,6 +185,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
         dependencies, _ = await parent_ast.extract_dependencies(
             CompileContext(session, DJException()),
         )
+        print("Measures SQL!", parent_node.name, str(parent_ast))
         measures_queries.append(
             GeneratedSQL(
                 node=parent_node.current,
@@ -195,12 +197,13 @@ async def get_measures_query(  # pylint: disable=too-many-locals
                     for dep in dependencies
                     if dep.type == NodeType.SOURCE
                 ],
+                errors=query_builder.errors,
             ),
         )
     return measures_queries
 
 
-class QueryBuilder:  # pylint: disable=too-many-instance-attributes
+class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-public-methods
     """
     This class allows users to configure building node SQL by incrementally building out
     the build configuration, including adding filters, dimensions, ordering, and limit
@@ -221,8 +224,16 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes
         self._limit: Optional[int] = None
         self._build_criteria: Optional[BuildCriteria] = self.get_default_criteria()
         self._access_control: Optional[access.AccessControlStore] = None
+        self._ignore_errors: bool = False
 
+        # The following attributes will be modified as the query gets built.
+        # --
+        # Track node query CTEs as they get built
+        self.cte_mapping: Dict[str, ast.Query] = {}  # Maps node name to its CTE
+        # Keep a list of build errors
         self.errors: List[DJQueryBuildError] = []
+        # The final built query AST
+        self.final_ast: Optional[ast.Query] = None
 
     @classmethod
     async def create(
@@ -236,6 +247,16 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes
         await session.refresh(node_revision, ["required_dimensions", "dimension_links"])
         instance = cls(session, node_revision)
         return instance
+
+    def ignore_errors(self):
+        """Do not raise on errors in query build."""
+        self._ignore_errors = True
+        return self
+
+    def raise_errors(self):
+        """Raise on errors in query build."""
+        self._ignore_errors = False
+        return self
 
     def filter_by(self, filter_: str):
         """Add filter to the query builder."""
@@ -324,31 +345,6 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes
         """
         return self.node_revision.type == NodeType.METRIC
 
-    def get_default_criteria(
-        self,
-        engine: Optional[Engine] = None,
-    ) -> BuildCriteria:
-        """
-        Get the default build criteria for a node.
-        Set the dialect by using the provided engine, if any. If no engine is specified,
-        set the dialect by finding available engines for this node, or default to Spark
-        """
-        dialect = (
-            engine.dialect
-            if engine
-            else (
-                self.node_revision.catalog.engines[0].dialect
-                if self.node_revision.catalog
-                and self.node_revision.catalog.engines
-                and self.node_revision.catalog.engines[0].dialect
-                else Dialect.SPARK
-            )
-        )
-        return BuildCriteria(
-            dialect=dialect,
-            target_node_name=self.node_revision.name,
-        )
-
     async def build(self) -> ast.Query:
         """
         Builds the node SQL with the requested set of dimensions, filter expressions,
@@ -375,53 +371,74 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes
             self.node_revision,
             build_criteria=self._build_criteria,
         )
-        if physical_table and not self._filters and not self.dimensions:
-            physical_table.parenthesized = False
-            return ast.Query(
-                select=ast.Select(
-                    projection=physical_table.columns,  # type: ignore
-                    from_=ast.From(relations=[ast.Relation(physical_table)]),
-                ),
-            )
-
         node_ast = (
             await compile_node_ast(self.session, self.node_revision)
             if not physical_table
-            else ast.Query(
-                select=ast.Select(
-                    projection=physical_table.columns,  # type: ignore
-                    from_=ast.From(relations=[ast.Relation(physical_table)]),
-                ),
-            )
+            else self.create_query_from_physical_table(physical_table)
         )
 
-        # Find all dimension node joins necessary for the requested dimensions and filters
-        dimension_node_joins = await self.find_dimension_node_joins()
+        if physical_table and not self._filters and not self.dimensions:
+            self.final_ast = node_ast
+        else:
+            node_alias, node_ast = await self.build_current_node_ast(node_ast)
+            self.final_ast = self.initialize_final_query_ast(node_ast, node_alias)
+            await self.build_dimension_node_joins(node_ast, node_alias)
+            self.set_dimension_aliases()
 
-        ###################
-        ## Build Node CTEs
-        ###################
+        # Error validation
+        self.validate_access()
+        if self.errors and not self._ignore_errors:
+            raise DJQueryBuildException(errors=self.errors)
+        return self.final_ast  # type: ignore
 
-        # Start tracking node query CTEs as they get built
-        cte_mapping: Dict[str, ast.Query] = {}  # Maps node name to its CTE
+    def get_default_criteria(
+        self,
+        engine: Optional[Engine] = None,
+    ) -> BuildCriteria:
+        """
+        Get the default build criteria for a node.
+        Set the dialect by using the provided engine, if any. If no engine is specified,
+        set the dialect by finding available engines for this node, or default to Spark
+        """
+        dialect = (
+            engine.dialect
+            if engine
+            else (
+                self.node_revision.catalog.engines[0].dialect
+                if self.node_revision.catalog
+                and self.node_revision.catalog.engines
+                and self.node_revision.catalog.engines[0].dialect
+                else Dialect.SPARK
+            )
+        )
+        return BuildCriteria(
+            dialect=dialect,
+            target_node_name=self.node_revision.name,
+        )
 
-        # Build node AST into a CTE
+    async def build_current_node_ast(self, node_ast):
+        """
+        Build the node AST into a CTE
+        """
         ctx = CompileContext(self.session, DJException())
         await node_ast.compile(ctx)
         self.errors.extend(ctx.exception.errors)
 
         node_alias = ast.Name(amenable_name(self.node_revision.name))
-        node_ast = await build_ast(
+        return node_alias, await build_ast(
             self.session,
             self.node_revision,
             node_ast,
             filters=self._filters,
             build_criteria=self._build_criteria,
-            ctes_mapping=cte_mapping,
+            ctes_mapping=self.cte_mapping,
         )
 
-        # Initialize the final query AST structure
-        final_ast = ast.Query(
+    def initialize_final_query_ast(self, node_ast, node_alias):
+        """
+        Initialize the final query AST structure
+        """
+        return ast.Query(
             select=ast.Select(
                 projection=[
                     ast.Column(
@@ -435,11 +452,18 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes
             ),
             ctes=[*node_ast.ctes, node_ast],
         )
+
+    async def build_dimension_node_joins(self, node_ast, node_alias):
+        """
+        Builds the dimension joins and adding them to the CTEs
+        """
+        # Add node ast to CTE tracker
         node_ast.ctes = []
         node_ast = node_ast.to_cte(node_alias)
-        cte_mapping[self.node_revision.name] = node_ast
+        self.cte_mapping[self.node_revision.name] = node_ast
 
-        # Start building the dimension joins and adding them to the CTEs
+        # Find all dimension node joins necessary for the requested dimensions and filters
+        dimension_node_joins = await self.find_dimension_node_joins()
         for _, dimension_join in dimension_node_joins.items():
             join_path = dimension_join.join_path
             requested_dimensions = list(
@@ -453,8 +477,8 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes
                 ):  # pylint: disable=line-too-long # pragma: no cover
                     continue  # pragma: no cover
 
-                if link.dimension.name in cte_mapping:
-                    dimension_join.node_query = cte_mapping[link.dimension.name]
+                if link.dimension.name in self.cte_mapping:
+                    dimension_join.node_query = self.cte_mapping[link.dimension.name]
                     continue
 
                 dimension_node_query = await build_dimension_node_query(
@@ -462,24 +486,24 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes
                     self._build_criteria,
                     link,
                     self._filters,
-                    cte_mapping,
+                    self.cte_mapping,
                 )
                 dimension_join.node_query = convert_to_cte(
                     dimension_node_query,
-                    final_ast,
+                    self.final_ast,
                     link.dimension.name,
                 )
                 # Add it to the list of CTEs
-                cte_mapping[link.dimension.name] = dimension_join.node_query  # type: ignore
-                final_ast.ctes.append(dimension_join.node_query)  # type: ignore
+                self.cte_mapping[link.dimension.name] = dimension_join.node_query  # type: ignore
+                self.final_ast.ctes.append(dimension_join.node_query)  # type: ignore
 
                 # Build the join statement
                 join_ast = build_join_for_link(
                     link,
-                    cte_mapping,
+                    self.cte_mapping,
                     dimension_node_query,
                 )
-                final_ast.select.from_.relations[-1].extensions.append(join_ast)  # type: ignore
+                self.final_ast.select.from_.relations[-1].extensions.append(join_ast)  # type: ignore
 
             # Add the requested dimensions to the final SELECT
             if join_path:  # pragma: no cover
@@ -488,30 +512,38 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes
                     join_path[-1],
                     dimension_node_joins,
                 )
-                final_ast.select.projection.extend(dimensions_columns)
+                self.final_ast.select.projection.extend(dimensions_columns)
 
-        # Mark any remaining requested dimensions that don't need a join with
-        # their canonical dimension names
+    def create_query_from_physical_table(self, physical_table) -> ast.Query:
+        """
+        Initial scaffolding for a query from a physical table.
+        """
+        return ast.Query(
+            select=ast.Select(
+                projection=physical_table.columns,  # type: ignore
+                from_=ast.From(relations=[ast.Relation(physical_table)]),
+            ),
+        )
+
+    def set_dimension_aliases(self):
+        """
+        Mark any remaining requested dimensions that don't need a join with
+        their canonical dimension names
+        """
         for dim_name in self.dimensions:
             column_name = get_column_from_canonical_dimension(
                 dim_name,
                 self.node_revision,
             )
             node_col = (
-                final_ast.select.column_mapping.get(column_name)
+                self.final_ast.select.column_mapping.get(column_name)
                 if column_name
                 else None
             )
             # Realias based on canonical dimension name
             new_alias = amenable_name(dim_name)
-            if node_col and new_alias not in final_ast.select.column_mapping:
+            if node_col and new_alias not in self.final_ast.select.column_mapping:
                 node_col.set_alias(ast.Name(amenable_name(dim_name)))
-
-        self.validate_access()
-        if self.errors:
-            raise DJQueryBuildException(errors=self.errors)
-
-        return final_ast
 
     def add_request_by_node_name(self, node_name):
         """Add a node request to the access control validator."""
@@ -974,7 +1006,8 @@ def apply_filters_to_node(
             if node_col:
                 replacement = (
                     node_col.child if isinstance(node_col, ast.Alias) else node_col  # type: ignore
-                )
+                ).copy()
+                replacement.set_alias(None)
                 filter_ast.replace(filter_dim, replacement)
             else:
                 all_referenced_dimensions_can_pushdown = False
