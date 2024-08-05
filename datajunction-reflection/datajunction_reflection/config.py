@@ -1,5 +1,7 @@
 from functools import lru_cache
+
 from pydantic import BaseSettings
+
 
 class Settings(BaseSettings):
     """
@@ -14,6 +16,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_prefix = "REFLECTION_"  # Prefix for environment variables
+
 
 @lru_cache
 def get_settings() -> Settings:
