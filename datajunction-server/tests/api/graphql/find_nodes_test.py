@@ -546,3 +546,98 @@ async def test_find_cubes(
             "type": "CUBE",
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_find_node_with_revisions(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding nodes with revisions
+    """
+
+    query = """
+    {
+        findNodes(nodeTypes: [TRANSFORM]) {
+            name
+            type
+            revisions {
+                displayName
+                dimensionLinks {
+                    dimension {
+                        name
+                    }
+                    joinSql
+                }
+            }
+            currentVersion
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodes"] == [
+        {
+            "currentVersion": "v1.0",
+            "name": "default.regional_level_agg",
+            "revisions": [
+                {
+                    "dimensionLinks": [],
+                    "displayName": "Default: Regional Level Agg",
+                },
+            ],
+            "type": "TRANSFORM",
+        },
+        {
+            "currentVersion": "v1.0",
+            "name": "default.national_level_agg",
+            "revisions": [
+                {
+                    "dimensionLinks": [],
+                    "displayName": "Default: National Level Agg",
+                },
+            ],
+            "type": "TRANSFORM",
+        },
+        {
+            "currentVersion": "v1.0",
+            "name": "default.repair_orders_fact",
+            "revisions": [
+                {
+                    "dimensionLinks": [
+                        {
+                            "dimension": {
+                                "name": "default.municipality_dim",
+                            },
+                            "joinSql": "default.repair_orders_fact.municipality_id = "
+                            "default.municipality_dim.municipality_id",
+                        },
+                        {
+                            "dimension": {
+                                "name": "default.hard_hat",
+                            },
+                            "joinSql": "default.repair_orders_fact.hard_hat_id = "
+                            "default.hard_hat.hard_hat_id",
+                        },
+                        {
+                            "dimension": {
+                                "name": "default.hard_hat_to_delete",
+                            },
+                            "joinSql": "default.repair_orders_fact.hard_hat_id = "
+                            "default.hard_hat_to_delete.hard_hat_id",
+                        },
+                        {
+                            "dimension": {
+                                "name": "default.dispatcher",
+                            },
+                            "joinSql": "default.repair_orders_fact.dispatcher_id = "
+                            "default.dispatcher.dispatcher_id",
+                        },
+                    ],
+                    "displayName": "Repair Orders Fact",
+                },
+            ],
+            "type": "TRANSFORM",
+        },
+    ]
