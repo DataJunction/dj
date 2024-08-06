@@ -757,6 +757,7 @@ async def add_filters_dimensions_orderby_limit_to_query_ast(
                         col,
                     )
                     if dj_node:  # pragma: no cover
+                        await session.refresh(node, ["columns"])
                         await session.refresh(node, ["dimension_links"])
                         rename_dimension_primary_keys_to_foreign_keys(
                             dj_node,
