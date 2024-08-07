@@ -966,6 +966,10 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
                 )
 
         for table in table_expressions:
+            # If the user has set an alias for the node reference, reuse the
+            # same alias for the built query
+            if table.alias and hasattr(query_ast, "alias"):
+                query_ast.alias = table.alias
             query.select.replace(
                 table,
                 query_ast,
