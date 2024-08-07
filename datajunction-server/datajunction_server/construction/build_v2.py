@@ -553,10 +553,10 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             if node_col and new_alias not in self.final_ast.select.column_mapping:
                 node_col.set_alias(ast.Name(amenable_name(dim_name)))
 
-    def add_request_by_node_name(self, node_name):
+    async def add_request_by_node_name(self, node_name):
         """Add a node request to the access control validator."""
         if self._access_control:
-            self._access_control.add_request_by_node_name(self.session, node_name)
+            await self._access_control.add_request_by_node_name(self.session, node_name)
 
     def validate_access(self):
         """Validates access"""
@@ -983,7 +983,11 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
     # Apply pushdown filters if possible
     apply_filters_to_node(node, query, to_filter_asts(filters))
 
-    query.ctes.extend(new_cte_mapping.values())
+    for cte in new_cte_mapping.values():
+        if cte.ctes:
+            query.ctes.extend(cte.ctes)
+        query.ctes.append(cte)
+
     query.select.add_aliases_to_unnamed_columns()
     return query
 
