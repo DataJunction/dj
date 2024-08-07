@@ -69,7 +69,7 @@ repos:
     - types-requests
     - types-freezegun
     - types-python-dateutil
-    - types-pkg_resources
+    - types-setuptools
     - types-PyYAML
     - types-tabulate
     - types-toml
