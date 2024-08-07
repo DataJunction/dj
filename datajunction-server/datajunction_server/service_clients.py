@@ -149,7 +149,10 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         """
         response = self.requests_session.post(
             "/queries/",
-            headers={**self.requests_session.headers, **request_headers}
+            headers={
+                **self.requests_session.headers,
+                **QueryServiceClient.filtered_headers(request_headers),
+            }
             if request_headers
             else self.requests_session.headers,
             json=query_create.dict(),
