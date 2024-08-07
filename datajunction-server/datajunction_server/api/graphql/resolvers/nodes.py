@@ -43,8 +43,11 @@ def load_node_options(fields):
     Based on the GraphQL query input fields, builds a list of node load options.
     """
     options = []
+    if "revisions" in fields:
+        node_revision_options = load_node_revision_options(fields["revisions"])
+        options.append(joinedload(DBNode.revisions).options(*node_revision_options))
     if fields.get("current"):
-        node_revision_options = load_node_revision_options(fields)
+        node_revision_options = load_node_revision_options(fields["current"])
         options.append(joinedload(DBNode.current).options(*node_revision_options))
 
     if "tags" in fields:
@@ -52,16 +55,17 @@ def load_node_options(fields):
     return options
 
 
-def load_node_revision_options(fields):
+def load_node_revision_options(node_revision_fields):
     """
     Based on the GraphQL query input fields, builds a list of node revision
     load options.
     """
     options = []
     is_cube_request = (
-        "cube_metrics" in fields["current"] or "cube_dimensions" in fields["current"]
+        "cube_metrics" in node_revision_fields
+        or "cube_dimensions" in node_revision_fields
     )
-    if "columns" in fields["current"] or is_cube_request:
+    if "columns" in node_revision_fields or is_cube_request:
         options.append(
             selectinload(DBNodeRevision.columns).options(
                 joinedload(Column.attributes).joinedload(
@@ -71,17 +75,17 @@ def load_node_revision_options(fields):
                 joinedload(Column.partition),
             ),
         )
-    if "catalog" in fields["current"]:
+    if "catalog" in node_revision_fields:
         options.append(joinedload(DBNodeRevision.catalog))
-    if "parents" in fields["current"]:
+    if "parents" in node_revision_fields:
         options.append(selectinload(DBNodeRevision.parents))
-    if "materializations" in fields["current"]:
+    if "materializations" in node_revision_fields:
         options.append(selectinload(DBNodeRevision.materializations))
-    if "metric_metadata" in fields["current"]:
+    if "metric_metadata" in node_revision_fields:
         options.append(selectinload(DBNodeRevision.metric_metadata))
-    if "availability" in fields["current"]:
+    if "availability" in node_revision_fields:
         options.append(selectinload(DBNodeRevision.availability))
-    if "dimension_links" in fields["current"]:
+    if "dimension_links" in node_revision_fields:
         options.append(
             selectinload(DBNodeRevision.dimension_links).options(
                 joinedload(DimensionLink.dimension).options(
@@ -89,12 +93,12 @@ def load_node_revision_options(fields):
                 ),
             ),
         )
-    if "required_dimensions" in fields["current"]:
+    if "required_dimensions" in node_revision_fields:
         options.append(
             selectinload(DBNodeRevision.required_dimensions),
         )
 
-    if "cube_elements" in fields["current"] or is_cube_request:
+    if "cube_elements" in node_revision_fields or is_cube_request:
         options.append(
             selectinload(DBNodeRevision.cube_elements)
             .selectinload(Column.node_revisions)
