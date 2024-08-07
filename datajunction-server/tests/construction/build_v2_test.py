@@ -1241,15 +1241,15 @@ async def test_build_transform_with_multijoin_dimensions_filters(
         ),
         shared_DOT_manufacturers AS (
           SELECT
-            CAST(source_DOT_manufacturers.manufacturer_name AS STRING) name,
-            CAST(source_DOT_manufacturers.company_name AS STRING) company_name,
-            source_DOT_manufacturers.created_on AS created_at,
-            COUNT( DISTINCT shared_DOT_devices.device_id) AS devices_produced
-          FROM test.manufacturers AS source_DOT_manufacturers
-          JOIN shared_DOT_devices
-            ON source_DOT_manufacturers.manufacturer_name =
-               shared_DOT_devices.device_manufacturer
-          WHERE  CAST(source_DOT_manufacturers.company_name AS STRING) = 'Apple'
+            CAST(manufacturers.manufacturer_name AS STRING) name,
+            CAST(manufacturers.company_name AS STRING) company_name,
+            manufacturers.created_on AS created_at,
+            COUNT( DISTINCT devices.device_id) AS devices_produced
+          FROM test.manufacturers AS manufacturers
+          JOIN shared_DOT_devices devices
+            ON manufacturers.manufacturer_name =
+               devices.device_manufacturer
+          WHERE  CAST(manufacturers.company_name AS STRING) = 'Apple'
         )
         SELECT
           agg_DOT_events.user_id,
@@ -1410,29 +1410,29 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
         FROM test.regions AS source_DOT_regions
     ),
     shared_DOT_countries AS (
-    SELECT  source_DOT_countries.country_code,
-        source_DOT_countries.country_name,
+    SELECT  countries.country_code,
+        countries.country_name,
         shared_DOT_regions.region_code,
         shared_DOT_regions.region_name,
-        source_DOT_countries.population
-        FROM test.countries AS source_DOT_countries
+        countries.population
+        FROM test.countries AS countries
         JOIN shared_DOT_regions
-          ON source_DOT_countries.region_code = shared_DOT_regions.region_code
+          ON countries.region_code = shared_DOT_regions.region_code
         WHERE
           shared_DOT_regions.region_name = 'APAC'
     ),
     shared_DOT_manufacturers AS (
       SELECT
-        CAST(source_DOT_manufacturers.manufacturer_name AS STRING) name,
-        CAST(source_DOT_manufacturers.company_name AS STRING) company_name,
-        source_DOT_manufacturers.created_on AS created_at,
-        COUNT( DISTINCT shared_DOT_devices.device_id) AS devices_produced
-      FROM test.manufacturers AS source_DOT_manufacturers
-      JOIN shared_DOT_devices ON source_DOT_manufacturers.manufacturer_name =
-        shared_DOT_devices.device_manufacturer
+        CAST(manufacturers.manufacturer_name AS STRING) name,
+        CAST(manufacturers.company_name AS STRING) company_name,
+        manufacturers.created_on AS created_at,
+        COUNT( DISTINCT devices.device_id) AS devices_produced
+      FROM test.manufacturers AS manufacturers
+      JOIN shared_DOT_devices devices ON manufacturers.manufacturer_name =
+        devices.device_manufacturer
       WHERE
-        CAST(source_DOT_manufacturers.company_name AS STRING) = 'Apple'
-        AND source_DOT_manufacturers.created_on > 20240101
+        CAST(manufacturers.company_name AS STRING) = 'Apple'
+        AND manufacturers.created_on > 20240101
     )
 
     SELECT  agg_DOT_events.user_id,
