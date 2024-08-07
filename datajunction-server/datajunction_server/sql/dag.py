@@ -57,6 +57,7 @@ async def get_downstream_nodes(
     node_type: NodeType = None,
     include_deactivated: bool = True,
     include_cubes: bool = True,
+    depth: int = -1,
 ) -> List[Node]:
     """
     Gets all downstream children of the given node, filterable by node type.
@@ -73,7 +74,7 @@ async def get_downstream_nodes(
         select(
             NodeRelationship.parent_id,
             NodeRevision.node_id,
-            literal(1).label("depth"),
+            literal(0).label("depth"),
         )
         .where(NodeRelationship.parent_id == node.id)
         .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
@@ -91,7 +92,7 @@ async def get_downstream_nodes(
         select(
             dag.c.parent_id,
             NodeRevision.node_id,
-            (dag.c.depth + 1).label("depth"),
+            (dag.c.depth + literal(1)).label("depth"),
         )
         .join(NodeRelationship, dag.c.node_id == NodeRelationship.parent_id)
         .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
@@ -102,16 +103,32 @@ async def get_downstream_nodes(
 
     paths = dag.union_all(next_layer)
 
-    final_select = select(Node)
+    # Calculate the maximum depth for each node
+    max_depths = (
+        select(paths.c.node_id, func.max(paths.c.depth).label("max_depth"))
+        .group_by(paths.c.node_id)
+        .cte("max_depths")
+    )
+
+    # Select nodes with the maximum depth
+    final_select = (
+        select(Node, max_depths.c.max_depth)
+        .join(max_depths, max_depths.c.node_id == Node.id)
+    )
+
     if not include_deactivated:
         final_select = final_select.where(is_(Node.deactivated_at, None))
+
+    # Add depth filter
+    if depth != -1:
+        final_select = final_select.where(max_depths.c.max_depth < depth)
+
     statement = (
-        final_select.join(paths, paths.c.node_id == Node.id)
-        .order_by(paths.c.depth, Node.id)
+        final_select
+        .order_by(max_depths.c.max_depth, Node.id)
         .options(*_node_output_options())
     )
     results = (await session.execute(statement)).unique().scalars().all()
-
     return [
         downstream
         for downstream in results
