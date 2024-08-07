@@ -903,7 +903,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
     query.bake_ctes()  # pylint: disable=W0212
 
     new_cte_mapping: Dict[str, ast.Query] = {}
-    if not ctes_mapping:
+    if ctes_mapping is None:
         ctes_mapping = new_cte_mapping
 
     node_to_tables_mapping = get_dj_node_references_from_select(query.select)
@@ -930,6 +930,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
                     memoized_queries=memoized_queries,
                     build_criteria=build_criteria,
                     access_control=access_control,
+                    ctes_mapping=ctes_mapping,
                 )
                 cte_name = ast.Name(amenable_name(referenced_node.name))
                 query_ast = query_ast.to_cte(cte_name, parent_ast=query)
@@ -984,11 +985,13 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
     apply_filters_to_node(node, query, to_filter_asts(filters))
 
     for cte in new_cte_mapping.values():
-        if cte.ctes:
-            query.ctes.extend(cte.ctes)
+        query.ctes.extend(cte.ctes)
+        cte.ctes = []
         query.ctes.append(cte)
 
     query.select.add_aliases_to_unnamed_columns()
+    for k, v in new_cte_mapping.items():
+        ctes_mapping[k] = v
     return query
 
 
