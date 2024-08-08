@@ -75,11 +75,11 @@ async def fix_dimension_links(module__client_with_roads: AsyncClient):
             )
             SELECT
               default_DOT_repair_orders_fact.dispatcher_id
-                AS default_DOT_dispatcher_DOT_dispatcher_id,
+                default_DOT_dispatcher_DOT_dispatcher_id,
               default_DOT_repair_orders_fact.discount
-                AS default_DOT_repair_orders_fact_DOT_discount,
+                default_DOT_repair_orders_fact_DOT_discount,
               default_DOT_repair_orders_fact.price
-                AS default_DOT_repair_orders_fact_DOT_price
+                default_DOT_repair_orders_fact_DOT_price
             FROM default_DOT_repair_orders_fact
             """,
             [
@@ -167,11 +167,11 @@ async def fix_dimension_links(module__client_with_roads: AsyncClient):
             )
             SELECT
               default_DOT_repair_orders_fact.dispatcher_id
-                AS default_DOT_dispatcher_DOT_dispatcher_id,
+                default_DOT_dispatcher_DOT_dispatcher_id,
               default_DOT_repair_orders_fact.discount
-                AS default_DOT_repair_orders_fact_DOT_discount,
+                default_DOT_repair_orders_fact_DOT_discount,
               default_DOT_repair_orders_fact.price
-                AS default_DOT_repair_orders_fact_DOT_price
+                default_DOT_repair_orders_fact_DOT_price
             FROM default_DOT_repair_orders_fact
             """,
             [
@@ -300,15 +300,15 @@ async def fix_dimension_links(module__client_with_roads: AsyncClient):
             )
             SELECT
               default_DOT_repair_orders_fact.total_repair_cost
-                AS default_DOT_repair_orders_fact_DOT_total_repair_cost,
+                default_DOT_repair_orders_fact_DOT_total_repair_cost,
               default_DOT_repair_orders_fact.time_to_dispatch
-                AS default_DOT_repair_orders_fact_DOT_time_to_dispatch,
+                default_DOT_repair_orders_fact_DOT_time_to_dispatch,
               default_DOT_us_state.state_name
-                AS default_DOT_us_state_DOT_state_name,
+                default_DOT_us_state_DOT_state_name,
               default_DOT_dispatcher.company_name
-                AS default_DOT_dispatcher_DOT_company_name,
+                default_DOT_dispatcher_DOT_company_name,
               default_DOT_hard_hat.last_name
-                AS default_DOT_hard_hat_DOT_last_name
+                default_DOT_hard_hat_DOT_last_name
             FROM default_DOT_repair_orders_fact
             INNER JOIN default_DOT_hard_hat
               ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
@@ -478,23 +478,23 @@ async def test_measures_sql_include_all_columns(
         default_DOT_dispatchers.phone
      FROM roads.dispatchers AS default_DOT_dispatchers
     )
-    SELECT  default_DOT_repair_orders_fact.repair_order_id AS default_DOT_repair_orders_fact_DOT_repair_order_id,
-        default_DOT_repair_orders_fact.municipality_id AS default_DOT_repair_orders_fact_DOT_municipality_id,
-        default_DOT_repair_orders_fact.hard_hat_id AS default_DOT_repair_orders_fact_DOT_hard_hat_id,
-        default_DOT_repair_orders_fact.dispatcher_id AS default_DOT_repair_orders_fact_DOT_dispatcher_id,
-        default_DOT_repair_orders_fact.order_date AS default_DOT_repair_orders_fact_DOT_order_date,
-        default_DOT_repair_orders_fact.dispatched_date AS default_DOT_repair_orders_fact_DOT_dispatched_date,
-        default_DOT_repair_orders_fact.required_date AS default_DOT_repair_orders_fact_DOT_required_date,
-        default_DOT_repair_orders_fact.discount AS default_DOT_repair_orders_fact_DOT_discount,
-        default_DOT_repair_orders_fact.price AS default_DOT_repair_orders_fact_DOT_price,
-        default_DOT_repair_orders_fact.quantity AS default_DOT_repair_orders_fact_DOT_quantity,
-        default_DOT_repair_orders_fact.repair_type_id AS default_DOT_repair_orders_fact_DOT_repair_type_id,
-        default_DOT_repair_orders_fact.total_repair_cost AS default_DOT_repair_orders_fact_DOT_total_repair_cost,
-        default_DOT_repair_orders_fact.time_to_dispatch AS default_DOT_repair_orders_fact_DOT_time_to_dispatch,
-        default_DOT_repair_orders_fact.dispatch_delay AS default_DOT_repair_orders_fact_DOT_dispatch_delay,
-        default_DOT_us_state.state_name AS default_DOT_us_state_DOT_state_name,
-        default_DOT_dispatcher.company_name AS default_DOT_dispatcher_DOT_company_name,
-        default_DOT_hard_hat.last_name AS default_DOT_hard_hat_DOT_last_name
+    SELECT  default_DOT_repair_orders_fact.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id,
+        default_DOT_repair_orders_fact.municipality_id default_DOT_repair_orders_fact_DOT_municipality_id,
+        default_DOT_repair_orders_fact.hard_hat_id default_DOT_repair_orders_fact_DOT_hard_hat_id,
+        default_DOT_repair_orders_fact.dispatcher_id default_DOT_repair_orders_fact_DOT_dispatcher_id,
+        default_DOT_repair_orders_fact.order_date default_DOT_repair_orders_fact_DOT_order_date,
+        default_DOT_repair_orders_fact.dispatched_date default_DOT_repair_orders_fact_DOT_dispatched_date,
+        default_DOT_repair_orders_fact.required_date default_DOT_repair_orders_fact_DOT_required_date,
+        default_DOT_repair_orders_fact.discount default_DOT_repair_orders_fact_DOT_discount,
+        default_DOT_repair_orders_fact.price default_DOT_repair_orders_fact_DOT_price,
+        default_DOT_repair_orders_fact.quantity default_DOT_repair_orders_fact_DOT_quantity,
+        default_DOT_repair_orders_fact.repair_type_id default_DOT_repair_orders_fact_DOT_repair_type_id,
+        default_DOT_repair_orders_fact.total_repair_cost default_DOT_repair_orders_fact_DOT_total_repair_cost,
+        default_DOT_repair_orders_fact.time_to_dispatch default_DOT_repair_orders_fact_DOT_time_to_dispatch,
+        default_DOT_repair_orders_fact.dispatch_delay default_DOT_repair_orders_fact_DOT_dispatch_delay,
+        default_DOT_us_state.state_name default_DOT_us_state_DOT_state_name,
+        default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
+        default_DOT_hard_hat.last_name default_DOT_hard_hat_DOT_last_name
      FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
     INNER JOIN default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_short
     LEFT JOIN default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id

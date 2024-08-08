@@ -1,6 +1,7 @@
 # pylint: disable=redefined-outer-name,too-many-lines
 """Tests for building nodes"""
 from typing import List, Tuple
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,67 @@ from datajunction_server.errors import (
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+
+async def create_source(
+    session: AsyncSession,
+    name: str,
+    display_name: str,
+    schema_: str,
+    table: str,
+    columns: List[Column],
+) -> Tuple[Node, NodeRevision]:
+    """Create source node."""
+    source_node = Node(
+        name=name,
+        display_name=display_name,
+        type=NodeType.SOURCE,
+        current_version="1",
+    )
+    source_node_revision = NodeRevision(
+        node=source_node,
+        name=name,
+        display_name=display_name,
+        type=NodeType.SOURCE,
+        version="1",
+        schema_=schema_,
+        table=table,
+        columns=columns,
+    )
+    session.add(source_node_revision)
+    await session.commit()
+    await session.refresh(source_node, ["current"])
+    return source_node, source_node_revision
+
+
+async def create_node_with_query(
+    session: AsyncSession,
+    name: str,
+    display_name: str,
+    node_type: NodeType,
+    query: str,
+    columns: List[Column],
+) -> Tuple[Node, NodeRevision]:
+    """Create node with query."""
+    node = Node(
+        name=name,
+        display_name=display_name,
+        type=node_type,
+        current_version="1",
+    )
+    node_revision = NodeRevision(
+        node=node,
+        name=name,
+        display_name=display_name,
+        type=node_type,
+        version="1",
+        query=query,
+        columns=columns,
+    )
+    session.add(node_revision)
+    await session.commit()
+    await session.refresh(node, ["current"])
+    return node, node_revision
 
 
 @pytest_asyncio.fixture
@@ -52,18 +114,10 @@ async def events(session: AsyncSession) -> Node:
     """
     Events source node
     """
-    events_node = Node(
+    events_node, _ = await create_source(
+        session,
         name="source.events",
         display_name="Events",
-        type=NodeType.SOURCE,
-        current_version="1",
-    )
-    events_node_revision = NodeRevision(
-        node=events_node,
-        name="source.events",
-        display_name="Events",
-        type=NodeType.SOURCE,
-        version="1",
         schema_="test",
         table="events",
         columns=[
@@ -75,9 +129,6 @@ async def events(session: AsyncSession) -> Node:
             Column(name="utc_date", type=ct.BigIntType(), order=4),
         ],
     )
-    session.add(events_node_revision)
-    await session.commit()
-    await session.refresh(events_node, ["current"])
     return events_node
 
 
@@ -86,18 +137,11 @@ async def date_dim(session: AsyncSession, primary_key_attribute) -> Node:
     """
     Date dimension node
     """
-    date_node = Node(
+    date_node, _ = await create_node_with_query(
+        session,
         name="shared.date",
         display_name="Date",
-        type=NodeType.DIMENSION,
-        current_version="1",
-    )
-    date_node_revision = NodeRevision(
-        node=date_node,
-        name="shared.date",
-        display_name="Date",
-        type=NodeType.DIMENSION,
-        version="1",
+        node_type=NodeType.DIMENSION,
         query="SELECT 1, 2, 3, 4 AS dateint",
         columns=[
             Column(
@@ -108,9 +152,6 @@ async def date_dim(session: AsyncSession, primary_key_attribute) -> Node:
             ),
         ],
     )
-    session.add(date_node_revision)
-    await session.commit()
-    await session.refresh(date_node, ["current"])
     return date_node
 
 
@@ -119,18 +160,11 @@ async def events_agg(session: AsyncSession) -> Node:
     """
     Events aggregation transform node
     """
-    events_agg_node = Node(
+    events_agg_node, _ = await create_node_with_query(
+        session,
         name="agg.events",
         display_name="Events Aggregated",
-        type=NodeType.TRANSFORM,
-        current_version="1",
-    )
-    events_agg_node_revision = NodeRevision(
-        node=events_agg_node,
-        name="agg.events",
-        display_name="Events Aggregated",
-        type=NodeType.TRANSFORM,
-        version="1",
+        node_type=NodeType.TRANSFORM,
         query="""
         SELECT
           user_id,
@@ -149,9 +183,6 @@ async def events_agg(session: AsyncSession) -> Node:
             Column(name="total_latency", type=ct.BigIntType(), order=5),
         ],
     )
-    session.add(events_agg_node_revision)
-    await session.commit()
-    await session.refresh(events_agg_node, ["current"])
     return events_agg_node
 
 
@@ -160,18 +191,11 @@ async def events_agg_complex(session: AsyncSession) -> Node:
     """
     Events aggregation transform node with CTEs
     """
-    events_agg_node = Node(
+    events_agg_node, _ = await create_node_with_query(
+        session,
         name="agg.events_complex",
         display_name="Events Aggregated (Unnecessarily Complex)",
-        type=NodeType.TRANSFORM,
-        current_version="1",
-    )
-    events_agg_node_revision = NodeRevision(
-        node=events_agg_node,
-        name="agg.events_complex",
-        display_name="Events Aggregated (Unnecessarily Complex)",
-        type=NodeType.TRANSFORM,
-        version="1",
+        node_type=NodeType.TRANSFORM,
         query="""
         WITH complexity AS (
           SELECT
@@ -199,9 +223,6 @@ async def events_agg_complex(session: AsyncSession) -> Node:
             Column(name="total_latency", type=ct.BigIntType(), order=5),
         ],
     )
-    session.add(events_agg_node_revision)
-    await session.commit()
-    await session.refresh(events_agg_node, ["current"])
     return events_agg_node
 
 
@@ -213,18 +234,10 @@ async def devices(
     """
     Devices source node + devices dimension node
     """
-    devices_source_node = Node(
+    await create_source(
+        session,
         name="source.devices",
         display_name="Devices",
-        type=NodeType.SOURCE,
-        current_version="1",
-    )
-    devices_source_node_revision = NodeRevision(
-        node=devices_source_node,
-        name="source.devices",
-        display_name="Devices",
-        type=NodeType.SOURCE,
-        version="1",
         schema_="test",
         table="devices",
         columns=[
@@ -234,18 +247,11 @@ async def devices(
         ],
     )
 
-    devices_dim_node = Node(
+    devices_dim_node, _ = await create_node_with_query(
+        session,
         name="shared.devices",
         display_name="Devices",
-        type=NodeType.DIMENSION,
-        current_version="1",
-    )
-    devices_dim_node_revision = NodeRevision(
-        node=devices_dim_node,
-        name="shared.devices",
-        display_name="Devices",
-        type=NodeType.DIMENSION,
-        version="1",
+        node_type=NodeType.DIMENSION,
         query="""
         SELECT
           CAST(device_id AS INT) device_id,
@@ -264,11 +270,6 @@ async def devices(
             Column(name="device_manufacturer", type=ct.StringType(), order=2),
         ],
     )
-    session.add(devices_source_node_revision)
-    session.add(devices_dim_node_revision)
-    await session.commit()
-    await session.refresh(devices_source_node, ["current"])
-    await session.refresh(devices_dim_node, ["current"])
     return devices_dim_node
 
 
@@ -280,18 +281,10 @@ async def manufacturers_dim(
     """
     Manufacturers source node + dimension node
     """
-    manufacturers_source_node = Node(
+    await create_source(
+        session,
         name="source.manufacturers",
         display_name="Manufacturers",
-        type=NodeType.SOURCE,
-        current_version="1",
-    )
-    manufacturers_source_node_revision = NodeRevision(
-        node=manufacturers_source_node,
-        name="source.manufacturers",
-        display_name="Manufacturers",
-        type=NodeType.SOURCE,
-        version="1",
         schema_="test",
         table="manufacturers",
         columns=[
@@ -300,19 +293,11 @@ async def manufacturers_dim(
             Column(name="created_on", type=ct.TimestampType(), order=2),
         ],
     )
-
-    manufacturers_dim_node = Node(
+    manufacturers_dim_node, _ = await create_node_with_query(
+        session,
         name="shared.manufacturers",
         display_name="Manufacturers",
-        type=NodeType.DIMENSION,
-        current_version="1",
-    )
-    manufacturers_dim_node_revision = NodeRevision(
-        node=manufacturers_dim_node,
-        name="shared.manufacturers",
-        display_name="Manufacturers",
-        type=NodeType.DIMENSION,
-        version="1",
+        node_type=NodeType.DIMENSION,
         query="""
         SELECT
           CAST(manufacturer_name AS STR) name,
@@ -334,70 +319,7 @@ async def manufacturers_dim(
             Column(name="created_on", type=ct.TimestampType(), order=2),
         ],
     )
-    session.add(manufacturers_source_node_revision)
-    session.add(manufacturers_dim_node_revision)
-    await session.commit()
-    await session.refresh(manufacturers_source_node, ["current"])
-    await session.refresh(manufacturers_dim_node, ["current"])
     return manufacturers_dim_node
-
-
-async def create_source(
-    session: AsyncSession, 
-    name: str,
-    display_name: str,
-    schema_: str,
-    table: str,
-    columns: List[Column],
-) -> Tuple[Node, NodeRevision]:
-    source_node = Node(
-        name=name,
-        display_name=display_name,
-        type=NodeType.SOURCE,
-        current_version="1",
-    )
-    source_node_revision = NodeRevision(
-        node=source_node,
-        name=name,
-        display_name=display_name,
-        type=NodeType.SOURCE,
-        version="1",
-        schema_=schema_,
-        table=table,
-        columns=columns,
-    )
-    session.add(source_node_revision)
-    await session.commit()
-    await session.refresh(source_node, ["current"])
-    return source_node, source_node_revision
-
-
-async def create_transform(
-    session: AsyncSession, 
-    name: str,
-    display_name: str,
-    query: str,
-    columns: List[Column],
-) -> Tuple[Node, NodeRevision]:
-    node = Node(
-        name=name,
-        display_name=display_name,
-        type=NodeType.SOURCE,
-        current_version="1",
-    )
-    node_revision = NodeRevision(
-        node=node,
-        name=name,
-        display_name=display_name,
-        type=NodeType.TRANSFORM,
-        version="1",
-        query=query,
-        columns=columns,
-    )
-    session.add(node_revision)
-    await session.commit()
-    await session.refresh(node, ["current"])
-    return node, node_revision
 
 
 @pytest_asyncio.fixture
@@ -408,18 +330,10 @@ async def country_dim(
     """
     Countries source node + dimension node & regions source + dim
     """
-    countries_source_node = Node(
+    await create_source(
+        session,
         name="source.countries",
         display_name="Countries",
-        type=NodeType.SOURCE,
-        current_version="1",
-    )
-    countries_source_node_revision = NodeRevision(
-        node=countries_source_node,
-        name="source.countries",
-        display_name="Countries",
-        type=NodeType.SOURCE,
-        version="1",
         schema_="test",
         table="countries",
         columns=[
@@ -430,18 +344,10 @@ async def country_dim(
         ],
     )
 
-    regions_source_node = Node(
+    await create_source(
+        session,
         name="source.regions",
         display_name="Regions",
-        type=NodeType.SOURCE,
-        current_version="1",
-    )
-    regions_source_node_revision = NodeRevision(
-        node=regions_source_node,
-        name="source.regions",
-        display_name="Regions",
-        type=NodeType.SOURCE,
-        version="1",
         schema_="test",
         table="regions",
         columns=[
@@ -450,18 +356,11 @@ async def country_dim(
         ],
     )
 
-    regions_dim_node = Node(
+    await create_node_with_query(
+        session,
         name="shared.regions",
         display_name="Regions Dimension",
-        type=NodeType.DIMENSION,
-        current_version="1",
-    )
-    regions_dim_node_revision = NodeRevision(
-        node=regions_dim_node,
-        name="shared.regions",
-        display_name="Regions Dimension",
-        type=NodeType.DIMENSION,
-        version="1",
+        node_type=NodeType.DIMENSION,
         query="""
         SELECT
           region_code,
@@ -478,18 +377,11 @@ async def country_dim(
             Column(name="region_name", type=ct.StringType(), order=1),
         ],
     )
-    countries_dim_node = Node(
+    countries_dim_node, _ = await create_node_with_query(
+        session,
         name="shared.countries",
         display_name="Countries Dimension",
-        type=NodeType.DIMENSION,
-        current_version="1",
-    )
-    countries_dim_node_revision = NodeRevision(
-        node=countries_dim_node,
-        name="shared.countries",
-        display_name="Countries Dimension",
-        type=NodeType.DIMENSION,
-        version="1",
+        node_type=NodeType.DIMENSION,
         query="""
         SELECT
           country_code,
@@ -513,15 +405,6 @@ async def country_dim(
             Column(name="population", type=ct.IntegerType(), order=4),
         ],
     )
-    session.add(countries_source_node_revision)
-    session.add(regions_source_node_revision)
-    session.add(regions_dim_node_revision)
-    session.add(countries_dim_node_revision)
-    await session.commit()
-    await session.refresh(countries_source_node, ["current"])
-    await session.refresh(regions_source_node, ["current"])
-    await session.refresh(regions_dim_node, ["current"])
-    await session.refresh(countries_dim_node, ["current"])
     return countries_dim_node
 
 
