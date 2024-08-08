@@ -1,5 +1,6 @@
 # pylint: disable=redefined-outer-name,too-many-lines
 """Tests for building nodes"""
+from typing import List, Tuple
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -339,6 +340,64 @@ async def manufacturers_dim(
     await session.refresh(manufacturers_source_node, ["current"])
     await session.refresh(manufacturers_dim_node, ["current"])
     return manufacturers_dim_node
+
+
+async def create_source(
+    session: AsyncSession, 
+    name: str,
+    display_name: str,
+    schema_: str,
+    table: str,
+    columns: List[Column],
+) -> Tuple[Node, NodeRevision]:
+    source_node = Node(
+        name=name,
+        display_name=display_name,
+        type=NodeType.SOURCE,
+        current_version="1",
+    )
+    source_node_revision = NodeRevision(
+        node=source_node,
+        name=name,
+        display_name=display_name,
+        type=NodeType.SOURCE,
+        version="1",
+        schema_=schema_,
+        table=table,
+        columns=columns,
+    )
+    session.add(source_node_revision)
+    await session.commit()
+    await session.refresh(source_node, ["current"])
+    return source_node, source_node_revision
+
+
+async def create_transform(
+    session: AsyncSession, 
+    name: str,
+    display_name: str,
+    query: str,
+    columns: List[Column],
+) -> Tuple[Node, NodeRevision]:
+    node = Node(
+        name=name,
+        display_name=display_name,
+        type=NodeType.SOURCE,
+        current_version="1",
+    )
+    node_revision = NodeRevision(
+        node=node,
+        name=name,
+        display_name=display_name,
+        type=NodeType.TRANSFORM,
+        version="1",
+        query=query,
+        columns=columns,
+    )
+    session.add(node_revision)
+    await session.commit()
+    await session.refresh(node, ["current"])
+    return node, node_revision
 
 
 @pytest_asyncio.fixture

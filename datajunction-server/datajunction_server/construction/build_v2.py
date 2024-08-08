@@ -584,7 +584,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             dim_node = dimension_attr.node_name
             if dim_node == self.node_revision.name:
                 continue
-            self.add_request_by_node_name(dim_node)
+            await self.add_request_by_node_name(dim_node)
             if dim_node not in dimension_node_joins:
                 join_path = await dimension_join_path(
                     self.session,
@@ -907,74 +907,40 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
         ctes_mapping = new_cte_mapping
 
     node_to_tables_mapping = get_dj_node_references_from_select(query.select)
-    for referenced_node, table_expressions in node_to_tables_mapping.items():
+    for referenced_node, reference_expressions in node_to_tables_mapping.items():
         await session.refresh(referenced_node, ["dimension_links"])
 
-        # Try to find a materialized table attached to this node, if one exists.
-        table_reference = cast(
-            Optional[ast.Table],
-            get_table_for_node(
-                referenced_node,
-                build_criteria=build_criteria,
-            ),
-        )
-        if not table_reference:
-            # Build a new CTE with the query AST if there is no materialized table
-            if referenced_node.name not in ctes_mapping:
-                node_query = parse(cast(str, referenced_node.query))
-                query_ast = await build_ast(  # type: ignore
+        for ref_expr in reference_expressions:
+            physical_table = cast(
+                Optional[ast.Table],
+                get_table_for_node(referenced_node, build_criteria),
+            )
+            if physical_table:
+                query_ast = create_query_ast_with_table(
+                    physical_table,
+                    referenced_node,
+                    filters,
+                )
+            else:
+                query_ast = await create_query_ast_with_cte(
                     session,
                     referenced_node,
-                    node_query,
-                    filters=filters,
-                    memoized_queries=memoized_queries,
-                    build_criteria=build_criteria,
-                    access_control=access_control,
-                    ctes_mapping=ctes_mapping,
-                )
-                cte_name = ast.Name(amenable_name(referenced_node.name))
-                query_ast = query_ast.to_cte(cte_name, parent_ast=query)
-                new_cte_mapping[referenced_node.name] = query_ast
-
-            reference_cte = (
-                ctes_mapping[referenced_node.name]
-                if referenced_node.name in ctes_mapping
-                else new_cte_mapping[referenced_node.name]
-            )
-            query_ast = ast.Table(  # type: ignore
-                reference_cte.alias,  # type: ignore
-                _columns=reference_cte._columns,  # pylint: disable=protected-access
-                _dj_node=referenced_node,
-            )
-        else:
-            # Otherwise use the materialized table and apply filters where possible
-            alias = amenable_name(referenced_node.name)
-            query_ast = ast.Query(
-                select=ast.Select(
-                    projection=table_reference.columns,  # type: ignore
-                    from_=ast.From(relations=[ast.Relation(table_reference)]),
-                ),
-                alias=ast.Name(alias),
-            )
-            query_ast.parenthesized = True
-            apply_filters_to_node(referenced_node, query_ast, to_filter_asts(filters))
-            if not query_ast.select.where:
-                query_ast = ast.Alias(  # type: ignore
-                    ast.Name(alias),
-                    child=table_reference,
-                    as_=True,
+                    query,
+                    filters,
+                    memoized_queries,
+                    build_criteria,
+                    access_control,
+                    ctes_mapping,
+                    new_cte_mapping,
                 )
 
-        for table in table_expressions:
             # If the user has set an alias for the node reference, reuse the
             # same alias for the built query
-            if table.alias and hasattr(query_ast, "alias"):
-                query_ast.alias = table.alias
-            query.select.replace(
-                table,
-                query_ast,
-                copy=False,
-            )
+            if ref_expr.alias and hasattr(query_ast, "alias"):
+                query_ast.alias = ref_expr.alias
+
+            query.select.replace(ref_expr, query_ast, copy=False)
+
             await query.select.compile(context)
             for col in query.select.find_all(ast.Column):
                 if (
@@ -994,9 +960,75 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
         query.ctes.append(cte)
 
     query.select.add_aliases_to_unnamed_columns()
-    for k, v in new_cte_mapping.items():
-        ctes_mapping[k] = v
+    ctes_mapping.update(new_cte_mapping)
     return query
+
+
+async def create_query_ast_with_cte(
+    session,
+    referenced_node,
+    query,
+    filters,
+    memoized_queries,
+    build_criteria,
+    access_control,
+    ctes_mapping,
+    new_cte_mapping,
+):
+    """
+    Build a new CTE with the query AST if there is no materialized table
+    """
+    if referenced_node.name not in ctes_mapping:
+        node_query = parse(cast(str, referenced_node.query))
+        query_ast = await build_ast(  # type: ignore
+            session,
+            referenced_node,
+            node_query,
+            filters=filters,
+            memoized_queries=memoized_queries,
+            build_criteria=build_criteria,
+            access_control=access_control,
+            ctes_mapping=ctes_mapping,
+        )
+        cte_name = ast.Name(amenable_name(referenced_node.name))
+        query_ast = query_ast.to_cte(cte_name, parent_ast=query)
+        new_cte_mapping[referenced_node.name] = query_ast
+
+    reference_cte = (
+        ctes_mapping[referenced_node.name]
+        if referenced_node.name in ctes_mapping
+        else new_cte_mapping[referenced_node.name]
+    )
+    query_ast = ast.Table(  # type: ignore
+        reference_cte.alias,  # type: ignore
+        _columns=reference_cte._columns,  # pylint: disable=protected-access
+        _dj_node=referenced_node,
+    )
+    return query_ast
+
+
+def create_query_ast_with_table(table_reference, referenced_node, filters):
+    """
+    Build query from the materialized table with filters.
+    """
+    alias = amenable_name(referenced_node.name)
+    query_ast = ast.Query(
+        select=ast.Select(
+            projection=table_reference.columns,
+            from_=ast.From(relations=[ast.Relation(table_reference)]),
+        ),
+        alias=ast.Name(alias),
+    )
+    query_ast.parenthesized = True
+    apply_filters_to_node(referenced_node, query_ast, to_filter_asts(filters))
+
+    if not query_ast.select.where:
+        query_ast = ast.Alias(
+            ast.Name(alias),
+            child=table_reference,
+            as_=True,
+        )
+    return query_ast
 
 
 def apply_filters_to_node(
