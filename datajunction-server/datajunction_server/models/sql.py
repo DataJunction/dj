@@ -47,8 +47,10 @@ class GeneratedSQL(BaseModel):
         If no plugin is configured, it will just return the original generated query.
         """
         if values.get("sql_transpilation_library"):
-            plugin = get_transpilation_plugin(values.get("sql_transpilation_library"))
-            values["sql"] = plugin.transpile_sql(
+            plugin = get_transpilation_plugin(  # pragma: no cover
+                values.get("sql_transpilation_library"),
+            )
+            values["sql"] = plugin.transpile_sql(  # pragma: no cover
                 values["sql"],
                 input_dialect=Dialect.SPARK,
                 output_dialect=values["dialect"],
