@@ -458,11 +458,12 @@ async def validate_cube(  # pylint: disable=too-many-locals
         )
 
     dimension_mapping: Dict[str, Node] = {
-        attr: dimension_nodes[node_name] for node_name, attr in dimension_attributes
+        f"{node_name}{SEPARATOR}{attr}": dimension_nodes[node_name]
+        for node_name, attr in dimension_attributes
     }
     dimensions: List[Column] = []
     for node_name, column_name in dimension_attributes:
-        dimension_node = dimension_mapping[column_name]
+        dimension_node = dimension_mapping[f"{node_name}{SEPARATOR}{column_name}"]
         columns = {col.name: col for col in dimension_node.current.columns}  # type: ignore
 
         column_name_without_role = column_name
