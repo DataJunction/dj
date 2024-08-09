@@ -389,6 +389,8 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             self.final_ast = node_ast
         else:
             node_alias, node_ast = await self.build_current_node_ast(node_ast)
+            ctx = CompileContext(self.session, DJException())
+            await node_ast.compile(ctx)
             self.final_ast = self.initialize_final_query_ast(node_ast, node_alias)
             await self.build_dimension_node_joins(node_ast, node_alias)
             self.set_dimension_aliases()
@@ -431,7 +433,6 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         ctx = CompileContext(self.session, DJException())
         await node_ast.compile(ctx)
         self.errors.extend(ctx.exception.errors)
-
         node_alias = ast.Name(amenable_name(self.node_revision.name))
         return node_alias, await build_ast(
             self.session,
