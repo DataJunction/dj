@@ -588,6 +588,42 @@ async def test_create_cube_failures(
 
 
 @pytest.mark.asyncio
+async def test_create_cube_similar_dimensions(
+    module__client_with_roads: AsyncClient,
+):
+    """
+    Tests cube creation for dimension attributes with the same name
+    but from different dimension nodes.
+    """
+
+    metrics_list = [
+        "default.num_repair_orders",
+        "default.avg_repair_price",
+        "default.total_repair_cost",
+    ]
+
+    await module__client_with_roads.post("/nodes/default.repair_order_fact/")
+    # Should succeed
+    response = await module__client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": metrics_list,
+            "dimensions": [
+                "default.hard_hat.country",
+                "default.hard_hat.postal_code",
+                "default.hard_hat_to_delete.postal_code",
+            ],
+            "filters": ["default.hard_hat.state='AZ'"],
+            "description": "Cube of various metrics related to repairs",
+            "mode": "published",
+            "name": "default.repairs_cube2",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["version"] == "v1.0"
+
+
+@pytest.mark.asyncio
 async def test_create_cube(
     client_with_repairs_cube: AsyncClient,
 ):
