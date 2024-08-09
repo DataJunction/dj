@@ -1023,11 +1023,11 @@ async def test_build_transform_w_cte_and_pushdown_dimensions_filters(
     expected = """
     WITH agg_DOT_events_complex AS (
       SELECT
-        CAST(user_id AS BIGINT) user_id,
-        CAST(utc_date AS BIGINT) utc_date,
-        CAST(device_id AS BIGINT) device_id,
-        CAST(country_code AS STRING) country_code,
-        CAST(total_latency AS BIGINT) total_latency
+        CAST(complexity.user_id AS BIGINT) user_id,
+        CAST(complexity.utc_date AS BIGINT) utc_date,
+        CAST(complexity.device_id AS BIGINT) device_id,
+        CAST(complexity.country_code AS STRING) country_code,
+        CAST(complexity.total_latency AS BIGINT) total_latency
       FROM (
         SELECT
           source_DOT_events.user_id,
@@ -1052,7 +1052,7 @@ async def test_build_transform_w_cte_and_pushdown_dimensions_filters(
           source_DOT_events.device_id,
           source_DOT_events.country_code
       ) AS complexity
-      WHERE CAST(device_id AS BIGINT) = 111 AND CAST(device_id AS BIGINT) = 222
+      WHERE CAST(complexity.device_id AS BIGINT) = 111 AND CAST(complexity.device_id AS BIGINT) = 222
     )
     SELECT
       agg_DOT_events_complex.user_id,
