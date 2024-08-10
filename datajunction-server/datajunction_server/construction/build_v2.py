@@ -447,6 +447,10 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         """
         Initialize the final query AST structure
         """
+        node_ctes = remove_duplicates(
+            node_ast.ctes,
+            lambda cte: cte.alias_or_name.identifier(),
+        )
         return ast.Query(
             select=ast.Select(
                 projection=[
@@ -459,7 +463,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
                 ],
                 from_=ast.From(relations=[ast.Relation(node_alias)]),  # type: ignore
             ),
-            ctes=[*node_ast.ctes, node_ast],
+            ctes=[*node_ctes, node_ast],
         )
 
     async def build_dimension_node_joins(self, node_ast, node_alias):
@@ -588,7 +592,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             dim_node = dimension_attr.node_name
             if dim_node == self.node_revision.name:
                 continue
-            self.add_request_by_node_name(dim_node)
+            await self.add_request_by_node_name(dim_node)
             if dim_node not in dimension_node_joins:
                 join_path = await dimension_join_path(
                     self.session,
@@ -658,6 +662,16 @@ def to_filter_asts(filters: Optional[List[str]] = None):
     return [
         parse(f"select * where {filter_}").select.where for filter_ in filters or []
     ]
+
+
+def remove_duplicates(input_list, key_func=lambda x: x):
+    """
+    Remove duplicates from the list by using the key_func on each element
+    to determine the "key" used for identifying duplicates.
+    """
+    return list(
+        collections.OrderedDict((key_func(item), item) for item in input_list).values(),
+    )
 
 
 async def dimension_join_path(
