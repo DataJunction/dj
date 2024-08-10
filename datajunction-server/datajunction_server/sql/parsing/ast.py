@@ -925,11 +925,17 @@ class Column(Aliasable, Named, Expression):
 
         # Check for ctes
         alpha_query = self.get_furthest_parent()
+        direct_table_names = {
+            direct_table.alias_or_name.identifier() for direct_table in direct_tables
+        }
         if isinstance(alpha_query, Query) and alpha_query.ctes:
-            for table in alpha_query.ctes:
-                if table.alias_or_name.identifier(False) == namespace:
-                    if await table.add_ref_column(self, ctx):
-                        found.append(table)
+            for cte in alpha_query.ctes:
+                cte_name = cte.alias_or_name.identifier(False)
+                if cte_name == namespace or (
+                    not namespace and cte_name in direct_table_names
+                ):
+                    if await cte.add_ref_column(self, ctx):
+                        found.append(cte)
 
         # If nothing was found in the initial AST, traverse through dimensions graph
         # to find another table in DJ that could be its origin

@@ -1,12 +1,14 @@
 # pylint: disable=redefined-outer-name,too-many-lines
 """Tests for building nodes"""
+from typing import List, Tuple
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import datajunction_server.sql.parsing.types as ct
 from datajunction_server.construction.build_v2 import (
-    build_node,
+    QueryBuilder,
     combine_filter_conditions,
     dimension_join_path,
 )
@@ -14,10 +16,75 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink, JoinType
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.errors import DJException
+from datajunction_server.errors import (
+    DJQueryBuildError,
+    DJQueryBuildException,
+    ErrorCode,
+)
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+
+async def create_source(
+    session: AsyncSession,
+    name: str,
+    display_name: str,
+    schema_: str,
+    table: str,
+    columns: List[Column],
+) -> Tuple[Node, NodeRevision]:
+    """Create source node."""
+    source_node = Node(
+        name=name,
+        display_name=display_name,
+        type=NodeType.SOURCE,
+        current_version="1",
+    )
+    source_node_revision = NodeRevision(
+        node=source_node,
+        name=name,
+        display_name=display_name,
+        type=NodeType.SOURCE,
+        version="1",
+        schema_=schema_,
+        table=table,
+        columns=columns,
+    )
+    session.add(source_node_revision)
+    await session.commit()
+    await session.refresh(source_node, ["current"])
+    return source_node, source_node_revision
+
+
+async def create_node_with_query(
+    session: AsyncSession,
+    name: str,
+    display_name: str,
+    node_type: NodeType,
+    query: str,
+    columns: List[Column],
+) -> Tuple[Node, NodeRevision]:
+    """Create node with query."""
+    node = Node(
+        name=name,
+        display_name=display_name,
+        type=node_type,
+        current_version="1",
+    )
+    node_revision = NodeRevision(
+        node=node,
+        name=name,
+        display_name=display_name,
+        type=node_type,
+        version="1",
+        query=query,
+        columns=columns,
+    )
+    session.add(node_revision)
+    await session.commit()
+    await session.refresh(node, ["current"])
+    return node, node_revision
 
 
 @pytest_asyncio.fixture
@@ -47,18 +114,10 @@ async def events(session: AsyncSession) -> Node:
     """
     Events source node
     """
-    events_node = Node(
+    events_node, _ = await create_source(
+        session,
         name="source.events",
         display_name="Events",
-        type=NodeType.SOURCE,
-        current_version="1",
-    )
-    events_node_revision = NodeRevision(
-        node=events_node,
-        name="source.events",
-        display_name="Events",
-        type=NodeType.SOURCE,
-        version="1",
         schema_="test",
         table="events",
         columns=[
@@ -70,9 +129,6 @@ async def events(session: AsyncSession) -> Node:
             Column(name="utc_date", type=ct.BigIntType(), order=4),
         ],
     )
-    session.add(events_node_revision)
-    await session.commit()
-    await session.refresh(events_node, ["current"])
     return events_node
 
 
@@ -81,18 +137,11 @@ async def date_dim(session: AsyncSession, primary_key_attribute) -> Node:
     """
     Date dimension node
     """
-    date_node = Node(
+    date_node, _ = await create_node_with_query(
+        session,
         name="shared.date",
         display_name="Date",
-        type=NodeType.DIMENSION,
-        current_version="1",
-    )
-    date_node_revision = NodeRevision(
-        node=date_node,
-        name="shared.date",
-        display_name="Date",
-        type=NodeType.DIMENSION,
-        version="1",
+        node_type=NodeType.DIMENSION,
         query="SELECT 1, 2, 3, 4 AS dateint",
         columns=[
             Column(
@@ -103,9 +152,6 @@ async def date_dim(session: AsyncSession, primary_key_attribute) -> Node:
             ),
         ],
     )
-    session.add(date_node_revision)
-    await session.commit()
-    await session.refresh(date_node, ["current"])
     return date_node
 
 
@@ -114,18 +160,11 @@ async def events_agg(session: AsyncSession) -> Node:
     """
     Events aggregation transform node
     """
-    events_agg_node = Node(
+    events_agg_node, _ = await create_node_with_query(
+        session,
         name="agg.events",
         display_name="Events Aggregated",
-        type=NodeType.TRANSFORM,
-        current_version="1",
-    )
-    events_agg_node_revision = NodeRevision(
-        node=events_agg_node,
-        name="agg.events",
-        display_name="Events Aggregated",
-        type=NodeType.TRANSFORM,
-        version="1",
+        node_type=NodeType.TRANSFORM,
         query="""
         SELECT
           user_id,
@@ -144,9 +183,6 @@ async def events_agg(session: AsyncSession) -> Node:
             Column(name="total_latency", type=ct.BigIntType(), order=5),
         ],
     )
-    session.add(events_agg_node_revision)
-    await session.commit()
-    await session.refresh(events_agg_node, ["current"])
     return events_agg_node
 
 
@@ -155,18 +191,11 @@ async def events_agg_complex(session: AsyncSession) -> Node:
     """
     Events aggregation transform node with CTEs
     """
-    events_agg_node = Node(
+    events_agg_node, _ = await create_node_with_query(
+        session,
         name="agg.events_complex",
         display_name="Events Aggregated (Unnecessarily Complex)",
-        type=NodeType.TRANSFORM,
-        current_version="1",
-    )
-    events_agg_node_revision = NodeRevision(
-        node=events_agg_node,
-        name="agg.events_complex",
-        display_name="Events Aggregated (Unnecessarily Complex)",
-        type=NodeType.TRANSFORM,
-        version="1",
+        node_type=NodeType.TRANSFORM,
         query="""
         WITH complexity AS (
           SELECT
@@ -194,9 +223,6 @@ async def events_agg_complex(session: AsyncSession) -> Node:
             Column(name="total_latency", type=ct.BigIntType(), order=5),
         ],
     )
-    session.add(events_agg_node_revision)
-    await session.commit()
-    await session.refresh(events_agg_node, ["current"])
     return events_agg_node
 
 
@@ -208,18 +234,10 @@ async def devices(
     """
     Devices source node + devices dimension node
     """
-    devices_source_node = Node(
+    await create_source(
+        session,
         name="source.devices",
         display_name="Devices",
-        type=NodeType.SOURCE,
-        current_version="1",
-    )
-    devices_source_node_revision = NodeRevision(
-        node=devices_source_node,
-        name="source.devices",
-        display_name="Devices",
-        type=NodeType.SOURCE,
-        version="1",
         schema_="test",
         table="devices",
         columns=[
@@ -229,18 +247,11 @@ async def devices(
         ],
     )
 
-    devices_dim_node = Node(
+    devices_dim_node, _ = await create_node_with_query(
+        session,
         name="shared.devices",
         display_name="Devices",
-        type=NodeType.DIMENSION,
-        current_version="1",
-    )
-    devices_dim_node_revision = NodeRevision(
-        node=devices_dim_node,
-        name="shared.devices",
-        display_name="Devices",
-        type=NodeType.DIMENSION,
-        version="1",
+        node_type=NodeType.DIMENSION,
         query="""
         SELECT
           CAST(device_id AS INT) device_id,
@@ -259,11 +270,6 @@ async def devices(
             Column(name="device_manufacturer", type=ct.StringType(), order=2),
         ],
     )
-    session.add(devices_source_node_revision)
-    session.add(devices_dim_node_revision)
-    await session.commit()
-    await session.refresh(devices_source_node, ["current"])
-    await session.refresh(devices_dim_node, ["current"])
     return devices_dim_node
 
 
@@ -275,18 +281,10 @@ async def manufacturers_dim(
     """
     Manufacturers source node + dimension node
     """
-    manufacturers_source_node = Node(
+    await create_source(
+        session,
         name="source.manufacturers",
         display_name="Manufacturers",
-        type=NodeType.SOURCE,
-        current_version="1",
-    )
-    manufacturers_source_node_revision = NodeRevision(
-        node=manufacturers_source_node,
-        name="source.manufacturers",
-        display_name="Manufacturers",
-        type=NodeType.SOURCE,
-        version="1",
         schema_="test",
         table="manufacturers",
         columns=[
@@ -295,24 +293,16 @@ async def manufacturers_dim(
             Column(name="created_on", type=ct.TimestampType(), order=2),
         ],
     )
-
-    manufacturers_dim_node = Node(
+    manufacturers_dim_node, _ = await create_node_with_query(
+        session,
         name="shared.manufacturers",
         display_name="Manufacturers",
-        type=NodeType.DIMENSION,
-        current_version="1",
-    )
-    manufacturers_dim_node_revision = NodeRevision(
-        node=manufacturers_dim_node,
-        name="shared.manufacturers",
-        display_name="Manufacturers",
-        type=NodeType.DIMENSION,
-        version="1",
+        node_type=NodeType.DIMENSION,
         query="""
         SELECT
           CAST(manufacturer_name AS STR) name,
           CAST(company_name AS STR) company_name,
-          created_on,
+          created_on AS created_at,
           COUNT(DISTINCT devices.device_id) AS devices_produced
         FROM source.manufacturers manufacturers
         JOIN shared.devices devices
@@ -329,11 +319,6 @@ async def manufacturers_dim(
             Column(name="created_on", type=ct.TimestampType(), order=2),
         ],
     )
-    session.add(manufacturers_source_node_revision)
-    session.add(manufacturers_dim_node_revision)
-    await session.commit()
-    await session.refresh(manufacturers_source_node, ["current"])
-    await session.refresh(manufacturers_dim_node, ["current"])
     return manufacturers_dim_node
 
 
@@ -345,18 +330,10 @@ async def country_dim(
     """
     Countries source node + dimension node & regions source + dim
     """
-    countries_source_node = Node(
+    await create_source(
+        session,
         name="source.countries",
         display_name="Countries",
-        type=NodeType.SOURCE,
-        current_version="1",
-    )
-    countries_source_node_revision = NodeRevision(
-        node=countries_source_node,
-        name="source.countries",
-        display_name="Countries",
-        type=NodeType.SOURCE,
-        version="1",
         schema_="test",
         table="countries",
         columns=[
@@ -367,18 +344,10 @@ async def country_dim(
         ],
     )
 
-    regions_source_node = Node(
+    await create_source(
+        session,
         name="source.regions",
         display_name="Regions",
-        type=NodeType.SOURCE,
-        current_version="1",
-    )
-    regions_source_node_revision = NodeRevision(
-        node=regions_source_node,
-        name="source.regions",
-        display_name="Regions",
-        type=NodeType.SOURCE,
-        version="1",
         schema_="test",
         table="regions",
         columns=[
@@ -387,18 +356,11 @@ async def country_dim(
         ],
     )
 
-    regions_dim_node = Node(
+    await create_node_with_query(
+        session,
         name="shared.regions",
         display_name="Regions Dimension",
-        type=NodeType.DIMENSION,
-        current_version="1",
-    )
-    regions_dim_node_revision = NodeRevision(
-        node=regions_dim_node,
-        name="shared.regions",
-        display_name="Regions Dimension",
-        type=NodeType.DIMENSION,
-        version="1",
+        node_type=NodeType.DIMENSION,
         query="""
         SELECT
           region_code,
@@ -415,18 +377,11 @@ async def country_dim(
             Column(name="region_name", type=ct.StringType(), order=1),
         ],
     )
-    countries_dim_node = Node(
+    countries_dim_node, _ = await create_node_with_query(
+        session,
         name="shared.countries",
         display_name="Countries Dimension",
-        type=NodeType.DIMENSION,
-        current_version="1",
-    )
-    countries_dim_node_revision = NodeRevision(
-        node=countries_dim_node,
-        name="shared.countries",
-        display_name="Countries Dimension",
-        type=NodeType.DIMENSION,
-        version="1",
+        node_type=NodeType.DIMENSION,
         query="""
         SELECT
           country_code,
@@ -450,15 +405,6 @@ async def country_dim(
             Column(name="population", type=ct.IntegerType(), order=4),
         ],
     )
-    session.add(countries_source_node_revision)
-    session.add(regions_source_node_revision)
-    session.add(regions_dim_node_revision)
-    session.add(countries_dim_node_revision)
-    await session.commit()
-    await session.refresh(countries_source_node, ["current"])
-    await session.refresh(regions_source_node, ["current"])
-    await session.refresh(regions_dim_node, ["current"])
-    await session.refresh(countries_dim_node, ["current"])
     return countries_dim_node
 
 
@@ -638,10 +584,11 @@ async def test_build_source_node(
     """
     Test building a source node
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events.current,
     )
+    query_ast = await query_builder.build()
     assert (
         str(query_ast).strip()
         == str(
@@ -669,10 +616,11 @@ async def test_build_source_node_with_direct_filter(
     """
     Test building a source node with a filter on an immediate column on the source node.
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events.current,
     )
+    query_ast = await query_builder.build()
     assert (
         str(query_ast).strip()
         == str(
@@ -691,12 +639,8 @@ async def test_build_source_node_with_direct_filter(
         ).strip()
     )
 
-    query_ast = await build_node(
-        session,
-        events.current,
-        filters=[
-            "source.events.utc_date = 20210101",
-        ],
+    query_ast = await (
+        query_builder.add_filters(["source.events.utc_date = 20210101"]).build()
     )
     expected = """
     WITH source_DOT_events AS (
@@ -743,14 +687,15 @@ async def test_build_source_with_pushdown_filters(
     Test building a source node with a dimension attribute filter that can be
     pushed down to an immediate column on the source node.
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events.current,
-        filters=[
-            "shared.devices.device_id = 111",
-            "shared.devices.device_id = 222",
-        ],
-        dimensions=["shared.devices.device_id"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_id = 111")
+        .filter_by("shared.devices.device_id = 222")
+        .add_dimension("shared.devices.device_id")
+        .build()
     )
 
     expected = """
@@ -799,19 +744,18 @@ async def test_build_source_with_join_filters(
     Test building a source node with a dimension attribute filter that
     requires a join to a dimension node.
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events.current,
-        filters=[
-            "shared.devices.device_id = 111",
-            "shared.devices.device_name = 'iPhone'",
-        ],
-        dimensions=[
-            "shared.devices.device_name",
-            "shared.devices.device_manufacturer",
-        ],
     )
-
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_id = 111")
+        .filter_by("shared.devices.device_name = 'iPhone'")
+        .add_dimension("shared.devices.device_id")
+        .add_dimension("shared.devices.device_name")
+        .add_dimension("shared.devices.device_manufacturer")
+        .build()
+    )
     expected = """
     WITH
     source_DOT_events AS (
@@ -846,7 +790,7 @@ async def test_build_source_with_join_filters(
     )
     SELECT  source_DOT_events.event_id,
         source_DOT_events.user_id,
-        source_DOT_events.device_id shared_DOT_devices_DOT_device_id,
+        source_DOT_events.device_id,
         source_DOT_events.country_code,
         source_DOT_events.latency,
         source_DOT_events.utc_date,
@@ -868,10 +812,11 @@ async def test_build_dimension_node(
     """
     Test building a dimension node
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         devices.current,
     )
+    query_ast = await query_builder.build()
     expected = """
     WITH shared_DOT_devices AS (
       SELECT
@@ -916,19 +861,23 @@ async def test_build_dimension_node_with_direct_and_pushdown_filter(
     FROM shared_DOT_devices
     """
     # Direct filter
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         devices.current,
-        filters=["shared.devices.device_manufacturer = 'Apple'"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_manufacturer = 'Apple'").build()
     )
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
     # Pushdown filter
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         devices.current,
-        filters=["shared.manufacturers.name = 'Apple'"],
     )
+    query_ast = await (
+        query_builder.filter_by("shared.manufacturers.name = 'Apple'")
+    ).build()
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
 
@@ -945,15 +894,16 @@ async def test_build_transform_with_pushdown_dimensions_filters(
     Test building a transform node with filters and dimensions that can be pushed down
     on to the transform's columns directly.
     """
-    await session.refresh(events_agg.current, ["dimension_links"])
-    query_ast = await build_node(
+    # await session.refresh(events_agg.current, ["dimension_links"])
+    query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
-        filters=[
-            "shared.devices.device_id = 111",
-            "shared.devices.device_id = 222",
-        ],
-        dimensions=["shared.devices.device_id"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_id = 111")
+        .filter_by("shared.devices.device_id = 222")
+        .add_dimension("shared.devices.device_id")
+        .build()
     )
     expected = """
     WITH agg_DOT_events AS (
@@ -997,14 +947,15 @@ async def test_build_transform_with_deeper_pushdown_dimensions_filters(
     both onto the transform's columns and onto its upstream source node's columns.
     """
     await session.refresh(events_agg.current, ["dimension_links"])
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
-        filters=[
-            "shared.devices.device_id = 111",
-            "shared.devices.device_id = 222",
-        ],
-        dimensions=["shared.devices.device_id"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_id = 111")
+        .filter_by("shared.devices.device_id = 222")
+        .add_dimension("shared.devices.device_id")
+        .build()
     )
     expected = """
     WITH agg_DOT_events AS (
@@ -1059,23 +1010,24 @@ async def test_build_transform_w_cte_and_pushdown_dimensions_filters(
     at the upstream source node level.
     """
     await session.refresh(events_agg_complex.current, ["dimension_links"])
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events_agg_complex.current,
-        filters=[
-            "shared.devices.device_id = 111",
-            "shared.devices.device_id = 222",
-        ],
-        dimensions=["shared.devices.device_id"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_id = 111")
+        .filter_by("shared.devices.device_id = 222")
+        .add_dimension("shared.devices.device_id")
+        .build()
     )
     expected = """
     WITH agg_DOT_events_complex AS (
       SELECT
-        CAST(user_id AS BIGINT) user_id,
-        CAST(utc_date AS BIGINT) utc_date,
-        CAST(device_id AS BIGINT) device_id,
-        CAST(country_code AS STRING) country_code,
-        CAST(total_latency AS BIGINT) total_latency
+        CAST(complexity.user_id AS BIGINT) user_id,
+        CAST(complexity.utc_date AS BIGINT) utc_date,
+        CAST(complexity.device_id AS BIGINT) device_id,
+        CAST(complexity.country_code AS STRING) country_code,
+        CAST(complexity.total_latency AS BIGINT) total_latency
       FROM (
         SELECT
           source_DOT_events.user_id,
@@ -1100,7 +1052,7 @@ async def test_build_transform_w_cte_and_pushdown_dimensions_filters(
           source_DOT_events.device_id,
           source_DOT_events.country_code
       ) AS complexity
-      WHERE CAST(device_id AS BIGINT) = 111 AND CAST(device_id AS BIGINT) = 222
+      WHERE CAST(complexity.device_id AS BIGINT) = 111 AND CAST(complexity.device_id AS BIGINT) = 222
     )
     SELECT
       agg_DOT_events_complex.user_id,
@@ -1125,14 +1077,16 @@ async def test_build_transform_with_join_dimensions_filters(
     """
     Test building a transform node with filters and dimensions that require a join
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
-        filters=[
-            "shared.devices.device_name = 'iOS'",
-            "shared.devices.device_id = 222",
-        ],
-        dimensions=["shared.devices.device_manufacturer"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.devices.device_name = 'iOS'")
+        .filter_by("shared.devices.device_id = 222")
+        .add_dimension("shared.devices.device_manufacturer")
+        .add_dimension("shared.devices.device_id")
+        .build()
     )
     expected = """
         WITH agg_DOT_events AS (
@@ -1161,12 +1115,12 @@ async def test_build_transform_with_join_dimensions_filters(
         SELECT
           agg_DOT_events.user_id,
           agg_DOT_events.utc_date,
-          agg_DOT_events.device_id shared_DOT_devices_DOT_device_id,
+          agg_DOT_events.device_id,
           agg_DOT_events.country_code,
           agg_DOT_events.total_latency,
           shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
-          shared_DOT_devices.device_name shared_DOT_devices_DOT_device_name,
-          shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id
+          shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id,
+          shared_DOT_devices.device_name shared_DOT_devices_DOT_device_name
         FROM agg_DOT_events
         INNER JOIN shared_DOT_devices
           ON shared_DOT_devices.device_id = agg_DOT_events.device_id
@@ -1190,15 +1144,16 @@ async def test_build_transform_with_multijoin_dimensions_filters(
     where dimension nodes themselves have a query that references an existing CTE
     in the query.
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
-        filters=[
-            "shared.manufacturers.company_name = 'Apple'",
-            "shared.devices.device_id = 123",
-            "shared.devices.device_manufacturer = 'Something'",
-        ],
-        dimensions=["shared.devices.device_manufacturer"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.manufacturers.company_name = 'Apple'")
+        .filter_by("shared.devices.device_id = 123")
+        .filter_by("shared.devices.device_manufacturer = 'Something'")
+        .add_dimension("shared.devices.device_manufacturer")
+        .build()
     )
     expected = """
         WITH
@@ -1228,15 +1183,15 @@ async def test_build_transform_with_multijoin_dimensions_filters(
         ),
         shared_DOT_manufacturers AS (
           SELECT
-            CAST(source_DOT_manufacturers.manufacturer_name AS STRING) name,
-            CAST(source_DOT_manufacturers.company_name AS STRING) company_name,
-            source_DOT_manufacturers.created_on,
-            COUNT( DISTINCT shared_DOT_devices.device_id) AS devices_produced
-          FROM test.manufacturers AS source_DOT_manufacturers
-          JOIN shared_DOT_devices
-            ON source_DOT_manufacturers.manufacturer_name =
-               shared_DOT_devices.device_manufacturer
-          WHERE  CAST(source_DOT_manufacturers.company_name AS STRING) = 'Apple'
+            CAST(manufacturers.manufacturer_name AS STRING) name,
+            CAST(manufacturers.company_name AS STRING) company_name,
+            manufacturers.created_on AS created_at,
+            COUNT( DISTINCT devices.device_id) AS devices_produced
+          FROM test.manufacturers AS manufacturers
+          JOIN shared_DOT_devices devices
+            ON manufacturers.manufacturer_name =
+               devices.device_manufacturer
+          WHERE  CAST(manufacturers.company_name AS STRING) = 'Apple'
         )
         SELECT
           agg_DOT_events.user_id,
@@ -1266,19 +1221,81 @@ async def test_build_fail_no_join_path_found(
     """
     Test failed node building due to not being able to find a join path to the dimension
     """
-    with pytest.raises(DJException) as exc_info:
-        await build_node(
+    with pytest.raises(DJQueryBuildException) as exc_info:
+        query_builder = await QueryBuilder.create(
             session,
             events_agg.current,
-            filters=["shared.countries.region_name = 'APAC'"],
-            dimensions=[
-                "shared.countries.region_name",
-            ],
+        )
+        await (
+            query_builder.raise_errors()
+            .filter_by("shared.countries.region_name = 'APAC'")
+            .add_dimension("shared.countries.region_name")
+            .build()
         )
     assert (
         "This dimension attribute cannot be joined in: shared.countries.region_name. "
         "Please make sure that shared.countries is linked to agg.events"
     ) in str(exc_info.value)
+
+    # Setting ignore errors will save them to the errors list on the query builder
+    # object but will not raise a build exception
+    query_builder = await QueryBuilder.create(
+        session,
+        events_agg.current,
+    )
+    query_ast = await (
+        query_builder.ignore_errors()
+        .filter_by("shared.countries.region_name = 'APAC'")
+        .add_dimension("shared.countries.region_name")
+        .build()
+    )
+    assert (
+        DJQueryBuildError(
+            code=ErrorCode.INVALID_DIMENSION_JOIN,
+            message="This dimension attribute cannot be joined in: shared.countries.region_name. "
+            "Please make sure that shared.countries is linked to agg.events",
+            debug=None,
+            context=str(query_builder),
+        )
+        in query_builder.errors
+    )
+    assert query_builder.final_ast == query_ast
+
+
+@pytest.mark.asyncio
+async def test_query_builder(
+    session: AsyncSession,
+    events: Node,  # pylint: disable=unused-argument
+    events_agg: Node,
+    country_dim: Node,  # pylint: disable=unused-argument
+):
+    """
+    Test failed node building due to not being able to find a join path to the dimension
+    """
+    query_builder = (
+        (
+            await QueryBuilder.create(
+                session,
+                events_agg.current,
+            )
+        )
+        .filter_by("shared.countries.region_name = 'APAC'")
+        .filter_by("shared.countries.region_name = 'APAC'")
+        .add_dimension("shared.countries.region_name")
+        .add_dimension("shared.countries.region_name")
+        .order_by(["shared.countries.region_name DESC"])
+        .order_by("shared.countries.region_name DESC")
+        .order_by("shared.countries.region_name ASC")
+        .limit(100)
+    )
+    assert query_builder.filters == ["shared.countries.region_name = 'APAC'"]
+    assert query_builder.dimensions == ["shared.countries.region_name"]
+    assert query_builder._orderby == [  # pylint: disable=protected-access
+        "shared.countries.region_name DESC",
+        "shared.countries.region_name ASC",
+    ]
+    assert query_builder._limit == 100  # pylint: disable=protected-access
+    assert not query_builder.include_dimensions_in_groupby
 
 
 @pytest.mark.asyncio
@@ -1298,17 +1315,14 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
     where dimension nodes themselves have a query that brings in an additional node that
     is not already a CTE on the query.
     """
-    query_ast = await build_node(
-        session,
-        events_agg.current,
-        filters=[
-            "shared.manufacturers.company_name = 'Apple'",
-            "shared.countries.region_name = 'APAC'",
-        ],
-        dimensions=[
-            "shared.devices.device_manufacturer",
-            "shared.countries.region_name",
-        ],
+    query_builder = await QueryBuilder.create(session, events_agg.current)
+    query_ast = await (
+        query_builder.filter_by("shared.manufacturers.company_name = 'Apple'")
+        .filter_by("shared.manufacturers.created_at > 20240101")
+        .filter_by("shared.countries.region_name = 'APAC'")
+        .add_dimension("shared.devices.device_manufacturer")
+        .add_dimension("shared.countries.region_name")
+        .build()
     )
     expected = """
     WITH
@@ -1338,24 +1352,29 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
         FROM test.regions AS source_DOT_regions
     ),
     shared_DOT_countries AS (
-    SELECT  source_DOT_countries.country_code,
-        source_DOT_countries.country_name,
+    SELECT  countries.country_code,
+        countries.country_name,
         shared_DOT_regions.region_code,
         shared_DOT_regions.region_name,
-        source_DOT_countries.population
-        FROM test.countries AS source_DOT_countries
+        countries.population
+        FROM test.countries AS countries
         JOIN shared_DOT_regions
-          ON source_DOT_countries.region_code = shared_DOT_regions.region_code
+          ON countries.region_code = shared_DOT_regions.region_code
         WHERE
           shared_DOT_regions.region_name = 'APAC'
     ),
     shared_DOT_manufacturers AS (
-    SELECT  CAST(source_DOT_manufacturers.manufacturer_name AS STRING) name,
-        CAST(source_DOT_manufacturers.company_name AS STRING) company_name,
-        source_DOT_manufacturers.created_on,
-        COUNT( DISTINCT shared_DOT_devices.device_id) AS devices_produced
-        FROM test.manufacturers AS source_DOT_manufacturers JOIN shared_DOT_devices ON source_DOT_manufacturers.manufacturer_name = shared_DOT_devices.device_manufacturer
-        WHERE  CAST(source_DOT_manufacturers.company_name AS STRING) = 'Apple'
+      SELECT
+        CAST(manufacturers.manufacturer_name AS STRING) name,
+        CAST(manufacturers.company_name AS STRING) company_name,
+        manufacturers.created_on AS created_at,
+        COUNT( DISTINCT devices.device_id) AS devices_produced
+      FROM test.manufacturers AS manufacturers
+      JOIN shared_DOT_devices devices ON manufacturers.manufacturer_name =
+        devices.device_manufacturer
+      WHERE
+        CAST(manufacturers.company_name AS STRING) = 'Apple'
+        AND manufacturers.created_on > 20240101
     )
 
     SELECT  agg_DOT_events.user_id,
@@ -1365,8 +1384,9 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
         agg_DOT_events.total_latency,
         shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
         shared_DOT_countries.region_name shared_DOT_countries_DOT_region_name,
-        shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name
-        FROM agg_DOT_events
+        shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name,
+        shared_DOT_manufacturers.created_at shared_DOT_manufacturers_DOT_created_at
+    FROM agg_DOT_events
     INNER JOIN shared_DOT_devices
       ON shared_DOT_devices.device_id = agg_DOT_events.device_id
     INNER JOIN shared_DOT_countries
@@ -1388,10 +1408,12 @@ async def test_build_with_source_filters(
     """
     Test build node with filters on source
     """
-    query_ast = await build_node(
+    query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
-        filters=["shared.date.dateint = 20250101"],
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.date.dateint = 20250101").build()
     )
     expected = """
     WITH
