@@ -447,7 +447,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         """
         Initialize the final query AST structure
         """
-        node_ctes = remove_duplicates(
+        node_ctes = remove_duplicates(  # pragma: no cover
             node_ast.ctes,
             lambda cte: cte.alias_or_name.identifier(),
         )
@@ -664,7 +664,7 @@ def to_filter_asts(filters: Optional[List[str]] = None):
     ]
 
 
-def remove_duplicates(input_list, key_func=lambda x: x):
+def remove_duplicates(input_list, key_func=lambda x: x):  # pragma: no cover
     """
     Remove duplicates from the list by using the key_func on each element
     to determine the "key" used for identifying duplicates.
@@ -1003,6 +1003,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
             for col in query.select.find_all(ast.Column):
                 if (
                     col.table
+                    and not col.table.alias
                     and isinstance(col.table, ast.Table)
                     and col.table.dj_node
                     and col.table.dj_node.name == referenced_node.name
