@@ -931,7 +931,9 @@ class Column(Aliasable, Named, Expression):
         if isinstance(alpha_query, Query) and alpha_query.ctes:
             for cte in alpha_query.ctes:
                 cte_name = cte.alias_or_name.identifier(False)
-                if cte_name == namespace or cte_name in direct_table_names:
+                if cte_name == namespace or (
+                    not namespace and cte_name in direct_table_names
+                ):
                     if await cte.add_ref_column(self, ctx):
                         found.append(cte)
 
