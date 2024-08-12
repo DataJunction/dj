@@ -289,6 +289,10 @@ tr {
   grid-gap: 8px;
   padding: 8px;
 }
+.table-responsive {
+  width: auto;
+  grid-template-columns: 200px auto;
+}
 .table-vertical {
   display: contents;
 }
@@ -730,6 +734,11 @@ pre {
   margin: 0;
   list-style: none;
 }
+.menu-link {
+  display: inline-grid;
+  margin: 0;
+  float: right;
+}
 .menu-item .menu-link {
   cursor: pointer;
   align-items: center;
@@ -773,6 +782,7 @@ pre {
 
 .card-header h2 {
   font-family: 'Jost';
+  display: inline-block;
 }
 
 .text-gray-400 {

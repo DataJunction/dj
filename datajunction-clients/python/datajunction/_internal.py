@@ -2,6 +2,7 @@
 
 # pylint: disable=redefined-outer-name, import-outside-toplevel, too-many-lines
 import logging
+import os
 import platform
 import warnings
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypedDict
@@ -177,15 +178,18 @@ class DJClient:
 
     def basic_login(
         self,
-        username: str,
-        password: str,
+        username: Optional[str],
+        password: Optional[str],
     ):
         """
         Login with basic authentication.
         """
         response = self._session.post(
             "/basic/login/",
-            data={"username": username, "password": password},
+            data={
+                "username": username or os.getenv("DJ_USER"),
+                "password": password or os.getenv("DJ_PWD"),
+            },
         )
         return response
 

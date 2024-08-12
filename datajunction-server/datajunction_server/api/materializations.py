@@ -5,9 +5,9 @@ Node materialization related APIs.
 import logging
 from datetime import datetime
 from http import HTTPStatus
-from typing import List, Optional
+from typing import List
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -83,8 +83,9 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
     data: UpsertMaterialization,
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
@@ -93,6 +94,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
     Add or update a materialization of the specified node. If a node_name is specified
     for the materialization config, it will always update that named config.
     """
+    request_headers = dict(request.headers)
     node = await Node.get_by_name(session, node_name)
     if node.type == NodeType.SOURCE:  # type: ignore
         raise DJException(
@@ -119,6 +121,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
         current_revision,
         data,
         validate_access,
+        current_user=current_user,
     )
 
     # Check to see if a materialization for this engine already exists with the exact same config
@@ -140,7 +143,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
                     node=node.name,  # type: ignore
                     activity_type=ActivityType.RESTORE,
                     details={},
-                    user=current_user.username if current_user else None,
+                    user=current_user.username,
                 ),
             )
             await session.commit()
@@ -149,6 +152,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
             node_name,
             current_revision.version,  # type: ignore
             new_materialization.name,  # type: ignore
+            request_headers=request_headers,
         )
         # refresh existing materialization job
         await schedule_materialization_jobs(
@@ -156,6 +160,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
             node_revision_id=current_revision.id,
             materialization_names=[new_materialization.name],
             query_service_client=query_service_client,
+            request_headers=request_headers,
         )
         return JSONResponse(
             status_code=HTTPStatus.CREATED,
@@ -205,7 +210,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
                 "node": node.name,  # type: ignore
                 "materialization": new_materialization.name,
             },
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -215,6 +220,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
         node_revision_id=current_revision.id,
         materialization_names=[new_materialization.name],
         query_service_client=query_service_client,
+        request_headers=request_headers,
     )
     return JSONResponse(
         status_code=200,
@@ -238,12 +244,14 @@ async def list_node_materializations(
     show_deleted: bool = False,
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> List[MaterializationConfigInfoUnified]:
     """
     Show all materializations configured for the node, with any associated metadata
     like urls from the materialization service, if available.
     """
+    request_headers = dict(request.headers)
     node = await Node.get_by_name(session, node_name)
     materializations = []
     for materialization in node.current.materializations:  # type: ignore
@@ -252,6 +260,7 @@ async def list_node_materializations(
                 node_name,
                 node.current.version,  # type: ignore
                 materialization.name,  # type: ignore
+                request_headers=request_headers,
             )
             if materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME:
                 info.urls = [info.urls[0]]
@@ -276,15 +285,21 @@ async def deactivate_node_materializations(
     materialization_name: str,
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> List[MaterializationConfigInfoUnified]:
     """
     Deactivate the node materialization with the provided name.
     Also calls the query service to deactivate the associated scheduled jobs.
     """
+    request_headers = dict(request.headers)
     node = await Node.get_by_name(session, node_name)
-    query_service_client.deactivate_materialization(node_name, materialization_name)
+    query_service_client.deactivate_materialization(
+        node_name,
+        materialization_name,
+        request_headers=request_headers,
+    )
     for materialization in node.current.materializations:  # type: ignore
         if (
             materialization.name == materialization_name
@@ -308,7 +323,7 @@ async def deactivate_node_materializations(
             node=node.name,  # type: ignore
             activity_type=ActivityType.DELETE,
             details={},
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -333,12 +348,14 @@ async def run_materialization_backfill(  # pylint: disable=too-many-locals
     backfill_partitions: List[PartitionBackfill],
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> MaterializationInfo:
     """
     Start a backfill for a configured materialization.
     """
+    request_headers = dict(request.headers)
     node = await Node.get_by_name(
         session,
         node_name,
@@ -394,6 +411,7 @@ async def run_materialization_backfill(  # pylint: disable=too-many-locals
         materialization,
         backfill_partitions,
         query_service_client,
+        request_headers=request_headers,
     )
     backfill = Backfill(
         materialization=materialization,
@@ -412,7 +430,7 @@ async def run_materialization_backfill(  # pylint: disable=too-many-locals
                 backfill_partition.dict() for backfill_partition in backfill_partitions
             ],
         },
-        user=current_user.username if current_user else None,
+        user=current_user.username,
     )
     session.add(backfill_event)
     await session.commit()

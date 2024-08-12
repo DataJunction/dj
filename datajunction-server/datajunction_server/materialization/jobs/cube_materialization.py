@@ -1,6 +1,8 @@
 """
 Cube materialization jobs
 """
+from typing import Dict, Optional
+
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.errors import DJInvalidInputException
@@ -51,6 +53,7 @@ class DruidMaterializationJob(MaterializationJob):
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> MaterializationInfo:
         """
         Use the query service to kick off the materialization setup.
@@ -90,6 +93,7 @@ class DruidMaterializationJob(MaterializationJob):
                 job=materialization.job,
                 strategy=materialization.strategy,
             ),
+            request_headers=request_headers,
         )
 
 

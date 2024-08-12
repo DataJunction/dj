@@ -52,6 +52,7 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
         celery_broker=None,
         redis_cache=None,
         query_service=None,
+        secret="a-fake-secretkey",
     )
 
     mocker.patch(
@@ -126,6 +127,9 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         schema: str,
         table: str,
         engine: Optional[Engine] = None,  # pylint: disable=unused-argument
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
     ) -> List[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
@@ -137,7 +141,9 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
 
     def mock_submit_query(
         query_create: QueryCreate,
-        headers: Optional[Dict[str, str]] = None,  # pylint: disable=unused-argument
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
     ) -> QueryWithResults:
         results = QUERY_DATA_MAPPINGS[
             query_create.submitted_query.strip()
@@ -220,6 +226,22 @@ def server(  # pylint: disable=too-many-statements
     ] = get_query_service_client_override
 
     with TestClient(app) as test_client:
+
+        test_client.post(
+            "/basic/user/",
+            data={
+                "email": "dj@datajunction.io",
+                "username": "datajunction",
+                "password": "datajunction",
+            },
+        )
+        test_client.post(
+            "/basic/login/",
+            data={
+                "username": "datajunction",
+                "password": "datajunction",
+            },
+        )
         yield test_client
 
     app.dependency_overrides.clear()
@@ -249,7 +271,17 @@ def builder_client(session_with_examples: TestClient):
     """
     Returns a DJ client instance
     """
-    return DJBuilder(requests_session=session_with_examples)  # type: ignore
+    client = DJBuilder(requests_session=session_with_examples)  # type: ignore
+    client.create_user(
+        email="dj@datajunction.io",
+        username="datajunction",
+        password="datajunction",
+    )
+    client.basic_login(
+        username="datajunction",
+        password="datajunction",
+    )
+    return client
 
 
 @pytest.fixture

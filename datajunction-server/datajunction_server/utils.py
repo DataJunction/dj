@@ -6,6 +6,7 @@ import logging
 import os
 import re
 from functools import lru_cache
+from http import HTTPStatus
 
 # pylint: disable=line-too-long
 from typing import AsyncIterator, List, Optional
@@ -257,40 +258,42 @@ def get_namespace_from_name(name: str) -> str:
     return node_namespace
 
 
-async def get_current_user(request: Request) -> Optional["User"]:
+async def get_current_user(request: Request) -> "User":
     """
     Returns the current authenticated user
     """
-    if hasattr(request.state, "user"):
-        return request.state.user
-    return None  # pragma: no cover
+    if not hasattr(request.state, "user"):  # pragma: no cover
+        raise DJException(
+            message="Unauthorized, request state has no user",
+            http_status_code=HTTPStatus.UNAUTHORIZED,
+        )
+    return request.state.user
 
 
 async def get_and_update_current_user(
     session: AsyncSession = Depends(get_session),
-    current_user: Optional["User"] = Depends(get_current_user),
-) -> Optional["User"]:
+    current_user: "User" = Depends(get_current_user),
+) -> "User":
     """
     Wrapper for the get_current_user dependency that creates a DJ user object if required
     """
-    if current_user:
-        statement = insert(User).values(
-            username=current_user.username,
-            email=current_user.email,
-            name=current_user.name,
-            oauth_provider=current_user.oauth_provider,
-        )
-        update_dict = {
-            "email": current_user.email,
-            "name": current_user.name,
-            "oauth_provider": current_user.oauth_provider,
-        }
-        statement = statement.on_conflict_do_update(
-            index_elements=["username"],
-            set_=update_dict,
-        )
-        await session.execute(statement)
-        await session.commit()
+    statement = insert(User).values(
+        username=current_user.username,
+        email=current_user.email,
+        name=current_user.name,
+        oauth_provider=current_user.oauth_provider,
+    )
+    update_dict = {
+        "email": current_user.email,
+        "name": current_user.name,
+        "oauth_provider": current_user.oauth_provider,
+    }
+    statement = statement.on_conflict_do_update(
+        index_elements=["username"],
+        set_=update_dict,
+    )
+    await session.execute(statement)
+    await session.commit()
     return current_user
 
 

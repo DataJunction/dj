@@ -4,7 +4,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime
 from http import HTTPStatus
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from fastapi import BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -140,7 +140,7 @@ async def set_node_column_attributes(
     node: Node,
     column_name: str,
     attributes: List[AttributeTypeIdentifier],
-    current_user: Optional[User] = None,
+    current_user: User,
 ) -> List[Column]:
     """
     Sets the column attributes on the node if allowed.
@@ -202,7 +202,7 @@ async def set_node_column_attributes(
                 "column": column.name,
                 "attributes": [attr.dict() for attr in attributes],
             },
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -364,7 +364,7 @@ async def save_node(
     node_revision: NodeRevision,
     node: Node,
     node_mode: NodeMode,
-    current_user: Optional[User] = None,
+    current_user: User,
 ):
     """
     Saves the newly created node revision
@@ -386,7 +386,7 @@ async def save_node(
             entity_type=EntityType.NODE,
             entity_name=node.name,
             activity_type=ActivityType.CREATE,
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -395,6 +395,7 @@ async def save_node(
     newly_valid_nodes = await resolve_downstream_references(
         session=session,
         node_revision=node_revision,
+        current_user=current_user,
     )
     await propagate_valid_status(
         session=session,
@@ -409,7 +410,7 @@ async def copy_to_new_node(
     session: AsyncSession,
     existing_node_name: str,
     new_name: str,
-    current_user: Optional[User] = None,
+    current_user: User,
 ) -> Node:
     """
     Copies the existing node to a new node with a new name.
@@ -502,7 +503,7 @@ async def copy_to_new_node(
             entity_type=EntityType.NODE,
             entity_name=new_node.name,
             activity_type=ActivityType.CREATE,
-            user=current_user.username if current_user else None,
+            user=current_user.username,
             details={"copied_from": node.name},  # type: ignore
         ),
     )
@@ -512,6 +513,7 @@ async def copy_to_new_node(
     newly_valid_nodes = await resolve_downstream_references(
         session=session,
         node_revision=new_revision,
+        current_user=current_user,
     )
     await propagate_valid_status(
         session=session,
@@ -527,8 +529,9 @@ async def update_any_node(
     name: str,
     data: UpdateNode,
     session: AsyncSession,
+    request_headers: Dict[str, str],
     query_service_client: QueryServiceClient,
-    current_user: Optional[User] = None,
+    current_user: User,
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn = None,
 ) -> Node:
@@ -551,6 +554,7 @@ async def update_any_node(
             session,
             node.current,  # type: ignore
             data,
+            request_headers=request_headers,
             query_service_client=query_service_client,
             current_user=current_user,
             background_tasks=background_tasks,
@@ -561,6 +565,7 @@ async def update_any_node(
         name,
         data,
         session,
+        request_headers=request_headers,
         query_service_client=query_service_client,
         current_user=current_user,
         background_tasks=background_tasks,
@@ -573,8 +578,9 @@ async def update_node_with_query(
     data: UpdateNode,
     session: AsyncSession,
     *,
+    request_headers: Dict[str, str],
     query_service_client: QueryServiceClient,
-    current_user: Optional[User] = None,
+    current_user: User,
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn,
 ) -> Node:
@@ -650,6 +656,7 @@ async def update_node_with_query(
                         job=MaterializationJobTypeEnum.find_match(old.job),
                     ),
                     validate_access,
+                    current_user=current_user,
                 ),
             )
         background_tasks.add_task(
@@ -660,6 +667,7 @@ async def update_node_with_query(
                 mat.name for mat in node.current.materializations  # type: ignore
             ],
             query_service_client=query_service_client,
+            request_headers=request_headers,
         )
         session.add(new_revision)
         await session.commit()
@@ -716,7 +724,7 @@ def has_minor_changes(
     )
 
 
-def node_update_history_event(new_revision: NodeRevision, current_user: Optional[User]):
+def node_update_history_event(new_revision: NodeRevision, current_user: User):
     """
     History event for node updates
     """
@@ -728,7 +736,7 @@ def node_update_history_event(new_revision: NodeRevision, current_user: Optional
         details={
             "version": new_revision.version,  # type: ignore
         },
-        user=current_user.username if current_user else None,
+        user=current_user.username,
     )
 
 
@@ -737,8 +745,9 @@ async def update_cube_node(  # pylint: disable=too-many-locals
     node_revision: NodeRevision,
     data: UpdateNode,
     *,
+    request_headers: Dict[str, str],
     query_service_client: QueryServiceClient,
-    current_user: Optional[User] = None,
+    current_user: User,
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn,
 ) -> Optional[NodeRevision]:
@@ -810,6 +819,7 @@ async def update_cube_node(  # pylint: disable=too-many-locals
                         job=MaterializationJobTypeEnum.find_match(old.job),
                     ),
                     validate_access,
+                    current_user=current_user,
                 ),
             )
             session.add(
@@ -819,7 +829,7 @@ async def update_cube_node(  # pylint: disable=too-many-locals
                     node=node_revision.name,
                     activity_type=ActivityType.UPDATE,
                     details={},
-                    user=current_user.username if current_user else None,
+                    user=current_user.username,
                 ),
             )
     session.add(new_cube_revision)
@@ -836,6 +846,7 @@ async def update_cube_node(  # pylint: disable=too-many-locals
                 mat.name for mat in new_cube_revision.materializations
             ],
             query_service_client=query_service_client,
+            request_headers=request_headers,
         )
     else:
         await schedule_materialization_jobs(  # pragma: no cover
@@ -845,6 +856,7 @@ async def update_cube_node(  # pylint: disable=too-many-locals
                 mat.name for mat in new_cube_revision.materializations
             ],
             query_service_client=query_service_client,
+            request_headers=request_headers,
         )
 
     await session.refresh(new_cube_revision)
@@ -857,7 +869,7 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
     session: AsyncSession,
     node: Node,
     *,
-    current_user: Optional[User] = None,
+    current_user: User,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -885,7 +897,11 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
     for downstream in downstreams:
         original_node_revision = downstream.current
         previous_status = original_node_revision.status
-        node_validator = await revalidate_node(downstream.name, session)
+        node_validator = await revalidate_node(
+            downstream.name,
+            session,
+            current_user=current_user,
+        )
 
         # Record history event
         if (
@@ -916,7 +932,7 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
                     "status": node_validator.status,
                     "version": downstream.current_version,
                 },
-                user=current_user.username if current_user else None,
+                user=current_user.username,
             )
             session.add(event)
         await session.commit()
@@ -956,12 +972,13 @@ def copy_existing_node_revision(old_revision: NodeRevision):
     )
 
 
-async def _create_node_from_inactive(  # pylint: disable=too-many-arguments
+async def create_node_from_inactive(  # pylint: disable=too-many-arguments
     new_node_type: NodeType,
     data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
     session: AsyncSession,
     *,
-    current_user: Optional[User] = None,
+    current_user: User,
+    request_headers: Dict[str, str],
     query_service_client: QueryServiceClient,
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn = None,
@@ -1009,6 +1026,7 @@ async def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 name=data.name,
                 data=update_node,
                 session=session,
+                request_headers=request_headers,
                 query_service_client=query_service_client,
                 current_user=current_user,
                 background_tasks=background_tasks,
@@ -1019,7 +1037,9 @@ async def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 session,
                 previous_inactive_node.current,
                 data,
+                request_headers=request_headers,
                 query_service_client=query_service_client,
+                current_user=current_user,
                 background_tasks=background_tasks,
                 validate_access=validate_access,  # type: ignore
             )
@@ -1419,7 +1439,7 @@ async def upsert_complex_dimension_link(
     session: AsyncSession,
     node_name: str,
     link_input: LinkDimensionInput,
-    current_user: Optional[User] = None,
+    current_user: User,
 ) -> ActivityType:
     """
     Create or update a node-level dimension link.
@@ -1530,7 +1550,7 @@ async def upsert_complex_dimension_link(
                 "join_cardinality": link_input.join_cardinality,
                 "role": link_input.role,
             },
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -1542,7 +1562,7 @@ async def remove_dimension_link(
     session: AsyncSession,
     node_name: str,
     link_identifier: LinkDimensionIdentifier,
-    current_user: Optional[User] = None,
+    current_user: User,
 ):
     """
     Removes the dimension link identified by the origin node, the dimension node, and its role.
@@ -1612,7 +1632,7 @@ async def remove_dimension_link(
                 "dimension": dimension_node.name,
                 "role": link_identifier.role,
             },
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -1640,7 +1660,7 @@ async def propagate_valid_status(
     session: AsyncSession,
     valid_nodes: List[NodeRevision],
     catalog_id: int,
-    current_user: Optional[User] = None,
+    current_user: User,
 ) -> None:
     """
     Propagate a valid status by revalidating all downstream nodes
@@ -1686,8 +1706,8 @@ async def propagate_valid_status(
 async def deactivate_node(
     session: AsyncSession,
     name: str,
+    current_user: User,
     message: str = None,
-    current_user: Optional[User] = None,
 ):
     """
     Deactivates a node and propagates to all downstreams.
@@ -1727,7 +1747,7 @@ async def deactivate_node(
             node=node.name,
             activity_type=ActivityType.DELETE,
             details={"message": message} if message else {},
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -1737,8 +1757,8 @@ async def deactivate_node(
 async def activate_node(
     session: AsyncSession,
     name: str,
+    current_user: User,
     message: str = None,
-    current_user: Optional[User] = None,
 ):
     """Restores node and revalidate all downstreams."""
     node = await get_node_by_name(
@@ -1794,7 +1814,7 @@ async def activate_node(
             node=node.name,
             activity_type=ActivityType.RESTORE,
             details={"message": message} if message else {},
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()
@@ -1803,7 +1823,7 @@ async def activate_node(
 async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statements
     name: str,
     session: AsyncSession,
-    current_user: Optional[User] = None,
+    current_user: User,
 ) -> NodeValidator:
     """
     Revalidate a single existing node and update its status appropriately
@@ -1921,7 +1941,7 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
 async def hard_delete_node(
     name: str,
     session: AsyncSession,
-    current_user: Optional[User] = None,
+    current_user: User,
 ):
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
@@ -1955,7 +1975,7 @@ async def hard_delete_node(
                 entity_name=name,
                 node=node.name,
                 activity_type=ActivityType.DELETE,
-                user=current_user.username if current_user else None,
+                user=current_user.username,
             ),
         )
         node_validator = await revalidate_node(
@@ -1979,7 +1999,7 @@ async def hard_delete_node(
                 entity_name=name,
                 node=node.name,
                 activity_type=ActivityType.DELETE,
-                user=current_user.username if current_user else None,
+                user=current_user.username,
             ),
         )
         node_validator = await revalidate_node(
@@ -2003,7 +2023,7 @@ async def hard_delete_node(
             details={
                 "impact": impact,
             },
-            user=current_user.username if current_user else None,
+            user=current_user.username,
         ),
     )
     await session.commit()  # Commit the history events

@@ -1,6 +1,6 @@
 """Node materialization helper functions"""
 import zlib
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from pydantic import ValidationError
 from sqlalchemy.exc import InvalidRequestError
@@ -14,6 +14,7 @@ from datajunction_server.construction.build import (
 )
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models import access
@@ -97,6 +98,7 @@ async def build_cube_materialization_config(
     current_revision: NodeRevision,
     upsert_input: UpsertMaterialization,
     validate_access: access.ValidateAccessFn,
+    current_user: User,
 ) -> DruidMeasuresCubeConfig:
     """
     Builds the materialization config for a cube.
@@ -147,6 +149,7 @@ async def build_cube_materialization_config(
             metrics=[node.name for node in current_revision.cube_metrics()],
             dimensions=current_revision.cube_dimensions(),
             filters=[],
+            current_user=current_user,
             validate_access=validate_access,
             cast_timestamp_to_ms=True,
         )
@@ -219,6 +222,7 @@ async def create_new_materialization(
     current_revision: NodeRevision,
     upsert: UpsertMaterialization,
     validate_access: access.ValidateAccessFn,
+    current_user: User,
 ) -> Materialization:
     """
     Create a new materialization based on the input values.
@@ -255,6 +259,7 @@ async def create_new_materialization(
             current_revision,
             upsert,
             validate_access,
+            current_user=current_user,
         )
     materialization_name = (
         f"{upsert.job.name.lower()}__{upsert.strategy.name.lower()}"
@@ -277,6 +282,7 @@ async def schedule_materialization_jobs(
     node_revision_id: int,
     materialization_names: List[str],
     query_service_client: QueryServiceClient,
+    request_headers: Optional[Dict[str, str]] = None,
 ) -> Dict[str, MaterializationInfo]:
     """
     Schedule recurring materialization jobs
@@ -296,6 +302,7 @@ async def schedule_materialization_jobs(
             materialization_to_output[materialization.name] = clazz().schedule(  # type: ignore
                 materialization,
                 query_service_client,
+                request_headers=request_headers,
             )
     return materialization_to_output
 

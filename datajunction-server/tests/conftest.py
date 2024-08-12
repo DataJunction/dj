@@ -199,6 +199,9 @@ def query_service_client(
         schema: str,
         table: str,
         engine: Optional[Engine] = None,  # pylint: disable=unused-argument
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
     ) -> List[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
@@ -210,7 +213,9 @@ def query_service_client(
 
     def mock_submit_query(
         query_create: QueryCreate,
-        headers: Optional[Dict[str, str]] = None,  # pylint: disable=unused-argument
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
     ) -> QueryWithResults:
         result = duckdb_conn.sql(query_create.submitted_query)
         columns = [
@@ -239,6 +244,9 @@ def query_service_client(
 
     def mock_get_query(
         query_id: str,
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
     ) -> Collection[Collection[str]]:
         if query_id == "foo-bar-baz":
             raise DJQueryServiceClientException("Query foo-bar-baz not found.")
@@ -868,6 +876,9 @@ def module__query_service_client(
         schema: str,
         table: str,
         engine: Optional[Engine] = None,  # pylint: disable=unused-argument
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
     ) -> List[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
@@ -879,7 +890,9 @@ def module__query_service_client(
 
     def mock_submit_query(
         query_create: QueryCreate,
-        headers: Optional[Dict[str, str]] = None,  # pylint: disable=unused-argument
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
     ) -> QueryWithResults:
         result = duckdb_conn.sql(query_create.submitted_query)
         columns = [
@@ -908,6 +921,9 @@ def module__query_service_client(
 
     def mock_get_query(
         query_id: str,
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
     ) -> Collection[Collection[str]]:
         if query_id == "foo-bar-baz":
             raise DJQueryServiceClientException("Query foo-bar-baz not found.")

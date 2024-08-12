@@ -2,7 +2,7 @@
 Available materialization jobs.
 """
 import abc
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.models.engine import Dialect
@@ -37,6 +37,7 @@ class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
         materialization: Materialization,
         partitions: List[PartitionBackfill],
         query_service_client: QueryServiceClient,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> MaterializationInfo:
         """
         Kicks off a backfill based on the spec using the query service
@@ -45,6 +46,7 @@ class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
             materialization.node_revision.name,
             materialization.name,  # type: ignore
             partitions,
+            request_headers=request_headers,
         )
 
     @abc.abstractmethod
@@ -72,6 +74,7 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> MaterializationInfo:
         """
         Placeholder for the actual implementation.
@@ -177,5 +180,6 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
                     )
                 ),
             ),
+            request_headers=request_headers,
         )
         return result

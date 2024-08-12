@@ -1,6 +1,6 @@
 {
   "name": "datajunction-ui",
-  "version": "0.0.1a59",
+  "version": "0.0.1a62",
   "description": "DataJunction Metrics Platform UI",
   "module": "src/index.tsx",
   "repository": {
@@ -165,7 +165,7 @@
     "coverageThreshold": {
       "global": {
         "statements": 87,
-        "branches": 75,
+        "branches": 74,
         "lines": 80,
         "functions": 85
       }

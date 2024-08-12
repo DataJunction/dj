@@ -18,7 +18,7 @@ from datajunction_server.internal.access.authentication.basic import (
     validate_user_password,
 )
 from datajunction_server.internal.access.authentication.tokens import create_token
-from datajunction_server.utils import get_session
+from datajunction_server.utils import Settings, get_session, get_settings
 from fastapi import Request
 
 router = APIRouter(tags=["Basic OAuth2"])
@@ -64,6 +64,7 @@ async def create_a_user(
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ):
     """
     Get a JWT token and set it as an HTTP only cookie
@@ -76,7 +77,12 @@ async def login(
     response = Response(status_code=HTTPStatus.OK)
     response.set_cookie(
         AUTH_COOKIE,
-        create_token({"username": user.username}, expires_delta=timedelta(days=365)),
+        create_token(
+            {"username": user.username},
+            secret=settings.secret,
+            iss=settings.url,
+            expires_delta=timedelta(days=365),
+        ),
         httponly=True,
     )
     response.set_cookie(
