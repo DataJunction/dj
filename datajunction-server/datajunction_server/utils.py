@@ -91,7 +91,9 @@ class DatabaseSessionManager:
                 "keepalives_interval": settings.db_keepalives_interval,
                 "keepalives_count": settings.db_keepalives_count,
             },
-        )
+        ).execution_options(
+            schema_translate_map={None: self.schema}
+    )        
 
         async_session_factory = async_sessionmaker(
             bind=self.engine,
@@ -114,23 +116,24 @@ class DatabaseSessionManager:
 
 
 @lru_cache(maxsize=None)
-def get_session_manager() -> DatabaseSessionManager:
+def get_session_manager(request: Request) -> DatabaseSessionManager:
     """
     Get session manager
     """
     session_manager = DatabaseSessionManager()
+    session_manager.schema = request.headers.get("user")
     session_manager.init_db()
     return session_manager
 
 
 @lru_cache(maxsize=None)
-def get_engine() -> AsyncEngine:
+def get_engine(schema: str) -> AsyncEngine:
     """
     Create the metadata engine.
     """
     settings = get_settings()
     engine = create_async_engine(
-        settings.index,
+        settings.index, 
         future=True,
         echo=settings.db_echo,
         pool_pre_ping=settings.db_pool_pre_ping,
@@ -141,15 +144,17 @@ def get_engine() -> AsyncEngine:
         connect_args={
             "connect_timeout": settings.db_connect_timeout,
         },
-    )
+    ).execution_options(
+            schema_translate_map={None: schema}
+    ) 
     return engine
 
 
-async def get_session() -> AsyncIterator[AsyncSession]:
+async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """
     Async database session.
     """
-    session_manager = get_session_manager()
+    session_manager = get_session_manager(request)
     session = session_manager.session()
     try:
         yield session

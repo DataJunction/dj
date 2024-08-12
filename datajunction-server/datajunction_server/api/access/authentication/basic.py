@@ -19,6 +19,7 @@ from datajunction_server.internal.access.authentication.basic import (
 )
 from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.utils import get_session
+from fastapi import Request
 
 router = APIRouter(tags=["Basic OAuth2"])
 
@@ -28,7 +29,7 @@ async def create_a_user(
     email: str = Form(),
     username: str = Form(),
     password: str = Form(),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(lambda: get_session(request=Request)),
 ) -> JSONResponse:
     """
     Create a new user
