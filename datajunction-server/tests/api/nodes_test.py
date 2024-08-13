@@ -4116,6 +4116,32 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "default.country_dim",
         }
 
+        # Test depth limiting
+        response = await client_with_event.get(
+            "/nodes/default.event_source/downstream/?depth=2",
+        )
+        data = response.json()
+        assert {node["name"] for node in data} == {
+            "default.long_events_distinct_countries",
+            "default.device_ids_count",
+            "default.long_events",
+            "default.country_dim",
+        }
+        response = await client_with_event.get(
+            "/nodes/default.event_source/downstream/?depth=1",
+        )
+        data = response.json()
+        assert {node["name"] for node in data} == {
+            "default.long_events",
+            "default.country_dim",
+            "default.device_ids_count",
+        }
+        response = await client_with_event.get(
+            "/nodes/default.event_source/downstream/?depth=0",
+        )
+        data = response.json()
+        assert {node["name"] for node in data} == set()
+
         response = await client_with_event.get(
             "/nodes/default.device_ids_count/downstream/",
         )

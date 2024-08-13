@@ -1150,12 +1150,14 @@ async def list_downstream_nodes(
     name: str,
     *,
     node_type: NodeType = None,
+    depth: int = -1,
     session: AsyncSession = Depends(get_session),
 ) -> List[DAGNodeOutput]:
     """
-    List all nodes that are downstream from the given node, filterable by type.
+    List all nodes that are downstream from the given node, filterable by type and max depth.
+    Setting a max depth of -1 will include all downstream nodes.
     """
-    return await get_downstream_nodes(session, name, node_type)
+    return await get_downstream_nodes(session, name, node_type, depth=depth)
 
 
 @router.get(
