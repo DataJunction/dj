@@ -2,12 +2,16 @@
 Basic OAuth Authentication Router
 """
 from datetime import timedelta
+import asyncio
 from http import HTTPStatus
+import os
+from alembic.config import Config
+from alembic import command
 
-from fastapi import APIRouter, Depends, Form
+from fastapi import APIRouter, Depends, Form, HTTPException, Header
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select
+from sqlalchemy import select,text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
@@ -29,7 +33,7 @@ async def create_a_user(
     email: str = Form(),
     username: str = Form(),
     password: str = Form(),
-    session: AsyncSession = Depends(lambda: get_session(request=Request)),
+    session: AsyncSession = Depends(get_session),
 ) -> JSONResponse:
     """
     Create a new user
@@ -59,7 +63,67 @@ async def create_a_user(
         status_code=HTTPStatus.CREATED,
     )
 
+async def run_alembic_upgrade():
+    # Set the path to the Alembic configuration file
+    alembic_ini_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'alembic.ini'))
 
+    # Set the path to the Alembic scripts directory
+    script_location = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'alembic'))
+
+    # Check if paths exist
+    if not os.path.isfile(alembic_ini_path):
+        raise FileNotFoundError(f"Config file not found: {alembic_ini_path}")
+    if not os.path.isdir(script_location):
+        raise FileNotFoundError(f"Script directory not found: {script_location}")
+
+    # Load the Alembic configuration
+    alembic_cfg = Config(alembic_ini_path)
+    alembic_cfg.set_main_option('script_location', script_location)
+
+    # Run the Alembic upgrade command
+    try:
+        # This might need to be run in a thread if it’s blocking
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: command.upgrade(alembic_cfg, 'head'))
+    except Exception as e:
+        print(f"Error during upgrade: {e}")
+        raise
+
+@router.post("/schema/register/")
+async def schema_register(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> JSONResponse:
+    """
+    Create a new schema if it does not exist.
+    """
+    try:
+        body  = await request.json()
+        schema = body.get("schema")
+        print("schema body is",schema)
+        if not schema:
+            raise HTTPException(status_code=400, detail="Schema in body is required")
+
+        # Check if schema already exists
+        query = text(f"SELECT schema_name FROM information_schema.schemata WHERE schema_name = :schema_name")
+        result = await session.execute(query, {"schema_name": schema})
+        if result.fetchone():
+            raise HTTPException(status_code=400, detail="Schema already exists")
+
+        # Create schema
+        await session.execute(text(f"CREATE SCHEMA {schema}"))
+        await session.commit()
+
+
+        await run_alembic_upgrade()
+
+        return JSONResponse(
+            content={"message": "Schema successfully created and migrations applied"},
+            status_code=HTTPStatus.CREATED,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @router.post("/basic/login/")
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -69,6 +133,7 @@ async def login(
     """
     Get a JWT token and set it as an HTTP only cookie
     """
+    print("requesting login - ")
     user = await validate_user_password(
         username=form_data.username,
         password=form_data.password,

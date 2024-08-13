@@ -14,7 +14,7 @@ from typing import AsyncIterator, List, Optional
 from dotenv import load_dotenv
 from fastapi import Depends
 from rich.logging import RichHandler
-from sqlalchemy import AsyncAdaptedQueuePool
+from sqlalchemy import AsyncAdaptedQueuePool,text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -70,8 +70,9 @@ class DatabaseSessionManager:
         self.engine: AsyncEngine | None = None
         self.session_maker = None
         self.session = None
+        self.schema = None
 
-    def init_db(self):
+    async def init_db(self):
         """
         Initialize the database engine
         """
@@ -92,9 +93,12 @@ class DatabaseSessionManager:
                 "keepalives_interval": settings.db_keepalives_interval,
                 "keepalives_count": settings.db_keepalives_count,
             },
-        ).execution_options(
+        )
+
+        if self.schema:
+            self.engine = self.engine.execution_options(
             schema_translate_map={None: self.schema}
-    )        
+        )        
 
         async_session_factory = async_sessionmaker(
             bind=self.engine,
@@ -117,13 +121,17 @@ class DatabaseSessionManager:
 
 
 @lru_cache(maxsize=None)
-def get_session_manager(request: Request) -> DatabaseSessionManager:
+async def get_session_manager(request: Optional[Request] = None) -> DatabaseSessionManager:
     """
     Get session manager
     """
     session_manager = DatabaseSessionManager()
-    session_manager.schema = request.headers.get("user")
-    session_manager.init_db()
+    session_manager.schema = request.headers.get("schema")
+    settings = get_settings()
+    if not request.headers.get("schema"):
+        body = await request.json()
+        settings.customSchema =  body.get("schema")
+    await session_manager.init_db()
     return session_manager
 
 
@@ -145,17 +153,19 @@ def get_engine(schema: str) -> AsyncEngine:
         connect_args={
             "connect_timeout": settings.db_connect_timeout,
         },
-    ).execution_options(
+    )
+    if schema:
+        engine = engine.execution_options(
             schema_translate_map={None: schema}
     ) 
     return engine
 
 
-async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
+async def get_session(request: Request = None) -> AsyncIterator[AsyncSession]:
     """
     Async database session.
     """
-    session_manager = get_session_manager(request)
+    session_manager = await get_session_manager(request)
     session = session_manager.session()
     try:
         yield session

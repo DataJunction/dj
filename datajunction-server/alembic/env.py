@@ -85,14 +85,15 @@ def run_migrations_online():
     and associate a connection with the context.
 
     """
-    connectable = create_engine(settings.index,connect_args={"options": "-csearch_path=ex2"})
+    settings = get_settings()
+
+    connectable = create_engine(settings.index,connect_args={"options": f"-csearch_path={settings.customSchema}"})
 
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             render_as_batch=True,
-            schema_translate_map={None: "ex2"}
         )
 
         with context.begin_transaction():
