@@ -120,7 +120,7 @@ async def get_downstream_nodes(
         final_select = final_select.where(is_(Node.deactivated_at, None))
 
     # Add depth filter
-    if depth != -1:
+    if depth > -1:
         final_select = final_select.where(max_depths.c.max_depth < depth)
 
     statement = (
