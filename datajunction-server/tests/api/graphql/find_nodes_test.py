@@ -346,7 +346,7 @@ async def test_find_transform(
     module__client_with_roads: AsyncClient,
 ) -> None:
     """
-    Test finding source nodes
+    Test finding transform nodes
     """
 
     query = """
@@ -587,7 +587,12 @@ async def test_find_node_with_revisions(
     response = await module__client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
-    assert data["data"]["findNodes"] == [
+    results = data["data"]["findNodes"]
+    results[2]["revisions"][0]["dimensionLinks"] = sorted(
+        results[2]["revisions"][0]["dimensionLinks"],
+        key=lambda x: x["dimension"]["name"],
+    )
+    assert results == [
         {
             "name": "default.regional_level_agg",
             "type": "TRANSFORM",
@@ -628,20 +633,29 @@ async def test_find_node_with_revisions(
                     "displayName": "Repair Orders Fact",
                     "dimensionLinks": [
                         {
-                            "dimension": {"name": "default.municipality_dim"},
-                            "joinSql": "default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id",
+                            "dimension": {
+                                "name": "default.dispatcher",
+                            },
+                            "joinSql": "default.repair_orders_fact.dispatcher_id = "
+                            "default.dispatcher.dispatcher_id",
                         },
                         {
-                            "dimension": {"name": "default.hard_hat"},
-                            "joinSql": "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id",
+                            "dimension": {
+                                "name": "default.hard_hat",
+                            },
+                            "joinSql": "default.repair_orders_fact.hard_hat_id = "
+                            "default.hard_hat.hard_hat_id",
                         },
                         {
                             "dimension": {"name": "default.hard_hat_to_delete"},
                             "joinSql": "default.repair_orders_fact.hard_hat_id = default.hard_hat_to_delete.hard_hat_id",
                         },
                         {
-                            "dimension": {"name": "default.dispatcher"},
-                            "joinSql": "default.repair_orders_fact.dispatcher_id = default.dispatcher.dispatcher_id",
+                            "dimension": {
+                                "name": "default.municipality_dim",
+                            },
+                            "joinSql": "default.repair_orders_fact.municipality_id = "
+                            "default.municipality_dim.municipality_id",
                         },
                     ],
                 },
@@ -656,4 +670,29 @@ async def test_find_node_with_revisions(
                 "username": "dj",
             },
         },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_created_edited_by(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding nodes with created by / edited by metadata
+    """
+
+    query = """
+    {
+        findNodes(names: ["default.repair_orders_fact"]) {
+            name
+            createdBy
+            editedBy
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodes"] == [
+        {"name": "default.repair_orders_fact", "createdBy": "dj", "editedBy": ["dj"]},
     ]
