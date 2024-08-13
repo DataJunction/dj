@@ -111,9 +111,9 @@ async def get_downstream_nodes(
     )
 
     # Select nodes with the maximum depth
-    final_select = (
-        select(Node, max_depths.c.max_depth)
-        .join(max_depths, max_depths.c.node_id == Node.id)
+    final_select = select(Node, max_depths.c.max_depth).join(
+        max_depths,
+        max_depths.c.node_id == Node.id,
     )
 
     if not include_deactivated:
@@ -123,10 +123,8 @@ async def get_downstream_nodes(
     if depth > -1:
         final_select = final_select.where(max_depths.c.max_depth < depth)
 
-    statement = (
-        final_select
-        .order_by(max_depths.c.max_depth, Node.id)
-        .options(*_node_output_options())
+    statement = final_select.order_by(max_depths.c.max_depth, Node.id).options(
+        *_node_output_options()
     )
     results = (await session.execute(statement)).unique().scalars().all()
     return [
