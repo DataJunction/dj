@@ -1154,7 +1154,8 @@ async def list_downstream_nodes(
     session: AsyncSession = Depends(get_session),
 ) -> List[DAGNodeOutput]:
     """
-    List all nodes that are downstream from the given node, filterable by type.
+    List all nodes that are downstream from the given node, filterable by type and max depth.
+    Setting a max depth of -1 will include all downstream nodes.
     """
     return await get_downstream_nodes(session, name, node_type, depth=depth)
 
