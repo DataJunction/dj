@@ -65,7 +65,7 @@ def run_migrations_offline():
     script output.
 
     """
-    url = settings.index 
+    url = settings.index
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -87,7 +87,10 @@ def run_migrations_online():
     """
     settings = get_settings()
 
-    connectable = create_engine(settings.index,connect_args={"options": f"-csearch_path={settings.customSchema}"})
+    connectable = create_engine(
+        settings.index,
+        connect_args={"options": f"-csearch_path={settings.customSchema}"},
+    )
 
     with connectable.connect() as connection:
         context.configure(

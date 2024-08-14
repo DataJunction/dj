@@ -30,6 +30,8 @@ class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
     # SQLAlchemy URI for the metadata database.
     index: str = "sqlite:///djqs.db?check_same_thread=False"
 
+    customSchema: str = "public"
+
     # The default engine to use for reflection
     default_reflection_engine: str = "default"
 
