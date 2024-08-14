@@ -15,6 +15,8 @@ from datajunction_server.api.helpers import (
     get_query,
     validate_orderby,
 )
+
+from datajunction_server.construction.build_v2 import QueryBuilder
 from datajunction_server.database import Engine, Node
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
@@ -236,15 +238,16 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
         return request
 
     # For all other nodes, build the node query
-    query_ast = await get_query(
-        session=session,
-        node_name=node_name,
-        dimensions=dimensions,
-        filters=filters,
-        orderby=orderby,
-        limit=limit,
-        engine=engine,
-        access_control=access_control,
+    node = await Node.get_by_name(session, node_name)
+    query_builder = await QueryBuilder.create(session, node.current, engine)
+    query_ast = await (
+        query_builder.ignore_errors()
+        .with_access_control(access_control)
+        .add_dimensions(dimensions)
+        .add_filters(filters)
+        .limit(limit)
+        .order_by(orderby)
+        .build()
     )
     columns = [
         assemble_column_metadata(col)  # type: ignore

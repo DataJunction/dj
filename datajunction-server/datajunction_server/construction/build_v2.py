@@ -213,7 +213,12 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
     validation, allowing for dynamic node query generation based on runtime conditions.
     """
 
-    def __init__(self, session: AsyncSession, node_revision: NodeRevision):
+    def __init__(
+        self,
+        session: AsyncSession,
+        node_revision: NodeRevision,
+        engine: Optional[Engine] = None,
+    ):
         self.session = session
         self.node_revision = node_revision
 
@@ -224,7 +229,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         self._dimensions: List[str] = []
         self._orderby: List[str] = []
         self._limit: Optional[int] = None
-        self._build_criteria: Optional[BuildCriteria] = self.get_default_criteria()
+        self._build_criteria: Optional[BuildCriteria] = self.get_default_criteria(engine)
         self._access_control: Optional[access.AccessControlStore] = None
         self._ignore_errors: bool = False
 
@@ -242,12 +247,14 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         cls,
         session: AsyncSession,
         node_revision: NodeRevision,
+        engine: Optional[Engine] = None,
     ) -> "QueryBuilder":
         """
         Create a QueryBuilder instance for the node revision.
         """
         await session.refresh(node_revision, ["required_dimensions", "dimension_links"])
-        instance = cls(session, node_revision)
+        instance = cls(session, node_revision, engine=engine)
+        await instance.initialize()
         return instance
 
     def ignore_errors(self):
@@ -357,6 +364,13 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             build_criteria=self._build_criteria,
         )
 
+    async def initialize(self):
+        if self.node_revision.type == NodeType.METRIC:
+            await self.session.refresh(self.node_revision.parents[0], ["current"])
+            self.node_to_build = self.node_revision.parents[0].current
+        else:
+            self.node_to_build = self.node_revision
+
     async def build(self) -> ast.Query:
         """
         Builds the node SQL with the requested set of dimensions, filter expressions,
@@ -380,7 +394,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         8. Add order by and limit to the final select (TODO)
         """
         node_ast = (
-            await compile_node_ast(self.session, self.node_revision)
+            await compile_node_ast(self.session, self.node_to_build)
             if not self.physical_table
             else self.create_query_from_physical_table(self.physical_table)
         )
@@ -392,9 +406,27 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             ctx = CompileContext(self.session, DJException())
             await node_ast.compile(ctx)
             self.final_ast = self.initialize_final_query_ast(node_ast, node_alias)
+            if self.node_revision.type == NodeType.METRIC:
+                self.final_ast.select.projection = []
             await self.build_dimension_node_joins(node_ast, node_alias)
             self.set_dimension_aliases()
 
+        if self.node_revision.type == NodeType.METRIC:
+            metric_ast = await compile_node_ast(self.session, self.node_revision)
+            metric_ast = await build_ast(self.session, self.node_revision, metric_ast)
+            metric_ast.select.projection[0].set_alias(ast.Name(amenable_name(self.node_revision.name)))
+            for tbl in metric_ast.find_all(ast.Table):
+                tbl.alias = None
+            self.final_ast.select.group_by.extend([
+                ast.Column(
+                    ast.Name(col.alias_or_name.name),  # type: ignore
+                    _type=col.type,  # type: ignore
+                )
+                for col in self.final_ast.select.projection
+            ])
+            self.final_ast.select.projection.extend(metric_ast.select.projection)
+
+        print("final_ast", self.final_ast)
         # Error validation
         self.validate_access()
         if self.errors and not self._ignore_errors:
@@ -433,10 +465,10 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         ctx = CompileContext(self.session, DJException())
         await node_ast.compile(ctx)
         self.errors.extend(ctx.exception.errors)
-        node_alias = ast.Name(amenable_name(self.node_revision.name))
+        node_alias = ast.Name(amenable_name(self.node_to_build.name))
         return node_alias, await build_ast(
             self.session,
-            self.node_revision,
+            self.node_to_build,
             node_ast,
             filters=self._filters,
             build_criteria=self._build_criteria,
@@ -473,7 +505,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         # Add node ast to CTE tracker
         node_ast.ctes = []
         node_ast = node_ast.to_cte(node_alias)
-        self.cte_mapping[self.node_revision.name] = node_ast
+        self.cte_mapping[self.node_to_build.name] = node_ast
 
         # Find all dimension node joins necessary for the requested dimensions and filters
         dimension_node_joins = await self.find_dimension_node_joins()
@@ -590,13 +622,13 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         for dim in necessary_dimensions:
             dimension_attr = FullColumnName(dim)
             dim_node = dimension_attr.node_name
-            if dim_node == self.node_revision.name:
+            if dim_node == self.node_to_build.name:
                 continue
             await self.add_request_by_node_name(dim_node)
             if dim_node not in dimension_node_joins:
                 join_path = await dimension_join_path(
                     self.session,
-                    self.node_revision,
+                    self.node_to_build,
                     dimension_attr.name,
                 )
                 if not join_path:
@@ -606,7 +638,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
                             message=(
                                 f"This dimension attribute cannot be joined in: {dim}. "
                                 f"Please make sure that {dimension_attr.node_name} is "
-                                f"linked to {self.node_revision.name}"
+                                f"linked to {self.node_to_build.name}"
                             ),
                             context=str(self),
                         ),
@@ -901,7 +933,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
     session: AsyncSession,
     node: NodeRevision,
     query: ast.Query,
-    filters: Optional[List[str]],
+    filters: Optional[List[str]] = None,
     memoized_queries: Dict[int, ast.Query] = None,
     build_criteria: Optional[BuildCriteria] = None,
     access_control=None,
