@@ -30,7 +30,7 @@ class BaseQuery(SQLModel):
         allow_population_by_field_name = True
 
 
-class Query(BaseQuery, table=True):  # type: ignore
+class QSQuery(BaseQuery, table=True):  # type: ignore
     """
     A query.
     """

@@ -12,13 +12,13 @@ from sqlmodel import Session, select
 from djqs.api.engines import EngineInfo
 from djqs.api.helpers import get_catalog, get_engine
 from djqs.exceptions import DJException
-from djqs.models.catalog import Catalog, CatalogInfo
+from djqs.models.catalog import QSCatalog, CatalogInfo
 from djqs.models.engine import BaseEngineInfo
 from djqs.utils import get_session
 
 _logger = logging.getLogger(__name__)
-get_router = APIRouter(tags=["Catalogs & Engines"])
-post_router = APIRouter(tags=["Catalogs & Engines - Dynamic Configuration"])
+get_router = APIRouter(tags=["QSCatalogs & QSEngines"])
+post_router = APIRouter(tags=["QSCatalogs & QSEngines - Dynamic Configuration"])
 
 
 @get_router.get("/catalogs/", response_model=List[CatalogInfo])
@@ -26,7 +26,7 @@ def list_catalogs(*, session: Session = Depends(get_session)) -> List[CatalogInf
     """
     List all available catalogs
     """
-    return list(session.exec(select(Catalog)))
+    return list(session.exec(select(QSCatalog)))
 
 
 @get_router.get("/catalogs/{name}/", response_model=CatalogInfo)
@@ -56,7 +56,7 @@ def add_catalog(
             detail=f"Catalog already exists: `{data.name}`",
         )
 
-    catalog = Catalog.from_orm(data)
+    catalog = QSCatalog.from_orm(data)
     catalog.engines.extend(
         list_new_engines(
             session=session,
@@ -97,7 +97,7 @@ def add_engines_to_catalog(
 
 def list_new_engines(
     session: Session,
-    catalog: Catalog,
+    catalog: QSCatalog,
     create_engines: List[EngineInfo],
 ) -> List[EngineInfo]:
     """

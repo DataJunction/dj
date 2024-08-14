@@ -14,8 +14,8 @@ from pydantic import BaseSettings
 from sqlmodel import Session, delete, select
 
 from djqs.exceptions import DJException
-from djqs.models.catalog import Catalog, CatalogEngines
-from djqs.models.engine import Engine
+from djqs.models.catalog import QSCatalog, QSCatalogEngines
+from djqs.models.engine import QSEngine
 
 
 class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
@@ -28,7 +28,7 @@ class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
     url: str = "http://localhost:8001/"
 
     # SQLAlchemy URI for the metadata database.
-    index: str = "sqlite:///djqs.db?check_same_thread=False"
+    index: str = "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj"
 
     # The default engine to use for reflection
     default_reflection_engine: str = "default"
@@ -59,9 +59,9 @@ def load_djqs_config(settings: Settings, session: Session) -> None:  # pragma: n
     if not config_file:
         return
 
-    session.exec(delete(Catalog))
-    session.exec(delete(Engine))
-    session.exec(delete(CatalogEngines))
+    session.exec(delete(QSCatalog))
+    session.exec(delete(QSEngine))
+    session.exec(delete(QSCatalogEngines))
     session.commit()
 
     with open(config_file, mode="r", encoding="utf-8") as filestream:
@@ -80,7 +80,7 @@ def load_djqs_config(settings: Settings, session: Session) -> None:  # pragma: n
         )
 
     for engine in data["engines"]:
-        session.add(Engine.parse_obj(engine))
+        session.add(QSEngine.parse_obj(engine))
     session.commit()
 
     for catalog in data["catalogs"]:
@@ -88,9 +88,9 @@ def load_djqs_config(settings: Settings, session: Session) -> None:  # pragma: n
         catalog_engines = catalog.pop("engines")
         for name in catalog_engines:
             attached_engines.append(
-                session.exec(select(Engine).where(Engine.name == name)).one(),
+                session.exec(select(QSEngine).where(QSEngine.name == name)).one(),
             )
-        catalog_entry = Catalog.parse_obj(catalog)
+        catalog_entry = QSCatalog.parse_obj(catalog)
         catalog_entry.engines = attached_engines
         session.add(catalog_entry)
     session.commit()

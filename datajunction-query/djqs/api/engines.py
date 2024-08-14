@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from djqs.api.helpers import get_engine
-from djqs.models.engine import BaseEngineInfo, Engine, EngineInfo
+from djqs.models.engine import BaseEngineInfo, QSEngine, EngineInfo
 from djqs.utils import get_session
 
 get_router = APIRouter(tags=["Catalogs & Engines"])
@@ -21,7 +21,7 @@ def list_engines(*, session: Session = Depends(get_session)) -> List[EngineInfo]
     """
     List all available engines
     """
-    return list(session.exec(select(Engine)))
+    return list(session.exec(select(QSEngine)))
 
 
 @get_router.get("/engines/{name}/{version}/", response_model=BaseEngineInfo)
@@ -53,7 +53,7 @@ def add_engine(
             detail=f"Engine already exists: `{data.name}` version `{data.version}`",
         )
 
-    engine = Engine.from_orm(data)
+    engine = QSEngine.from_orm(data)
     session.add(engine)
     session.commit()
     session.refresh(engine)

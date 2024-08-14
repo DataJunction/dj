@@ -13,11 +13,13 @@ from sqlalchemy import create_engine, text
 from sqlmodel import Session, select
 
 from djqs.config import Settings
+
 from djqs.constants import SQLALCHEMY_URI
-from djqs.models.engine import Engine, EngineType
+from djqs.models.engine import QSEngine, EngineType
+
 from djqs.models.query import (
     ColumnMetadata,
-    Query,
+    QSQuery,
     QueryResults,
     QueryState,
     Results,
@@ -68,8 +70,9 @@ def get_columns_from_description(
 
 def run_query(  # pylint: disable=R0914
     session: Session,
-    query: Query,
+    query: QSQuery,
     headers: Optional[Dict[str, str]] = None,
+
 ) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
     """
     Run a query and return its results.
@@ -81,9 +84,9 @@ def run_query(  # pylint: disable=R0914
     _logger.info("Running query on catalog %s", query.catalog_name)
 
     engine = session.exec(
-        select(Engine)
-        .where(Engine.name == query.engine_name)
-        .where(Engine.version == query.engine_version),
+        select(QSEngine)
+        .where(QSEngine.name == query.engine_name)
+        .where(QSEngine.version == query.engine_version),
     ).one()
 
     query_server = headers.get("SQLALCHEMY_URI") if headers else None
@@ -139,7 +142,7 @@ def run_query(  # pylint: disable=R0914
 
 
 def run_duckdb_query(
-    query: Query,
+    query: QSQuery,
     conn: duckdb.DuckDBPyConnection,
 ) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
     """
@@ -153,7 +156,7 @@ def run_duckdb_query(
 
 
 def run_snowflake_query(
-    query: Query,
+    query: QSQuery,
     cur: snowflake.connector.cursor.SnowflakeCursor,
 ) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
     """
@@ -169,7 +172,7 @@ def run_snowflake_query(
 def process_query(
     session: Session,
     settings: Settings,
-    query: Query,
+    query: QSQuery,
     headers: Optional[Dict[str, str]] = None,
 ) -> QueryResults:
     """

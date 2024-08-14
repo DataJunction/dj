@@ -11,13 +11,13 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
 from sqlmodel import JSON, Field, Relationship, SQLModel
 
-from djqs.models.engine import BaseEngineInfo, Engine
+from djqs.models.engine import BaseEngineInfo, QSEngine
 
 if TYPE_CHECKING:
     from djqs.utils import UTCDatetime
 
 
-class CatalogEngines(SQLModel, table=True):  # type: ignore
+class QSCatalogEngines(SQLModel, table=True):  # type: ignore
     """
     Join table for catalogs and engines.
     """
@@ -34,19 +34,19 @@ class CatalogEngines(SQLModel, table=True):  # type: ignore
     )
 
 
-class Catalog(SQLModel, table=True):  # type: ignore
+class QSCatalog(SQLModel, table=True):  # type: ignore
     """
-    A catalog.
+    A QScatalog.
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
     uuid: UUID = Field(default_factory=uuid4, sa_column=SqlaColumn(UUIDType()))
     name: str
-    engines: List[Engine] = Relationship(
-        link_model=CatalogEngines,
+    engines: List[QSEngine] = Relationship(
+        link_model=QSCatalogEngines,
         sa_relationship_kwargs={
-            "primaryjoin": "Catalog.id==CatalogEngines.catalog_id",
-            "secondaryjoin": "Engine.id==CatalogEngines.engine_id",
+            "primaryjoin": "Catalog.id==QSCatalogEngines.catalog_id",
+            "secondaryjoin": "Engine.id==QSCatalogEngines.engine_id",
         },
     )
     created_at: "UTCDatetime" = Field(

@@ -8,9 +8,9 @@ from logging.config import fileConfig
 from sqlmodel import SQLModel, create_engine
 
 from alembic import context
-from djqs.models.catalog import Catalog
-from djqs.models.engine import Engine
-from djqs.models.query import Query
+from djqs.models.catalog import QSCatalog
+from djqs.models.engine import QSEngine
+from djqs.models.query import QSQuery
 from djqs.utils import get_settings
 
 settings = get_settings()

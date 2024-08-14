@@ -10,15 +10,15 @@ from sqlalchemy.exc import NoResultFound, NoSuchTableError, OperationalError
 from sqlmodel import Session, create_engine, select
 
 from djqs.exceptions import DJException, DJTableNotFound
-from djqs.models.catalog import Catalog
-from djqs.models.engine import Engine
+from djqs.models.catalog import QSCatalog
+from djqs.models.engine import QSEngine
 
 
-def get_catalog(session: Session, name: str) -> Catalog:
+def get_catalog(session: Session, name: str) -> QSCatalog:
     """
     Get a catalog by name
     """
-    statement = select(Catalog).where(Catalog.name == name)
+    statement = select(QSCatalog).where(QSCatalog.name == name)
     catalog = session.exec(statement).one_or_none()
     if not catalog:
         raise DJException(
@@ -28,7 +28,7 @@ def get_catalog(session: Session, name: str) -> Catalog:
     return catalog
 
 
-def get_engine(session: Session, name: str, version: str) -> Engine:
+def get_engine(session: Session, name: str, version: str) -> QSEngine:
     """
     Return an Engine instance given an engine name and version
     """

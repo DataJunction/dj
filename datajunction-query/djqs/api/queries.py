@@ -24,7 +24,7 @@ from sqlmodel import Session
 from djqs.config import Settings
 from djqs.engine import process_query
 from djqs.models.query import (
-    Query,
+    QSQuery,
     QueryCreate,
     QueryResults,
     QueryState,
@@ -141,7 +141,7 @@ def save_query_and_run(  # pylint: disable=R0913
     """
     Store a new query to the DB and run it.
     """
-    query = Query(**create_query.dict(by_alias=True))
+    query = QSQuery(**create_query.dict(by_alias=True))
     query.state = QueryState.ACCEPTED
 
     session.add(query)
@@ -191,7 +191,7 @@ def read_query(
     For paginated queries we move the data from the results backend to the cache for a
     short period, anticipating additional requests.
     """
-    query = session.get(Query, query_id)
+    query = session.get(QSQuery, query_id)
     if not query:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Query not found")
 

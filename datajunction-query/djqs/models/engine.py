@@ -18,7 +18,7 @@ class EngineType(Enum):
     SNOWFLAKE = "snowflake"
 
 
-class Engine(SQLModel, table=True):  # type: ignore
+class QSEngine(SQLModel, table=True):  # type: ignore
     """
     A query engine.
     """
