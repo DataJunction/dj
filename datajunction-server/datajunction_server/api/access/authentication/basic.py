@@ -73,7 +73,6 @@ async def login(
     """
     Get a JWT token and set it as an HTTP only cookie
     """
-    print("requesting login - ")
     user = await validate_user_password(
         username=form_data.username,
         password=form_data.password,
