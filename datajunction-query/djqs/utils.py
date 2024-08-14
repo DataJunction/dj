@@ -57,7 +57,7 @@ def get_metadata_engine() -> Engine:
     return engine
 
 
-def get_session(request: Optional[Request] = None) -> Iterator[Session]:
+def get_session(request: Request = None) -> Iterator[Session]:
     """
     Per-request session.
     """
