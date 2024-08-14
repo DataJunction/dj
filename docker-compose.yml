@@ -105,7 +105,7 @@ services:
       context: ./datajunction-query
     volumes:
       - ./datajunction-query:/code
-    command: /bin/bash -c "cp -n /code/djqs.demo.db /code/djqs.db | true && sleep 2 && alembic upgrade head"
+    command: /bin/bash -c "alembic upgrade head"
     restart: on-failure
     depends_on:
       - djqs
