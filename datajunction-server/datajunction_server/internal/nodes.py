@@ -72,7 +72,7 @@ from datajunction_server.models.node import (
     UpdateNode,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.naming import from_amenable_name
+from datajunction_server.naming import amenable_name, from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
@@ -1399,11 +1399,8 @@ async def derive_sql_column(
     if cube_element.type == "metric":
         query_column_name = cube_element.name
     elif cube_element.type == "dimension":
-        query_column_name = (
-            f"{cube_element.node_name}{SEPARATOR}{cube_element.name}".replace(
-                SEPARATOR,
-                "_DOT_",
-            )
+        query_column_name = amenable_name(
+            f"{cube_element.node_name}{SEPARATOR}{cube_element.name}",
         )
     return ColumnOutput(
         name=query_column_name,
