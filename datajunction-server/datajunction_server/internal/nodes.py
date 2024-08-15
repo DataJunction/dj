@@ -1389,7 +1389,7 @@ async def column_lineage(
     return lineage_column
 
 
-async def determine_query_column_name(
+async def derive_sql_column(
     cube_element: CubeElementMetadata,
 ) -> ColumnOutput:
     """
@@ -1457,8 +1457,7 @@ async def get_cube_revision_metadata(session: AsyncSession, name: str):
     cube_metadata = CubeRevisionMetadata.from_orm(cube)
     cube_metadata.tags = cube.node.tags
     cube_metadata.sql_columns = [
-        await determine_query_column_name(element)
-        for element in cube_metadata.cube_elements
+        await derive_sql_column(element) for element in cube_metadata.cube_elements
     ]
     return cube_metadata
 
