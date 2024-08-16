@@ -9,6 +9,9 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
+from datajunction_server.internal.nodes import derive_sql_column
+from datajunction_server.models.cube import CubeElementMetadata
+from datajunction_server.models.node import ColumnOutput
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -2327,3 +2330,42 @@ async def test_get_unmaterialized_cube_dimensions_values(
             {"count": 1, "value": ["Powder Springs", "Pothole Pete"]},
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_derive_sql_column():
+    """
+    Test that SQL column name are properly derived from cube elements
+    """
+    sql_column = await derive_sql_column(
+        CubeElementMetadata(
+            name="foo_DOT_bar_DOT_baz_DOT_revenue",
+            display_name="Revenue",
+            node_name="foo.bar.baz",
+            type="metric",
+        ),
+    )
+    expected_sql_column = ColumnOutput(
+        name="foo_DOT_bar_DOT_baz_DOT_revenue",
+        display_name="Revenue",
+        type="metric",
+    )
+    assert sql_column.name == expected_sql_column.name
+    assert sql_column.display_name == expected_sql_column.display_name
+    assert sql_column.type == expected_sql_column.type
+    sql_column = await derive_sql_column(
+        CubeElementMetadata(
+            name="owner",
+            display_name="Owner",
+            node_name="foo.bar.baz",
+            type="dimension",
+        ),
+    )
+    expected_sql_column = ColumnOutput(
+        name="foo_DOT_bar_DOT_baz_DOT_owner",
+        display_name="Owner",
+        type="dimension",
+    )
+    assert sql_column.name == expected_sql_column.name
+    assert sql_column.display_name == expected_sql_column.display_name
+    assert sql_column.type == expected_sql_column.type
