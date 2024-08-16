@@ -1395,13 +1395,13 @@ async def derive_sql_column(
     """
     Derives the column name in the generated Cube SQL based on the CubeElement
     """
-    query_column_name = None
-    if cube_element.type == "metric":
-        query_column_name = cube_element.name
-    elif cube_element.type == "dimension":
-        query_column_name = amenable_name(
+    query_column_name = (
+        cube_element.name
+        if cube_element.type == "metric"
+        else amenable_name(
             f"{cube_element.node_name}{SEPARATOR}{cube_element.name}",
         )
+    )
     return ColumnOutput(
         name=query_column_name,
         display_name=cube_element.display_name,
