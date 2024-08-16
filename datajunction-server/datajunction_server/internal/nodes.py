@@ -48,7 +48,7 @@ from datajunction_server.models.attribute import (
     UniquenessScope,
 )
 from datajunction_server.models.base import labelize
-from datajunction_server.models.cube import CubeRevisionMetadata
+from datajunction_server.models.cube import CubeElementMetadata, CubeRevisionMetadata
 from datajunction_server.models.dimensionlink import (
     LinkDimensionIdentifier,
     LinkDimensionInput,
@@ -62,6 +62,7 @@ from datajunction_server.models.materialization import (
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
+    ColumnOutput,
     CreateCubeNode,
     CreateNode,
     CreateSourceNode,
@@ -71,7 +72,7 @@ from datajunction_server.models.node import (
     UpdateNode,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.naming import from_amenable_name
+from datajunction_server.naming import amenable_name, from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
@@ -82,7 +83,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import Version, VersionUpgrade
+from datajunction_server.utils import SEPARATOR, Version, VersionUpgrade
 
 _logger = logging.getLogger(__name__)
 
@@ -1388,6 +1389,26 @@ async def column_lineage(
     return lineage_column
 
 
+async def derive_sql_column(
+    cube_element: CubeElementMetadata,
+) -> ColumnOutput:
+    """
+    Derives the column name in the generated Cube SQL based on the CubeElement
+    """
+    query_column_name = (
+        cube_element.name
+        if cube_element.type == "metric"
+        else amenable_name(
+            f"{cube_element.node_name}{SEPARATOR}{cube_element.name}",
+        )
+    )
+    return ColumnOutput(
+        name=query_column_name,
+        display_name=cube_element.display_name,
+        type=cube_element.type,
+    )
+
+
 async def get_cube_revision_metadata(session: AsyncSession, name: str):
     """
     Returns cube revision metadata for cube named `name`.
@@ -1432,6 +1453,9 @@ async def get_cube_revision_metadata(session: AsyncSession, name: str):
 
     cube_metadata = CubeRevisionMetadata.from_orm(cube)
     cube_metadata.tags = cube.node.tags
+    cube_metadata.sql_columns = [
+        await derive_sql_column(element) for element in cube_metadata.cube_elements
+    ]
     return cube_metadata
 
 

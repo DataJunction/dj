@@ -70,6 +70,7 @@ class CubeRevisionMetadata(BaseModel):
     cube_node_dimensions: List[str]
     query: Optional[str]
     columns: List[ColumnOutput]
+    sql_columns: Optional[List[ColumnOutput]]
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]
     tags: Optional[List[TagOutput]]
