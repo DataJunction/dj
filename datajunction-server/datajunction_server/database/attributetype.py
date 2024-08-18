@@ -13,7 +13,9 @@ if TYPE_CHECKING:
     from datajunction_server.database.column import Column
 
 
-class AttributeType(Base):  # pylint: disable=too-few-public-methods
+class AttributeType(
+    Base,
+):  # pylint: disable=too-few-public-methods,unsubscriptable-object
     """
     Available attribute types for column metadata.
     """
