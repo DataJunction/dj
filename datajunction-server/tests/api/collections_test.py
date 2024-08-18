@@ -38,6 +38,7 @@ class TestCollections:
         data = response.json()
         assert data == [
             {
+                "id": 1,
                 "name": "Accounting",
                 "description": "This is a collection that contains accounting related nodes",
             },

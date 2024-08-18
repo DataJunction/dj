@@ -31,7 +31,7 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
         String,
         insert_default=lambda context: labelize(context.current_parameters.get("name")),
     )
-    created_by_id: Mapped[int] = Column(Integer, ForeignKey("users.id"))
+    created_by_id: Mapped[int] = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_by: Mapped[User] = relationship("User", back_populates="created_tags")
     tag_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default={})
 

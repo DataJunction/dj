@@ -114,6 +114,7 @@ async def create_a_tag(
         description=data.description,
         display_name=data.display_name,
         tag_metadata=data.tag_metadata,
+        created_by_id=current_user.id,
     )
     session.add(tag)
     session.add(

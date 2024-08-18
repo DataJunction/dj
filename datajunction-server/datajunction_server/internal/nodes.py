@@ -609,10 +609,11 @@ async def update_node_with_query(
     )
     old_revision = node.current  # type: ignore
     new_revision = await create_new_revision_from_existing(
-        session,
-        old_revision,
-        node,  # type: ignore
-        data,
+        session=session,
+        old_revision=old_revision,
+        node=node,  # type: ignorec
+        current_user=current_user,
+        data=data,
     )
 
     if not new_revision:

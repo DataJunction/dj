@@ -24,7 +24,7 @@ class Collection(Base):  # pylint: disable=too-few-public-methods
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[Optional[str]] = mapped_column(String, default=None, unique=True)
     description: Mapped[Optional[str]] = mapped_column(String, default=None)
-    created_by_id: Mapped[int] = Column(Integer, ForeignKey("users.id"))
+    created_by_id: Mapped[int] = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_by: Mapped[User] = relationship(
         "User",
         back_populates="created_collections",

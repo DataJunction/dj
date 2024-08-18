@@ -18,6 +18,7 @@ from datajunction_server.database import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
+from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models.node import NodeStatus
@@ -327,7 +328,30 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         return catalog
 
     @pytest_asyncio.fixture
-    async def source_node(self, session: AsyncSession) -> Node:
+    async def current_user(self, session: AsyncSession) -> User:
+        """
+        A user fixture.
+        """
+
+        new_user = User(
+            username="datajunction",
+            password="datajunction",
+            email="dj@datajunction.io",
+            name="DJ",
+            oauth_provider=OAuthProvider.BASIC,
+            is_admin=False,
+        )
+        existing_user = await session.get(User, new_user.id)
+        if not existing_user:
+            session.add(new_user)
+            await session.commit()
+            user = new_user
+        else:
+            user = existing_user
+        return user
+
+    @pytest_asyncio.fixture
+    async def source_node(self, session: AsyncSession, current_user: User) -> Node:
         """
         A source node fixture.
         """
@@ -335,6 +359,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             name="basic.source.users",
             type=NodeType.SOURCE,
             current_version="v1",
+            created_by_id=current_user.id,
         )
         node_revision = NodeRevision(
             node=node,
@@ -350,6 +375,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 Column(name="gender", type=StringType(), order=4),
                 Column(name="preferred_language", type=StringType(), order=5),
             ],
+            created_by_id=current_user.id,
         )
         session.add(node_revision)
         await session.commit()

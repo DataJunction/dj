@@ -174,7 +174,9 @@ class Node(Base):  # pylint: disable=too-few-public-methods
     name: Mapped[str] = mapped_column(String, unique=True)
     type: Mapped[NodeType] = mapped_column(Enum(NodeType))
     display_name: Mapped[Optional[str]]
-    created_by_id: int = SqlalchemyColumn(Integer, ForeignKey("users.id"))
+    created_by_id: int = SqlalchemyColumn(
+        Integer, ForeignKey("users.id"), nullable=False,
+    )
     created_by: Mapped[User] = relationship("User", back_populates="created_nodes")
     namespace: Mapped[str] = mapped_column(String, default="default")
     current_version: Mapped[str] = mapped_column(
@@ -446,7 +448,9 @@ class NodeRevision(
     )
     type: Mapped[NodeType] = mapped_column(Enum(NodeType))
     description: Mapped[str] = mapped_column(String, default="")
-    created_by_id: int = SqlalchemyColumn(Integer, ForeignKey("users.id"))
+    created_by_id: int = SqlalchemyColumn(
+        Integer, ForeignKey("users.id"), nullable=False,
+    )
     created_by: Mapped[User] = relationship(
         "User",
         back_populates="created_node_revisions",
