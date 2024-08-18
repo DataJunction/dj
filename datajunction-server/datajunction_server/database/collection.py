@@ -3,12 +3,13 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import List, Optional
 
-from sqlalchemy import DateTime, ForeignKey, String, select
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.typing import UTCDatetime
 
@@ -23,6 +24,11 @@ class Collection(Base):  # pylint: disable=too-few-public-methods
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[Optional[str]] = mapped_column(String, default=None, unique=True)
     description: Mapped[Optional[str]] = mapped_column(String, default=None)
+    created_by_id: Mapped[int] = Column(Integer, ForeignKey("users.id"))
+    created_by: Mapped[User] = relationship(
+        "User",
+        back_populates="created_collections",
+    )
     nodes: Mapped[List[Node]] = relationship(
         secondary="collectionnodes",
         primaryjoin="Collection.id==CollectionNodes.collection_id",

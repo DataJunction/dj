@@ -12,10 +12,15 @@ from sqlalchemy.sql.operators import is_
 
 from datajunction_server.database.collection import Collection
 from datajunction_server.database.node import Node
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.collection import CollectionInfo
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import (
+    get_and_update_current_user,
+    get_session,
+    get_settings,
+)
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -31,6 +36,7 @@ async def create_a_collection(
     data: CollectionInfo,
     *,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_and_update_current_user),
 ) -> CollectionInfo:
     """
     Create a Collection
@@ -48,6 +54,7 @@ async def create_a_collection(
     collection = Collection(
         name=data.name,
         description=data.description,
+        created_by_id=current_user.id,
     )
     session.add(collection)
     await session.commit()
