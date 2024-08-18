@@ -14,6 +14,7 @@ from datajunction_server.api.graphql.scalars.materialization import (
     MaterializationConfig,
 )
 from datajunction_server.api.graphql.scalars.metricmetadata import MetricMetadata
+from datajunction_server.api.graphql.scalars.user import User
 from datajunction_server.database.dimensionlink import (
     JoinCardinality as JoinCardinality_,
 )
@@ -180,3 +181,4 @@ class Node:  # pylint: disable=too-few-public-methods
     revisions: List[NodeRevision]
 
     tags: List[Tag]
+    created_by: User

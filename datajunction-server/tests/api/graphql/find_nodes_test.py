@@ -571,6 +571,14 @@ async def test_find_node_with_revisions(
                 }
             }
             currentVersion
+            createdBy {
+                email
+                id
+                isAdmin
+                name
+                oauthProvider
+                username
+            }
         }
     }
     """
