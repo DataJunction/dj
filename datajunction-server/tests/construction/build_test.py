@@ -17,6 +17,7 @@ from datajunction_server.construction.build import (
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node_type import NodeType
@@ -135,6 +136,7 @@ async def test_build_metric_with_required_dimensions(
 @pytest.mark.asyncio
 async def test_raise_on_build_without_required_dimension_column(
     construction_session: AsyncSession,
+    current_user: User,
 ):
     """
     Test building a node that has a dimension reference without a column and a compound PK
@@ -148,6 +150,7 @@ async def test_raise_on_build_without_required_dimension_column(
         name="basic.dimension.compound_countries",
         type=NodeType.DIMENSION,
         current_version="1",
+        created_by_id=current_user.id,
     )
     NodeRevision(
         name=countries_dim_ref.name,
@@ -176,8 +179,14 @@ async def test_raise_on_build_without_required_dimension_column(
             ),
             Column(name="user_cnt", type=ct.IntegerType(), order=2),
         ],
+        created_by_id=current_user.id,
     )
-    node_foo_ref = Node(name="basic.foo", type=NodeType.TRANSFORM, current_version="1")
+    node_foo_ref = Node(
+        name="basic.foo",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
     node_foo = NodeRevision(
         name=node_foo_ref.name,
         type=node_foo_ref.type,
@@ -197,10 +206,16 @@ async def test_raise_on_build_without_required_dimension_column(
                 order=1,
             ),
         ],
+        created_by_id=current_user.id,
     )
     construction_session.add(node_foo)
 
-    node_bar_ref = Node(name="basic.bar", type=NodeType.TRANSFORM, current_version="1")
+    node_bar_ref = Node(
+        name="basic.bar",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
     node_bar = NodeRevision(
         name=node_bar_ref.name,
         type=node_bar_ref.type,
@@ -211,6 +226,7 @@ async def test_raise_on_build_without_required_dimension_column(
         columns=[
             Column(name="num_users", type=ct.IntegerType(), order=0),
         ],
+        created_by_id=current_user.id,
     )
     construction_session.add(node_bar)
     await construction_session.commit()
@@ -256,7 +272,10 @@ async def test_build_metric_with_dimensions_filters(construction_session: AsyncS
 
 
 @pytest.mark.asyncio
-async def test_build_node_with_unnamed_column(construction_session: AsyncSession):
+async def test_build_node_with_unnamed_column(
+    construction_session: AsyncSession,
+    current_user: User,
+):
     """
     Test building a node that has an unnamed column (so defaults to col<n>)
     """
@@ -265,6 +284,7 @@ async def test_build_node_with_unnamed_column(construction_session: AsyncSession
         display_name="foo",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by_id=current_user.id,
     )
     node_foo = NodeRevision(
         node=node_foo_ref,
@@ -276,6 +296,7 @@ async def test_build_node_with_unnamed_column(construction_session: AsyncSession
         columns=[
             Column(name="col1", type=ct.IntegerType(), order=0),
         ],
+        created_by_id=current_user.id,
     )
     construction_session.add(node_foo)
     await construction_session.commit()

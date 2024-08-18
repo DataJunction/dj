@@ -1,6 +1,8 @@
 """
 Fixtures for testing.
 """
+
+# pylint: disable=too-many-lines
 import asyncio
 import os
 import re
@@ -992,3 +994,51 @@ async def module__client_with_all_examples(
     Provides a DJ client fixture with all examples
     """
     return await module__client_example_loader(None)
+
+
+@pytest_asyncio.fixture(scope="module")
+async def module__current_user(module__session: AsyncSession) -> User:
+    """
+    A user fixture.
+    """
+
+    new_user = User(
+        username="datajunction",
+        password="datajunction",
+        email="dj@datajunction.io",
+        name="DJ",
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=False,
+    )
+    existing_user = await module__session.get(User, new_user.id)
+    if not existing_user:
+        module__session.add(new_user)
+        await module__session.commit()
+        user = new_user
+    else:
+        user = existing_user
+    return user
+
+
+@pytest_asyncio.fixture
+async def current_user(session: AsyncSession) -> User:
+    """
+    A user fixture.
+    """
+
+    new_user = User(
+        username="datajunction",
+        password="datajunction",
+        email="dj@datajunction.io",
+        name="DJ",
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=False,
+    )
+    existing_user = await session.get(User, new_user.id)
+    if not existing_user:
+        session.add(new_user)
+        await session.commit()
+        user = new_user
+    else:
+        user = existing_user
+    return user
