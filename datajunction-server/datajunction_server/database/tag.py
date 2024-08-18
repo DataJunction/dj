@@ -2,10 +2,11 @@
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import sqlalchemy as sa
-from sqlalchemy import JSON, ForeignKey, String
+from sqlalchemy import JSON, Column, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
+from datajunction_server.database.user import User
 from datajunction_server.models.base import labelize
 
 if TYPE_CHECKING:
@@ -30,6 +31,8 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
         String,
         insert_default=lambda context: labelize(context.current_parameters.get("name")),
     )
+    created_by_id: Mapped[int] = Column(Integer, ForeignKey("users.id"))
+    created_by: Mapped[User] = relationship("User", back_populates="created_tags")
     tag_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default={})
 
     nodes: Mapped[List["Node"]] = relationship(
