@@ -611,7 +611,7 @@ async def update_node_with_query(
     new_revision = await create_new_revision_from_existing(
         session=session,
         old_revision=old_revision,
-        node=node,  # type: ignorec
+        node=node,  # type: ignore
         current_user=current_user,
         data=data,
     )
