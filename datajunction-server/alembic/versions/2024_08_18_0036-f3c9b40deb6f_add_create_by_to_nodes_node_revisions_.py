@@ -19,6 +19,13 @@ depends_on = None
 
 
 def upgrade():
+    """This upgrades adds the created_by_id field to Collection, Node, NodeRevision, and Tag
+
+    Deployments prior to this upgrade will not have easily accessible information for who created
+    these objects in the past. Therefore, this upgrade backfills all existing objects as created by
+    the user with ID=1. If creation information can be gathered elsewhere, it's recommended that you
+    manually backfill the correct created_by_id after the database is upgraded.
+    """
     with op.batch_alter_table("collection", schema=None) as batch_op:
         batch_op.add_column(sa.Column("created_by_id", sa.Integer(), nullable=True))
         batch_op.create_foreign_key(None, "users", ["created_by_id"], ["id"])
