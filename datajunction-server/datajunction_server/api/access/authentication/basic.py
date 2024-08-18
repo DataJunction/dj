@@ -34,7 +34,7 @@ async def create_a_user(
     Create a new user
     """
     user_result = await session.execute(select(User).where(User.username == username))
-    if user_result.scalar_one_or_none():
+    if user_result.unique().scalar_one_or_none():
         raise DJException(
             http_status_code=HTTPStatus.CONFLICT,
             errors=[
