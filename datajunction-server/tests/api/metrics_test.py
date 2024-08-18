@@ -11,6 +11,7 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import User
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.types import FloatType, IntegerType, StringType
 
@@ -415,6 +416,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
 async def test_read_metric(
     module__session: AsyncSession,
     module__client: AsyncClient,
+    module__current_user: User,
 ) -> None:
     """
     Test ``GET /metric/{node_id}/``.
@@ -449,12 +451,14 @@ async def test_read_metric(
                 order=3,
             ),
         ],
+        created_by_id=module__current_user.id,
     )
     parent_node = Node(
         name=parent_rev.name,
         namespace="default",
         type=NodeType.SOURCE,
         current_version="1",
+        created_by_id=module__current_user.id,
     )
     parent_rev.node = parent_node
 
@@ -463,6 +467,7 @@ async def test_read_metric(
         namespace="default",
         type=NodeType.METRIC,
         current_version="1",
+        created_by_id=module__current_user.id,
     )
     child_rev = NodeRevision(
         name=child_node.name,
@@ -471,6 +476,7 @@ async def test_read_metric(
         version="1",
         query="SELECT COUNT(*) FROM parent",
         parents=[parent_node],
+        created_by_id=module__current_user.id,
     )
 
     module__session.add(child_rev)
@@ -517,6 +523,7 @@ async def test_read_metric(
 async def test_read_metrics_errors(
     module__session: AsyncSession,
     module__client: AsyncClient,
+    module__current_user: User,
 ) -> None:
     """
     Test errors on ``GET /metrics/{node_id}/``.
@@ -527,6 +534,7 @@ async def test_read_metrics_errors(
         namespace="default",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by_id=module__current_user.id,
     )
     node_revision = NodeRevision(
         name=node.name,
@@ -534,6 +542,7 @@ async def test_read_metrics_errors(
         node=node,
         version="1",
         query="SELECT 1 AS col",
+        created_by_id=module__current_user.id,
     )
     module__session.add(database)
     module__session.add(node_revision)
