@@ -161,4 +161,7 @@ async def test_whoami(client: AsyncClient):
         "name": None,
         "oauth_provider": "basic",
         "is_admin": False,
+        "created_collections": [],
+        "created_nodes": [],
+        "created_tags": [],
     }

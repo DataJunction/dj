@@ -18,6 +18,7 @@ from datajunction_server.database import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
+from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models.node import NodeStatus
@@ -75,7 +76,11 @@ async def test_read_node(client_with_roads: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_read_nodes(session: AsyncSession, client: AsyncClient) -> None:
+async def test_read_nodes(
+    session: AsyncSession,
+    client: AsyncClient,
+    current_user: User,
+) -> None:
     """
     Test ``GET /nodes/``.
     """
@@ -83,17 +88,20 @@ async def test_read_nodes(session: AsyncSession, client: AsyncClient) -> None:
         name="not-a-metric",
         type=NodeType.SOURCE,
         current_version="1",
+        created_by_id=current_user.id,
     )
     node_rev1 = NodeRevision(
         node=node1,
         version="1",
         name=node1.name,
         type=node1.type,
+        created_by_id=current_user.id,
     )
     node2 = Node(
         name="also-not-a-metric",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by_id=current_user.id,
     )
     node_rev2 = NodeRevision(
         name=node2.name,
@@ -104,8 +112,14 @@ async def test_read_nodes(session: AsyncSession, client: AsyncClient) -> None:
         columns=[
             Column(name="answer", type=IntegerType(), order=0),
         ],
+        created_by_id=current_user.id,
     )
-    node3 = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
+    node3 = Node(
+        name="a-metric",
+        type=NodeType.METRIC,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
     node_rev3 = NodeRevision(
         name=node3.name,
         node=node3,
@@ -115,6 +129,7 @@ async def test_read_nodes(session: AsyncSession, client: AsyncClient) -> None:
             Column(name="_col0", type=IntegerType(), order=0),
         ],
         type=node3.type,
+        created_by_id=current_user.id,
     )
     session.add(node_rev1)
     session.add(node_rev2)
@@ -327,7 +342,30 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         return catalog
 
     @pytest_asyncio.fixture
-    async def source_node(self, session: AsyncSession) -> Node:
+    async def current_user(self, session: AsyncSession) -> User:
+        """
+        A user fixture.
+        """
+
+        new_user = User(
+            username="datajunction",
+            password="datajunction",
+            email="dj@datajunction.io",
+            name="DJ",
+            oauth_provider=OAuthProvider.BASIC,
+            is_admin=False,
+        )
+        existing_user = await session.get(User, new_user.id)
+        if not existing_user:
+            session.add(new_user)
+            await session.commit()
+            user = new_user
+        else:
+            user = existing_user
+        return user
+
+    @pytest_asyncio.fixture
+    async def source_node(self, session: AsyncSession, current_user: User) -> Node:
         """
         A source node fixture.
         """
@@ -335,6 +373,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             name="basic.source.users",
             type=NodeType.SOURCE,
             current_version="v1",
+            created_by_id=current_user.id,
         )
         node_revision = NodeRevision(
             node=node,
@@ -350,6 +389,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 Column(name="gender", type=StringType(), order=4),
                 Column(name="preferred_language", type=StringType(), order=5),
             ],
+            created_by_id=current_user.id,
         )
         session.add(node_revision)
         await session.commit()
@@ -4543,7 +4583,11 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
 
 
 @pytest.mark.asyncio
-async def test_node_similarity(session: AsyncSession, client: AsyncClient):
+async def test_node_similarity(
+    session: AsyncSession,
+    client: AsyncClient,
+    current_user: User,
+):
     """
     Test determining node similarity based on their queries
     """
@@ -4551,17 +4595,20 @@ async def test_node_similarity(session: AsyncSession, client: AsyncClient):
         name="source_data",
         type=NodeType.SOURCE,
         current_version="1",
+        created_by_id=current_user.id,
     )
     source_data_rev = NodeRevision(
         node=source_data,
         version="1",
         name=source_data.name,
         type=source_data.type,
+        created_by_id=current_user.id,
     )
     a_transform = Node(
         name="a_transform",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by_id=current_user.id,
     )
     a_transform_rev = NodeRevision(
         name=a_transform.name,
@@ -4572,11 +4619,13 @@ async def test_node_similarity(session: AsyncSession, client: AsyncClient):
         columns=[
             Column(name="num", type=IntegerType()),
         ],
+        created_by_id=current_user.id,
     )
     another_transform = Node(
         name="another_transform",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by_id=current_user.id,
     )
     another_transform_rev = NodeRevision(
         name=another_transform.name,
@@ -4587,11 +4636,13 @@ async def test_node_similarity(session: AsyncSession, client: AsyncClient):
         columns=[
             Column(name="num", type=IntegerType()),
         ],
+        created_by_id=current_user.id,
     )
     yet_another_transform = Node(
         name="yet_another_transform",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by_id=current_user.id,
     )
     yet_another_transform_rev = NodeRevision(
         name=yet_another_transform.name,
@@ -4602,6 +4653,7 @@ async def test_node_similarity(session: AsyncSession, client: AsyncClient):
         columns=[
             Column(name="num", type=IntegerType()),
         ],
+        created_by_id=current_user.id,
     )
     session.add(source_data_rev)
     session.add(a_transform_rev)

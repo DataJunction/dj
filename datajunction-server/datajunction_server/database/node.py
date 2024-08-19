@@ -6,11 +6,13 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
 from pydantic import Extra
+from sqlalchemy import JSON
+from sqlalchemy import Column as SqlalchemyColumn
 from sqlalchemy import (
-    JSON,
     DateTime,
     Enum,
     ForeignKey,
+    Integer,
     String,
     UniqueConstraint,
     select,
@@ -30,6 +32,7 @@ from datajunction_server.database.history import History
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.tag import Tag
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJInvalidInputException, DJNodeNotFound
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import (
@@ -171,6 +174,12 @@ class Node(Base):  # pylint: disable=too-few-public-methods
     name: Mapped[str] = mapped_column(String, unique=True)
     type: Mapped[NodeType] = mapped_column(Enum(NodeType))
     display_name: Mapped[Optional[str]]
+    created_by_id: int = SqlalchemyColumn(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+    created_by: Mapped[User] = relationship("User", back_populates="created_nodes")
     namespace: Mapped[str] = mapped_column(String, default="default")
     current_version: Mapped[str] = mapped_column(
         String,
@@ -441,6 +450,15 @@ class NodeRevision(
     )
     type: Mapped[NodeType] = mapped_column(Enum(NodeType))
     description: Mapped[str] = mapped_column(String, default="")
+    created_by_id: int = SqlalchemyColumn(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+    created_by: Mapped[User] = relationship(
+        "User",
+        back_populates="created_node_revisions",
+    )
     query: Mapped[Optional[str]] = mapped_column(String)
     mode: Mapped[NodeMode] = mapped_column(
         Enum(NodeMode),

@@ -1,6 +1,8 @@
 """
 Tests for the engine API.
 """
+
+# pylint: disable=line-too-long
 import pytest
 from httpx import AsyncClient
 
@@ -571,6 +573,14 @@ async def test_find_node_with_revisions(
                 }
             }
             currentVersion
+            createdBy {
+                email
+                id
+                isAdmin
+                name
+                oauthProvider
+                username
+            }
         }
     }
     """
@@ -579,65 +589,71 @@ async def test_find_node_with_revisions(
     data = response.json()
     assert data["data"]["findNodes"] == [
         {
-            "currentVersion": "v1.0",
             "name": "default.regional_level_agg",
-            "revisions": [
-                {
-                    "dimensionLinks": [],
-                    "displayName": "Default: Regional Level Agg",
-                },
-            ],
             "type": "TRANSFORM",
+            "revisions": [
+                {"displayName": "Default: Regional Level Agg", "dimensionLinks": []},
+            ],
+            "currentVersion": "v1.0",
+            "createdBy": {
+                "email": None,
+                "id": 1,
+                "isAdmin": False,
+                "name": None,
+                "oauthProvider": "BASIC",
+                "username": "dj",
+            },
         },
         {
-            "currentVersion": "v1.0",
             "name": "default.national_level_agg",
-            "revisions": [
-                {
-                    "dimensionLinks": [],
-                    "displayName": "Default: National Level Agg",
-                },
-            ],
             "type": "TRANSFORM",
+            "revisions": [
+                {"displayName": "Default: National Level Agg", "dimensionLinks": []},
+            ],
+            "currentVersion": "v1.0",
+            "createdBy": {
+                "email": None,
+                "id": 1,
+                "isAdmin": False,
+                "name": None,
+                "oauthProvider": "BASIC",
+                "username": "dj",
+            },
         },
         {
-            "currentVersion": "v1.0",
             "name": "default.repair_orders_fact",
+            "type": "TRANSFORM",
             "revisions": [
                 {
+                    "displayName": "Repair Orders Fact",
                     "dimensionLinks": [
                         {
-                            "dimension": {
-                                "name": "default.municipality_dim",
-                            },
-                            "joinSql": "default.repair_orders_fact.municipality_id = "
-                            "default.municipality_dim.municipality_id",
+                            "dimension": {"name": "default.municipality_dim"},
+                            "joinSql": "default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id",
                         },
                         {
-                            "dimension": {
-                                "name": "default.hard_hat",
-                            },
-                            "joinSql": "default.repair_orders_fact.hard_hat_id = "
-                            "default.hard_hat.hard_hat_id",
+                            "dimension": {"name": "default.hard_hat"},
+                            "joinSql": "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id",
                         },
                         {
-                            "dimension": {
-                                "name": "default.hard_hat_to_delete",
-                            },
-                            "joinSql": "default.repair_orders_fact.hard_hat_id = "
-                            "default.hard_hat_to_delete.hard_hat_id",
+                            "dimension": {"name": "default.hard_hat_to_delete"},
+                            "joinSql": "default.repair_orders_fact.hard_hat_id = default.hard_hat_to_delete.hard_hat_id",
                         },
                         {
-                            "dimension": {
-                                "name": "default.dispatcher",
-                            },
-                            "joinSql": "default.repair_orders_fact.dispatcher_id = "
-                            "default.dispatcher.dispatcher_id",
+                            "dimension": {"name": "default.dispatcher"},
+                            "joinSql": "default.repair_orders_fact.dispatcher_id = default.dispatcher.dispatcher_id",
                         },
                     ],
-                    "displayName": "Repair Orders Fact",
                 },
             ],
-            "type": "TRANSFORM",
+            "currentVersion": "v1.0",
+            "createdBy": {
+                "email": None,
+                "id": 1,
+                "isAdmin": False,
+                "name": None,
+                "oauthProvider": "BASIC",
+                "username": "dj",
+            },
         },
     ]

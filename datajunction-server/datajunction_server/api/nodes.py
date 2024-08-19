@@ -450,6 +450,7 @@ async def create_source(
         display_name=data.display_name or f"{data.catalog}.{data.schema_}.{data.table}",
         type=NodeType.SOURCE,
         current_version=0,
+        created_by_id=current_user.id,
     )
     catalog = await get_catalog_by_name(session=session, name=data.catalog)
 
@@ -481,6 +482,7 @@ async def create_source(
         table=data.table,
         columns=columns,
         parents=[],
+        created_by_id=current_user.id,
     )
     node.display_name = node_revision.display_name
 
@@ -563,8 +565,9 @@ async def create_node(
         namespace=data.namespace,
         type=NodeType(node_type),
         current_version=0,
+        created_by_id=current_user.id,
     )
-    node_revision = await create_node_revision(data, node_type, session)
+    node_revision = await create_node_revision(data, node_type, session, current_user)
     await save_node(session, node_revision, node, data.mode, current_user=current_user)
     background_tasks.add_task(
         save_column_level_lineage,
@@ -658,8 +661,13 @@ async def create_cube(
         namespace=data.namespace,
         type=NodeType.CUBE,
         current_version=0,
+        created_by_id=current_user.id,
     )
-    node_revision = await create_cube_node_revision(session=session, data=data)
+    node_revision = await create_cube_node_revision(
+        session=session,
+        data=data,
+        current_user=current_user,
+    )
     await save_node(session, node_revision, node, data.mode, current_user=current_user)
     node = await Node.get_by_name(session, data.name)  # type: ignore
     return node
@@ -1024,6 +1032,7 @@ async def refresh_source_node(
             )
             for link in current_revision.dimension_links
         ],
+        created_by_id=current_user.id,
     )
     new_revision.version = str(old_version.next_major_version())
     new_revision.columns = [

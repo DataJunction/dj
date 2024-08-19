@@ -16,6 +16,7 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink, JoinType
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJQueryBuildError,
     DJQueryBuildException,
@@ -33,6 +34,7 @@ async def create_source(
     schema_: str,
     table: str,
     columns: List[Column],
+    current_user: User,
 ) -> Tuple[Node, NodeRevision]:
     """Create source node."""
     source_node = Node(
@@ -40,6 +42,7 @@ async def create_source(
         display_name=display_name,
         type=NodeType.SOURCE,
         current_version="1",
+        created_by_id=current_user.id,
     )
     source_node_revision = NodeRevision(
         node=source_node,
@@ -50,6 +53,7 @@ async def create_source(
         schema_=schema_,
         table=table,
         columns=columns,
+        created_by_id=current_user.id,
     )
     session.add(source_node_revision)
     await session.commit()
@@ -64,6 +68,7 @@ async def create_node_with_query(
     node_type: NodeType,
     query: str,
     columns: List[Column],
+    current_user: User,
 ) -> Tuple[Node, NodeRevision]:
     """Create node with query."""
     node = Node(
@@ -71,6 +76,7 @@ async def create_node_with_query(
         display_name=display_name,
         type=node_type,
         current_version="1",
+        created_by_id=current_user.id,
     )
     node_revision = NodeRevision(
         node=node,
@@ -80,6 +86,7 @@ async def create_node_with_query(
         version="1",
         query=query,
         columns=columns,
+        created_by_id=current_user.id,
     )
     session.add(node_revision)
     await session.commit()
@@ -110,7 +117,7 @@ async def primary_key_attribute(session: AsyncSession) -> AttributeType:
 
 
 @pytest_asyncio.fixture
-async def events(session: AsyncSession) -> Node:
+async def events(session: AsyncSession, current_user: User) -> Node:
     """
     Events source node
     """
@@ -128,12 +135,17 @@ async def events(session: AsyncSession) -> Node:
             Column(name="latency", type=ct.BigIntType(), order=3),
             Column(name="utc_date", type=ct.BigIntType(), order=4),
         ],
+        current_user=current_user,
     )
     return events_node
 
 
 @pytest_asyncio.fixture
-async def date_dim(session: AsyncSession, primary_key_attribute) -> Node:
+async def date_dim(
+    session: AsyncSession,
+    primary_key_attribute,
+    current_user: User,
+) -> Node:
     """
     Date dimension node
     """
@@ -151,12 +163,13 @@ async def date_dim(session: AsyncSession, primary_key_attribute) -> Node:
                 attributes=[ColumnAttribute(attribute_type=primary_key_attribute)],
             ),
         ],
+        current_user=current_user,
     )
     return date_node
 
 
 @pytest_asyncio.fixture
-async def events_agg(session: AsyncSession) -> Node:
+async def events_agg(session: AsyncSession, current_user: User) -> Node:
     """
     Events aggregation transform node
     """
@@ -182,12 +195,13 @@ async def events_agg(session: AsyncSession) -> Node:
             Column(name="country_code", type=ct.StringType(), order=4),
             Column(name="total_latency", type=ct.BigIntType(), order=5),
         ],
+        current_user=current_user,
     )
     return events_agg_node
 
 
 @pytest_asyncio.fixture
-async def events_agg_complex(session: AsyncSession) -> Node:
+async def events_agg_complex(session: AsyncSession, current_user: User) -> Node:
     """
     Events aggregation transform node with CTEs
     """
@@ -222,6 +236,7 @@ async def events_agg_complex(session: AsyncSession) -> Node:
             Column(name="country_code", type=ct.StringType(), order=4),
             Column(name="total_latency", type=ct.BigIntType(), order=5),
         ],
+        current_user=current_user,
     )
     return events_agg_node
 
@@ -230,6 +245,7 @@ async def events_agg_complex(session: AsyncSession) -> Node:
 async def devices(
     session: AsyncSession,
     primary_key_attribute: AttributeType,
+    current_user: User,
 ) -> Node:
     """
     Devices source node + devices dimension node
@@ -245,6 +261,7 @@ async def devices(
             Column(name="device_name", type=ct.BigIntType(), order=1),
             Column(name="device_manufacturer", type=ct.StringType(), order=2),
         ],
+        current_user=current_user,
     )
 
     devices_dim_node, _ = await create_node_with_query(
@@ -269,6 +286,7 @@ async def devices(
             Column(name="device_name", type=ct.StringType(), order=1),
             Column(name="device_manufacturer", type=ct.StringType(), order=2),
         ],
+        current_user=current_user,
     )
     return devices_dim_node
 
@@ -277,6 +295,7 @@ async def devices(
 async def manufacturers_dim(
     session: AsyncSession,
     primary_key_attribute: AttributeType,
+    current_user: User,
 ) -> Node:
     """
     Manufacturers source node + dimension node
@@ -292,6 +311,7 @@ async def manufacturers_dim(
             Column(name="company_name", type=ct.StringType(), order=1),
             Column(name="created_on", type=ct.TimestampType(), order=2),
         ],
+        current_user=current_user,
     )
     manufacturers_dim_node, _ = await create_node_with_query(
         session,
@@ -318,6 +338,7 @@ async def manufacturers_dim(
             Column(name="company_name", type=ct.StringType(), order=1),
             Column(name="created_on", type=ct.TimestampType(), order=2),
         ],
+        current_user=current_user,
     )
     return manufacturers_dim_node
 
@@ -326,6 +347,7 @@ async def manufacturers_dim(
 async def country_dim(
     session: AsyncSession,
     primary_key_attribute: AttributeType,
+    current_user: User,
 ) -> Node:
     """
     Countries source node + dimension node & regions source + dim
@@ -342,6 +364,7 @@ async def country_dim(
             Column(name="region_code", type=ct.IntegerType(), order=2),
             Column(name="population", type=ct.IntegerType(), order=3),
         ],
+        current_user=current_user,
     )
 
     await create_source(
@@ -354,6 +377,7 @@ async def country_dim(
             Column(name="region_code", type=ct.StringType(), order=0),
             Column(name="region_name", type=ct.StringType(), order=1),
         ],
+        current_user=current_user,
     )
 
     await create_node_with_query(
@@ -376,6 +400,7 @@ async def country_dim(
             ),
             Column(name="region_name", type=ct.StringType(), order=1),
         ],
+        current_user=current_user,
     )
     countries_dim_node, _ = await create_node_with_query(
         session,
@@ -404,6 +429,7 @@ async def country_dim(
             Column(name="region_name", type=ct.StringType(), order=3),
             Column(name="population", type=ct.IntegerType(), order=4),
         ],
+        current_user=current_user,
     )
     return countries_dim_node
 

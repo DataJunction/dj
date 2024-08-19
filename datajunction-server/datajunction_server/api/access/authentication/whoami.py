@@ -20,10 +20,10 @@ from datajunction_server.utils import (
 router = SecureAPIRouter(tags=["Who am I?"])
 
 
-@router.get("/whoami/", response_model=UserOutput)
-async def get_user(
+@router.get("/whoami/")
+async def whoami(
     current_user: User = Depends(get_and_update_current_user),
-) -> UserOutput:
+):
     """
     Returns the current authenticated user
     """

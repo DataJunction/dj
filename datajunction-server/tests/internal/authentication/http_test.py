@@ -11,11 +11,11 @@ from datajunction_server.internal.access.authentication.http import DJHTTPBearer
 from datajunction_server.models.user import OAuthProvider, UserOutput
 
 EXAMPLE_TOKEN = (
-    "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..pMoQFVS0VMSAFsG5X0itfw.Lc"
-    "8mo22qxeD1NQROlHkjFnmLiDXJGuhlSPcBOoQVlpQGbovHRHT7EJ9_vFGBqDGihul1"
-    "BcABiJT7kJtO6cZCJNkykHx-Cbz7GS_6ZQs1_kR5FzsvrJt5_X-dqehVxCFATjv64-"
-    "Lokgj9ciOudO2YoBW61UWoLdpmzX1A_OPgv9PlAX23owZrFbPcptcXSJPJQVwvvy8h"
-    "DgZ1M6YtqZt_T7o0G2QmFukk.e0ZFTP0H5zP4_wZA3sIrxw"
+    "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..SxGbG0NRepMY4z9-2-ZZdg.ug"
+    "0FvJUoybiGGpUItL4VbM1O_oinX7dMBUM1V3OYjv30fddn9m9UrrXxv3ERIyKu2zVJ"
+    "xx1gSoM5k8petUHCjatFQqA-iqnvjloFKEuAmxLdCHKUDgfKzCIYtbkDcxtzXLuqlj"
+    "B0-ConD6tpjMjFxNrp2KD4vwaS0oGsDJGqXlMo0MOhe9lHMLraXzOQ6xDgDFHiFert"
+    "Fc0T_9jYkcpmVDPl9pgPf55R.sKF18rttq1OZ_EjZqw8Www"
 )
 
 
@@ -86,6 +86,9 @@ def test_dj_http_bearer_w_cookie():
         "name": None,
         "oauth_provider": OAuthProvider.BASIC,
         "is_admin": False,
+        "created_collections": [],
+        "created_nodes": [],
+        "created_tags": [],
     }
 
 
@@ -105,6 +108,9 @@ def test_dj_http_bearer_w_auth_headers():
         "name": None,
         "oauth_provider": OAuthProvider.BASIC,
         "is_admin": False,
+        "created_collections": [],
+        "created_nodes": [],
+        "created_tags": [],
     }
 
 

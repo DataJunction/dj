@@ -7,6 +7,7 @@ from http import HTTPStatus
 from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJError, DJException, ErrorCode
@@ -34,8 +35,21 @@ async def get_user(username: str, session: AsyncSession) -> User:
     Get a DJ user
     """
     user = (
-        await session.execute(select(User).where(User.username == username))
-    ).scalar_one_or_none()
+        (
+            await session.execute(
+                select(User)
+                .options(
+                    joinedload(User.created_collections),
+                    joinedload(User.created_nodes),
+                    joinedload(User.created_node_revisions),
+                    joinedload(User.created_tags),
+                )
+                .where(User.username == username),
+            )
+        )
+        .unique()
+        .scalar_one_or_none()
+    )
     if not user:
         raise DJException(
             http_status_code=HTTPStatus.UNAUTHORIZED,
