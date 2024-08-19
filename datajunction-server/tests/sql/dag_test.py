@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
 from datajunction_server.models.node import DimensionAttributeOutput, NodeType
 from datajunction_server.sql.dag import get_dimensions, topological_sort
@@ -14,14 +15,19 @@ from datajunction_server.sql.parsing.types import IntegerType, StringType
 
 
 @pytest.mark.asyncio
-async def test_get_dimensions(session: AsyncSession) -> None:
+async def test_get_dimensions(session: AsyncSession, current_user: User) -> None:
     """
     Test ``get_dimensions``.
     """
     database = Database(id=1, name="one", URI="sqlite://")
     session.add(database)
 
-    dimension_ref = Node(name="B", type=NodeType.DIMENSION, current_version="1")
+    dimension_ref = Node(
+        name="B",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
     dimension = NodeRevision(
         node=dimension_ref,
         name=dimension_ref.name,
@@ -32,12 +38,18 @@ async def test_get_dimensions(session: AsyncSession) -> None:
             Column(name="id", type=IntegerType(), order=0),
             Column(name="attribute", type=StringType(), order=1),
         ],
+        created_by_id=current_user.id,
     )
     dimension_ref.current = dimension
     session.add(dimension)
     session.add(dimension_ref)
 
-    parent_ref = Node(name="A", current_version="1", type=NodeType.SOURCE)
+    parent_ref = Node(
+        name="A",
+        current_version="1",
+        type=NodeType.SOURCE,
+        created_by_id=current_user.id,
+    )
     parent = NodeRevision(
         node=parent_ref,
         name=parent_ref.name,
@@ -48,12 +60,18 @@ async def test_get_dimensions(session: AsyncSession) -> None:
             Column(name="ds", type=StringType(), order=0),
             Column(name="b_id", type=IntegerType(), dimension=dimension_ref, order=1),
         ],
+        created_by_id=current_user.id,
     )
     parent_ref.current = parent
     session.add(parent)
     session.add(parent_ref)
 
-    child_ref = Node(name="C", current_version="1", type=NodeType.METRIC)
+    child_ref = Node(
+        name="C",
+        current_version="1",
+        type=NodeType.METRIC,
+        created_by_id=current_user.id,
+    )
     child = NodeRevision(
         node=child_ref,
         name=child_ref.name,
@@ -62,6 +80,7 @@ async def test_get_dimensions(session: AsyncSession) -> None:
         query="SELECT COUNT(*) FROM A",
         parents=[parent_ref],
         type=NodeType.METRIC,
+        created_by_id=current_user.id,
     )
     child_ref.current = child
     session.add(child)

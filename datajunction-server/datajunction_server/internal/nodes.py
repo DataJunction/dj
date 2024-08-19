@@ -215,6 +215,7 @@ async def create_node_revision(
     data: CreateNode,
     node_type: NodeType,
     session: AsyncSession,
+    current_user: User,
 ) -> NodeRevision:
     """
     Create a non-source node revision.
@@ -228,6 +229,7 @@ async def create_node_revision(
         query=data.query,
         mode=data.mode,
         required_dimensions=data.required_dimensions or [],
+        created_by_id=current_user.id,
     )
     node_validator = await validate_node_data(node_revision, session)
     if node_validator.status == NodeStatus.INVALID:
@@ -293,6 +295,7 @@ async def create_node_revision(
 async def create_cube_node_revision(  # pylint: disable=too-many-locals
     session: AsyncSession,
     data: CreateCubeNode,
+    current_user: User,
 ) -> NodeRevision:
     """
     Create a cube node revision.
@@ -356,6 +359,7 @@ async def create_cube_node_revision(  # pylint: disable=too-many-locals
         parents=list(set(dimension_nodes + metric_nodes)),
         status=status,
         catalog=catalog,
+        created_by_id=current_user.id,
     )
     return node_revision
 
@@ -438,6 +442,7 @@ async def copy_to_new_node(
         deactivated_at=node.deactivated_at,  # type: ignore
         tags=node.tags,  # type: ignore
         missing_table=node.missing_table,  # type: ignore
+        created_by_id=current_user.id,
     )
     new_revision = NodeRevision(
         name=new_name,
@@ -463,6 +468,7 @@ async def copy_to_new_node(
         columns=[col.copy() for col in old_revision.columns],
         # TODO: availability and materializations are missing here  # pylint: disable=fixme
         lineage=old_revision.lineage,
+        created_by_id=current_user.id,
     )
 
     # Assemble new dimension links, where each link will need to have their join SQL rewritten
@@ -603,10 +609,11 @@ async def update_node_with_query(
     )
     old_revision = node.current  # type: ignore
     new_revision = await create_new_revision_from_existing(
-        session,
-        old_revision,
-        node,  # type: ignore
-        data,
+        session=session,
+        old_revision=old_revision,
+        node=node,  # type: ignore
+        current_user=current_user,
+        data=data,
     )
 
     if not new_revision:
@@ -777,7 +784,11 @@ async def update_cube_node(  # pylint: disable=too-many-locals
     if not major_changes and not minor_changes:
         return None
 
-    new_cube_revision = await create_cube_node_revision(session, create_cube)
+    new_cube_revision = await create_cube_node_revision(
+        session,
+        create_cube,
+        current_user,
+    )
 
     old_version = Version.parse(node_revision.version)
     if major_changes:
@@ -939,7 +950,7 @@ async def propagate_update_downstream(  # pylint: disable=too-many-locals
         await session.commit()
 
 
-def copy_existing_node_revision(old_revision: NodeRevision):
+def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
     """
     Create an exact copy of the node revision
     """
@@ -970,6 +981,7 @@ def copy_existing_node_revision(old_revision: NodeRevision):
             )
             for link in old_revision.dimension_links
         ],
+        created_by_id=current_user.id,
     )
 
 
@@ -1063,6 +1075,7 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
     session: AsyncSession,
     old_revision: NodeRevision,
     node: Node,
+    current_user: User,
     data: UpdateNode = None,
     version_upgrade: VersionUpgrade = None,
 ) -> Optional[NodeRevision]:
@@ -1166,6 +1179,7 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
             )
             for link in old_revision.dimension_links
         ],
+        created_by_id=current_user.id,
     )
     if data.required_dimensions:  # type: ignore
         new_revision.required_dimensions = data.required_dimensions  # type: ignore
@@ -1934,7 +1948,7 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
 
     # Only create a new revision if the columns have been updated
     if updated_columns:  # type: ignore
-        new_revision = copy_existing_node_revision(node.current)  # type: ignore
+        new_revision = copy_existing_node_revision(node.current, current_user)  # type: ignore
         new_revision.version = str(
             Version.parse(node.current.version).next_major_version(),  # type: ignore
         )

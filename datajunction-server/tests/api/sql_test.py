@@ -14,6 +14,7 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
+from datajunction_server.database.user import User
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
 from datajunction_server.models.node_type import NodeType
@@ -26,6 +27,7 @@ from tests.sql.utils import assert_query_strings_equal, compare_query_strings
 async def test_sql(
     session: AsyncSession,
     client: AsyncClient,
+    current_user: User,
 ) -> None:
     """
     Test ``GET /sql/{name}/``.
@@ -36,6 +38,7 @@ async def test_sql(
         name="default.my_table",
         type=NodeType.SOURCE,
         current_version="1",
+        created_by_id=current_user.id,
     )
     source_node_rev = NodeRevision(
         name=source_node.name,
@@ -45,15 +48,22 @@ async def test_sql(
         table="my_table",
         columns=[Column(name="one", type=StringType(), order=0)],
         type=NodeType.SOURCE,
+        created_by_id=current_user.id,
     )
 
-    node = Node(name="default.a_metric", type=NodeType.METRIC, current_version="1")
+    node = Node(
+        name="default.a_metric",
+        type=NodeType.METRIC,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
     node_revision = NodeRevision(
         name=node.name,
         node=node,
         version="1",
         query="SELECT COUNT(*) FROM default.my_table",
         type=NodeType.METRIC,
+        created_by_id=current_user.id,
     )
     node_revision.parents = [source_node]
     session.add(database)

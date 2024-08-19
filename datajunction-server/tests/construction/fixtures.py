@@ -12,6 +12,7 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import User
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.types import (
     DateType,
@@ -194,6 +195,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
 @pytest_asyncio.fixture
 async def construction_session(  # pylint: disable=too-many-locals
     session: AsyncSession,
+    current_user: User,
 ) -> AsyncSession:
     """
     Add some source nodes and transform nodes to facilitate testing of extracting dependencies
@@ -207,6 +209,7 @@ async def construction_session(  # pylint: disable=too-many-locals
         name="basic.dimension.countries",
         type=NodeType.DIMENSION,
         current_version="1",
+        created_by_id=current_user.id,
     )
     countries_dim = NodeRevision(
         name=countries_dim_ref.name,
@@ -228,12 +231,14 @@ async def construction_session(  # pylint: disable=too-many-locals
             ),
             Column(name="user_cnt", type=IntegerType(), order=1),
         ],
+        created_by_id=current_user.id,
     )
 
     user_dim_ref = Node(
         name="basic.dimension.users",
         type=NodeType.DIMENSION,
         current_version="1",
+        created_by_id=current_user.id,
     )
     user_dim = NodeRevision(
         name=user_dim_ref.name,
@@ -264,12 +269,14 @@ async def construction_session(  # pylint: disable=too-many-locals
             Column(name="preferred_language", type=StringType(), order=5),
             Column(name="secret_number", type=FloatType(), order=6),
         ],
+        created_by_id=current_user.id,
     )
 
     country_agg_tfm_ref = Node(
         name="basic.transform.country_agg",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by_id=current_user.id,
     )
     country_agg_tfm = NodeRevision(
         name=country_agg_tfm_ref.name,
@@ -292,12 +299,14 @@ async def construction_session(  # pylint: disable=too-many-locals
             ),
             Column(name="num_users", type=IntegerType(), order=1),
         ],
+        created_by_id=current_user.id,
     )
 
     users_src_ref = Node(
         name="basic.source.users",
         type=NodeType.SOURCE,
         current_version="1",
+        created_by_id=current_user.id,
     )
     users_src = NodeRevision(
         name=users_src_ref.name,
@@ -332,12 +341,14 @@ async def construction_session(  # pylint: disable=too-many-locals
             Column(name="preferred_language", type=StringType(), order=7),
             Column(name="secret_number", type=FloatType(), order=8),
         ],
+        created_by_id=current_user.id,
     )
 
     comments_src_ref = Node(
         name="basic.source.comments",
         type=NodeType.SOURCE,
         current_version="1",
+        created_by_id=current_user.id,
     )
     comments_src = NodeRevision(
         name=comments_src_ref.name,
@@ -355,12 +366,14 @@ async def construction_session(  # pylint: disable=too-many-locals
             Column(name="timestamp", type=TimestampType(), order=2),
             Column(name="text", type=StringType(), order=3),
         ],
+        created_by_id=current_user.id,
     )
 
     num_comments_mtc_ref = Node(
         name="basic.num_comments",
         type=NodeType.METRIC,
         current_version="1",
+        created_by_id=current_user.id,
     )
     num_comments_mtc = NodeRevision(
         name=num_comments_mtc_ref.name,
@@ -375,12 +388,14 @@ async def construction_session(  # pylint: disable=too-many-locals
             Column(name="cnt", type=IntegerType(), order=0),
         ],
         parents=[comments_src_ref],
+        created_by_id=current_user.id,
     )
 
     num_comments_mtc_bnd_dims_ref = Node(
         name="basic.num_comments_bnd",
         type=NodeType.METRIC,
         current_version="1",
+        created_by_id=current_user.id,
     )
     num_comments_mtc_bnd_dims = NodeRevision(
         name=num_comments_mtc_bnd_dims_ref.name,
@@ -399,12 +414,14 @@ async def construction_session(  # pylint: disable=too-many-locals
             comments_src.columns[0],  # pylint: disable=E1136
             comments_src.columns[-1],  # pylint: disable=E1136
         ],
+        created_by_id=current_user.id,
     )
 
     num_users_mtc_ref = Node(
         name="basic.num_users",
         type=NodeType.METRIC,
         current_version="1",
+        created_by_id=current_user.id,
     )
     num_users_mtc = NodeRevision(
         name=num_users_mtc_ref.name,
@@ -419,11 +436,13 @@ async def construction_session(  # pylint: disable=too-many-locals
             Column(name="col0", type=IntegerType(), order=0),
         ],
         parents=[country_agg_tfm_ref],
+        created_by_id=current_user.id,
     )
     num_users_us_join_mtc_ref = Node(
         name="basic.num_users_us",
         type=NodeType.METRIC,
         current_version="1",
+        created_by_id=current_user.id,
     )
     num_users_us_join_mtc = NodeRevision(
         name=num_users_us_join_mtc_ref.name,
@@ -445,11 +464,13 @@ async def construction_session(  # pylint: disable=too-many-locals
             ),
         ],
         parents=[country_agg_tfm_ref, users_src_ref],
+        created_by_id=current_user.id,
     )
     customers_dim_ref = Node(
         name="dbt.dimension.customers",
         type=NodeType.DIMENSION,
         current_version="1",
+        created_by_id=current_user.id,
     )
     customers_dim = NodeRevision(
         name=customers_dim_ref.name,
@@ -472,12 +493,14 @@ async def construction_session(  # pylint: disable=too-many-locals
             Column(name="first_name", type=StringType(), order=1),
             Column(name="last_name", type=StringType(), order=2),
         ],
+        created_by_id=current_user.id,
     )
 
     customers_agg_tfm_ref = Node(
         name="dbt.transform.customer_agg",
         type=NodeType.TRANSFORM,
         current_version="1",
+        created_by_id=current_user.id,
     )
     customers_agg_tfm = NodeRevision(
         name=customers_agg_tfm_ref.name,
@@ -501,12 +524,14 @@ async def construction_session(  # pylint: disable=too-many-locals
             Column(name="last_name", type=StringType(), order=2),
             Column(name="order_cnt", type=IntegerType(), order=3),
         ],
+        created_by_id=current_user.id,
     )
 
     orders_src_ref = Node(
         name="dbt.source.jaffle_shop.orders",
         type=NodeType.SOURCE,
         current_version="1",
+        created_by_id=current_user.id,
     )
     orders_src = NodeRevision(
         name=orders_src_ref.name,
@@ -526,12 +551,14 @@ async def construction_session(  # pylint: disable=too-many-locals
             Column(name="status", type=StringType(), order=3),
             Column(name="_etl_loaded_at", type=TimestampType(), order=4),
         ],
+        created_by_id=current_user.id,
     )
 
     customers_src_ref = Node(
         name="dbt.source.jaffle_shop.customers",
         type=NodeType.SOURCE,
         current_version="1",
+        created_by_id=current_user.id,
     )
     customers_src = NodeRevision(
         name=customers_src_ref.name,
@@ -543,6 +570,7 @@ async def construction_session(  # pylint: disable=too-many-locals
             Column(name="first_name", type=StringType(), order=1),
             Column(name="last_name", type=StringType(), order=2),
         ],
+        created_by_id=current_user.id,
     )
 
     session.add(postgres)

@@ -159,7 +159,7 @@ async def test_get_and_update_current_user(session: AsyncSession):
 
     # Confirm that the user was upserted
     result = await session.execute(select(User).where(User.username == "userfoo"))
-    found_user = result.scalar_one_or_none()
+    found_user = result.unique().scalar_one_or_none()
     assert found_user.id == 1
     assert found_user.username == "userfoo"
     assert (
