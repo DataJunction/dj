@@ -162,6 +162,7 @@ async def get_measures_sql_for_cube_v2(
         get_measures_query,
     )
 
+    metrics = list(OrderedDict.fromkeys(set(metrics)))
     measures_query = await get_measures_query(
         session=session,
         metrics=metrics,
@@ -202,7 +203,7 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
         dimensions = list(
             OrderedDict.fromkeys(node.current.cube_node_dimensions + dimensions),
         )
-        translated_sql, _, _ = await build_sql_for_multiple_metrics(
+        translated_sql, engine, _ = await build_sql_for_multiple_metrics(
             session=session,
             metrics=node.current.cube_node_metrics,
             dimensions=dimensions,
@@ -321,14 +322,14 @@ async def get_node_sql(  # pylint: disable=too-many-locals
             engine=engine,
             access_control=access_control,
         )
-        return (
-            TranslatedSQL(
-                sql=query_request.query,
-                columns=query_request.columns,
-                dialect=engine.dialect if engine else None,
-            ),
-            query_request,
-        )
+        # return (
+        #     TranslatedSQL(
+        #         sql=query_request.query,
+        #         columns=query_request.columns,
+        #         dialect=engine.dialect if engine else None,
+        #     ),
+        #     query_request,
+        # )
 
     query_request = await build_and_save_node_sql(
         node_name=node_name,
