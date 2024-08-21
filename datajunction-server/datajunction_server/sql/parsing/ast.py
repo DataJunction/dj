@@ -62,6 +62,7 @@ from datajunction_server.sql.parsing.types import (
     WildcardType,
     YearMonthIntervalType,
 )
+from datajunction_server.utils import SEPARATOR
 
 PRIMITIVES = {int, float, str, bool, type(None)}
 logger = logging.getLogger(__name__)
@@ -898,8 +899,15 @@ class Column(Aliasable, Named, Expression):
         # a column name, and a subscript
         if not found:
             for table in direct_tables:
+                namespace = namespace.split(SEPARATOR)[0]
                 if table.column_mapping.get(namespace) or (
-                    table.column_mapping.get(column_name) and is_struct
+                    table.column_mapping.get(column_name)
+                    and is_struct
+                    and (
+                        not namespace
+                        or table.alias_or_name.namespace
+                        and table.alias_or_name.namespace.identifier() == namespace
+                    )
                 ):
                     if await table.add_ref_column(self, ctx):
                         found.append(table)
