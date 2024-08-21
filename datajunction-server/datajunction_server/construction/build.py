@@ -1181,6 +1181,11 @@ async def build_metric_nodes(
     (e) Join together the transforms on the shared dimensions
     (f) Select all the requested metrics and dimensions in the final SELECT
     """
+
+    from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel
+        QueryBuilder,
+    )
+
     if any(metric_node.type != NodeType.METRIC for metric_node in metric_nodes):
         raise DJInvalidInputException(  # pragma: no cover
             "Cannot build a query for multiple nodes if one or more "
@@ -1212,15 +1217,14 @@ async def build_metric_nodes(
     common_parents = group_metrics_by_parent(metric_nodes)
 
     for parent_node, metrics in common_parents.items():
-        # parent_node_ = await Node.get_by_name(session, parent_node.name)
-        parent_ast = await build_node(
-            session=session,
-            node=parent_node.current,
-            dimensions=dimensions,
-            filters=filters,
-            build_criteria=build_criteria,
-            include_dimensions_in_groupby=True,
-            access_control=access_control,
+        query_builder = await QueryBuilder.create(session, parent_node.current)
+        parent_ast = await (
+            query_builder.ignore_errors()
+            .with_access_control(access_control)
+            .with_build_criteria(build_criteria)
+            .add_dimensions(dimensions)
+            .add_filters(filters)
+            .build()
         )
 
         # Select only columns that were one of the chosen dimensions
@@ -1438,7 +1442,9 @@ def build_materialized_cube_node(
     # Assemble query for materialized cube based on the previously saved measures
     # combiner expression for each metric
     for metric_key in selected_metric_keys:
-        if metric_key in cube_config.measures:  # pragma: no cover
+        if (
+            cube_config.measures and metric_key in cube_config.measures
+        ):  # pragma: no cover
             metric_measures = cube_config.measures[metric_key]
             measures_combiner_ast = parse(f"SELECT {metric_measures.combiner}")
             measures_type_lookup = {
@@ -1460,6 +1466,13 @@ def build_materialized_cube_node(
                     proj.set_alias(ast.Name(amenable_name(metric_key)))
                     for proj in measures_combiner_ast.select.projection
                 ],
+            )
+        else:
+            combined_ast.select.projection.append(
+                ast.Function(
+                    name=ast.Name("SUM"),
+                    args=[ast.Column(name=ast.Name(amenable_name(metric_key)))],
+                ),
             )
 
     # Add in selected dimension attributes to the query

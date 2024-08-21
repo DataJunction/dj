@@ -369,10 +369,15 @@ async def validate_cube(  # pylint: disable=too-many-locals
         ),
         key=lambda x: metrics_sorting_order.get(x.name, 0),
     )
-
+    print("metric_names", metric_names)
     # Verify that all metrics exist
     if len(metric_nodes) != len(metric_names):
         not_found = set(metric_names) - {metric.name for metric in metric_nodes}
+        print(
+            'not_found", ',
+            sorted([metric.name for metric in metric_nodes]),
+            sorted(metric_names),
+        )
         message = f"The following metric nodes were not found: {', '.join(not_found)}"
         raise DJNodeNotFound(
             message,
@@ -687,6 +692,7 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
             )
             for col in dimension_columns
         ]
+        engine = materialized_cube_catalog.engines[0]
         return (
             TranslatedSQL(
                 sql=str(query_ast),
