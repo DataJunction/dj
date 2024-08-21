@@ -369,7 +369,6 @@ async def validate_cube(  # pylint: disable=too-many-locals
         ),
         key=lambda x: metrics_sorting_order.get(x.name, 0),
     )
-    print("metric_names", metric_names)
     # Verify that all metrics exist
     if len(metric_nodes) != len(metric_names):
         not_found = set(metric_names) - {metric.name for metric in metric_nodes}
