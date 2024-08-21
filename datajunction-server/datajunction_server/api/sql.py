@@ -322,14 +322,14 @@ async def get_node_sql(  # pylint: disable=too-many-locals
             engine=engine,
             access_control=access_control,
         )
-        # return (
-        #     TranslatedSQL(
-        #         sql=query_request.query,
-        #         columns=query_request.columns,
-        #         dialect=engine.dialect if engine else None,
-        #     ),
-        #     query_request,
-        # )
+        return (
+            TranslatedSQL(
+                sql=query_request.query,
+                columns=query_request.columns,
+                dialect=engine.dialect if engine else None,
+            ),
+            query_request,
+        )
 
     query_request = await build_and_save_node_sql(
         node_name=node_name,
