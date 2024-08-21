@@ -203,11 +203,15 @@ async def get_data(  # pylint: disable=too-many-locals
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     available_engines = node.current.catalog.engines  # type: ignore
     engine = (
-        await get_engine(session, engine_name, engine_version)  # type: ignore
-        if engine_name
+        await get_engine(
+            session,
+            engine_name or query_request.engine_name,
+            engine_version,  # type: ignore
+        )
+        if engine_name or query_request.engine_name
         else available_engines[0]
     )
-    if engine not in available_engines:
+    if engine not in available_engines and engine.name != query_request.engine_name:
         raise DJInvalidInputException(  # pragma: no cover
             f"The selected engine is not available for the node {node_name}. "
             f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
