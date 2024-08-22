@@ -130,7 +130,18 @@ List of all available DJ client methods:
         filters: Optional[List[str]],
         engine_name: Optional[str],
         engine_version: Optional[str])
+  - node_sql( node_name: str,
+        dimensions: Optional[List[str]],
+        filters: Optional[List[str]],
+        engine_name: Optional[str],
+        engine_version: Optional[str])
   - data( metrics: List[str],
+        dimensions: Optional[List[str]],
+        filters: Optional[List[str]],
+        engine_name: Optional[str],
+        engine_version: Optional[str],
+        async_: bool = True)
+  - node_data( node_name: str,
         dimensions: Optional[List[str]],
         filters: Optional[List[str]],
         engine_name: Optional[str],
