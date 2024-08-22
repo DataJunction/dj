@@ -175,6 +175,21 @@ async def get_measures_sql_for_cube_v2(
         include_all_columns=include_all_columns,
         sql_transpilation_library=settings.sql_transpilation_library,
     )
+    for query in measures_query:
+        await QueryRequest.save_query_request(
+            session=session,
+            nodes=metrics,
+            dimensions=dimensions,
+            filters=filters,
+            orderby=[],
+            limit=None,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            query_type=QueryBuildType.MEASURES,
+            query=query.sql,
+            columns=[col.dict() for col in query.columns],  # type: ignore
+            other_args={"include_all_columns": include_all_columns},
+        )
     return measures_query
 
 

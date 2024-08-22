@@ -628,10 +628,6 @@ async def test_find_node_with_revisions(
                     "displayName": "Repair Orders Fact",
                     "dimensionLinks": [
                         {
-                            "dimension": {"name": "default.municipality_dim"},
-                            "joinSql": "default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id",
-                        },
-                        {
                             "dimension": {"name": "default.hard_hat"},
                             "joinSql": "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id",
                         },
@@ -642,6 +638,10 @@ async def test_find_node_with_revisions(
                         {
                             "dimension": {"name": "default.dispatcher"},
                             "joinSql": "default.repair_orders_fact.dispatcher_id = default.dispatcher.dispatcher_id",
+                        },
+                        {
+                            "dimension": {"name": "default.municipality_dim"},
+                            "joinSql": "default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id",
                         },
                     ],
                 },
