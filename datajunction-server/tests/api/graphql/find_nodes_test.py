@@ -327,7 +327,7 @@ async def test_find_source(
                         },
                         "joinSql": "default.repair_type.contractor_id = "
                         "default.contractor.contractor_id",
-                        "joinType": "LEFT",
+                        "joinType": "INNER",
                         "role": None,
                     },
                 ],
