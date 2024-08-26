@@ -71,6 +71,8 @@ async def get_cube_dimension_sql(
     Generates SQL to retrieve all unique values of a dimension for the cube
     """
     node = await Node.get_cube_by_name(session, name)
+    # if not node:
+    #     raise DJNodeNotFound()
     node_revision = node.current  # type: ignore
     return await build_dimensions_from_cube_query(
         session,
