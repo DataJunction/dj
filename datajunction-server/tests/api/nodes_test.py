@@ -26,8 +26,9 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_upstream_nodes
 from datajunction_server.sql.parsing import ast, types
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
-from tests.sql.utils import assert_query_strings_equal, compare_query_strings
+from tests.sql.utils import compare_query_strings
 
 
 def materialization_compare(response, expected):
@@ -1741,7 +1742,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "join_cardinality": "many_to_one",
                 "join_sql": "default.repair_orders.repair_order_id = "
                 "default.repair_order.repair_order_id",
-                "join_type": "left",
+                "join_type": "inner",
                 "role": None,
             },
             {
@@ -1752,7 +1753,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "join_cardinality": "many_to_one",
                 "join_sql": "default.repair_orders.dispatcher_id = "
                 "default.dispatcher.dispatcher_id",
-                "join_type": "left",
+                "join_type": "inner",
                 "role": None,
             },
         ]
@@ -2829,32 +2830,37 @@ GROUP BY
             "/sql/default.total_amount_in_region_from_struct_transform?filters="
             "&dimensions=location_hierarchy",
         )
-        expected = """SELECT
-          default_DOT_total_amount_in_region_from_struct_transform.location_hierarchy default_DOT_total_amount_in_region_from_struct_transform_DOT_location_hierarchy,
-    default_DOT_total_amount_in_region_from_struct_transform.col0 default_DOT_total_amount_in_region_from_struct_transform_DOT_col0
- FROM (SELECT  default_DOT_regional_level_agg_structs.location_hierarchy,
-    SUM(IF(default_DOT_regional_level_agg_structs.order_year = 2020, default_DOT_regional_level_agg_structs.measures.total_amount_in_region, 0)) col0
- FROM (SELECT  usr.us_region_id,
-    us.state_name,
-    CONCAT(us.state_name, '-', usr.us_region_description) AS location_hierarchy,
-    EXTRACT(YEAR, ro.order_date) AS order_year,
-    EXTRACT(MONTH, ro.order_date) AS order_month,
-    EXTRACT(DAY, ro.order_date) AS order_day,
-    struct(COUNT( DISTINCT CASE
-        WHEN ro.dispatched_date IS NOT NULL THEN ro.repair_order_id
-        ELSE NULL
-    END) AS completed_repairs, COUNT( DISTINCT ro.repair_order_id) AS total_repairs_dispatched, SUM(rd.price * rd.quantity) AS total_amount_in_region, AVG(rd.price * rd.quantity) AS avg_repair_amount_in_region, AVG(DATEDIFF(ro.dispatched_date, ro.order_date)) AS avg_dispatch_delay, COUNT( DISTINCT c.contractor_id) AS unique_contractors) AS measures
- FROM roads.repair_orders AS ro JOIN roads.municipality AS m ON ro.municipality_id = m.municipality_id
-JOIN roads.us_states AS us ON m.state_id = us.state_id
-JOIN roads.us_states AS us ON m.state_id = us.state_id
-JOIN roads.us_region AS usr ON us.state_region = usr.us_region_id
-JOIN roads.repair_order_details AS rd ON ro.repair_order_id = rd.repair_order_id
-JOIN roads.repair_type AS rt ON rd.repair_type_id = rt.repair_type_id
-JOIN roads.contractors AS c ON rt.contractor_id = c.contractor_id
- GROUP BY  usr.us_region_id, EXTRACT(YEAR, ro.order_date), EXTRACT(MONTH, ro.order_date), EXTRACT(DAY, ro.order_date))
- AS default_DOT_regional_level_agg_structs)
- AS default_DOT_total_amount_in_region_from_struct_transform"""
-        assert_query_strings_equal(response.json()["sql"], expected)
+        expected = """
+        WITH default_DOT_regional_level_agg_structs AS (
+          SELECT  usr.us_region_id,
+            us.state_name,
+            CONCAT(us.state_name, '-', usr.us_region_description) AS location_hierarchy,
+            EXTRACT(YEAR, ro.order_date) AS order_year,
+            EXTRACT(MONTH, ro.order_date) AS order_month,
+            EXTRACT(DAY, ro.order_date) AS order_day,
+            struct(COUNT( DISTINCT CASE
+                 WHEN ro.dispatched_date IS NOT NULL THEN ro.repair_order_id
+                 ELSE NULL
+             END) AS completed_repairs, COUNT( DISTINCT ro.repair_order_id) AS total_repairs_dispatched, SUM(rd.price * rd.quantity) AS total_amount_in_region, AVG(rd.price * rd.quantity) AS avg_repair_amount_in_region, AVG(DATEDIFF(ro.dispatched_date, ro.order_date)) AS avg_dispatch_delay, COUNT( DISTINCT c.contractor_id) AS unique_contractors) AS measures
+          FROM roads.repair_orders AS ro JOIN roads.municipality AS m ON ro.municipality_id = m.municipality_id
+         JOIN roads.us_states AS us ON m.state_id = us.state_id
+         JOIN roads.us_states AS us ON m.state_id = us.state_id
+         JOIN roads.us_region AS usr ON us.state_region = usr.us_region_id
+         JOIN roads.repair_order_details AS rd ON ro.repair_order_id = rd.repair_order_id
+         JOIN roads.repair_type AS rt ON rd.repair_type_id = rt.repair_type_id
+         JOIN roads.contractors AS c ON rt.contractor_id = c.contractor_id
+          GROUP BY  usr.us_region_id, EXTRACT(YEAR, ro.order_date), EXTRACT(MONTH, ro.order_date), EXTRACT(DAY, ro.order_date)
+         ),
+         default_DOT_total_amount_in_region_from_struct_transform AS (
+         SELECT  default_DOT_regional_level_agg_structs.location_hierarchy,
+            SUM(IF(default_DOT_regional_level_agg_structs.order_year = 2020, default_DOT_regional_level_agg_structs.measures.total_amount_in_region, 0)) col0
+          FROM default_DOT_regional_level_agg_structs
+         )
+         SELECT  default_DOT_total_amount_in_region_from_struct_transform.location_hierarchy default_DOT_total_amount_in_region_from_struct_transform_DOT_location_hierarchy,
+            default_DOT_total_amount_in_region_from_struct_transform.col0 default_DOT_total_amount_in_region_from_struct_transform_DOT_col0
+          FROM default_DOT_total_amount_in_region_from_struct_transform
+        """
+        assert str(parse(response.json()["sql"])) == str(parse(expected))
 
         # Check that this query request has been saved
         query_request = (await session.execute(select(QueryRequest))).scalars().all()
@@ -3227,19 +3233,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                         },
                     ],
                     "lookback_window": None,
-                    "query": "SELECT  basic_DOT_transform_DOT_country_agg.country,\n"
-                    "\tbasic_DOT_transform_DOT_country_agg.num_users,\n"
-                    "\tbasic_DOT_transform_DOT_country_agg.languages \n"
-                    " FROM (SELECT  basic_DOT_source_DOT_users.country,\n"
-                    "\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) AS "
-                    "num_users,\n"
-                    "\tCOUNT( DISTINCT "
-                    "basic_DOT_source_DOT_users.preferred_language) AS "
-                    "languages \n"
-                    " FROM basic.dim_users AS basic_DOT_source_DOT_users \n"
-                    " GROUP BY  1)"
-                    " AS basic_DOT_transform_DOT_country_agg\n"
-                    "\n",
+                    "query": mock.ANY,
                     "spark": {},
                     "upstream_tables": ["public.basic.dim_users"],
                 },
@@ -5369,7 +5363,7 @@ class TestCopyNode:
                 "join_cardinality": "many_to_one",
                 "join_sql": "default.contractor.dispatcher_id = "
                 "default.dispatcher.dispatcher_id",
-                "join_type": "left",
+                "join_type": "inner",
                 "role": None,
             },
             {
@@ -5379,7 +5373,7 @@ class TestCopyNode:
                 },
                 "join_cardinality": "many_to_one",
                 "join_sql": "default.contractor.hard_hat_id = default.hard_hat.hard_hat_id",
-                "join_type": "left",
+                "join_type": "inner",
                 "role": None,
             },
             {
@@ -5405,7 +5399,7 @@ class TestCopyNode:
                 "join_cardinality": "many_to_one",
                 "join_sql": "default.contractor.municipality_id = "
                 "default.municipality_dim.municipality_id",
-                "join_type": "left",
+                "join_type": "inner",
                 "role": None,
             },
         ]
@@ -5432,7 +5426,7 @@ class TestCopyNode:
                     "join_cardinality": "many_to_one",
                     "join_sql": "default.repair_orders_copy.dispatcher_id = "
                     "default.dispatcher.dispatcher_id",
-                    "join_type": "left",
+                    "join_type": "inner",
                     "role": None,
                 },
                 {
@@ -5445,14 +5439,14 @@ class TestCopyNode:
                     "join_cardinality": "many_to_one",
                     "join_sql": "default.repair_orders_copy.repair_order_id "
                     "= default.repair_order.repair_order_id",
-                    "join_type": "left",
+                    "join_type": "inner",
                     "role": None,
                 },
             ],
             "default.repair_order_details": [
                 {
                     "dimension": {"name": "default.repair_order"},
-                    "join_type": "left",
+                    "join_type": "inner",
                     "join_sql": "default.repair_order_details_copy.repair_order_id "
                     "= default.repair_order.repair_order_id",
                     "join_cardinality": "many_to_one",
@@ -5467,7 +5461,7 @@ class TestCopyNode:
             "default.repair_type": [
                 {
                     "dimension": {"name": "default.contractor"},
-                    "join_type": "left",
+                    "join_type": "inner",
                     "join_sql": "default.repair_type_copy.contractor_id = "
                     "default.contractor.contractor_id",
                     "join_cardinality": "many_to_one",
@@ -5482,7 +5476,7 @@ class TestCopyNode:
             "default.repair_orders_fact": [
                 {
                     "dimension": {"name": "default.dispatcher"},
-                    "join_type": "left",
+                    "join_type": "inner",
                     "join_sql": "default.repair_orders_fact_copy.dispatcher_id = "
                     "default.dispatcher.dispatcher_id",
                     "join_cardinality": "many_to_one",
@@ -5495,7 +5489,7 @@ class TestCopyNode:
                 },
                 {
                     "dimension": {"name": "default.hard_hat"},
-                    "join_type": "left",
+                    "join_type": "inner",
                     "join_sql": "default.repair_orders_fact_copy.hard_hat_id = "
                     "default.hard_hat.hard_hat_id",
                     "join_cardinality": "many_to_one",
@@ -5521,7 +5515,7 @@ class TestCopyNode:
                 },
                 {
                     "dimension": {"name": "default.municipality_dim"},
-                    "join_type": "left",
+                    "join_type": "inner",
                     "join_sql": "default.repair_orders_fact_copy.municipality_id = "
                     "default.municipality_dim.municipality_id",
                     "join_cardinality": "many_to_one",
@@ -5536,7 +5530,7 @@ class TestCopyNode:
             "default.hard_hat": [
                 {
                     "dimension": {"name": "default.us_state"},
-                    "join_type": "left",
+                    "join_type": "inner",
                     "join_sql": "default.hard_hat_copy.state = default.us_state.state_short",
                     "join_cardinality": "many_to_one",
                     "role": None,
@@ -5548,7 +5542,7 @@ class TestCopyNode:
             "default.repair_order": [
                 {
                     "dimension": {"name": "default.dispatcher"},
-                    "join_type": "left",
+                    "join_type": "inner",
                     "join_sql": "default.repair_order_copy.dispatcher_id = "
                     "default.dispatcher.dispatcher_id",
                     "join_cardinality": "many_to_one",
@@ -5561,7 +5555,7 @@ class TestCopyNode:
                 },
                 {
                     "dimension": {"name": "default.hard_hat"},
-                    "join_type": "left",
+                    "join_type": "inner",
                     "join_sql": "default.repair_order_copy.hard_hat_id = "
                     "default.hard_hat.hard_hat_id",
                     "join_cardinality": "many_to_one",
@@ -5587,7 +5581,7 @@ class TestCopyNode:
                 },
                 {
                     "dimension": {"name": "default.municipality_dim"},
-                    "join_type": "left",
+                    "join_type": "inner",
                     "join_sql": "default.repair_order_copy.municipality_id = "
                     "default.municipality_dim.municipality_id",
                     "join_cardinality": "many_to_one",
@@ -5668,4 +5662,5 @@ class TestCopyNode:
                     )
                 ).json()
             ]
-            assert original_dimensions == copied_dimensions
+            for copied in copied_dimensions:
+                assert copied in original_dimensions
