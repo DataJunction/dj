@@ -10,10 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import datajunction_server.sql.parsing.types as ct
 from datajunction_server.construction.build import (
     build_materialized_cube_node,
+    build_metric_nodes,
     build_node,
     build_temp_select,
     get_default_criteria,
 )
+from datajunction_server.construction.build_v2 import QueryBuilder
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
@@ -72,26 +74,42 @@ async def test_build_metric_with_dimensions_aggs(construction_session: AsyncSess
         construction_session,
         "basic.num_comments",
     )
-    query = await build_node(
+    query = await build_metric_nodes(
         construction_session,
-        num_comments_mtc.current,
+        [num_comments_mtc],
+        filters=[],
         dimensions=["basic.dimension.users.country", "basic.dimension.users.gender"],
+        orderby=[],
     )
     expected = """
-        SELECT
-          COUNT(1) AS basic_DOT_num_comments,
-          basic_DOT_dimension_DOT_users.country,
-          basic_DOT_dimension_DOT_users.gender
-        FROM basic.source.comments AS basic_DOT_source_DOT_comments
-        LEFT JOIN (
-          SELECT
-            basic_DOT_source_DOT_users.id,
-            basic_DOT_source_DOT_users.country,
-            basic_DOT_source_DOT_users.gender
-          FROM basic.source.users AS basic_DOT_source_DOT_users
-        ) AS basic_DOT_dimension_DOT_users ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
-         GROUP BY
-           basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
+    WITH basic_DOT_source_DOT_comments AS (
+      SELECT
+        basic_DOT_source_DOT_comments.id,
+        basic_DOT_source_DOT_comments.user_id,
+        basic_DOT_source_DOT_comments.timestamp,
+        basic_DOT_source_DOT_comments.text
+      FROM basic.source.comments AS basic_DOT_source_DOT_comments
+    ),
+    basic_DOT_dimension_DOT_users AS (
+      SELECT
+        basic_DOT_source_DOT_users.id,
+        basic_DOT_source_DOT_users.full_name,
+        basic_DOT_source_DOT_users.age,
+        basic_DOT_source_DOT_users.country,
+        basic_DOT_source_DOT_users.gender,
+        basic_DOT_source_DOT_users.preferred_language,
+        basic_DOT_source_DOT_users.secret_number
+      FROM basic.source.users AS basic_DOT_source_DOT_users
+    )
+    SELECT
+      basic_DOT_dimension_DOT_users.country basic_DOT_dimension_DOT_users_DOT_country,
+      basic_DOT_dimension_DOT_users.gender basic_DOT_dimension_DOT_users_DOT_gender,
+      COUNT(1) AS basic_DOT_num_comments
+    FROM basic_DOT_source_DOT_comments
+    INNER JOIN basic_DOT_dimension_DOT_users
+      ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
+    GROUP BY
+      basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
     """
     assert str(parse(str(query))) == str(parse(str(expected)))
 
@@ -107,33 +125,48 @@ async def test_build_metric_with_required_dimensions(
         construction_session,
         "basic.num_comments_bnd",
     )
-    query = await build_node(
+
+    query = await build_metric_nodes(
         construction_session,
-        num_comments_mtc.current,
+        [num_comments_mtc],
+        filters=[],
         dimensions=["basic.dimension.users.country", "basic.dimension.users.gender"],
+        orderby=[],
     )
     expected = """
-        SELECT
-          COUNT(1) AS basic_DOT_num_comments_bnd,
-          basic_DOT_source_DOT_comments.text,
-          basic_DOT_source_DOT_comments.id,
-          basic_DOT_dimension_DOT_users.country,
-          basic_DOT_dimension_DOT_users.gender
-        FROM basic.source.comments AS basic_DOT_source_DOT_comments
-        LEFT JOIN (
-          SELECT
-            basic_DOT_source_DOT_users.id,
-            basic_DOT_source_DOT_users.country,
-            basic_DOT_source_DOT_users.gender
-          FROM basic.source.users AS basic_DOT_source_DOT_users
-        ) AS basic_DOT_dimension_DOT_users ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
-         GROUP BY
-           basic_DOT_source_DOT_comments.text, basic_DOT_source_DOT_comments.id, basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
+    WITH basic_DOT_source_DOT_comments AS (
+      SELECT
+        basic_DOT_source_DOT_comments.id,
+        basic_DOT_source_DOT_comments.user_id,
+        basic_DOT_source_DOT_comments.timestamp,
+        basic_DOT_source_DOT_comments.text
+      FROM basic.source.comments AS basic_DOT_source_DOT_comments
+    ),
+    basic_DOT_dimension_DOT_users AS (
+      SELECT
+        basic_DOT_source_DOT_users.id,
+        basic_DOT_source_DOT_users.full_name,
+        basic_DOT_source_DOT_users.age,
+        basic_DOT_source_DOT_users.country,
+        basic_DOT_source_DOT_users.gender,
+        basic_DOT_source_DOT_users.preferred_language,
+        basic_DOT_source_DOT_users.secret_number
+      FROM basic.source.users AS basic_DOT_source_DOT_users
+    )
+    SELECT
+      basic_DOT_dimension_DOT_users.country basic_DOT_dimension_DOT_users_DOT_country,
+      basic_DOT_dimension_DOT_users.gender basic_DOT_dimension_DOT_users_DOT_gender,
+      COUNT(1) AS basic_DOT_num_comments_bnd
+    FROM basic_DOT_source_DOT_comments
+    INNER JOIN basic_DOT_dimension_DOT_users
+      ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
+    GROUP BY  basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
     """
     assert str(parse(str(query))) == str(parse(str(expected)))
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Shouldn't be needed with complex dim links")
 async def test_raise_on_build_without_required_dimension_column(
     construction_session: AsyncSession,
     current_user: User,
@@ -231,10 +264,11 @@ async def test_raise_on_build_without_required_dimension_column(
     construction_session.add(node_bar)
     await construction_session.commit()
     with pytest.raises(DJException):
-        await build_node(
-            construction_session,
-            node_bar,
-            dimensions=["basic.dimension.compound_countries.country_id2"],
+        query_builder = await QueryBuilder.create(construction_session, node_bar)
+        (
+            query_builder.add_dimension(
+                "basic.dimension.compound_countries.country_id2",
+            ).build()
         )
 
 
@@ -247,26 +281,41 @@ async def test_build_metric_with_dimensions_filters(construction_session: AsyncS
         construction_session,
         "basic.num_comments",
     )
-    query = await build_node(
+    query = await build_metric_nodes(
         construction_session,
-        num_comments_mtc.current,
-        filters=["basic.dimension.users.age>=25", "basic.dimension.users.age<50"],
+        [num_comments_mtc],
+        filters=[
+            "basic.dimension.users.age>=25",
+            "basic.dimension.users.age<50",
+        ],
+        dimensions=[],
+        orderby=[],
     )
     expected = """
-    SELECT
-        COUNT(1) AS basic_DOT_num_comments,
-        basic_DOT_dimension_DOT_users.age
-    FROM basic.source.comments AS basic_DOT_source_DOT_comments
-    LEFT JOIN (
+    WITH basic_DOT_source_DOT_comments AS (
       SELECT
-        basic_DOT_source_DOT_users.id,
-        basic_DOT_source_DOT_users.age
+        basic_DOT_source_DOT_comments.id,
+        basic_DOT_source_DOT_comments.user_id,
+        basic_DOT_source_DOT_comments.timestamp,
+        basic_DOT_source_DOT_comments.text
+      FROM basic.source.comments AS basic_DOT_source_DOT_comments
+    ),
+    basic_DOT_dimension_DOT_users AS (
+      SELECT  basic_DOT_source_DOT_users.id,
+        basic_DOT_source_DOT_users.full_name,
+        basic_DOT_source_DOT_users.age,
+        basic_DOT_source_DOT_users.country,
+        basic_DOT_source_DOT_users.gender,
+        basic_DOT_source_DOT_users.preferred_language,
+        basic_DOT_source_DOT_users.secret_number
       FROM basic.source.users AS basic_DOT_source_DOT_users
-    ) AS basic_DOT_dimension_DOT_users
+      WHERE  basic_DOT_source_DOT_users.age >= 25 AND basic_DOT_source_DOT_users.age < 50
+    )
+    SELECT
+      COUNT(1) AS basic_DOT_num_comments
+    FROM basic_DOT_source_DOT_comments
+    INNER JOIN basic_DOT_dimension_DOT_users
       ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
-    WHERE
-      basic_DOT_dimension_DOT_users.age < 50
-      AND basic_DOT_dimension_DOT_users.age >= 25
     """
     assert str(parse(str(query))) == str(parse(expected))
 

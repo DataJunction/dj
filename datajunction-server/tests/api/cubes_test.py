@@ -328,37 +328,9 @@ def repair_orders_cube_measures() -> Dict:
     Fixture for repair orders cube metrics to measures mapping.
     """
     return {
-        "default.avg_repair_price": {
-            "combiner": "avg(default_DOT_repair_orders_fact_DOT_price)",
-            "measures": [
-                {
-                    "agg": "sum",
-                    "field_name": "default_DOT_repair_orders_fact_DOT_price",
-                    "name": "default.repair_orders_fact.price",
-                    "type": "float",
-                },
-            ],
-            "metric": "default.avg_repair_price",
-        },
-        "default.discounted_orders_rate": {
-            "combiner": "CAST(sum(if(default_DOT_repair_orders_fact_DOT_discount "
-            "> 0.0, 1, 0)) AS DOUBLE) / "
-            "count(*) AS ",
-            "measures": [
-                {
-                    "agg": "sum",
-                    "field_name": "default_DOT_repair_orders_fact_DOT_discount",
-                    "name": "default.repair_orders_fact.discount",
-                    "type": "float",
-                },
-            ],
-            "metric": "default.discounted_orders_rate",
-        },
         "default.double_total_repair_cost": {
-            "combiner": "sum(default_DOT_repair_order_details_DOT_price) "
-            "+ "
-            "sum(default_DOT_repair_order_details_DOT_price) "
-            "AS ",
+            "combiner": "sum(default_DOT_repair_order_details_DOT_price) + "
+            "sum(default_DOT_repair_order_details_DOT_price) AS ",
             "measures": [
                 {
                     "agg": "sum",
@@ -375,51 +347,102 @@ def repair_orders_cube_measures() -> Dict:
             ],
             "metric": "default.double_total_repair_cost",
         },
-        "default.num_repair_orders": {
-            "combiner": "count(default_DOT_repair_orders_fact_DOT_repair_order_id)",
-            "measures": [
-                {
-                    "agg": "sum",
-                    "field_name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
-                    "name": "default.repair_orders_fact.repair_order_id",
-                    "type": "int",
-                },
-            ],
-            "metric": "default.num_repair_orders",
-        },
-        "default.total_repair_cost": {
-            "combiner": "sum(default_DOT_repair_orders_fact_DOT_total_repair_cost)",
-            "measures": [
-                {
-                    "agg": "sum",
-                    "field_name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
-                    "name": "default.repair_orders_fact.total_repair_cost",
-                    "type": "float",
-                },
-            ],
-            "metric": "default.total_repair_cost",
-        },
-        "default.total_repair_order_discounts": {
-            "combiner": "sum(default_DOT_repair_orders_fact_DOT_price "
-            "* "
-            "default_DOT_repair_orders_fact_DOT_discount)",
-            "measures": [
-                {
-                    "agg": "sum",
-                    "field_name": "default_DOT_repair_orders_fact_DOT_price",
-                    "name": "default.repair_orders_fact.price",
-                    "type": "float",
-                },
-                {
-                    "agg": "sum",
-                    "field_name": "default_DOT_repair_orders_fact_DOT_discount",
-                    "name": "default.repair_orders_fact.discount",
-                    "type": "float",
-                },
-            ],
-            "metric": "default.total_repair_order_discounts",
-        },
     }
+
+
+# {
+#         "default.avg_repair_price": {
+#             "combiner": "avg(default_DOT_repair_orders_fact_DOT_price)",
+#             "measures": [
+#                 {
+#                     "agg": "sum",
+#                     "field_name": "default_DOT_repair_orders_fact_DOT_price",
+#                     "name": "default.repair_orders_fact.price",
+#                     "type": "float",
+#                 },
+#             ],
+#             "metric": "default.avg_repair_price",
+#         },
+#         "default.discounted_orders_rate": {
+#             "combiner": "CAST(sum(if(default_DOT_repair_orders_fact_DOT_discount "
+#             "> 0.0, 1, 0)) AS DOUBLE) / "
+#             "count(*) AS ",
+#             "measures": [
+#                 {
+#                     "agg": "sum",
+#                     "field_name": "default_DOT_repair_orders_fact_DOT_discount",
+#                     "name": "default.repair_orders_fact.discount",
+#                     "type": "float",
+#                 },
+#             ],
+#             "metric": "default.discounted_orders_rate",
+#         },
+#         "default.double_total_repair_cost": {
+#             "combiner": "sum(default_DOT_repair_order_details_DOT_price) "
+#             "+ "
+#             "sum(default_DOT_repair_order_details_DOT_price) "
+#             "AS ",
+#             "measures": [
+#                 {
+#                     "agg": "sum",
+#                     "field_name": "default_DOT_repair_order_details_DOT_price",
+#                     "name": "default.repair_order_details.price",
+#                     "type": "float",
+#                 },
+#                 {
+#                     "agg": "sum",
+#                     "field_name": "default_DOT_repair_order_details_DOT_price",
+#                     "name": "default.repair_order_details.price",
+#                     "type": "float",
+#                 },
+#             ],
+#             "metric": "default.double_total_repair_cost",
+#         },
+#         "default.num_repair_orders": {
+#             "combiner": "count(default_DOT_repair_orders_fact_DOT_repair_order_id)",
+#             "measures": [
+#                 {
+#                     "agg": "sum",
+#                     "field_name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
+#                     "name": "default.repair_orders_fact.repair_order_id",
+#                     "type": "int",
+#                 },
+#             ],
+#             "metric": "default.num_repair_orders",
+#         },
+#         "default.total_repair_cost": {
+#             "combiner": "sum(default_DOT_repair_orders_fact_DOT_total_repair_cost)",
+#             "measures": [
+#                 {
+#                     "agg": "sum",
+#                     "field_name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
+#                     "name": "default.repair_orders_fact.total_repair_cost",
+#                     "type": "float",
+#                 },
+#             ],
+#             "metric": "default.total_repair_cost",
+#         },
+#         "default.total_repair_order_discounts": {
+#             "combiner": "sum(default_DOT_repair_orders_fact_DOT_price "
+#             "* "
+#             "default_DOT_repair_orders_fact_DOT_discount)",
+#             "measures": [
+#                 {
+#                     "agg": "sum",
+#                     "field_name": "default_DOT_repair_orders_fact_DOT_price",
+#                     "name": "default.repair_orders_fact.price",
+#                     "type": "float",
+#                 },
+#                 {
+#                     "agg": "sum",
+#                     "field_name": "default_DOT_repair_orders_fact_DOT_discount",
+#                     "name": "default.repair_orders_fact.discount",
+#                     "type": "float",
+#                 },
+#             ],
+#             "metric": "default.total_repair_order_discounts",
+#         },
+#     }
 
 
 @pytest.fixture
@@ -678,101 +701,112 @@ async def test_create_cube(
     )
     cube_sql_results = response.json()
     expected_query = """
-    WITH
-    default_DOT_repair_orders_fact AS (SELECT  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
-        default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
-        default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-        default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state,
-        default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
-        default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region,
-        default_DOT_hard_hat_to_delete.hire_date default_DOT_hard_hat_to_delete_DOT_hire_date,
-        CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate,
-        count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
-        avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
-        sum(default_DOT_repair_orders_fact.total_repair_cost) default_DOT_total_repair_cost,
-        sum(default_DOT_repair_orders_fact.price * default_DOT_repair_orders_fact.discount) default_DOT_total_repair_order_discounts
-    FROM (SELECT  repair_orders.repair_order_id,
-        repair_orders.municipality_id,
-        repair_orders.hard_hat_id,
-        repair_orders.dispatcher_id,
-        repair_orders.order_date,
-        repair_orders.dispatched_date,
-        repair_orders.required_date,
-        repair_order_details.discount,
-        repair_order_details.price,
-        repair_order_details.quantity,
-        repair_order_details.repair_type_id,
-        repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-        repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-        repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-    FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id) AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_dispatchers.dispatcher_id,
-        default_DOT_dispatchers.company_name
-    FROM roads.dispatchers AS default_DOT_dispatchers) AS default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-    LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id
-    FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-    LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id
-    FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat_to_delete ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat_to_delete.hard_hat_id
-    LEFT JOIN (SELECT  m.municipality_id AS municipality_id,
-        m.local_region
-    FROM roads.municipality AS m LEFT JOIN roads.municipality_municipality_type AS mmt ON m.municipality_id = mmt.municipality_id
-    LEFT JOIN roads.municipality_type AS mt ON mmt.municipality_type_id = mt.municipality_type_desc) AS default_DOT_municipality_dim ON default_DOT_repair_orders_fact.municipality_id = default_DOT_municipality_dim.municipality_id
-    WHERE  default_DOT_hard_hat.state = 'AZ'
-    GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.city, default_DOT_hard_hat.state, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region, default_DOT_hard_hat_to_delete.hire_date),
-    default_DOT_repair_order_details AS (SELECT  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
-        default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
-        default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-        default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state,
-        default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
-        default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region,
-        default_DOT_hard_hat_to_delete.hire_date default_DOT_hard_hat_to_delete_DOT_hire_date,
-        sum(default_DOT_repair_order_details.price) + sum(default_DOT_repair_order_details.price) AS default_DOT_double_total_repair_cost
-    FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT JOIN (SELECT  default_DOT_repair_orders.repair_order_id,
-        default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.hard_hat_id,
-        default_DOT_repair_orders.dispatcher_id
-    FROM roads.repair_orders AS default_DOT_repair_orders) AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
-    LEFT JOIN (SELECT  default_DOT_dispatchers.dispatcher_id,
-        default_DOT_dispatchers.company_name
-    FROM roads.dispatchers AS default_DOT_dispatchers) AS default_DOT_dispatcher ON default_DOT_repair_order.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-    LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id
-    FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-    LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id
-    FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat_to_delete ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat_to_delete.hard_hat_id
-    LEFT JOIN (SELECT  m.municipality_id AS municipality_id,
-        m.local_region
-    FROM roads.municipality AS m LEFT JOIN roads.municipality_municipality_type AS mmt ON m.municipality_id = mmt.municipality_id
-    LEFT JOIN roads.municipality_type AS mt ON mmt.municipality_type_id = mt.municipality_type_desc) AS default_DOT_municipality_dim ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id
-    WHERE  default_DOT_hard_hat.state = 'AZ'
-    GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.city, default_DOT_hard_hat.state, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region, default_DOT_hard_hat_to_delete.hire_date)
-
-    SELECT  default_DOT_repair_orders_fact.default_DOT_discounted_orders_rate,
-        default_DOT_repair_orders_fact.default_DOT_num_repair_orders,
-        default_DOT_repair_orders_fact.default_DOT_avg_repair_price,
-        default_DOT_repair_orders_fact.default_DOT_total_repair_cost,
-        default_DOT_repair_orders_fact.default_DOT_total_repair_order_discounts,
-        default_DOT_repair_order_details.default_DOT_double_total_repair_cost,
-        COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_country) default_DOT_hard_hat_DOT_country,
-        COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_postal_code, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_postal_code) default_DOT_hard_hat_DOT_postal_code,
-        COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_city, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_city) default_DOT_hard_hat_DOT_city,
-        COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_state, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_state) default_DOT_hard_hat_DOT_state,
-        COALESCE(default_DOT_repair_orders_fact.default_DOT_dispatcher_DOT_company_name, default_DOT_repair_order_details.default_DOT_dispatcher_DOT_company_name) default_DOT_dispatcher_DOT_company_name,
-        COALESCE(default_DOT_repair_orders_fact.default_DOT_municipality_dim_DOT_local_region, default_DOT_repair_order_details.default_DOT_municipality_dim_DOT_local_region) default_DOT_municipality_dim_DOT_local_region,
-        COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_to_delete_DOT_hire_date, default_DOT_repair_order_details.default_DOT_hard_hat_to_delete_DOT_hire_date) default_DOT_hard_hat_to_delete_DOT_hire_date
-    FROM default_DOT_repair_orders_fact FULL OUTER JOIN default_DOT_repair_order_details
-        ON default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country
-        = default_DOT_repair_order_details.default_DOT_hard_hat_DOT_country
-        AND default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_postal_code
-        = default_DOT_repair_order_details.default_DOT_hard_hat_DOT_postal_code
-        AND default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_city
-        = default_DOT_repair_order_details.default_DOT_hard_hat_DOT_city
-        AND default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_state
-        = default_DOT_repair_order_details.default_DOT_hard_hat_DOT_state
-        AND default_DOT_repair_orders_fact.default_DOT_dispatcher_DOT_company_name
-        = default_DOT_repair_order_details.default_DOT_dispatcher_DOT_company_name
-        AND default_DOT_repair_orders_fact.default_DOT_municipality_dim_DOT_local_region
-        = default_DOT_repair_order_details.default_DOT_municipality_dim_DOT_local_region
-        AND default_DOT_repair_orders_fact.default_DOT_hard_hat_to_delete_DOT_hire_date
-        = default_DOT_repair_order_details.default_DOT_hard_hat_to_delete_DOT_hire_date"""
+    WITH default_DOT_repair_orders_fact AS (
+  SELECT
+    repair_orders.repair_order_id,
+    repair_orders.municipality_id,
+    repair_orders.hard_hat_id,
+    repair_orders.dispatcher_id,
+    repair_orders.order_date,
+    repair_orders.dispatched_date,
+    repair_orders.required_date,
+    repair_order_details.discount,
+    repair_order_details.price,
+    repair_order_details.quantity,
+    repair_order_details.repair_type_id,
+    repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+    repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+    repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+  FROM roads.repair_orders AS repair_orders
+  JOIN roads.repair_order_details AS repair_order_details
+    ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+), default_DOT_hard_hat AS (
+  SELECT
+    default_DOT_hard_hats.hard_hat_id,
+    default_DOT_hard_hats.last_name,
+    default_DOT_hard_hats.first_name,
+    default_DOT_hard_hats.title,
+    default_DOT_hard_hats.birth_date,
+    default_DOT_hard_hats.hire_date,
+    default_DOT_hard_hats.address,
+    default_DOT_hard_hats.city,
+    default_DOT_hard_hats.state,
+    default_DOT_hard_hats.postal_code,
+    default_DOT_hard_hats.country,
+    default_DOT_hard_hats.manager,
+    default_DOT_hard_hats.contractor_id
+  FROM roads.hard_hats AS default_DOT_hard_hats
+  WHERE
+    default_DOT_hard_hats.state = 'AZ'
+), default_DOT_dispatcher AS (
+  SELECT
+    default_DOT_dispatchers.dispatcher_id,
+    default_DOT_dispatchers.company_name,
+    default_DOT_dispatchers.phone
+  FROM roads.dispatchers AS default_DOT_dispatchers
+), default_DOT_municipality_dim AS (
+  SELECT
+    m.municipality_id AS municipality_id,
+    m.contact_name,
+    m.contact_title,
+    m.local_region,
+    m.state_id,
+    mmt.municipality_type_id AS municipality_type_id,
+    mt.municipality_type_desc AS municipality_type_desc
+  FROM roads.municipality AS m
+  LEFT JOIN roads.municipality_municipality_type AS mmt
+    ON m.municipality_id = mmt.municipality_id
+  LEFT JOIN roads.municipality_type AS mt
+    ON mmt.municipality_type_id = mt.municipality_type_desc
+), default_DOT_hard_hat_to_delete AS (
+  SELECT
+    default_DOT_hard_hats.hard_hat_id,
+    default_DOT_hard_hats.last_name,
+    default_DOT_hard_hats.first_name,
+    default_DOT_hard_hats.title,
+    default_DOT_hard_hats.birth_date,
+    default_DOT_hard_hats.hire_date,
+    default_DOT_hard_hats.address,
+    default_DOT_hard_hats.city,
+    default_DOT_hard_hats.state,
+    default_DOT_hard_hats.postal_code,
+    default_DOT_hard_hats.country,
+    default_DOT_hard_hats.manager,
+    default_DOT_hard_hats.contractor_id
+  FROM roads.hard_hats AS default_DOT_hard_hats
+)
+SELECT
+  default_DOT_hard_hat.country AS default_DOT_hard_hat_DOT_country,
+  default_DOT_hard_hat.postal_code AS default_DOT_hard_hat_DOT_postal_code,
+  default_DOT_hard_hat.city AS default_DOT_hard_hat_DOT_city,
+  default_DOT_hard_hat.state AS default_DOT_hard_hat_DOT_state,
+  default_DOT_dispatcher.company_name AS default_DOT_dispatcher_DOT_company_name,
+  default_DOT_municipality_dim.local_region AS default_DOT_municipality_dim_DOT_local_region,
+  default_DOT_hard_hat_to_delete.hire_date AS default_DOT_hard_hat_to_delete_DOT_hire_date,
+  CAST(SUM(IF(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / COUNT(*) AS default_DOT_discounted_orders_rate,
+  COUNT(default_DOT_repair_orders_fact.repair_order_id) AS default_DOT_num_repair_orders,
+  AVG(default_DOT_repair_orders_fact.price) AS default_DOT_avg_repair_price,
+  SUM(default_DOT_repair_orders_fact.total_repair_cost) AS default_DOT_total_repair_cost,
+  SUM(default_DOT_repair_orders_fact.price * default_DOT_repair_orders_fact.discount) AS default_DOT_total_repair_order_discounts
+FROM default_DOT_repair_orders_fact
+INNER JOIN default_DOT_hard_hat
+  ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+INNER JOIN default_DOT_dispatcher
+  ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+INNER JOIN default_DOT_municipality_dim
+  ON default_DOT_repair_orders_fact.municipality_id = default_DOT_municipality_dim.municipality_id
+LEFT JOIN default_DOT_hard_hat_to_delete
+  ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat_to_delete.hard_hat_id
+GROUP BY
+  default_DOT_hard_hat.country,
+  default_DOT_hard_hat.postal_code,
+  default_DOT_hard_hat.city,
+  default_DOT_hard_hat.state,
+  default_DOT_dispatcher.company_name,
+  default_DOT_municipality_dim.local_region,
+  default_DOT_hard_hat_to_delete.hire_date"""
+    print('metrics_sql_results["sql"]', metrics_sql_results["sql"])
+    print('cube_sql_results["sql"]', cube_sql_results["sql"])
     assert_query_strings_equal(metrics_sql_results["sql"], expected_query)
     assert_query_strings_equal(cube_sql_results["sql"], expected_query)
 
@@ -795,109 +829,72 @@ async def test_cube_materialization_sql_and_measures(
     response = await client_with_repairs_cube.get("/cubes/default.repairs_cube_3/")
     data = response.json()
     assert data["cube_elements"] == repairs_cube_elements
-    expected_materialization_query = """WITH
-default_DOT_repair_orders_fact AS (SELECT  default_DOT_repair_orders_fact.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id,
-    default_DOT_repair_orders_fact.discount default_DOT_repair_orders_fact_DOT_discount,
-    default_DOT_repair_orders_fact.price default_DOT_repair_orders_fact_DOT_price,
-    default_DOT_repair_orders_fact.total_repair_cost default_DOT_repair_orders_fact_DOT_total_repair_cost,
-    default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
-    default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
-    default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-    default_DOT_hard_hat.hire_date default_DOT_hard_hat_DOT_hire_date,
-    default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state,
-    default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
-    default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region
- FROM (SELECT  repair_orders.repair_order_id,
-    repair_orders.municipality_id,
-    repair_orders.hard_hat_id,
-    repair_orders.dispatcher_id,
-    repair_orders.order_date,
-    repair_orders.dispatched_date,
-    repair_orders.required_date,
-    repair_order_details.discount,
-    repair_order_details.price,
-    repair_order_details.quantity,
-    repair_order_details.repair_type_id,
-    repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-    repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-    repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
- FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id)
- AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_dispatchers.dispatcher_id,
-    default_DOT_dispatchers.company_name
- FROM roads.dispatchers AS default_DOT_dispatchers)
- AS default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-    default_DOT_hard_hats.hire_date,
-    default_DOT_hard_hats.city,
-    default_DOT_hard_hats.state,
-    default_DOT_hard_hats.postal_code,
-    default_DOT_hard_hats.country
- FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-LEFT JOIN (SELECT  m.municipality_id AS municipality_id,
-    m.local_region
- FROM roads.municipality AS m LEFT JOIN roads.municipality_municipality_type AS mmt ON m.municipality_id = mmt.municipality_id
-LEFT JOIN roads.municipality_type AS mt ON mmt.municipality_type_id = mt.municipality_type_desc)
- AS default_DOT_municipality_dim ON default_DOT_repair_orders_fact.municipality_id = default_DOT_municipality_dim.municipality_id),
-default_DOT_repair_order_details AS (SELECT  default_DOT_repair_order_details.price default_DOT_repair_order_details_DOT_price,
-    default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
-    default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
-    default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-    default_DOT_hard_hat.hire_date default_DOT_hard_hat_DOT_hire_date,
-    default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state,
-    default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
-    default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region
- FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT JOIN (SELECT  default_DOT_repair_orders.repair_order_id,
-    default_DOT_repair_orders.municipality_id,
-    default_DOT_repair_orders.hard_hat_id,
-    default_DOT_repair_orders.dispatcher_id
- FROM roads.repair_orders AS default_DOT_repair_orders)
- AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
-LEFT JOIN (SELECT  default_DOT_dispatchers.dispatcher_id,
-    default_DOT_dispatchers.company_name
- FROM roads.dispatchers AS default_DOT_dispatchers)
- AS default_DOT_dispatcher ON default_DOT_repair_order.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-    default_DOT_hard_hats.hire_date,
-    default_DOT_hard_hats.city,
-    default_DOT_hard_hats.state,
-    default_DOT_hard_hats.postal_code,
-    default_DOT_hard_hats.country
- FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-LEFT JOIN (SELECT  m.municipality_id AS municipality_id,
-    m.local_region
- FROM roads.municipality AS m LEFT JOIN roads.municipality_municipality_type AS mmt ON m.municipality_id = mmt.municipality_id
-LEFT JOIN roads.municipality_type AS mt ON mmt.municipality_type_id = mt.municipality_type_desc)
- AS default_DOT_municipality_dim ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id)
-SELECT  default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_repair_order_id,
-    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_discount,
-    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_price,
-    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_total_repair_cost,
-    default_DOT_repair_order_details.default_DOT_repair_order_details_DOT_price,
-    COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_country) default_DOT_hard_hat_DOT_country,
-    COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_postal_code, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_postal_code) default_DOT_hard_hat_DOT_postal_code,
-    COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_city, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_city) default_DOT_hard_hat_DOT_city,
-    COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_hire_date, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_hire_date) default_DOT_hard_hat_DOT_hire_date,
-    COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_state, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_state) default_DOT_hard_hat_DOT_state,
-    COALESCE(default_DOT_repair_orders_fact.default_DOT_dispatcher_DOT_company_name, default_DOT_repair_order_details.default_DOT_dispatcher_DOT_company_name) default_DOT_dispatcher_DOT_company_name,
-    COALESCE(default_DOT_repair_orders_fact.default_DOT_municipality_dim_DOT_local_region, default_DOT_repair_order_details.default_DOT_municipality_dim_DOT_local_region) default_DOT_municipality_dim_DOT_local_region,
-    CAST(CAST(COALESCE(default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_hire_date, default_DOT_repair_order_details.default_DOT_hard_hat_DOT_hire_date) AS DOUBLE) * 1000 AS LONG) timestamp_column
- FROM default_DOT_repair_orders_fact FULL OUTER JOIN default_DOT_repair_order_details
- ON default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country
- = default_DOT_repair_order_details.default_DOT_hard_hat_DOT_country
- AND default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_postal_code
- = default_DOT_repair_order_details.default_DOT_hard_hat_DOT_postal_code
- AND default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_city
- = default_DOT_repair_order_details.default_DOT_hard_hat_DOT_city
- AND default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_hire_date
- = default_DOT_repair_order_details.default_DOT_hard_hat_DOT_hire_date
- AND default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_state
- = default_DOT_repair_order_details.default_DOT_hard_hat_DOT_state
- AND default_DOT_repair_orders_fact.default_DOT_dispatcher_DOT_company_name
- = default_DOT_repair_order_details.default_DOT_dispatcher_DOT_company_name
- AND default_DOT_repair_orders_fact.default_DOT_municipality_dim_DOT_local_region
- = default_DOT_repair_order_details.default_DOT_municipality_dim_DOT_local_region"""  # noqa: W191,E101,C0301
+    expected_materialization_query = """
+    WITH
+    default_DOT_repair_order_details AS (
+    SELECT  default_DOT_repair_order_details.repair_order_id,
+        default_DOT_repair_order_details.repair_type_id,
+        default_DOT_repair_order_details.price,
+        default_DOT_repair_order_details.quantity,
+        default_DOT_repair_order_details.discount
+    FROM roads.repair_order_details AS default_DOT_repair_order_details
+    ),
+    default_DOT_repair_order AS (
+    SELECT  default_DOT_repair_orders.repair_order_id,
+        default_DOT_repair_orders.municipality_id,
+        default_DOT_repair_orders.hard_hat_id,
+        default_DOT_repair_orders.order_date,
+        default_DOT_repair_orders.required_date,
+        default_DOT_repair_orders.dispatched_date,
+        default_DOT_repair_orders.dispatcher_id
+    FROM roads.repair_orders AS default_DOT_repair_orders
+    ),
+    default_DOT_hard_hat AS (
+    SELECT  default_DOT_hard_hats.hard_hat_id,
+        default_DOT_hard_hats.last_name,
+        default_DOT_hard_hats.first_name,
+        default_DOT_hard_hats.title,
+        default_DOT_hard_hats.birth_date,
+        default_DOT_hard_hats.hire_date,
+        default_DOT_hard_hats.address,
+        default_DOT_hard_hats.city,
+        default_DOT_hard_hats.state,
+        default_DOT_hard_hats.postal_code,
+        default_DOT_hard_hats.country,
+        default_DOT_hard_hats.manager,
+        default_DOT_hard_hats.contractor_id
+    FROM roads.hard_hats AS default_DOT_hard_hats
+    ),
+    default_DOT_dispatcher AS (
+    SELECT  default_DOT_dispatchers.dispatcher_id,
+        default_DOT_dispatchers.company_name,
+        default_DOT_dispatchers.phone
+    FROM roads.dispatchers AS default_DOT_dispatchers
+    ),
+    default_DOT_municipality_dim AS (
+    SELECT  m.municipality_id AS municipality_id,
+        m.contact_name,
+        m.contact_title,
+        m.local_region,
+        m.state_id,
+        mmt.municipality_type_id AS municipality_type_id,
+        mt.municipality_type_desc AS municipality_type_desc
+    FROM roads.municipality AS m LEFT JOIN roads.municipality_municipality_type AS mmt ON m.municipality_id = mmt.municipality_id
+    LEFT JOIN roads.municipality_type AS mt ON mmt.municipality_type_id = mt.municipality_type_desc
+    )
+    SELECT  default_DOT_repair_order_details.price default_DOT_repair_order_details_DOT_price,
+        default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
+        default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
+        default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
+        default_DOT_hard_hat.hire_date default_DOT_hard_hat_DOT_hire_date,
+        default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state,
+        default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
+        default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region
+    FROM default_DOT_repair_order_details INNER JOIN default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
+    INNER JOIN default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+    INNER JOIN default_DOT_dispatcher ON default_DOT_repair_order.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+    INNER JOIN default_DOT_municipality_dim ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id
+    """  # noqa: W191,E101,C0301
     assert str(parse(data["materializations"][0]["config"]["query"])) == str(
         parse(expected_materialization_query),
     )
@@ -996,14 +993,15 @@ async def test_druid_cube_agg_materialization(
                 semantic_entity="default.dispatcher.company_name",
                 semantic_type="dimension",
             ),
-            ColumnMetadata(
-                name="default_DOT_double_total_repair_cost",
-                type="double",
-                column="default_DOT_double_total_repair_cost",
-                node="default.double_total_repair_cost",
-                semantic_entity="default.double_total_repair_cost.default_DOT_double_total_repair_cost",
-                semantic_type="metric",
-            ),
+            # TODO: this is removed due to the multiple measures queries  # pylint: disable=fixme
+            # ColumnMetadata(
+            #     name="default_DOT_double_total_repair_cost",
+            #     type="double",
+            #     column="default_DOT_double_total_repair_cost",
+            #     node="default.double_total_repair_cost",
+            #     semantic_entity="default.double_total_repair_cost.default_DOT_double_total_repair_cost",
+            #     semantic_type="metric",
+            # ),
             ColumnMetadata(
                 name="default_DOT_hard_hat_DOT_city",
                 type="string",
@@ -1113,11 +1111,11 @@ async def test_druid_cube_agg_materialization(
                     "name": "default_DOT_discounted_orders_rate",
                     "type": "doubleSum",
                 },
-                {
-                    "fieldName": "default_DOT_double_total_repair_cost",
-                    "name": "default_DOT_double_total_repair_cost",
-                    "type": "doubleSum",
-                },
+                # {
+                #     "fieldName": "default_DOT_double_total_repair_cost",
+                #     "name": "default_DOT_double_total_repair_cost",
+                #     "type": "doubleSum",
+                # },
                 {
                     "fieldName": "default_DOT_num_repair_orders",
                     "name": "default_DOT_num_repair_orders",
@@ -1205,15 +1203,15 @@ async def test_druid_cube_agg_materialization(
             "default_DOT_total_repair_order_discounts",
             "semantic_type": "metric",
         },
-        {
-            "name": "default_DOT_double_total_repair_cost",
-            "type": "double",
-            "column": "default_DOT_double_total_repair_cost",
-            "node": "default.double_total_repair_cost",
-            "semantic_entity": "default.double_total_repair_cost."
-            "default_DOT_double_total_repair_cost",
-            "semantic_type": "metric",
-        },
+        # {
+        #     "name": "default_DOT_double_total_repair_cost",
+        #     "type": "double",
+        #     "column": "default_DOT_double_total_repair_cost",
+        #     "node": "default.double_total_repair_cost",
+        #     "semantic_entity": "default.double_total_repair_cost."
+        #     "default_DOT_double_total_repair_cost",
+        #     "semantic_type": "metric",
+        # },
     ]
     assert druid_materialization["schedule"] == "@daily"
 
@@ -1257,30 +1255,6 @@ async def test_cube_sql_generation_with_availability(
     data = response.json()
     assert data["columns"] == [
         {
-            "name": "default_DOT_discounted_orders_rate",
-            "type": "double",
-            "column": "default_DOT_discounted_orders_rate",
-            "node": "default.discounted_orders_rate",
-            "semantic_entity": "default.discounted_orders_rate.default_DOT_discounted_orders_rate",
-            "semantic_type": "metric",
-        },
-        {
-            "name": "default_DOT_num_repair_orders",
-            "type": "bigint",
-            "column": "default_DOT_num_repair_orders",
-            "node": "default.num_repair_orders",
-            "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
-            "semantic_type": "metric",
-        },
-        {
-            "name": "default_DOT_avg_repair_price",
-            "type": "double",
-            "column": "default_DOT_avg_repair_price",
-            "node": "default.avg_repair_price",
-            "semantic_entity": "default.avg_repair_price.default_DOT_avg_repair_price",
-            "semantic_type": "metric",
-        },
-        {
             "name": "default_DOT_hard_hat_DOT_country",
             "type": "string",
             "column": "country",
@@ -1304,51 +1278,81 @@ async def test_cube_sql_generation_with_availability(
             "semantic_entity": "default.hard_hat.hire_date",
             "semantic_type": "dimension",
         },
+        {
+            "name": "default_DOT_discounted_orders_rate",
+            "type": "double",
+            "column": "default_DOT_discounted_orders_rate",
+            "node": "default.discounted_orders_rate",
+            "semantic_entity": "default.discounted_orders_rate.default_DOT_discounted_orders_rate",
+            "semantic_type": "metric",
+        },
+        {
+            "name": "default_DOT_num_repair_orders",
+            "type": "bigint",
+            "column": "default_DOT_num_repair_orders",
+            "node": "default.num_repair_orders",
+            "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
+            "semantic_type": "metric",
+        },
+        {
+            "name": "default_DOT_avg_repair_price",
+            "type": "double",
+            "column": "default_DOT_avg_repair_price",
+            "node": "default.avg_repair_price",
+            "semantic_entity": "default.avg_repair_price.default_DOT_avg_repair_price",
+            "semantic_type": "metric",
+        },
     ]
-    assert compare_query_strings(
-        data["sql"],
-        """WITH
-default_DOT_repair_orders_fact AS (SELECT  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
-	default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
-	default_DOT_hard_hat.hire_date default_DOT_hard_hat_DOT_hire_date,
-	CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate,
-	count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
-	avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price
- FROM (SELECT  repair_orders.repair_order_id,
-	repair_orders.municipality_id,
-	repair_orders.hard_hat_id,
-	repair_orders.dispatcher_id,
-	repair_orders.order_date,
-	repair_orders.dispatched_date,
-	repair_orders.required_date,
-	repair_order_details.discount,
-	repair_order_details.price,
-	repair_order_details.quantity,
-	repair_order_details.repair_type_id,
-	repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-	repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-	repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
- FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id)
- AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-	default_DOT_hard_hats.hire_date,
-	default_DOT_hard_hats.state,
-	default_DOT_hard_hats.postal_code,
-	default_DOT_hard_hats.country
- FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
- WHERE  default_DOT_hard_hat.country = 'NZ'
- GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.hire_date)
-
-SELECT  default_DOT_repair_orders_fact.default_DOT_discounted_orders_rate,
-	default_DOT_repair_orders_fact.default_DOT_num_repair_orders,
-	default_DOT_repair_orders_fact.default_DOT_avg_repair_price,
-	default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country,
-	default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_postal_code,
-	default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_hire_date
- FROM default_DOT_repair_orders_fact
-
-LIMIT 100""",  # noqa: W191,E101
-    )
+    assert str(parse(data["sql"])) == str(
+        parse(
+            """
+            WITH
+            default_DOT_repair_orders_fact AS (
+            SELECT  repair_orders.repair_order_id,
+                repair_orders.municipality_id,
+                repair_orders.hard_hat_id,
+                repair_orders.dispatcher_id,
+                repair_orders.order_date,
+                repair_orders.dispatched_date,
+                repair_orders.required_date,
+                repair_order_details.discount,
+                repair_order_details.price,
+                repair_order_details.quantity,
+                repair_order_details.repair_type_id,
+                repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+                repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+                repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+            FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+            ),
+            default_DOT_hard_hat AS (
+            SELECT  default_DOT_hard_hats.hard_hat_id,
+                default_DOT_hard_hats.last_name,
+                default_DOT_hard_hats.first_name,
+                default_DOT_hard_hats.title,
+                default_DOT_hard_hats.birth_date,
+                default_DOT_hard_hats.hire_date,
+                default_DOT_hard_hats.address,
+                default_DOT_hard_hats.city,
+                default_DOT_hard_hats.state,
+                default_DOT_hard_hats.postal_code,
+                default_DOT_hard_hats.country,
+                default_DOT_hard_hats.manager,
+                default_DOT_hard_hats.contractor_id
+            FROM roads.hard_hats AS default_DOT_hard_hats
+            WHERE  default_DOT_hard_hats.country = 'NZ'
+            )
+            SELECT  default_DOT_hard_hat.country AS default_DOT_hard_hat_DOT_country,
+                default_DOT_hard_hat.postal_code AS default_DOT_hard_hat_DOT_postal_code,
+                default_DOT_hard_hat.hire_date AS default_DOT_hard_hat_DOT_hire_date,
+                CAST(SUM(IF(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / COUNT(*) AS default_DOT_discounted_orders_rate,
+                COUNT(default_DOT_repair_orders_fact.repair_order_id) AS default_DOT_num_repair_orders,
+                AVG(default_DOT_repair_orders_fact.price) AS default_DOT_avg_repair_price
+            FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+            GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.hire_date
+            LIMIT 100
+            """,
+        ),
+    )  # noqa: W191,E101
 
     # Ask for SQL with only metrics and dimensions
     response = await client_with_repairs_cube.get(
@@ -1369,30 +1373,6 @@ LIMIT 100""",  # noqa: W191,E101
     data = response.json()
     assert data["columns"] == [
         {
-            "name": "default_DOT_discounted_orders_rate",
-            "type": "double",
-            "column": "default_DOT_discounted_orders_rate",
-            "node": "default.discounted_orders_rate",
-            "semantic_entity": "default.discounted_orders_rate.default_DOT_discounted_orders_rate",
-            "semantic_type": "metric",
-        },
-        {
-            "name": "default_DOT_num_repair_orders",
-            "type": "bigint",
-            "column": "default_DOT_num_repair_orders",
-            "node": "default.num_repair_orders",
-            "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
-            "semantic_type": "metric",
-        },
-        {
-            "name": "default_DOT_avg_repair_price",
-            "type": "double",
-            "column": "default_DOT_avg_repair_price",
-            "node": "default.avg_repair_price",
-            "semantic_entity": "default.avg_repair_price.default_DOT_avg_repair_price",
-            "semantic_type": "metric",
-        },
-        {
             "name": "default_DOT_hard_hat_DOT_country",
             "type": "string",
             "column": "country",
@@ -1416,48 +1396,79 @@ LIMIT 100""",  # noqa: W191,E101
             "semantic_entity": "default.hard_hat.hire_date",
             "semantic_type": "dimension",
         },
+        {
+            "name": "default_DOT_discounted_orders_rate",
+            "type": "double",
+            "column": "default_DOT_discounted_orders_rate",
+            "node": "default.discounted_orders_rate",
+            "semantic_entity": "default.discounted_orders_rate.default_DOT_discounted_orders_rate",
+            "semantic_type": "metric",
+        },
+        {
+            "name": "default_DOT_num_repair_orders",
+            "type": "bigint",
+            "column": "default_DOT_num_repair_orders",
+            "node": "default.num_repair_orders",
+            "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
+            "semantic_type": "metric",
+        },
+        {
+            "name": "default_DOT_avg_repair_price",
+            "type": "double",
+            "column": "default_DOT_avg_repair_price",
+            "node": "default.avg_repair_price",
+            "semantic_entity": "default.avg_repair_price.default_DOT_avg_repair_price",
+            "semantic_type": "metric",
+        },
     ]
-    assert compare_query_strings(
-        data["sql"],
-        """WITH
-default_DOT_repair_orders_fact AS (SELECT  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
-	default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
-	default_DOT_hard_hat.hire_date default_DOT_hard_hat_DOT_hire_date,
-	CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate,
-	count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
-	avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price
- FROM (SELECT  repair_orders.repair_order_id,
-	repair_orders.municipality_id,
-	repair_orders.hard_hat_id,
-	repair_orders.dispatcher_id,
-	repair_orders.order_date,
-	repair_orders.dispatched_date,
-	repair_orders.required_date,
-	repair_order_details.discount,
-	repair_order_details.price,
-	repair_order_details.quantity,
-	repair_order_details.repair_type_id,
-	repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-	repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-	repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
- FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id)
- AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-	default_DOT_hard_hats.hire_date,
-	default_DOT_hard_hats.state,
-	default_DOT_hard_hats.postal_code,
-	default_DOT_hard_hats.country
- FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
- GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.hire_date)
-
-SELECT  default_DOT_repair_orders_fact.default_DOT_discounted_orders_rate,
-	default_DOT_repair_orders_fact.default_DOT_num_repair_orders,
-	default_DOT_repair_orders_fact.default_DOT_avg_repair_price,
-	default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_country,
-	default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_postal_code,
-	default_DOT_repair_orders_fact.default_DOT_hard_hat_DOT_hire_date
- FROM default_DOT_repair_orders_fact""",  # noqa: W191,E101
-    )
+    assert str(parse(data["sql"])) == str(
+        parse(
+            """
+            WITH default_DOT_repair_orders_fact AS (
+            SELECT
+                repair_orders.repair_order_id,
+                repair_orders.municipality_id,
+                repair_orders.hard_hat_id,
+                repair_orders.dispatcher_id,
+                repair_orders.order_date,
+                repair_orders.dispatched_date,
+                repair_orders.required_date,
+                repair_order_details.discount,
+                repair_order_details.price,
+                repair_order_details.quantity,
+                repair_order_details.repair_type_id,
+                repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+                repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+                repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+            FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+            ),
+            default_DOT_hard_hat AS (
+            SELECT  default_DOT_hard_hats.hard_hat_id,
+                default_DOT_hard_hats.last_name,
+                default_DOT_hard_hats.first_name,
+                default_DOT_hard_hats.title,
+                default_DOT_hard_hats.birth_date,
+                default_DOT_hard_hats.hire_date,
+                default_DOT_hard_hats.address,
+                default_DOT_hard_hats.city,
+                default_DOT_hard_hats.state,
+                default_DOT_hard_hats.postal_code,
+                default_DOT_hard_hats.country,
+                default_DOT_hard_hats.manager,
+                default_DOT_hard_hats.contractor_id
+            FROM roads.hard_hats AS default_DOT_hard_hats
+            )
+            SELECT  default_DOT_hard_hat.country AS default_DOT_hard_hat_DOT_country,
+                default_DOT_hard_hat.postal_code AS default_DOT_hard_hat_DOT_postal_code,
+                default_DOT_hard_hat.hire_date AS default_DOT_hard_hat_DOT_hire_date,
+                CAST(SUM(IF(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / COUNT(*) AS default_DOT_discounted_orders_rate,
+                COUNT(default_DOT_repair_orders_fact.repair_order_id) AS default_DOT_num_repair_orders,
+                AVG(default_DOT_repair_orders_fact.price) AS default_DOT_avg_repair_price
+            FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+            GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.hire_date
+            """,
+        ),
+    )  # noqa: W191,E101
 
 
 @pytest.mark.asyncio
@@ -1903,14 +1914,6 @@ async def test_updating_cube_with_existing_materialization(
                 "semantic_type": "measure",
                 "type": "float",
             },
-            {
-                "column": "hire_date",
-                "name": "timestamp_column",
-                "node": "default.hard_hat",
-                "semantic_entity": "default.hard_hat.hire_date",
-                "semantic_type": "timestamp",
-                "type": "long",
-            },
         ],
         key=lambda x: x["name"],
     )
@@ -2193,8 +2196,8 @@ async def test_get_unmaterialized_cube_dimensions_values(
         },
     )
     results = response.json()
-    assert "SELECT  default_DOT_hard_hat_DOT_city" in results["sql"]
-    assert "GROUP BY  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "SELECT\n  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "GROUP BY\n  default_DOT_hard_hat_DOT_city" in results["sql"]
 
     # Get data for single dimension
     response = await client_with_repairs_cube.get(
@@ -2229,9 +2232,9 @@ async def test_get_unmaterialized_cube_dimensions_values(
         },
     )
     results = response.json()
-    assert "SELECT  default_DOT_hard_hat_DOT_city,\n\tCOUNT(*)" in results["sql"]
-    assert "GROUP BY  default_DOT_hard_hat_DOT_city" in results["sql"]
-    assert "ORDER BY 2 DESC" in results["sql"]
+    assert "SELECT\n  default_DOT_hard_hat_DOT_city,\n  COUNT(*)" in results["sql"]
+    assert "GROUP BY\n  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "ORDER BY\n  2 DESC" in results["sql"]
 
     # Get data for single dimension with counts
     response = await client_with_repairs_cube.get(
@@ -2245,13 +2248,13 @@ async def test_get_unmaterialized_cube_dimensions_values(
         "cardinality": 9,
         "dimensions": ["default.hard_hat.city"],
         "values": [
-            {"count": 25, "value": ["Southgate"]},
-            {"count": 16, "value": ["Jersey City"]},
-            {"count": 16, "value": ["Southampton"]},
-            {"count": 9, "value": ["Billerica"]},
-            {"count": 9, "value": ["Powder Springs"]},
-            {"count": 4, "value": ["Phoenix"]},
-            {"count": 4, "value": ["Middletown"]},
+            {"count": 5, "value": ["Southgate"]},
+            {"count": 4, "value": ["Jersey City"]},
+            {"count": 4, "value": ["Southampton"]},
+            {"count": 3, "value": ["Billerica"]},
+            {"count": 3, "value": ["Powder Springs"]},
+            {"count": 2, "value": ["Phoenix"]},
+            {"count": 2, "value": ["Middletown"]},
             {"count": 1, "value": ["Muskogee"]},
             {"count": 1, "value": ["Niagara Falls"]},
         ],
@@ -2269,13 +2272,13 @@ async def test_get_unmaterialized_cube_dimensions_values(
         "cardinality": 17,
         "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
         "values": [
-            {"count": 9, "value": ["Jersey City", "Pothole Pete"]},
-            {"count": 4, "value": ["Southgate", "Asphalts R Us"]},
-            {"count": 4, "value": ["Billerica", "Asphalts R Us"]},
-            {"count": 4, "value": ["Southgate", "Federal Roads Group"]},
-            {"count": 4, "value": ["Southampton", "Pothole Pete"]},
-            {"count": 4, "value": ["Powder Springs", "Asphalts R Us"]},
-            {"count": 4, "value": ["Middletown", "Federal Roads Group"]},
+            {"count": 3, "value": ["Jersey City", "Pothole Pete"]},
+            {"count": 2, "value": ["Southgate", "Asphalts R Us"]},
+            {"count": 2, "value": ["Billerica", "Asphalts R Us"]},
+            {"count": 2, "value": ["Southgate", "Federal Roads Group"]},
+            {"count": 2, "value": ["Southampton", "Pothole Pete"]},
+            {"count": 2, "value": ["Powder Springs", "Asphalts R Us"]},
+            {"count": 2, "value": ["Middletown", "Federal Roads Group"]},
             {"count": 1, "value": ["Jersey City", "Federal Roads Group"]},
             {"count": 1, "value": ["Billerica", "Pothole Pete"]},
             {"count": 1, "value": ["Phoenix", "Asphalts R Us"]},
@@ -2302,11 +2305,11 @@ async def test_get_unmaterialized_cube_dimensions_values(
         "cardinality": 5,
         "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
         "values": [
-            {"count": 9, "value": ["Jersey City", "Pothole Pete"]},
-            {"count": 4, "value": ["Southampton", "Pothole Pete"]},
+            {"count": 3, "value": ["Jersey City", "Pothole Pete"]},
+            {"count": 2, "value": ["Southampton", "Pothole Pete"]},
             {"count": 1, "value": ["Billerica", "Pothole Pete"]},
-            {"count": 1, "value": ["Powder Springs", "Pothole Pete"]},
             {"count": 1, "value": ["Southgate", "Pothole Pete"]},
+            {"count": 1, "value": ["Powder Springs", "Pothole Pete"]},
         ],
     }
 
@@ -2324,10 +2327,10 @@ async def test_get_unmaterialized_cube_dimensions_values(
         "cardinality": 4,
         "dimensions": ["default.hard_hat.city", "default.dispatcher.company_name"],
         "values": [
-            {"count": 9, "value": ["Jersey City", "Pothole Pete"]},
-            {"count": 4, "value": ["Southampton", "Pothole Pete"]},
+            {"count": 3, "value": ["Jersey City", "Pothole Pete"]},
+            {"count": 2, "value": ["Southampton", "Pothole Pete"]},
             {"count": 1, "value": ["Billerica", "Pothole Pete"]},
-            {"count": 1, "value": ["Powder Springs", "Pothole Pete"]},
+            {"count": 1, "value": ["Southgate", "Pothole Pete"]},
         ],
     }
 

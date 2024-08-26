@@ -718,7 +718,7 @@ CROSS JOIN
         ("/nodes/default.repair_orders_fact/link"),
         {
             "dimension_node": "default.municipality_dim",
-            "join_type": "left",
+            "join_type": "inner",
             "join_on": (
                 "default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id"
             ),
@@ -728,7 +728,7 @@ CROSS JOIN
         "/nodes/default.repair_orders_fact/link",
         {
             "dimension_node": "default.hard_hat",
-            "join_type": "left",
+            "join_type": "inner",
             "join_on": (
                 "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id"
             ),
@@ -748,7 +748,7 @@ CROSS JOIN
         "/nodes/default.repair_orders_fact/link",
         {
             "dimension_node": "default.dispatcher",
-            "join_type": "left",
+            "join_type": "inner",
             "join_on": (
                 "default.repair_orders_fact.dispatcher_id = default.dispatcher.dispatcher_id"
             ),
@@ -758,7 +758,7 @@ CROSS JOIN
         "/nodes/default.repair_order_details/link",
         {
             "dimension_node": "default.repair_order",
-            "join_type": "left",
+            "join_type": "inner",
             "join_on": (
                 "default.repair_order_details.repair_order_id = default.repair_order.repair_order_id"
             ),
@@ -768,7 +768,7 @@ CROSS JOIN
         "/nodes/default.repair_type/link",
         {
             "dimension_node": "default.contractor",
-            "join_type": "left",
+            "join_type": "inner",
             "join_on": (
                 "default.repair_type.contractor_id = default.contractor.contractor_id"
             ),
@@ -778,7 +778,7 @@ CROSS JOIN
         "/nodes/default.repair_orders/link",
         {
             "dimension_node": "default.repair_order",
-            "join_type": "left",
+            "join_type": "inner",
             "join_on": (
                 "default.repair_orders.repair_order_id = default.repair_order.repair_order_id"
             ),
@@ -788,7 +788,7 @@ CROSS JOIN
         "/nodes/default.repair_orders/link",
         {
             "dimension_node": "default.dispatcher",
-            "join_type": "left",
+            "join_type": "inner",
             "join_on": (
                 "default.repair_orders.dispatcher_id = default.dispatcher.dispatcher_id"
             ),
@@ -798,7 +798,7 @@ CROSS JOIN
         "/nodes/default.hard_hat/link",
         {
             "dimension_node": "default.us_state",
-            "join_type": "left",
+            "join_type": "inner",
             "join_on": ("default.hard_hat.state = default.us_state.state_short"),
         },
     ),
@@ -806,7 +806,7 @@ CROSS JOIN
         "/nodes/default.repair_order_details/link",
         {
             "dimension_node": "default.repair_order",
-            "join_type": "left",
+            "join_type": "inner",
             "join_on": (
                 "default.repair_order_details.repair_order_id = default.repair_order.repair_order_id"
             ),
@@ -816,7 +816,7 @@ CROSS JOIN
         "/nodes/default.repair_order/link",
         {
             "dimension_node": "default.dispatcher",
-            "join_type": "left",
+            "join_type": "inner",
             "join_on": (
                 "default.repair_order.dispatcher_id = default.dispatcher.dispatcher_id"
             ),
@@ -826,7 +826,7 @@ CROSS JOIN
         "/nodes/default.repair_order/link",
         {
             "dimension_node": "default.hard_hat",
-            "join_type": "left",
+            "join_type": "inner",
             "join_on": (
                 "default.repair_order.hard_hat_id = default.hard_hat.hard_hat_id"
             ),
@@ -846,7 +846,7 @@ CROSS JOIN
         "/nodes/default.repair_order/link",
         {
             "dimension_node": "default.municipality_dim",
-            "join_type": "left",
+            "join_type": "inner",
             "join_on": (
                 "default.repair_order.municipality_id = default.municipality_dim.municipality_id"
             ),
@@ -1986,6 +1986,16 @@ DBT = (  # type: ignore
             "query": "SELECT SUM(sold_count * price_per_unit) FROM default.sales",
             "mode": "published",
             "name": "default.total_profit",
+        },
+    ),
+    (
+        "/nodes/dbt.source.jaffle_shop.orders/link",
+        {
+            "dimension_node": "dbt.dimension.customers",
+            "join_type": "inner",
+            "join_on": (
+                "dbt.source.jaffle_shop.orders.user_id = dbt.dimension.customers.id"
+            ),
         },
     ),
 )

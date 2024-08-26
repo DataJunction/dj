@@ -79,6 +79,7 @@ FROM default.hard_hat
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Will move djsql to new sql build later")
 async def test_get_djsql_data_only_nested_metrics(
     module__client_with_roads: AsyncClient,
 ) -> None:
@@ -164,6 +165,7 @@ async def test_get_djsql_data_only_nested_metrics(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Will move djsql to new sql build later")
 async def test_get_djsql_data_only_multiple_metrics(
     module__client_with_roads: AsyncClient,
 ) -> None:

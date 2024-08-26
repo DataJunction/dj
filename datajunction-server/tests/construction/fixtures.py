@@ -1,6 +1,6 @@
 """fixtures for testing construction"""
 # noqa: W191,E101
-# pylint: disable=line-too-long
+# pylint: disable=line-too-long,too-many-statements
 
 from typing import Dict, List, Optional, Tuple
 
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
+from datajunction_server.database.dimensionlink import DimensionLink, JoinType
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.models.node_type import NodeType
@@ -573,6 +574,20 @@ async def construction_session(  # pylint: disable=too-many-locals
         created_by_id=current_user.id,
     )
 
+    comments_users_link = DimensionLink(
+        node_revision=comments_src,
+        dimension=user_dim_ref,
+        join_sql="basic.source.comments.user_id = basic.dimension.users.id",
+        join_type=JoinType.INNER,
+    )
+
+    orders_customers_link = DimensionLink(
+        node_revision=orders_src,
+        dimension=customers_dim_ref,
+        join_sql="dbt.source.jaffle_shop.orders.user_id = dbt.dimension.customers.id",
+        join_type=JoinType.INNER,
+    )
+
     session.add(postgres)
     session.add(gsheets)
     session.add(countries_dim)
@@ -589,5 +604,9 @@ async def construction_session(  # pylint: disable=too-many-locals
     session.add(orders_src)
     session.add(customers_src)
 
+    session.add(comments_users_link)
+    session.add(orders_customers_link)
     await session.commit()
+    await session.refresh(comments_users_link)
+    await session.refresh(orders_customers_link)
     return session
