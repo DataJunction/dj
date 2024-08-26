@@ -1164,10 +1164,13 @@ async def build_metric_nodes(
     metric_nodes: List[Node],
     filters: List[str],
     dimensions: List[str],
-    orderby: List[str],
-    limit: Optional[int] = None,
+    orderby: List[str],  # pylint: disable=unused-argument
+    limit: Optional[int] = None,  # pylint: disable=unused-argument
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
     build_criteria: Optional[BuildCriteria] = None,
     access_control: Optional[access.AccessControlStore] = None,
+    ignore_errors: bool = True,
 ):
     """
     Build a single query for all metrics in the list, including the specified
@@ -1181,91 +1184,56 @@ async def build_metric_nodes(
     (e) Join together the transforms on the shared dimensions
     (f) Select all the requested metrics and dimensions in the final SELECT
     """
-
     from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel
         QueryBuilder,
     )
 
-    if any(metric_node.type != NodeType.METRIC for metric_node in metric_nodes):
-        raise DJInvalidInputException(  # pragma: no cover
-            "Cannot build a query for multiple nodes if one or more "
-            "of them aren't metric nodes.",
-        )
-
-    await validate_shared_dimensions(session, metric_nodes, dimensions, filters)
-
-    combined_ast: ast.Query = ast.Query(
-        select=ast.Select(from_=ast.From(relations=[])),
-        ctes=[],
+    engine = (
+        await get_engine(session, engine_name, engine_version)
+        if engine_name and engine_version
+        else None
     )
-    final_mapping = {}
-    initial_dimension_columns = []
-    all_dimension_columns = []
+    build_criteria = BuildCriteria(
+        dialect=engine.dialect if engine and engine.dialect else Dialect.SPARK,
+    )
 
-    orderby_sort_items: List[ast.SortItem] = []
-    orderby = orderby or []
-    orderby_mapping = {}
-    for order in orderby:
-        orderby_metric = None
-        for metric_node in metric_nodes:
-            if metric_node.name.lower() in order.lower():
-                orderby_metric = metric_node.name
-                break
-        orderby_mapping[order] = orderby_metric
+    if not filters:
+        filters = []
 
     context = CompileContext(session=session, exception=DJException())
     common_parents = group_metrics_by_parent(metric_nodes)
 
-    for parent_node, metrics in common_parents.items():
+    measures_queries = []
+
+    for parent_node, metrics in common_parents.items():  # type: ignore
+        await session.refresh(parent_node, ["current"])
         query_builder = await QueryBuilder.create(session, parent_node.current)
+        if ignore_errors:
+            query_builder = query_builder.ignore_errors()
         parent_ast = await (
-            query_builder.ignore_errors()
-            .with_access_control(access_control)
+            query_builder.with_access_control(access_control)
             .with_build_criteria(build_criteria)
             .add_dimensions(dimensions)
             .add_filters(filters)
             .build()
         )
 
-        # Select only columns that were one of the chosen dimensions
-        parent_ast.select.projection = [
+        dimension_columns = [
             expr
             for expr in parent_ast.select.projection
-            if (
-                expr.alias_or_name.identifier(False).replace(  # type: ignore
-                    f"_{LOOKUP_CHARS.get('.')}_",
-                    SEPARATOR,
-                )
-                + (f"[{expr.role}]" if expr.role else "")  # type: ignore
-            )
+            if from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
             in dimensions
         ]
-        # Re-alias the dimensions with better names, but keep the group by alias-free
-        if parent_ast.select.group_by:  # pragma: no cover
-            for i in range(  # pylint: disable=consider-using-enumerate
-                len(parent_ast.select.group_by),
-            ):
-                if hasattr(parent_ast.select.group_by[i], "alias"):
-                    parent_ast.select.group_by[i] = ast.Column(
-                        name=parent_ast.select.group_by[i].name,  # type: ignore
-                        _type=parent_ast.select.group_by[i].type,  # type: ignore
-                        # pylint: disable=protected-access
-                        _table=parent_ast.select.group_by[i]._table,  # type: ignore
-                    )
+        parent_ast.select.projection = dimension_columns
+        for col in dimension_columns:
+            group_by_col = col.copy()
+            group_by_col.alias = None
+            parent_ast.select.group_by.append(group_by_col)
 
-            if parent_ast.select.where:
-                for col in parent_ast.select.where.find_all(ast.Column):
-                    if hasattr(col, "alias"):  # pragma: no cover
-                        col.alias = None
-
-        for expr in parent_ast.select.projection:
-            expr.set_alias(
-                ast.Name(amenable_name(expr.alias_or_name.identifier(False))),  # type: ignore
-            )
-        await parent_ast.compile(context)
-
-        # Add the metric expression into the parent node query
+        # Add metric aggregations to select
         for metric_node in metrics:
+            if access_control:
+                access_control.add_request_by_node(metric_node)  # type: ignore
             metric_query = parse(
                 NodeRevision.format_metric_alias(
                     metric_node.query,  # type: ignore
@@ -1274,126 +1242,32 @@ async def build_metric_nodes(
             )
             await metric_query.compile(context)
             await metric_query.build(session, {})
+            metric_query.select.projection[0].set_semantic_entity(  # type: ignore
+                f"{metric_node.name}.{amenable_name(metric_node.name)}",
+            )
+            metric_query.select.projection[0].set_semantic_type(  # type: ignore
+                SemanticType.METRIC,
+            )
+
             parent_ast.select.projection.extend(metric_query.select.projection)
 
-        # Add the WITH statements to the combined query
-        parent_ast_alias = ast.Name(amenable_name(parent_node.name))
-        parent_ast.alias = parent_ast_alias
-        parent_ast.parenthesized = True
-        parent_ast.as_ = True
-        combined_ast.ctes += [parent_ast]
+        await session.refresh(parent_node.current, ["columns"])
 
-        # Add the metric and dimensions to the final query layer's SELECT
-        current_cte_as_table = ast.Table(parent_ast_alias)
+        # Generate semantic types for each
+        for expr in parent_ast.select.projection:
+            column_identifier = expr.alias_or_name.identifier(False)  # type: ignore
+            semantic_entity = from_amenable_name(column_identifier)
+            if semantic_entity in dimensions:
+                expr.set_semantic_entity(semantic_entity)  # type: ignore
+                expr.set_semantic_type(SemanticType.DIMENSION)  # type: ignore
 
-        # If the parent node contains an orderby, parse and add it to the order items
-        # bind the table for this built metric to all columns in the
-        organization = cast(ast.Organization, parent_ast.select.organization)
-        parent_ast.select.organization = None
-        if organization:  # pragma: no cover
-            for col in organization.find_all(ast.Column):
-                col.add_table(current_cte_as_table)
-            orderby_sort_items += organization.order  # type: ignore
+        # Add limit
+        if limit:
+            parent_ast.select.limit = ast.Number(value=limit)
 
-        final_select_columns = [
-            ast.Column(
-                name=col.alias_or_name,  # type: ignore
-                _table=current_cte_as_table,
-                _type=col.type,  # type: ignore
-            )
-            for col in parent_ast.select.projection
-        ]
-
-        metric_columns = []
-        dimension_columns = []
-        metric_column_identifiers = {amenable_name(metric.name) for metric in metrics}
-        for col in final_select_columns:
-            if col.name.name in metric_column_identifiers:
-                for metric_node in metrics:
-                    if amenable_name(metric_node.name) in col.alias_or_name.name:
-                        final_mapping[metric_node.name] = col
-                        col.set_semantic_entity(
-                            metric_node.name + SEPARATOR + metric_node.columns[0].name,
-                        )
-                        col.set_semantic_type(SemanticType.METRIC)
-                metric_columns.append(col)
-            else:
-                col.set_semantic_entity(from_amenable_name(col.alias_or_name.name))
-                col.set_semantic_type(SemanticType.DIMENSION)
-                dimension_columns.append(col)
-
-        all_dimension_columns += dimension_columns
-        combined_ast.select.projection.extend(metric_columns)
-
-        # Each time we build another parent node CTE clause, add it
-        # to the join clause with the current CTEs on the selected dimensions
-        if not combined_ast.select.from_.relations:  # type: ignore
-            initial_dimension_columns = dimension_columns
-            combined_ast.select.from_.relations.append(  # type: ignore
-                ast.Relation(current_cte_as_table),
-            )
-        else:
-            join_parents_on = [
-                ast.BinaryOp.Eq(initial_dim_col, current_dim_col)
-                for initial_dim_col, current_dim_col in zip(
-                    initial_dimension_columns,
-                    dimension_columns,
-                )
-            ]
-            combined_ast.select.from_.relations[0].extensions.append(  # type: ignore
-                ast.Join(
-                    "FULL OUTER",
-                    ast.Table(parent_ast_alias),
-                    ast.JoinCriteria(
-                        on=ast.BinaryOp.And(*join_parents_on),
-                    ),
-                ),
-            )
-
-    # Include dimensions in the final select: COALESCE the dimensions across
-    # all parent nodes, which will be used as the joins
-    dimension_grouping: Dict[str, List] = {}
-    for col in all_dimension_columns:
-        dimension_grouping.setdefault(col.identifier(), []).append(col)
-    dimension_columns = [
-        ast.Function(name=ast.Name("COALESCE"), args=list(columns))
-        .set_alias(ast.Name(col_name))
-        .set_semantic_entity(columns[0].semantic_entity)
-        .set_semantic_type(columns[0].semantic_type)
-        if len(columns) > 1
-        else columns[0]
-        for col_name, columns in dimension_grouping.items()
-    ]
-    for dim_col in dimension_columns:
-        dimension_name = dim_col.alias_or_name.name.replace(
-            f"_{LOOKUP_CHARS.get('.')}_",
-            SEPARATOR,
-        )
-        final_mapping[dimension_name] = dim_col
-
-    combined_ast.select.projection.extend(dimension_columns)
-
-    # go through the orderby items and make sure we put them in the order the user requested them in
-    for idx, sort_item in enumerate(orderby_mapping):
-        if isinstance(sort_item, ast.SortItem):
-            orderby_sort_items.insert(idx, sort_item)  # pragma: no cover
-        else:
-            sort_expr_list = sort_item.split(" ")
-            if sort_item in final_mapping:  # pragma: no cover
-                orderby_sort_items.insert(
-                    idx,
-                    ast.SortItem(
-                        expr=final_mapping[sort_expr_list[0]].alias_or_name,  # type: ignore
-                        asc=sort_expr_list[1] if len(sort_expr_list) >= 2 else "",
-                        nulls=sort_expr_list[2] if len(sort_expr_list) == 3 else "",
-                    ),
-                )
-
-    combined_ast.select.organization = ast.Organization(orderby_sort_items)
-
-    if limit is not None:
-        combined_ast.select.limit = ast.Number(limit)
-    return combined_ast
+        await parent_ast.compile(context)
+        measures_queries.append(parent_ast)
+    return measures_queries[0]
 
 
 def build_temp_select(temp_query: str):
@@ -1468,6 +1342,9 @@ def build_materialized_cube_node(
                 ],
             )
         else:
+            # This is the materialized metrics table case. We choose SUM for now,
+            # since there shouldn't be any other possible aggregation types on a
+            # metric (maybe MAX or MIN in some special cases).
             combined_ast.select.projection.append(
                 ast.Function(
                     name=ast.Name("SUM"),

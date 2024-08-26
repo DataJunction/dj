@@ -43,19 +43,39 @@ class FullColumnName:
 
     name: str
 
-    @property
-    def node_name(self):
+    @cached_property
+    def node_name(self) -> str:
         """
         Gets the node name part of the full column name.
         """
         return SEPARATOR.join(self.name.split(SEPARATOR)[:-1])
 
-    @property
-    def column_name(self):
+    @cached_property
+    def full_column_name(self) -> str:
         """
         Gets the column name part of the full column name.
         """
         return self.name.split(SEPARATOR)[-1]
+
+    @cached_property
+    def column_name(self) -> str:
+        """
+        Gets the column name part of the full column name.
+        """
+        if self.role:
+            return self.full_column_name.replace(f"[{self.role}]", "")
+        return self.full_column_name
+
+    @cached_property
+    def role(self) -> Optional[str]:
+        """
+        Gets the column name part of the full column name.
+        """
+        regex = r"\[([A-Za-z0-9_]*)\]"
+        match = re.search(regex, self.full_column_name)
+        if match:
+            return match.group(1)
+        return None
 
 
 @dataclass
@@ -213,6 +233,11 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
     validation, allowing for dynamic node query generation based on runtime conditions.
     """
 
+    # Build types:
+    # - cube (metrics): build for multiple metrics
+    # - cube (measures): build for measures
+    # - metric: build for single metric
+    # - transform/dim/source
     def __init__(self, session: AsyncSession, node_revision: NodeRevision):
         self.session = session
         self.node_revision = node_revision
@@ -337,7 +362,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         """
         Returns a list of filter expressions rendered as ASTs
         """
-        return to_filter_asts(self.filters)
+        return [filter_ast for filter_ast in to_filter_asts(self.filters) if filter_ast]
 
     @property
     def include_dimensions_in_groupby(self) -> bool:
@@ -379,6 +404,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         7. Add all requested dimensions to the final select.
         8. Add order by and limit to the final select (TODO)
         """
+        await self.session.refresh(self.node_revision, ["availability", "columns"])
         node_ast = (
             await compile_node_ast(self.session, self.node_revision)
             if not self.physical_table
@@ -394,6 +420,8 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             self.final_ast = self.initialize_final_query_ast(node_ast, node_alias)
             await self.build_dimension_node_joins(node_ast, node_alias)
             self.set_dimension_aliases()
+
+        self.final_ast.select.limit = self._limit  # type: ignore
 
         # Error validation
         self.validate_access()
@@ -733,8 +761,21 @@ async def build_dimension_node_query(
     Builds a dimension node query with the requested filters
     """
     await session.refresh(link.dimension, ["current"])
-    await session.refresh(link.dimension.current, ["columns"])
-    dimension_node_ast = await compile_node_ast(session, link.dimension.current)
+    await session.refresh(link.dimension.current, ["availability", "columns"])
+    physical_table = get_table_for_node(
+        link.dimension.current,
+        build_criteria=build_criteria,
+    )
+    dimension_node_ast = (
+        await compile_node_ast(session, link.dimension.current)
+        if not physical_table
+        else ast.Query(
+            select=ast.Select(
+                projection=physical_table.columns,  # type: ignore
+                from_=ast.From(relations=[ast.Relation(physical_table)]),
+            ),
+        )
+    )
     dimension_node_query = await build_ast(
         session,
         link.dimension.current,
@@ -809,6 +850,12 @@ def build_dimension_attribute(
     Turn the canonical dimension attribute into a column on the query AST
     """
     dimension_attr = FullColumnName(full_column_name)
+    print(
+        "dimension_attr",
+        dimension_attr.column_name,
+        dimension_attr.full_column_name,
+        dimension_attr.role,
+    )
     dim_node = dimension_attr.node_name
     node_query = (
         dimension_node_joins[dim_node].node_query
@@ -886,6 +933,13 @@ def build_join_for_link(
     for col in join_ast.criteria.find_all(ast.Column):  # type: ignore
         full_column = FullColumnName(col.identifier())
         is_dimension_node = full_column.node_name == link.dimension.name
+        if full_column.column_name not in (
+            dimension_node_columns if is_dimension_node else node_columns
+        ):
+            raise DJQueryBuildException(
+                f"The requested column {full_column.column_name} does not exist"
+                f" on {full_column.node_name}",
+            )
         replacement = ast.Column(
             name=ast.Name(full_column.column_name),
             _table=join_right if is_dimension_node else join_left,
@@ -1037,6 +1091,8 @@ def apply_filters_to_node(
     """
     for filter_ast in filters:
         all_referenced_dimensions_can_pushdown = True
+        if not filter_ast:
+            continue
         for filter_dim in filter_ast.find_all(ast.Column):
             column_name = get_column_from_canonical_dimension(
                 filter_dim.identifier(),

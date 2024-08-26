@@ -20,7 +20,6 @@ from sqlalchemy.sql.operators import and_, is_
 from datajunction_server.construction.build import (
     build_materialized_cube_node,
     build_metric_nodes,
-    build_node,
     get_default_criteria,
     rename_columns,
     validate_shared_dimensions,
@@ -203,17 +202,22 @@ async def get_query(  # pylint: disable=too-many-arguments
     """
     Get a query for a metric, dimensions, and filters
     """
-    node = await Node.get_by_name(session, node_name)
+    from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel
+        QueryBuilder,
+    )
+
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     build_criteria = get_default_criteria(node.current, engine)  # type: ignore
-    query_ast = await build_node(
-        session=session,
-        node=node.current,  # type: ignore
-        filters=filters,
-        dimensions=dimensions,
-        orderby=orderby,
-        limit=limit,
-        build_criteria=build_criteria,
-        access_control=access_control,
+    query_builder = await QueryBuilder.create(session, node.current)  # type: ignore
+    query_ast = await (
+        query_builder.ignore_errors()
+        .with_access_control(access_control)
+        .with_build_criteria(build_criteria)
+        .add_dimensions(dimensions)
+        .add_filters(filters)
+        .limit(limit)
+        .order_by(orderby)
+        .build()
     )
     query_ast = rename_columns(query_ast, node.current)  # type: ignore
     return query_ast
@@ -595,6 +599,7 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
     engine_version: Optional[str] = None,
     access_control: Optional[access.AccessControlStore] = None,
     use_materialized: bool = True,
+    ignore_errors: bool = True,
 ) -> Tuple[TranslatedSQL, Engine, Catalog]:
     """
     Build SQL for multiple metrics. Used by both /sql and /data endpoints
@@ -619,7 +624,13 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
             ),
         ],
     )
-    available_engines = leading_metric_node.current.catalog.engines  # type: ignore
+    if access_control:
+        access_control.add_request_by_node(leading_metric_node.current)  # type: ignore
+    available_engines = (
+        leading_metric_node.current.catalog.engines  # type: ignore
+        if leading_metric_node.current.catalog  # type: ignore
+        else []
+    )
 
     # Try to find a built cube that already has the given metrics and dimensions
     # The cube needs to have a materialization configured and an availability state
@@ -705,6 +716,7 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
         orderby=orderby or [],
         limit=limit,
         access_control=access_control,
+        ignore_errors=ignore_errors,
     )
     columns = [
         assemble_column_metadata(col)  # type: ignore
@@ -817,7 +829,11 @@ async def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many
     access_control.validate_and_raise()
 
     leading_metric_node = dj_nodes[0]
-    available_engines = leading_metric_node.current.catalog.engines
+    available_engines = (
+        leading_metric_node.current.catalog.engines
+        if leading_metric_node.current.catalog
+        else []
+    )
 
     # Check if selected engine is available
     engine = (

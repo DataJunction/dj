@@ -6,7 +6,7 @@ from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_catalog_by_name
-from datajunction_server.construction.build import get_measures_query
+from datajunction_server.construction.build_v2 import get_measures_query
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJInvalidInputException
@@ -46,7 +46,7 @@ async def build_dimensions_from_cube_query(  # pylint: disable=too-many-argument
         select=ast.Select(from_=ast.From(relations=[])),
         ctes=[],
     )
-    for dimension in dimensions:
+    for dimension in dimensions or cube.cube_dimensions():
         dimension_column = ast.Column(
             name=ast.Name(amenable_name(dimension)),
         )
@@ -103,7 +103,7 @@ async def build_dimensions_from_cube_query(  # pylint: disable=too-many-argument
             current_user=current_user,
             validate_access=validate_access,
         )
-        measures_query_ast = parse(measures_query.sql)
+        measures_query_ast = parse(measures_query[0].sql)
         measures_query_ast.bake_ctes()
         measures_query_ast.parenthesized = True
         query_ast.select.from_.relations.append(  # type: ignore
