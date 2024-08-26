@@ -233,11 +233,6 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
     validation, allowing for dynamic node query generation based on runtime conditions.
     """
 
-    # Build types:
-    # - cube (metrics): build for multiple metrics
-    # - cube (measures): build for measures
-    # - metric: build for single metric
-    # - transform/dim/source
     def __init__(self, session: AsyncSession, node_revision: NodeRevision):
         self.session = session
         self.node_revision = node_revision
@@ -850,12 +845,6 @@ def build_dimension_attribute(
     Turn the canonical dimension attribute into a column on the query AST
     """
     dimension_attr = FullColumnName(full_column_name)
-    print(
-        "dimension_attr",
-        dimension_attr.column_name,
-        dimension_attr.full_column_name,
-        dimension_attr.role,
-    )
     dim_node = dimension_attr.node_name
     node_query = (
         dimension_node_joins[dim_node].node_query
