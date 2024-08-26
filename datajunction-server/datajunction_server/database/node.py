@@ -552,6 +552,7 @@ class NodeRevision(
     dimension_links: Mapped[List["DimensionLink"]] = relationship(
         back_populates="node_revision",
         cascade="all, delete",
+        order_by="DimensionLink.id",
     )
 
     # The availability of materialized data needs to be stored on the NodeRevision

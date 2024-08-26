@@ -77,5 +77,8 @@ def decode_token(token: str) -> dict:
         settings.secret,
         algorithms=["HS256"],
         issuer=settings.url,
+        options={
+            "leeway": timedelta(days=3),
+        },
     )
     return decoded_jwt
