@@ -8,7 +8,6 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from requests import Response
-from sqlalchemy.ext.asyncio import AsyncSession
 
 # from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -278,7 +277,7 @@ async def test_link_complex_dimension_without_role(
         default_DOT_events_table.user_id,
         default_DOT_events_table.event_start_date,
         default_DOT_events_table.event_end_date,
-        default_DOT_events_table.elapsed_secs 
+        default_DOT_events_table.elapsed_secs
       FROM examples.events AS default_DOT_events_table
     ),
     default_DOT_users AS (
@@ -287,7 +286,7 @@ async def test_link_complex_dimension_without_role(
         default_DOT_users_table.snapshot_date,
         default_DOT_users_table.registration_country,
         default_DOT_users_table.residence_country,
-        default_DOT_users_table.account_type 
+        default_DOT_users_table.account_type
       FROM examples.users AS default_DOT_users_table
     )
     SELECT
@@ -295,7 +294,7 @@ async def test_link_complex_dimension_without_role(
         default_DOT_events.event_start_date default_DOT_users_DOT_snapshot_date,
         default_DOT_events.event_end_date default_DOT_events_DOT_event_end_date,
         default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
-        default_DOT_users.registration_country default_DOT_users_DOT_registration_country 
+        default_DOT_users.registration_country default_DOT_users_DOT_registration_country
     FROM default_DOT_events
     LEFT JOIN default_DOT_users
       ON default_DOT_events.user_id = default_DOT_users.user_id
@@ -494,7 +493,6 @@ GROUP BY
         "&dimensions=default.users.registration_country[user_direct]",
     )
     query = response.json()["sql"]
-    print("QUERYYYYYYY", query)
     expected = """WITH default_DOT_events AS (
       SELECT
         default_DOT_events_table.user_id,
@@ -529,7 +527,7 @@ GROUP BY
 
     # Get SQL for the downstream metric grouped by the user's registration country and
     # filtered by the user's residence country
-    # TODO
+    # TODO  # pylint: disable=fixme
     response = await dimensions_link_client.get(
         "/sql/default.elapsed_secs?",
         params={
@@ -654,7 +652,6 @@ async def test_remove_dimension_link(
 
 @pytest.mark.asyncio
 async def test_measures_sql_with_dimension_roles(
-    session: AsyncSession,
     dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
     link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
     link_events_to_users_with_role_windowed,  # pylint: disable=redefined-outer-name
@@ -709,7 +706,7 @@ LEFT JOIN default_DOT_users
 INNER JOIN default_DOT_countries
   ON default_DOT_users.registration_country = default_DOT_countries.country_code"""
     assert str(parse(query)) == str(parse(expected))
-    # TODO Implement caching for v2 measures SQL endpoint
+    # TODO Implement caching for v2 measures SQL endpoint  # pylint: disable=fixme
     # query_request = (
     #     (
     #         await session.execute(
