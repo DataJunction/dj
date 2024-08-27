@@ -637,7 +637,6 @@ async def test_druid_metrics_cube_incremental(
             "schedule": "@daily",
         },
     )
-    print("response.json!!", response.json())
     assert response.status_code in (200, 201)
     assert response.json()["message"] == (
         "Successfully updated materialization config named "

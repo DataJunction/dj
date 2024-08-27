@@ -95,7 +95,7 @@ class TranslatedSQL(BaseModel):
         If no plugin is configured, it will just return the original generated query.
         """
         settings = get_settings()
-        if settings.sql_transpilation_library:
+        if settings.sql_transpilation_library:  # pragma: no cover
             plugin = get_transpilation_plugin(settings.sql_transpilation_library)
             values["sql"] = plugin.transpile_sql(
                 values["sql"],

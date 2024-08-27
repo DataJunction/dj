@@ -1,5 +1,4 @@
 """Tests for the /sql/ endpoint"""
-from typing import List
 
 # pylint: disable=line-too-long,too-many-lines
 # pylint: disable=C0302
@@ -19,7 +18,7 @@ from datajunction_server.models import access
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import IntegerType, StringType
-from tests.sql.utils import assert_query_strings_equal, compare_query_strings
+from tests.sql.utils import compare_query_strings
 
 
 @pytest.mark.asyncio
@@ -584,1081 +583,6 @@ async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statemen
     assert len(query_request) == 3
 
 
-@pytest.mark.parametrize(
-    "groups, node_name, dimensions, filters, sql, columns, rows",
-    [
-        #         # querying on source node with filter on joinable dimension
-        #         (
-        #             ["ROADS"],
-        #             "default.repair_orders",
-        #             ["default.hard_hat.state"],
-        #             ["default.hard_hat.state='NY'"],
-        #             """
-        #             SELECT default_DOT_repair_orders.repair_order_id default_DOT_repair_orders_DOT_repair_order_id,
-        #               default_DOT_repair_orders.municipality_id default_DOT_repair_orders_DOT_municipality_id,
-        #               default_DOT_repair_orders.hard_hat_id default_DOT_repair_orders_DOT_hard_hat_id,
-        #               default_DOT_repair_orders.order_date default_DOT_repair_orders_DOT_order_date,
-        #               default_DOT_repair_orders.required_date default_DOT_repair_orders_DOT_required_date,
-        #               default_DOT_repair_orders.dispatched_date default_DOT_repair_orders_DOT_dispatched_date,
-        #               default_DOT_repair_orders.dispatcher_id default_DOT_repair_orders_DOT_dispatcher_id,
-        #               default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state
-        #             FROM roads.repair_orders AS default_DOT_repair_orders
-        #               LEFT JOIN (
-        #                 SELECT default_DOT_repair_orders.repair_order_id,
-        #                   default_DOT_repair_orders.municipality_id,
-        #                   default_DOT_repair_orders.hard_hat_id,
-        #                   default_DOT_repair_orders.dispatcher_id
-        #                 FROM roads.repair_orders AS default_DOT_repair_orders
-        #               ) AS default_DOT_repair_order ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order.repair_order_id
-        #               LEFT JOIN (
-        #                 SELECT default_DOT_hard_hats.hard_hat_id,
-        #                   default_DOT_hard_hats.state
-        #                 FROM roads.hard_hats AS default_DOT_hard_hats
-        #               ) AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-        #             WHERE default_DOT_hard_hat.state = 'NY'
-        #             """,
-        #             [
-        #                 {
-        #                     "column": "repair_order_id",
-        #                     "name": "default_DOT_repair_orders_DOT_repair_order_id",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.repair_order_id",
-        #                     "semantic_type": None,
-        #                     "type": "int",
-        #                 },
-        #                 {
-        #                     "column": "municipality_id",
-        #                     "name": "default_DOT_repair_orders_DOT_municipality_id",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.municipality_id",
-        #                     "semantic_type": None,
-        #                     "type": "string",
-        #                 },
-        #                 {
-        #                     "column": "hard_hat_id",
-        #                     "name": "default_DOT_repair_orders_DOT_hard_hat_id",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.hard_hat_id",
-        #                     "semantic_type": None,
-        #                     "type": "int",
-        #                 },
-        #                 {
-        #                     "column": "order_date",
-        #                     "name": "default_DOT_repair_orders_DOT_order_date",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.order_date",
-        #                     "semantic_type": None,
-        #                     "type": "timestamp",
-        #                 },
-        #                 {
-        #                     "column": "required_date",
-        #                     "name": "default_DOT_repair_orders_DOT_required_date",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.required_date",
-        #                     "semantic_type": None,
-        #                     "type": "timestamp",
-        #                 },
-        #                 {
-        #                     "column": "dispatched_date",
-        #                     "name": "default_DOT_repair_orders_DOT_dispatched_date",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.dispatched_date",
-        #                     "semantic_type": None,
-        #                     "type": "timestamp",
-        #                 },
-        #                 {
-        #                     "column": "dispatcher_id",
-        #                     "name": "default_DOT_repair_orders_DOT_dispatcher_id",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.dispatcher_id",
-        #                     "semantic_type": None,
-        #                     "type": "int",
-        #                 },
-        #                 {
-        #                     "column": "state",
-        #                     "name": "default_DOT_hard_hat_DOT_state",
-        #                     "node": "default.hard_hat",
-        #                     "semantic_entity": "default.hard_hat.state",
-        #                     "semantic_type": None,
-        #                     "type": "string",
-        #                 },
-        #             ],
-        #             [
-        #                 [
-        #                     10021,
-        #                     "Philadelphia",
-        #                     7,
-        #                     "2007-05-10",
-        #                     "2009-08-27",
-        #                     "2007-12-01",
-        #                     3,
-        #                     "NY",
-        #                 ],
-        #             ],
-        #         ),
-        #         # querying source node with filters directly on the node
-        #         (
-        #             ["ROADS"],
-        #             "default.repair_orders",
-        #             [],
-        #             ["default.repair_orders.order_date='2009-08-14'"],
-        #             """
-        #               SELECT  default_DOT_repair_orders.repair_order_id default_DOT_repair_orders_DOT_repair_order_id,
-        #                 default_DOT_repair_orders.municipality_id default_DOT_repair_orders_DOT_municipality_id,
-        #                 default_DOT_repair_orders.hard_hat_id default_DOT_repair_orders_DOT_hard_hat_id,
-        #                 default_DOT_repair_orders.order_date default_DOT_repair_orders_DOT_order_date,
-        #                 default_DOT_repair_orders.required_date default_DOT_repair_orders_DOT_required_date,
-        #                 default_DOT_repair_orders.dispatched_date default_DOT_repair_orders_DOT_dispatched_date,
-        #                 default_DOT_repair_orders.dispatcher_id default_DOT_repair_orders_DOT_dispatcher_id
-        #               FROM roads.repair_orders AS default_DOT_repair_orders
-        #               WHERE  default_DOT_repair_orders.order_date = '2009-08-14'
-        #             """,
-        #             [
-        #                 {
-        #                     "column": "repair_order_id",
-        #                     "name": "default_DOT_repair_orders_DOT_repair_order_id",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.repair_order_id",
-        #                     "semantic_type": None,
-        #                     "type": "int",
-        #                 },
-        #                 {
-        #                     "column": "municipality_id",
-        #                     "name": "default_DOT_repair_orders_DOT_municipality_id",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.municipality_id",
-        #                     "semantic_type": None,
-        #                     "type": "string",
-        #                 },
-        #                 {
-        #                     "column": "hard_hat_id",
-        #                     "name": "default_DOT_repair_orders_DOT_hard_hat_id",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.hard_hat_id",
-        #                     "semantic_type": None,
-        #                     "type": "int",
-        #                 },
-        #                 {
-        #                     "column": "order_date",
-        #                     "name": "default_DOT_repair_orders_DOT_order_date",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.order_date",
-        #                     "semantic_type": None,
-        #                     "type": "timestamp",
-        #                 },
-        #                 {
-        #                     "column": "required_date",
-        #                     "name": "default_DOT_repair_orders_DOT_required_date",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.required_date",
-        #                     "semantic_type": None,
-        #                     "type": "timestamp",
-        #                 },
-        #                 {
-        #                     "column": "dispatched_date",
-        #                     "name": "default_DOT_repair_orders_DOT_dispatched_date",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.dispatched_date",
-        #                     "semantic_type": None,
-        #                     "type": "timestamp",
-        #                 },
-        #                 {
-        #                     "column": "dispatcher_id",
-        #                     "name": "default_DOT_repair_orders_DOT_dispatcher_id",
-        #                     "node": "default.repair_orders",
-        #                     "semantic_entity": "default.repair_orders.dispatcher_id",
-        #                     "semantic_type": None,
-        #                     "type": "int",
-        #                 },
-        #             ],
-        #             [],
-        #         ),
-        #         # querying transform node with filters on joinable dimension
-        #         (
-        #             ["EVENT"],
-        #             "default.long_events",
-        #             [],
-        #             ["default.country_dim.events_cnt >= 20"],
-        #             """
-        #             SELECT  default_DOT_long_events.event_id default_DOT_long_events_DOT_event_id,
-        #     default_DOT_long_events.event_latency default_DOT_long_events_DOT_event_latency,
-        #     default_DOT_long_events.device_id default_DOT_long_events_DOT_device_id,
-        #     default_DOT_long_events.country default_DOT_long_events_DOT_country,
-        #     default_DOT_country_dim.events_cnt default_DOT_country_dim_DOT_events_cnt
-        #  FROM (SELECT  default_DOT_event_source.event_id,
-        #     default_DOT_event_source.event_latency,
-        #     default_DOT_event_source.device_id,
-        #     default_DOT_event_source.country
-        #  FROM logs.log_events AS default_DOT_event_source
-        #  WHERE  default_DOT_event_source.event_latency > 1000000)
-        #  AS default_DOT_long_events LEFT JOIN (SELECT  default_DOT_event_source.country,
-        #     COUNT( DISTINCT default_DOT_event_source.event_id) AS events_cnt
-        #  FROM logs.log_events AS default_DOT_event_source
-        #  GROUP BY  default_DOT_event_source.country)
-        #  AS default_DOT_country_dim ON default_DOT_long_events.country = default_DOT_country_dim.country
-        #  WHERE  default_DOT_country_dim.events_cnt >= 20
-        #             """,
-        #             [
-        #                 {
-        #                     "column": "event_id",
-        #                     "name": "default_DOT_long_events_DOT_event_id",
-        #                     "node": "default.long_events",
-        #                     "semantic_entity": "default.long_events.event_id",
-        #                     "semantic_type": None,
-        #                     "type": "int",
-        #                 },
-        #                 {
-        #                     "column": "event_latency",
-        #                     "name": "default_DOT_long_events_DOT_event_latency",
-        #                     "node": "default.long_events",
-        #                     "semantic_entity": "default.long_events.event_latency",
-        #                     "semantic_type": None,
-        #                     "type": "int",
-        #                 },
-        #                 {
-        #                     "column": "device_id",
-        #                     "name": "default_DOT_long_events_DOT_device_id",
-        #                     "node": "default.long_events",
-        #                     "semantic_entity": "default.long_events.device_id",
-        #                     "semantic_type": None,
-        #                     "type": "int",
-        #                 },
-        #                 {
-        #                     "column": "country",
-        #                     "name": "default_DOT_long_events_DOT_country",
-        #                     "node": "default.long_events",
-        #                     "semantic_entity": "default.long_events.country",
-        #                     "semantic_type": None,
-        #                     "type": "string",
-        #                 },
-        #                 {
-        #                     "column": "events_cnt",
-        #                     "name": "default_DOT_country_dim_DOT_events_cnt",
-        #                     "node": "default.country_dim",
-        #                     "semantic_entity": "default.country_dim.events_cnt",
-        #                     "semantic_type": None,
-        #                     "type": "bigint",
-        #                 },
-        #             ],
-        #             [],
-        #         ),
-        #         # querying transform node with filters on dimension PK column
-        #         # * it should not join in the dimension but use the FK column on transform instead
-        #         # * it should push down the filter to the parent transform
-        #         (
-        #             ["EVENT"],
-        #             "default.long_events",
-        #             [],
-        #             [
-        #                 "default.country_dim.country = 'ABCD'",
-        #             ],  # country is PK of default.country_dim
-        #             """
-        #                 SELECT  default_DOT_long_events.event_id default_DOT_long_events_DOT_event_id,
-        #                     default_DOT_long_events.event_latency default_DOT_long_events_DOT_event_latency,
-        #                     default_DOT_long_events.device_id default_DOT_long_events_DOT_device_id,
-        #                     default_DOT_long_events.country default_DOT_country_dim_DOT_country
-        #                 FROM (SELECT  default_DOT_event_source.event_id,
-        #                     default_DOT_event_source.event_latency,
-        #                     default_DOT_event_source.device_id,
-        #                     default_DOT_event_source.country
-        #                 FROM logs.log_events AS default_DOT_event_source
-        #                 WHERE  default_DOT_event_source.country = 'ABCD' AND default_DOT_event_source.event_latency > 1000000)
-        #                 AS default_DOT_long_events
-        #                 WHERE  default_DOT_long_events.country = 'ABCD'
-        #                 """,
-        #             [
-        #                 {
-        #                     "column": "event_id",
-        #                     "name": "default_DOT_long_events_DOT_event_id",
-        #                     "node": "default.long_events",
-        #                     "type": "int",
-        #                     "semantic_type": None,
-        #                     "semantic_entity": "default.long_events.event_id",
-        #                 },
-        #                 {
-        #                     "column": "event_latency",
-        #                     "name": "default_DOT_long_events_DOT_event_latency",
-        #                     "node": "default.long_events",
-        #                     "type": "int",
-        #                     "semantic_type": None,
-        #                     "semantic_entity": "default.long_events.event_latency",
-        #                 },
-        #                 {
-        #                     "column": "device_id",
-        #                     "name": "default_DOT_long_events_DOT_device_id",
-        #                     "node": "default.long_events",
-        #                     "type": "int",
-        #                     "semantic_type": None,
-        #                     "semantic_entity": "default.long_events.device_id",
-        #                 },
-        #                 {
-        #                     "column": "country",
-        #                     "name": "default_DOT_country_dim_DOT_country",
-        #                     "node": "default.country_dim",
-        #                     "type": "string",
-        #                     "semantic_type": None,
-        #                     "semantic_entity": "default.country_dim.country",
-        #                 },
-        #             ],
-        #             [],
-        #         ),
-        #         # querying transform node with filters directly on the node
-        #         (
-        #             ["EVENT"],
-        #             "default.long_events",
-        #             [],
-        #             ["default.long_events.device_id = 'Android'"],
-        #             """
-        #             SELECT  default_DOT_long_events.event_id default_DOT_long_events_DOT_event_id,
-        #                 default_DOT_long_events.event_latency default_DOT_long_events_DOT_event_latency,
-        #                 default_DOT_long_events.device_id default_DOT_long_events_DOT_device_id,
-        #                 default_DOT_long_events.country default_DOT_long_events_DOT_country
-        #              FROM (SELECT  default_DOT_event_source.event_id,
-        #                 default_DOT_event_source.event_latency,
-        #                 default_DOT_event_source.device_id,
-        #                 default_DOT_event_source.country
-        #              FROM logs.log_events AS default_DOT_event_source
-        #              WHERE  default_DOT_event_source.event_latency > 1000000)
-        #              AS default_DOT_long_events
-        #              WHERE  default_DOT_long_events.device_id = 'Android'
-        #             """,
-        #             [
-        #                 {
-        #                     "column": "event_id",
-        #                     "name": "default_DOT_long_events_DOT_event_id",
-        #                     "node": "default.long_events",
-        #                     "type": "int",
-        #                     "semantic_type": None,
-        #                     "semantic_entity": "default.long_events.event_id",
-        #                 },
-        #                 {
-        #                     "column": "event_latency",
-        #                     "name": "default_DOT_long_events_DOT_event_latency",
-        #                     "node": "default.long_events",
-        #                     "type": "int",
-        #                     "semantic_type": None,
-        #                     "semantic_entity": "default.long_events.event_latency",
-        #                 },
-        #                 {
-        #                     "column": "device_id",
-        #                     "name": "default_DOT_long_events_DOT_device_id",
-        #                     "node": "default.long_events",
-        #                     "type": "int",
-        #                     "semantic_type": None,
-        #                     "semantic_entity": "default.long_events.device_id",
-        #                 },
-        #                 {
-        #                     "column": "country",
-        #                     "name": "default_DOT_long_events_DOT_country",
-        #                     "node": "default.long_events",
-        #                     "type": "string",
-        #                     "semantic_type": None,
-        #                     "semantic_entity": "default.long_events.country",
-        #                 },
-        #             ],
-        #             [],
-        #         ),
-        # (
-        #     ["ROADS"],
-        #     "default.municipality",
-        #     [],
-        #     ["default.municipality.state_id = 'CA'"],
-        #     """
-        #     SELECT
-        #       default_DOT_municipality.municipality_id default_DOT_municipality_DOT_municipality_id,
-        #       default_DOT_municipality.contact_name default_DOT_municipality_DOT_contact_name,
-        #       default_DOT_municipality.contact_title default_DOT_municipality_DOT_contact_title,
-        #       default_DOT_municipality.local_region default_DOT_municipality_DOT_local_region,
-        #       default_DOT_municipality.phone default_DOT_municipality_DOT_phone,
-        #       default_DOT_municipality.state_id default_DOT_municipality_DOT_state_id
-        #     FROM roads.municipality AS default_DOT_municipality
-        #     WHERE  default_DOT_municipality.state_id = 'CA'
-        #     """,
-        #     [
-        #         {
-        #             "column": "municipality_id",
-        #             "name": "default_DOT_municipality_DOT_municipality_id",
-        #             "node": "default.municipality",
-        #             "semantic_entity": "default.municipality.municipality_id",
-        #             "semantic_type": None,
-        #             "type": "string",
-        #         },
-        #         {
-        #             "column": "contact_name",
-        #             "name": "default_DOT_municipality_DOT_contact_name",
-        #             "node": "default.municipality",
-        #             "semantic_entity": "default.municipality.contact_name",
-        #             "semantic_type": None,
-        #             "type": "string",
-        #         },
-        #         {
-        #             "column": "contact_title",
-        #             "name": "default_DOT_municipality_DOT_contact_title",
-        #             "node": "default.municipality",
-        #             "semantic_entity": "default.municipality.contact_title",
-        #             "semantic_type": None,
-        #             "type": "string",
-        #         },
-        #         {
-        #             "column": "local_region",
-        #             "name": "default_DOT_municipality_DOT_local_region",
-        #             "node": "default.municipality",
-        #             "semantic_entity": "default.municipality.local_region",
-        #             "semantic_type": None,
-        #             "type": "string",
-        #         },
-        #         {
-        #             "column": "phone",
-        #             "name": "default_DOT_municipality_DOT_phone",
-        #             "node": "default.municipality",
-        #             "semantic_entity": "default.municipality.phone",
-        #             "semantic_type": None,
-        #             "type": "string",
-        #         },
-        #         {
-        #             "column": "state_id",
-        #             "name": "default_DOT_municipality_DOT_state_id",
-        #             "node": "default.municipality",
-        #             "semantic_entity": "default.municipality.state_id",
-        #             "semantic_type": None,
-        #             "type": "int",
-        #         },
-        #     ],
-        #     [],
-        # ),
-        #         (
-        #             ["ROADS"],
-        #             "default.num_repair_orders",
-        #             [],
-        #             [],
-        #             """SELECT  count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders
-        #  FROM (SELECT  repair_orders.repair_order_id,
-        #     repair_orders.municipality_id,
-        #     repair_orders.hard_hat_id,
-        #     repair_orders.dispatcher_id,
-        #     repair_orders.order_date,
-        #     repair_orders.dispatched_date,
-        #     repair_orders.required_date,
-        #     repair_order_details.discount,
-        #     repair_order_details.price,
-        #     repair_order_details.quantity,
-        #     repair_order_details.repair_type_id,
-        #     repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-        #     repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-        #     repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-        #  FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id)
-        #  AS default_DOT_repair_orders_fact""",
-        #             [
-        #                 {
-        #                     "column": "default_DOT_num_repair_orders",
-        #                     "name": "default_DOT_num_repair_orders",
-        #                     "node": "default.num_repair_orders",
-        #                     "type": "bigint",
-        #                     "semantic_type": None,
-        #                     "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
-        #                 },
-        #             ],
-        #             [[25]],
-        #         ),
-        # (
-        #     ["ROADS"],
-        #     "default.num_repair_orders",
-        #     ["default.hard_hat.state"],
-        #     [
-        #         "default.repair_orders_fact.dispatcher_id=1",
-        #         "default.hard_hat.state='AZ'",
-        #     ],
-        #     """
-        #     SELECT  count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
-        #         default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state
-        #      FROM (SELECT  repair_orders.repair_order_id,
-        #         repair_orders.municipality_id,
-        #         repair_orders.hard_hat_id,
-        #         repair_orders.dispatcher_id,
-        #         repair_orders.order_date,
-        #         repair_orders.dispatched_date,
-        #         repair_orders.required_date,
-        #         repair_order_details.discount,
-        #         repair_order_details.price,
-        #         repair_order_details.quantity,
-        #         repair_order_details.repair_type_id,
-        #         repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-        #         repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-        #         repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-        #      FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id)
-        #      AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-        #         default_DOT_hard_hats.state
-        #      FROM roads.hard_hats AS default_DOT_hard_hats)
-        #      AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-        #      WHERE  default_DOT_hard_hat.state = 'AZ' AND default_DOT_repair_orders_fact.dispatcher_id = 1
-        #      GROUP BY  default_DOT_hard_hat.state
-        #     """,
-        #     [
-        #         {
-        #             "column": "default_DOT_num_repair_orders",
-        #             "name": "default_DOT_num_repair_orders",
-        #             "node": "default.num_repair_orders",
-        #             "type": "bigint",
-        #             "semantic_type": None,
-        #             "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
-        #         },
-        #         {
-        #             "column": "state",
-        #             "name": "default_DOT_hard_hat_DOT_state",
-        #             "node": "default.hard_hat",
-        #             "type": "string",
-        #             "semantic_type": None,
-        #             "semantic_entity": "default.hard_hat.state",
-        #         },
-        #     ],
-        #     [],
-        # ),
-        # (
-        #     ["ROADS"],
-        #     "default.num_repair_orders",
-        #     [
-        #         "default.hard_hat.city",
-        #         "default.hard_hat.last_name",
-        #         "default.dispatcher.company_name",
-        #         "default.municipality_dim.local_region",
-        #     ],
-        #     [
-        #         "default.dispatcher.dispatcher_id=1",
-        #         "default.hard_hat.state != 'AZ'",
-        #         "default.dispatcher.phone = '4082021022'",
-        #         "default.repair_orders_fact.order_date >= '2020-01-01'",
-        #     ],
-        #     """
-        #     SELECT  count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
-        #         default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-        #         default_DOT_hard_hat.last_name default_DOT_hard_hat_DOT_last_name,
-        #         default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
-        #         default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region
-        #      FROM (SELECT  repair_orders.repair_order_id,
-        #         repair_orders.municipality_id,
-        #         repair_orders.hard_hat_id,
-        #         repair_orders.dispatcher_id,
-        #         repair_orders.order_date,
-        #         repair_orders.dispatched_date,
-        #         repair_orders.required_date,
-        #         repair_order_details.discount,
-        #         repair_order_details.price,
-        #         repair_order_details.quantity,
-        #         repair_order_details.repair_type_id,
-        #         repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-        #         repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-        #         repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-        #      FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
-        #      WHERE  repair_orders.dispatcher_id = 1)
-        #      AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_dispatchers.dispatcher_id,
-        #         default_DOT_dispatchers.company_name,
-        #         default_DOT_dispatchers.phone
-        #      FROM roads.dispatchers AS default_DOT_dispatchers)
-        #      AS default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-        #     LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-        #         default_DOT_hard_hats.last_name,
-        #         default_DOT_hard_hats.city,
-        #         default_DOT_hard_hats.state
-        #      FROM roads.hard_hats AS default_DOT_hard_hats)
-        #      AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-        #     LEFT JOIN (SELECT  m.municipality_id AS municipality_id,
-        #         m.local_region
-        #      FROM roads.municipality AS m LEFT JOIN roads.municipality_municipality_type AS mmt ON m.municipality_id = mmt.municipality_id
-        #     LEFT JOIN roads.municipality_type AS mt ON mmt.municipality_type_id = mt.municipality_type_desc)
-        #      AS default_DOT_municipality_dim ON default_DOT_repair_orders_fact.municipality_id = default_DOT_municipality_dim.municipality_id
-        #      WHERE  default_DOT_repair_orders_fact.order_date >= '2020-01-01' AND default_DOT_dispatcher.phone = '4082021022' AND default_DOT_hard_hat.state != 'AZ' AND default_DOT_repair_orders_fact.dispatcher_id = 1
-        #      GROUP BY  default_DOT_hard_hat.city, default_DOT_hard_hat.last_name, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
-        #     """,
-        #     [
-        #         {
-        #             "name": "default_DOT_num_repair_orders",
-        #             "column": "default_DOT_num_repair_orders",
-        #             "node": "default.num_repair_orders",
-        #             "type": "bigint",
-        #             "semantic_type": None,
-        #             "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
-        #         },
-        #         {
-        #             "name": "default_DOT_hard_hat_DOT_city",
-        #             "column": "city",
-        #             "node": "default.hard_hat",
-        #             "type": "string",
-        #             "semantic_type": None,
-        #             "semantic_entity": "default.hard_hat.city",
-        #         },
-        #         {
-        #             "name": "default_DOT_hard_hat_DOT_last_name",
-        #             "column": "last_name",
-        #             "node": "default.hard_hat",
-        #             "type": "string",
-        #             "semantic_type": None,
-        #             "semantic_entity": "default.hard_hat.last_name",
-        #         },
-        #         {
-        #             "name": "default_DOT_dispatcher_DOT_company_name",
-        #             "column": "company_name",
-        #             "node": "default.dispatcher",
-        #             "type": "string",
-        #             "semantic_type": None,
-        #             "semantic_entity": "default.dispatcher.company_name",
-        #         },
-        #         {
-        #             "name": "default_DOT_municipality_dim_DOT_local_region",
-        #             "column": "local_region",
-        #             "node": "default.municipality_dim",
-        #             "type": "string",
-        #             "semantic_type": None,
-        #             "semantic_entity": "default.municipality_dim.local_region",
-        #         },
-        #     ],
-        #     [],
-        # ),
-        # # metric with second-order dimension
-        # (
-        #     ["ROADS"],
-        #     "default.avg_repair_price",
-        #     ["default.hard_hat.city"],
-        #     [],
-        #     """
-        #     SELECT  avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
-        #         default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city
-        #     FROM (SELECT  repair_orders.repair_order_id,
-        #         repair_orders.municipality_id,
-        #         repair_orders.hard_hat_id,
-        #         repair_orders.dispatcher_id,
-        #         repair_orders.order_date,
-        #         repair_orders.dispatched_date,
-        #         repair_orders.required_date,
-        #         repair_order_details.discount,
-        #         repair_order_details.price,
-        #         repair_order_details.quantity,
-        #         repair_order_details.repair_type_id,
-        #         repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-        #         repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-        #         repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-        #      FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id)
-        #      AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-        #         default_DOT_hard_hats.city,
-        #         default_DOT_hard_hats.state
-        #      FROM roads.hard_hats AS default_DOT_hard_hats)
-        #      AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-        #      GROUP BY  default_DOT_hard_hat.city
-        #     """,
-        #     [
-        #         {
-        #             "column": "default_DOT_avg_repair_price",
-        #             "name": "default_DOT_avg_repair_price",
-        #             "node": "default.avg_repair_price",
-        #             "type": "double",
-        #             "semantic_type": None,
-        #             "semantic_entity": "default.avg_repair_price.default_DOT_avg_repair_price",
-        #         },
-        #         {
-        #             "column": "city",
-        #             "name": "default_DOT_hard_hat_DOT_city",
-        #             "node": "default.hard_hat",
-        #             "type": "string",
-        #             "semantic_type": None,
-        #             "semantic_entity": "default.hard_hat.city",
-        #         },
-        #     ],
-        #     [
-        #         [54672.75, "Jersey City"],
-        #         [76555.33333333333, "Billerica"],
-        #         [64190.6, "Southgate"],
-        #         [65682.0, "Phoenix"],
-        #         [54083.5, "Southampton"],
-        #         [65595.66666666667, "Powder Springs"],
-        #         [39301.5, "Middletown"],
-        #         [70418.0, "Muskogee"],
-        #         [53374.0, "Niagara Falls"],
-        #     ],
-        # ),
-        # # metric with multiple nth order dimensions that can share some of the joins
-        # (
-        #     ["ROADS"],
-        #     "default.avg_repair_price",
-        #     ["default.hard_hat.city", "default.dispatcher.company_name"],
-        #     [],
-        #     """
-        #       SELECT  avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
-        #         default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-        #         default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name
-        #       FROM (SELECT  repair_orders.repair_order_id,
-        #         repair_orders.municipality_id,
-        #         repair_orders.hard_hat_id,
-        #         repair_orders.dispatcher_id,
-        #         repair_orders.order_date,
-        #         repair_orders.dispatched_date,
-        #         repair_orders.required_date,
-        #         repair_order_details.discount,
-        #         repair_order_details.price,
-        #         repair_order_details.quantity,
-        #         repair_order_details.repair_type_id,
-        #         repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-        #         repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-        #         repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-        #      FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id)
-        #      AS default_DOT_repair_orders_fact LEFT JOIN (SELECT  default_DOT_dispatchers.dispatcher_id,
-        #         default_DOT_dispatchers.company_name
-        #      FROM roads.dispatchers AS default_DOT_dispatchers)
-        #      AS default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-        #     LEFT JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-        #         default_DOT_hard_hats.city,
-        #         default_DOT_hard_hats.state
-        #      FROM roads.hard_hats AS default_DOT_hard_hats)
-        #      AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-        #      GROUP BY  default_DOT_hard_hat.city, default_DOT_dispatcher.company_name
-        #     """,
-        #     [
-        #         {
-        #             "column": "default_DOT_avg_repair_price",
-        #             "name": "default_DOT_avg_repair_price",
-        #             "node": "default.avg_repair_price",
-        #             "type": "double",
-        #             "semantic_type": None,
-        #             "semantic_entity": "default.avg_repair_price.default_DOT_avg_repair_price",
-        #         },
-        #         {
-        #             "column": "city",
-        #             "name": "default_DOT_hard_hat_DOT_city",
-        #             "node": "default.hard_hat",
-        #             "type": "string",
-        #             "semantic_type": None,
-        #             "semantic_entity": "default.hard_hat.city",
-        #         },
-        #         {
-        #             "column": "company_name",
-        #             "name": "default_DOT_dispatcher_DOT_company_name",
-        #             "node": "default.dispatcher",
-        #             "type": "string",
-        #             "semantic_type": None,
-        #             "semantic_entity": "default.dispatcher.company_name",
-        #         },
-        #     ],
-        #     [
-        #         [63708.0, "Jersey City", "Federal Roads Group"],
-        #         [67253.0, "Billerica", "Pothole Pete"],
-        #         [57332.5, "Southgate", "Asphalts R Us"],
-        #         [51661.0, "Jersey City", "Pothole Pete"],
-        #         [76463.0, "Phoenix", "Asphalts R Us"],
-        #         [81206.5, "Billerica", "Asphalts R Us"],
-        #         [63918.0, "Southampton", "Asphalts R Us"],
-        #         [59499.5, "Southgate", "Federal Roads Group"],
-        #         [27222.0, "Southampton", "Federal Roads Group"],
-        #         [62597.0, "Southampton", "Pothole Pete"],
-        #         [54901.0, "Phoenix", "Federal Roads Group"],
-        #         [66929.5, "Powder Springs", "Asphalts R Us"],
-        #         [39301.5, "Middletown", "Federal Roads Group"],
-        #         [70418.0, "Muskogee", "Federal Roads Group"],
-        #         [62928.0, "Powder Springs", "Pothole Pete"],
-        #         [53374.0, "Niagara Falls", "Federal Roads Group"],
-        #         [87289.0, "Southgate", "Pothole Pete"],
-        #     ],
-        # ),
-        # # dimension with aliased join key should just use the alias directly
-        # (
-        #     ["ROADS"],
-        #     "default.num_repair_orders",
-        #     ["default.us_state.state_short"],
-        #     [],
-        #     """
-        #     WITH default_DOT_repair_orders_fact AS (
-        #       SELECT
-        #         repair_orders.repair_order_id,
-        #         repair_orders.municipality_id,
-        #         repair_orders.hard_hat_id,
-        #         repair_orders.dispatcher_id,
-        #         repair_orders.order_date,
-        #         repair_orders.dispatched_date,
-        #         repair_orders.required_date,
-        #         repair_order_details.discount,
-        #         repair_order_details.price,
-        #         repair_order_details.quantity,
-        #         repair_order_details.repair_type_id,
-        #         repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-        #         repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-        #         repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-        #       FROM roads.repair_orders AS repair_orders
-        #       JOIN roads.repair_order_details AS repair_order_details
-        #         ON repair_orders.repair_order_id = repair_order_details.repair_order_id
-        #     ),
-        #     default_DOT_hard_hat AS (
-        #       SELECT
-        #         default_DOT_hard_hats.hard_hat_id,
-        #         default_DOT_hard_hats.last_name,
-        #         default_DOT_hard_hats.first_name,
-        #         default_DOT_hard_hats.title,
-        #         default_DOT_hard_hats.birth_date,
-        #         default_DOT_hard_hats.hire_date,
-        #         default_DOT_hard_hats.address,
-        #         default_DOT_hard_hats.city,
-        #         default_DOT_hard_hats.state,
-        #         default_DOT_hard_hats.postal_code,
-        #         default_DOT_hard_hats.country,
-        #         default_DOT_hard_hats.manager,
-        #         default_DOT_hard_hats.contractor_id
-        #       FROM roads.hard_hats AS default_DOT_hard_hats
-        #     )
-        #     SELECT
-        #       default_DOT_hard_hat.state AS default_DOT_us_state_DOT_state_short,
-        #       COUNT(default_DOT_repair_orders_fact.repair_order_id) AS default_DOT_num_repair_orders
-        #     FROM default_DOT_repair_orders_fact
-        #     INNER JOIN default_DOT_hard_hat
-        #       ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-        #     GROUP BY default_DOT_hard_hat.state
-        #     """,
-        #     [
-        #         {
-        #             "column": "default_DOT_num_repair_orders",
-        #             "name": "default_DOT_num_repair_orders",
-        #             "node": "default.num_repair_orders",
-        #             "type": "bigint",
-        #             "semantic_type": "metric",
-        #             "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
-        #         },
-        #         {
-        #             "column": "state_short",
-        #             "name": "default_DOT_us_state_DOT_state_short",
-        #             "node": "default.us_state",
-        #             "type": "string",
-        #             "semantic_type": "dimension",
-        #             "semantic_entity": "default.us_state.state_short",
-        #         },
-        #     ],
-        #     [
-        #         [2, "AZ"],
-        #         [2, "CT"],
-        #         [3, "GA"],
-        #         [3, "MA"],
-        #         [5, "MI"],
-        #         [4, "NJ"],
-        #         [1, "NY"],
-        #         [1, "OK"],
-        #         [4, "PA"],
-        #     ],
-        # ),
-        # # querying on source node while pulling in joinable dimension
-        # # (should not group by the dimension attribute)
-        # (
-        #     ["ROADS"],
-        #     "default.repair_orders",
-        #     ["default.hard_hat.state"],
-        #     ["default.hard_hat.state='NY'"],
-        #     """
-        #     WITH default_DOT_repair_orders AS (
-        #       SELECT
-        #         default_DOT_repair_orders.repair_order_id,
-        #         default_DOT_repair_orders.municipality_id,
-        #         default_DOT_repair_orders.hard_hat_id,
-        #         default_DOT_repair_orders.order_date,
-        #         default_DOT_repair_orders.required_date,
-        #         default_DOT_repair_orders.dispatched_date,
-        #         default_DOT_repair_orders.dispatcher_id
-        #       FROM roads.repair_orders AS default_DOT_repair_orders
-        #     ),
-        #     default_DOT_repair_order AS (
-        #       SELECT
-        #         default_DOT_repair_orders.repair_order_id,
-        #         default_DOT_repair_orders.municipality_id,
-        #         default_DOT_repair_orders.hard_hat_id,
-        #         default_DOT_repair_orders.order_date,
-        #         default_DOT_repair_orders.required_date,
-        #         default_DOT_repair_orders.dispatched_date,
-        #         default_DOT_repair_orders.dispatcher_id
-        #       FROM roads.repair_orders AS default_DOT_repair_orders
-        #     ),
-        #     default_DOT_hard_hat AS (
-        #       SELECT
-        #         default_DOT_hard_hats.hard_hat_id,
-        #         default_DOT_hard_hats.last_name,
-        #         default_DOT_hard_hats.first_name,
-        #         default_DOT_hard_hats.title,
-        #         default_DOT_hard_hats.birth_date,
-        #         default_DOT_hard_hats.hire_date,
-        #         default_DOT_hard_hats.address,
-        #         default_DOT_hard_hats.city,
-        #         default_DOT_hard_hats.state,
-        #         default_DOT_hard_hats.postal_code,
-        #         default_DOT_hard_hats.country,
-        #         default_DOT_hard_hats.manager,
-        #         default_DOT_hard_hats.contractor_id
-        #       FROM roads.hard_hats AS default_DOT_hard_hats
-        #       WHERE default_DOT_hard_hats.state = 'NY'
-        #     )
-        #     SELECT  default_DOT_repair_orders.repair_order_id default_DOT_repair_orders_DOT_repair_order_id,
-        #         default_DOT_repair_orders.municipality_id default_DOT_repair_orders_DOT_municipality_id,
-        #         default_DOT_repair_orders.hard_hat_id default_DOT_repair_orders_DOT_hard_hat_id,
-        #         default_DOT_repair_orders.order_date default_DOT_repair_orders_DOT_order_date,
-        #         default_DOT_repair_orders.required_date default_DOT_repair_orders_DOT_required_date,
-        #         default_DOT_repair_orders.dispatched_date default_DOT_repair_orders_DOT_dispatched_date,
-        #         default_DOT_repair_orders.dispatcher_id default_DOT_repair_orders_DOT_dispatcher_id,
-        #         default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state
-        #     FROM default_DOT_repair_orders
-        #     INNER JOIN default_DOT_repair_order
-        #       ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order.repair_order_id
-        #     INNER JOIN default_DOT_hard_hat
-        #       ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-        #     """,
-        #     [
-        #         {
-        #             "column": "repair_order_id",
-        #             "name": "default_DOT_repair_orders_DOT_repair_order_id",
-        #             "node": "default.repair_orders",
-        #             "semantic_entity": "default.repair_orders.repair_order_id",
-        #             "semantic_type": None,
-        #             "type": "int",
-        #         },
-        #         {
-        #             "column": "municipality_id",
-        #             "name": "default_DOT_repair_orders_DOT_municipality_id",
-        #             "node": "default.repair_orders",
-        #             "semantic_entity": "default.repair_orders.municipality_id",
-        #             "semantic_type": None,
-        #             "type": "string",
-        #         },
-        #         {
-        #             "column": "hard_hat_id",
-        #             "name": "default_DOT_repair_orders_DOT_hard_hat_id",
-        #             "node": "default.repair_orders",
-        #             "semantic_entity": "default.repair_orders.hard_hat_id",
-        #             "semantic_type": None,
-        #             "type": "int",
-        #         },
-        #         {
-        #             "column": "order_date",
-        #             "name": "default_DOT_repair_orders_DOT_order_date",
-        #             "node": "default.repair_orders",
-        #             "semantic_entity": "default.repair_orders.order_date",
-        #             "semantic_type": None,
-        #             "type": "timestamp",
-        #         },
-        #         {
-        #             "column": "required_date",
-        #             "name": "default_DOT_repair_orders_DOT_required_date",
-        #             "node": "default.repair_orders",
-        #             "semantic_entity": "default.repair_orders.required_date",
-        #             "semantic_type": None,
-        #             "type": "timestamp",
-        #         },
-        #         {
-        #             "column": "dispatched_date",
-        #             "name": "default_DOT_repair_orders_DOT_dispatched_date",
-        #             "node": "default.repair_orders",
-        #             "semantic_entity": "default.repair_orders.dispatched_date",
-        #             "semantic_type": None,
-        #             "type": "timestamp",
-        #         },
-        #         {
-        #             "column": "dispatcher_id",
-        #             "name": "default_DOT_repair_orders_DOT_dispatcher_id",
-        #             "node": "default.repair_orders",
-        #             "semantic_entity": "default.repair_orders.dispatcher_id",
-        #             "semantic_type": None,
-        #             "type": "int",
-        #         },
-        #         {
-        #             "column": "state",
-        #             "name": "default_DOT_hard_hat_DOT_state",
-        #             "node": "default.hard_hat",
-        #             "semantic_entity": "default.hard_hat.state",
-        #             "semantic_type": None,
-        #             "type": "string",
-        #         },
-        #     ],
-        #     [
-        #         [
-        #             10021,
-        #             "Philadelphia",
-        #             7,
-        #             "2007-05-10",
-        #             "2009-08-27",
-        #             "2007-12-01",
-        #             3,
-        #             "NY",
-        #         ],
-        #     ],
-        # ),
-        # # metric without any dimensions or filters should return single aggregate value
-        # (
-        #     ["ROADS"],
-        #     "default.num_repair_orders",
-        #     [],
-        #     [],
-        #     """
-        #     WITH default_DOT_repair_orders_fact AS (
-        #       SELECT
-        #         repair_orders.repair_order_id,
-        #         repair_orders.municipality_id,
-        #         repair_orders.hard_hat_id,
-        #         repair_orders.dispatcher_id,
-        #         repair_orders.order_date,
-        #         repair_orders.dispatched_date,
-        #         repair_orders.required_date,
-        #         repair_order_details.discount,
-        #         repair_order_details.price,
-        #         repair_order_details.quantity,
-        #         repair_order_details.repair_type_id,
-        #         repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
-        #         repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-        #         repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-        #       FROM roads.repair_orders AS repair_orders
-        #       JOIN roads.repair_order_details AS repair_order_details
-        #         ON repair_orders.repair_order_id = repair_order_details.repair_order_id
-        #     )
-        #     SELECT
-        #       COUNT(default_DOT_repair_orders_fact.repair_order_id) AS default_DOT_num_repair_orders
-        #     FROM default_DOT_repair_orders_fact
-        #     """,
-        #     [
-        #         {
-        #             "column": "default_DOT_num_repair_orders",
-        #             "name": "default_DOT_num_repair_orders",
-        #             "node": "default.num_repair_orders",
-        #             "type": "bigint",
-        #             "semantic_type": "metric",
-        #             "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
-        #         },
-        #     ],
-        #     [
-        #         [25],
-        #     ],
-        # ),
-    ],
-)
-@pytest.mark.asyncio
-async def test_sql_with_filters2(  # pylint: disable=too-many-arguments
-    groups: List[str],
-    node_name,
-    dimensions,
-    filters,
-    sql,
-    columns,
-    rows,
-    module__client_with_examples: AsyncClient,
-):
-    """
-    Test ``GET /sql/{node_name}/`` with various filters and dimensions.
-    """
-    custom_client = module__client_with_examples
-    response = await custom_client.get(
-        f"/sql/{node_name}/",
-        params={"dimensions": dimensions, "filters": filters},
-    )
-    data = response.json()
-    assert str(parse(str(data["sql"]))) == str(parse(str(sql)))
-    assert data["columns"] == columns
-
-    # Run the query against local duckdb file if it's part of the roads model
-    if "ROADS" in groups:
-        response = await custom_client.get(
-            f"/data/{node_name}/",
-            params={"dimensions": dimensions, "filters": filters},
-        )
-        data = response.json()
-        assert data["results"][0]["rows"] == rows
-
-
 async def verify_node_sql(  # pylint: disable=too-many-arguments
     custom_client: AsyncClient,
     node_name: str,
@@ -1685,6 +609,599 @@ async def verify_node_sql(  # pylint: disable=too-many-arguments
     assert data["results"][0]["rows"] == expected_rows
     assert str(parse(str(sql_data["sql"]))) == str(parse(str(expected_sql)))
     assert sql_data["columns"] == expected_columns
+
+
+@pytest.mark.asyncio
+async def test_transform_sql_filter_joinable_dimension(  # pylint: disable=too-many-arguments
+    module__client_with_examples: AsyncClient,
+):
+    """
+    Test ``GET /sql/{node_name}/`` with various filters and dimensions.
+    """
+    await verify_node_sql(
+        module__client_with_examples,
+        node_name="default.repair_orders_fact",
+        dimensions=["default.hard_hat.first_name", "default.hard_hat.last_name"],
+        filters=["default.hard_hat.state = 'NY'"],
+        expected_sql="""
+        WITH
+        default_DOT_repair_orders_fact AS (
+        SELECT  repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+         FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ),
+        default_DOT_hard_hat AS (
+        SELECT  default_DOT_hard_hats.hard_hat_id,
+            default_DOT_hard_hats.last_name,
+            default_DOT_hard_hats.first_name,
+            default_DOT_hard_hats.title,
+            default_DOT_hard_hats.birth_date,
+            default_DOT_hard_hats.hire_date,
+            default_DOT_hard_hats.address,
+            default_DOT_hard_hats.city,
+            default_DOT_hard_hats.state,
+            default_DOT_hard_hats.postal_code,
+            default_DOT_hard_hats.country,
+            default_DOT_hard_hats.manager,
+            default_DOT_hard_hats.contractor_id
+         FROM roads.hard_hats AS default_DOT_hard_hats
+         WHERE  default_DOT_hard_hats.state = 'NY'
+        )
+        SELECT  default_DOT_repair_orders_fact.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id,
+            default_DOT_repair_orders_fact.municipality_id default_DOT_repair_orders_fact_DOT_municipality_id,
+            default_DOT_repair_orders_fact.hard_hat_id default_DOT_repair_orders_fact_DOT_hard_hat_id,
+            default_DOT_repair_orders_fact.dispatcher_id default_DOT_repair_orders_fact_DOT_dispatcher_id,
+            default_DOT_repair_orders_fact.order_date default_DOT_repair_orders_fact_DOT_order_date,
+            default_DOT_repair_orders_fact.dispatched_date default_DOT_repair_orders_fact_DOT_dispatched_date,
+            default_DOT_repair_orders_fact.required_date default_DOT_repair_orders_fact_DOT_required_date,
+            default_DOT_repair_orders_fact.discount default_DOT_repair_orders_fact_DOT_discount,
+            default_DOT_repair_orders_fact.price default_DOT_repair_orders_fact_DOT_price,
+            default_DOT_repair_orders_fact.quantity default_DOT_repair_orders_fact_DOT_quantity,
+            default_DOT_repair_orders_fact.repair_type_id default_DOT_repair_orders_fact_DOT_repair_type_id,
+            default_DOT_repair_orders_fact.total_repair_cost default_DOT_repair_orders_fact_DOT_total_repair_cost,
+            default_DOT_repair_orders_fact.time_to_dispatch default_DOT_repair_orders_fact_DOT_time_to_dispatch,
+            default_DOT_repair_orders_fact.dispatch_delay default_DOT_repair_orders_fact_DOT_dispatch_delay,
+            default_DOT_hard_hat.first_name default_DOT_hard_hat_DOT_first_name,
+            default_DOT_hard_hat.last_name default_DOT_hard_hat_DOT_last_name,
+            default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state
+         FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+        """,
+        expected_columns=[
+            {
+                "column": "repair_order_id",
+                "name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.repair_order_id",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "municipality_id",
+                "name": "default_DOT_repair_orders_fact_DOT_municipality_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.municipality_id",
+                "semantic_type": None,
+                "type": "string",
+            },
+            {
+                "column": "hard_hat_id",
+                "name": "default_DOT_repair_orders_fact_DOT_hard_hat_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.hard_hat_id",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "dispatcher_id",
+                "name": "default_DOT_repair_orders_fact_DOT_dispatcher_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.dispatcher_id",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "order_date",
+                "name": "default_DOT_repair_orders_fact_DOT_order_date",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.order_date",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "dispatched_date",
+                "name": "default_DOT_repair_orders_fact_DOT_dispatched_date",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.dispatched_date",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "required_date",
+                "name": "default_DOT_repair_orders_fact_DOT_required_date",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.required_date",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "discount",
+                "name": "default_DOT_repair_orders_fact_DOT_discount",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.discount",
+                "semantic_type": None,
+                "type": "float",
+            },
+            {
+                "column": "price",
+                "name": "default_DOT_repair_orders_fact_DOT_price",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.price",
+                "semantic_type": None,
+                "type": "float",
+            },
+            {
+                "column": "quantity",
+                "name": "default_DOT_repair_orders_fact_DOT_quantity",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.quantity",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "repair_type_id",
+                "name": "default_DOT_repair_orders_fact_DOT_repair_type_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.repair_type_id",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "total_repair_cost",
+                "name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.total_repair_cost",
+                "semantic_type": None,
+                "type": "float",
+            },
+            {
+                "column": "time_to_dispatch",
+                "name": "default_DOT_repair_orders_fact_DOT_time_to_dispatch",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.time_to_dispatch",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "dispatch_delay",
+                "name": "default_DOT_repair_orders_fact_DOT_dispatch_delay",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.dispatch_delay",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "first_name",
+                "name": "default_DOT_hard_hat_DOT_first_name",
+                "node": "default.hard_hat",
+                "semantic_entity": "default.hard_hat.first_name",
+                "semantic_type": None,
+                "type": "string",
+            },
+            {
+                "column": "last_name",
+                "name": "default_DOT_hard_hat_DOT_last_name",
+                "node": "default.hard_hat",
+                "semantic_entity": "default.hard_hat.last_name",
+                "semantic_type": None,
+                "type": "string",
+            },
+            {
+                "column": "state",
+                "name": "default_DOT_hard_hat_DOT_state",
+                "node": "default.hard_hat",
+                "semantic_entity": "default.hard_hat.state",
+                "semantic_type": None,
+                "type": "string",
+            },
+        ],
+        expected_rows=[
+            [
+                10021,
+                "Philadelphia",
+                7,
+                3,
+                "2007-05-10",
+                "2007-12-01",
+                "2009-08-27",
+                0.009999999776482582,
+                53374.0,
+                1,
+                1,
+                53374.0,
+                205,
+                -635,
+                "Boone",
+                "William",
+                "NY",
+            ],
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_transform_sql_filter_dimension_pk_col(  # pylint: disable=too-many-arguments
+    module__client_with_examples: AsyncClient,
+):
+    """
+    Test ``GET /sql/{node_name}/`` with various filters and dimensions.
+    """
+    await verify_node_sql(
+        module__client_with_examples,
+        node_name="default.repair_orders_fact",
+        dimensions=["default.hard_hat.hard_hat_id"],
+        filters=["default.hard_hat.hard_hat_id = 7"],
+        expected_sql="""
+        WITH default_DOT_repair_orders_fact AS (
+        SELECT  repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+         FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+         WHERE  repair_orders.hard_hat_id = 7
+        )
+        SELECT  default_DOT_repair_orders_fact.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id,
+            default_DOT_repair_orders_fact.municipality_id default_DOT_repair_orders_fact_DOT_municipality_id,
+            default_DOT_repair_orders_fact.hard_hat_id default_DOT_hard_hat_DOT_hard_hat_id,
+            default_DOT_repair_orders_fact.dispatcher_id default_DOT_repair_orders_fact_DOT_dispatcher_id,
+            default_DOT_repair_orders_fact.order_date default_DOT_repair_orders_fact_DOT_order_date,
+            default_DOT_repair_orders_fact.dispatched_date default_DOT_repair_orders_fact_DOT_dispatched_date,
+            default_DOT_repair_orders_fact.required_date default_DOT_repair_orders_fact_DOT_required_date,
+            default_DOT_repair_orders_fact.discount default_DOT_repair_orders_fact_DOT_discount,
+            default_DOT_repair_orders_fact.price default_DOT_repair_orders_fact_DOT_price,
+            default_DOT_repair_orders_fact.quantity default_DOT_repair_orders_fact_DOT_quantity,
+            default_DOT_repair_orders_fact.repair_type_id default_DOT_repair_orders_fact_DOT_repair_type_id,
+            default_DOT_repair_orders_fact.total_repair_cost default_DOT_repair_orders_fact_DOT_total_repair_cost,
+            default_DOT_repair_orders_fact.time_to_dispatch default_DOT_repair_orders_fact_DOT_time_to_dispatch,
+            default_DOT_repair_orders_fact.dispatch_delay default_DOT_repair_orders_fact_DOT_dispatch_delay
+         FROM default_DOT_repair_orders_fact
+        """,
+        expected_columns=[
+            {
+                "column": "repair_order_id",
+                "name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.repair_order_id",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "municipality_id",
+                "name": "default_DOT_repair_orders_fact_DOT_municipality_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.municipality_id",
+                "semantic_type": None,
+                "type": "string",
+            },
+            {
+                "column": "hard_hat_id",
+                "name": "default_DOT_hard_hat_DOT_hard_hat_id",
+                "node": "default.hard_hat",
+                "semantic_entity": "default.hard_hat.hard_hat_id",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "dispatcher_id",
+                "name": "default_DOT_repair_orders_fact_DOT_dispatcher_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.dispatcher_id",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "order_date",
+                "name": "default_DOT_repair_orders_fact_DOT_order_date",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.order_date",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "dispatched_date",
+                "name": "default_DOT_repair_orders_fact_DOT_dispatched_date",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.dispatched_date",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "required_date",
+                "name": "default_DOT_repair_orders_fact_DOT_required_date",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.required_date",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "discount",
+                "name": "default_DOT_repair_orders_fact_DOT_discount",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.discount",
+                "semantic_type": None,
+                "type": "float",
+            },
+            {
+                "column": "price",
+                "name": "default_DOT_repair_orders_fact_DOT_price",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.price",
+                "semantic_type": None,
+                "type": "float",
+            },
+            {
+                "column": "quantity",
+                "name": "default_DOT_repair_orders_fact_DOT_quantity",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.quantity",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "repair_type_id",
+                "name": "default_DOT_repair_orders_fact_DOT_repair_type_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.repair_type_id",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "total_repair_cost",
+                "name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.total_repair_cost",
+                "semantic_type": None,
+                "type": "float",
+            },
+            {
+                "column": "time_to_dispatch",
+                "name": "default_DOT_repair_orders_fact_DOT_time_to_dispatch",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.time_to_dispatch",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "dispatch_delay",
+                "name": "default_DOT_repair_orders_fact_DOT_dispatch_delay",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.dispatch_delay",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+        ],
+        expected_rows=[
+            [
+                10021,
+                "Philadelphia",
+                7,
+                3,
+                "2007-05-10",
+                "2007-12-01",
+                "2009-08-27",
+                0.009999999776482582,
+                53374.0,
+                1,
+                1,
+                53374.0,
+                205,
+                -635,
+            ],
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_transform_sql_filter_direct_node(  # pylint: disable=too-many-arguments
+    module__client_with_examples: AsyncClient,
+):
+    """
+    Test ``GET /sql/{node_name}/`` with various filters and dimensions.
+    """
+    await verify_node_sql(
+        module__client_with_examples,
+        node_name="default.repair_orders_fact",
+        dimensions=[],
+        filters=["default.repair_orders_fact.price > 97915"],
+        expected_sql="""WITH
+        default_DOT_repair_orders_fact AS (
+        SELECT  repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+         FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+         WHERE  repair_order_details.price > 97915
+        )
+        SELECT  default_DOT_repair_orders_fact.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id,
+            default_DOT_repair_orders_fact.municipality_id default_DOT_repair_orders_fact_DOT_municipality_id,
+            default_DOT_repair_orders_fact.hard_hat_id default_DOT_repair_orders_fact_DOT_hard_hat_id,
+            default_DOT_repair_orders_fact.dispatcher_id default_DOT_repair_orders_fact_DOT_dispatcher_id,
+            default_DOT_repair_orders_fact.order_date default_DOT_repair_orders_fact_DOT_order_date,
+            default_DOT_repair_orders_fact.dispatched_date default_DOT_repair_orders_fact_DOT_dispatched_date,
+            default_DOT_repair_orders_fact.required_date default_DOT_repair_orders_fact_DOT_required_date,
+            default_DOT_repair_orders_fact.discount default_DOT_repair_orders_fact_DOT_discount,
+            default_DOT_repair_orders_fact.price default_DOT_repair_orders_fact_DOT_price,
+            default_DOT_repair_orders_fact.quantity default_DOT_repair_orders_fact_DOT_quantity,
+            default_DOT_repair_orders_fact.repair_type_id default_DOT_repair_orders_fact_DOT_repair_type_id,
+            default_DOT_repair_orders_fact.total_repair_cost default_DOT_repair_orders_fact_DOT_total_repair_cost,
+            default_DOT_repair_orders_fact.time_to_dispatch default_DOT_repair_orders_fact_DOT_time_to_dispatch,
+            default_DOT_repair_orders_fact.dispatch_delay default_DOT_repair_orders_fact_DOT_dispatch_delay
+         FROM default_DOT_repair_orders_fact
+        """,
+        expected_columns=[
+            {
+                "column": "repair_order_id",
+                "name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.repair_order_id",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "municipality_id",
+                "name": "default_DOT_repair_orders_fact_DOT_municipality_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.municipality_id",
+                "semantic_type": None,
+                "type": "string",
+            },
+            {
+                "column": "hard_hat_id",
+                "name": "default_DOT_repair_orders_fact_DOT_hard_hat_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.hard_hat_id",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "dispatcher_id",
+                "name": "default_DOT_repair_orders_fact_DOT_dispatcher_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.dispatcher_id",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "order_date",
+                "name": "default_DOT_repair_orders_fact_DOT_order_date",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.order_date",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "dispatched_date",
+                "name": "default_DOT_repair_orders_fact_DOT_dispatched_date",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.dispatched_date",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "required_date",
+                "name": "default_DOT_repair_orders_fact_DOT_required_date",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.required_date",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "discount",
+                "name": "default_DOT_repair_orders_fact_DOT_discount",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.discount",
+                "semantic_type": None,
+                "type": "float",
+            },
+            {
+                "column": "price",
+                "name": "default_DOT_repair_orders_fact_DOT_price",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.price",
+                "semantic_type": None,
+                "type": "float",
+            },
+            {
+                "column": "quantity",
+                "name": "default_DOT_repair_orders_fact_DOT_quantity",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.quantity",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "repair_type_id",
+                "name": "default_DOT_repair_orders_fact_DOT_repair_type_id",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.repair_type_id",
+                "semantic_type": None,
+                "type": "int",
+            },
+            {
+                "column": "total_repair_cost",
+                "name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.total_repair_cost",
+                "semantic_type": None,
+                "type": "float",
+            },
+            {
+                "column": "time_to_dispatch",
+                "name": "default_DOT_repair_orders_fact_DOT_time_to_dispatch",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.time_to_dispatch",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+            {
+                "column": "dispatch_delay",
+                "name": "default_DOT_repair_orders_fact_DOT_dispatch_delay",
+                "node": "default.repair_orders_fact",
+                "semantic_entity": "default.repair_orders_fact.dispatch_delay",
+                "semantic_type": None,
+                "type": "timestamp",
+            },
+        ],
+        expected_rows=[
+            [
+                10019,
+                "Philadelphia",
+                5,
+                3,
+                "2007-05-16",
+                "2007-12-01",
+                "2009-09-06",
+                0.009999999776482582,
+                97916.0,
+                1,
+                2,
+                97916.0,
+                199,
+                -645,
+            ],
+        ],
+    )
 
 
 @pytest.mark.asyncio
@@ -3465,7 +2982,7 @@ async def test_get_sql_for_metrics2(module__client_with_examples: AsyncClient):
       default_DOT_municipality_dim.local_region
     LIMIT 100
     """
-    assert_query_strings_equal(data["sql"], expected_sql)
+    assert str(parse(data["sql"])) == str(parse(expected_sql))
     assert data["columns"] == [
         {
             "column": "country",

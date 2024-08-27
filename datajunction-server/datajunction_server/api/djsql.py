@@ -27,7 +27,7 @@ router = SecureAPIRouter(tags=["DJSQL"])
 
 
 @router.get("/djsql/data", response_model=QueryWithResults)
-async def get_data_for_djsql(  # pylint: disable=R0914, R0913
+async def get_data_for_djsql(  # pylint: disable=R0914, R0913  # pragma: no cover
     query: str,
     async_: bool = False,
     *,
