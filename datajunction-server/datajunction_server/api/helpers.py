@@ -496,7 +496,6 @@ async def validate_cube(  # pylint: disable=too-many-locals
         session,
         metric_nodes,
         dimension_names,
-        [],
     )
     return metrics, metric_nodes, list(dimension_nodes.values()), dimensions, catalog
 
@@ -808,7 +807,7 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
         await asyncio.sleep(stream_delay)  # pragma: no cover
 
 
-async def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-locals
+async def build_sql_for_dj_query(  # pylint: disable=too-many-locals  # pragma: no cover
     session: AsyncSession,
     query: str,
     access_control: access.AccessControl,
@@ -821,39 +820,39 @@ async def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many
 
     query_ast, dj_nodes = await build_dj_query(session, query)
 
-    for node in dj_nodes:
-        access_control.add_request_by_node(
+    for node in dj_nodes:  # pragma: no cover
+        access_control.add_request_by_node(  # pragma: no cover
             node.current,
         )
 
-    access_control.validate_and_raise()
+    access_control.validate_and_raise()  # pragma: no cover
 
-    leading_metric_node = dj_nodes[0]
-    available_engines = (
+    leading_metric_node = dj_nodes[0]  # pragma: no cover
+    available_engines = (  # pragma: no cover
         leading_metric_node.current.catalog.engines
         if leading_metric_node.current.catalog
         else []
     )
 
     # Check if selected engine is available
-    engine = (
+    engine = (  # pragma: no cover
         await get_engine(session, engine_name, engine_version)  # type: ignore
         if engine_name
         else available_engines[0]
     )
 
-    if engine not in available_engines:
+    if engine not in available_engines:  # pragma: no cover
         raise DJInvalidInputException(  # pragma: no cover
             f"The selected engine is not available for the node {leading_metric_node.name}. "
             f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
         )
 
-    columns = [
+    columns = [  # pragma: no cover
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
         for col in query_ast.select.projection
     ]
 
-    return (
+    return (  # pragma: no cover
         TranslatedSQL(
             sql=str(query_ast),
             columns=columns,

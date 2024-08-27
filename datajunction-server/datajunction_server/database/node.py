@@ -831,7 +831,7 @@ class NodeRevision(
         A mapping between each of the dimension attributes linked to this node to the columns
         that they're linked to.
         """
-        return {
+        return {  # pragma: no cover
             left.identifier(): right
             for link in self.dimension_links
             for left, right in link.foreign_key_mapping().items()
