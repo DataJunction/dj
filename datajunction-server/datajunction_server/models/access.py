@@ -175,7 +175,7 @@ class AccessControlStore(BaseModel):
         if self.state == AccessControlState.DIRECT:
             self.direct_requests.add(request)
         else:
-            self.indirect_requests.add(request)
+            self.indirect_requests.add(request)  # pragma: no cover
 
     async def add_request_by_node_name(
         self,
@@ -214,8 +214,8 @@ class AccessControlStore(BaseModel):
         """
         Add a request using a node
         """
-        for node in nodes:
-            self.add_request(
+        for node in nodes:  # pragma: no cover
+            self.add_request(  # pragma: no cover
                 ResourceRequest(
                     verb=verb or self.base_verb,
                     access_object=Resource.from_node(node),

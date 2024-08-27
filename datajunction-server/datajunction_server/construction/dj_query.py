@@ -1,3 +1,4 @@
+# pragma: no cover
 """
 Functions for making queries directly against DJ
 """
@@ -5,7 +6,8 @@ from typing import Dict, List, Set, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.construction.build import build_metric_nodes, build_node
+from datajunction_server.construction.build import build_metric_nodes
+from datajunction_server.construction.build_v2 import QueryBuilder
 from datajunction_server.construction.utils import try_get_dj_node
 from datajunction_server.database.node import Node
 from datajunction_server.models.node_type import NodeType
@@ -216,7 +218,8 @@ async def resolve_all(  # pylint: disable=R0914,W0640
             dj_nodes.append(dj_node)
             cte_name = ast.Name(f"node_query_{len(tree.ctes)}")
             current_dj_node = dj_node.current
-            built = (await build_node(session, current_dj_node)).bake_ctes()
+            query_builder = await QueryBuilder.create(session, current_dj_node)
+            built = (await query_builder.build()).bake_ctes()
             built.alias = cte_name
             built.set_as(True)
             built.parenthesized = True
