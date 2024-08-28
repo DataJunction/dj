@@ -7,7 +7,6 @@ from http import HTTPStatus
 from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.base import ExecutableOption
 
 from datajunction_server.database.user import User
