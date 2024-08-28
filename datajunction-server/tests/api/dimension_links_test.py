@@ -9,7 +9,6 @@ import pytest_asyncio
 from httpx import AsyncClient
 from requests import Response
 
-# from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from tests.conftest import post_and_raise_if_error
 from tests.examples import COMPLEX_DIMENSION_LINK, SERVICE_SETUP
