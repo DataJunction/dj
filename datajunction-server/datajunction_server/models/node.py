@@ -837,7 +837,6 @@ class NodeOutput(GenericNodeOutputModel):
     missing_table: Optional[bool] = False
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
-        # allow_population_by_field_name = True
         orm_mode = True
 
     @classmethod

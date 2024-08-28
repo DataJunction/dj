@@ -369,7 +369,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         return node  # pragma: no cover
 
     @classmethod
-    async def find(
+    async def find(  # pylint: disable=keyword-arg-before-vararg
         cls,
         session: AsyncSession,
         prefix: Optional[str] = None,
