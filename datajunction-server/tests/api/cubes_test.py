@@ -350,101 +350,6 @@ def repair_orders_cube_measures() -> Dict:
     }
 
 
-# {
-#         "default.avg_repair_price": {
-#             "combiner": "avg(default_DOT_repair_orders_fact_DOT_price)",
-#             "measures": [
-#                 {
-#                     "agg": "sum",
-#                     "field_name": "default_DOT_repair_orders_fact_DOT_price",
-#                     "name": "default.repair_orders_fact.price",
-#                     "type": "float",
-#                 },
-#             ],
-#             "metric": "default.avg_repair_price",
-#         },
-#         "default.discounted_orders_rate": {
-#             "combiner": "CAST(sum(if(default_DOT_repair_orders_fact_DOT_discount "
-#             "> 0.0, 1, 0)) AS DOUBLE) / "
-#             "count(*) AS ",
-#             "measures": [
-#                 {
-#                     "agg": "sum",
-#                     "field_name": "default_DOT_repair_orders_fact_DOT_discount",
-#                     "name": "default.repair_orders_fact.discount",
-#                     "type": "float",
-#                 },
-#             ],
-#             "metric": "default.discounted_orders_rate",
-#         },
-#         "default.double_total_repair_cost": {
-#             "combiner": "sum(default_DOT_repair_order_details_DOT_price) "
-#             "+ "
-#             "sum(default_DOT_repair_order_details_DOT_price) "
-#             "AS ",
-#             "measures": [
-#                 {
-#                     "agg": "sum",
-#                     "field_name": "default_DOT_repair_order_details_DOT_price",
-#                     "name": "default.repair_order_details.price",
-#                     "type": "float",
-#                 },
-#                 {
-#                     "agg": "sum",
-#                     "field_name": "default_DOT_repair_order_details_DOT_price",
-#                     "name": "default.repair_order_details.price",
-#                     "type": "float",
-#                 },
-#             ],
-#             "metric": "default.double_total_repair_cost",
-#         },
-#         "default.num_repair_orders": {
-#             "combiner": "count(default_DOT_repair_orders_fact_DOT_repair_order_id)",
-#             "measures": [
-#                 {
-#                     "agg": "sum",
-#                     "field_name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
-#                     "name": "default.repair_orders_fact.repair_order_id",
-#                     "type": "int",
-#                 },
-#             ],
-#             "metric": "default.num_repair_orders",
-#         },
-#         "default.total_repair_cost": {
-#             "combiner": "sum(default_DOT_repair_orders_fact_DOT_total_repair_cost)",
-#             "measures": [
-#                 {
-#                     "agg": "sum",
-#                     "field_name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
-#                     "name": "default.repair_orders_fact.total_repair_cost",
-#                     "type": "float",
-#                 },
-#             ],
-#             "metric": "default.total_repair_cost",
-#         },
-#         "default.total_repair_order_discounts": {
-#             "combiner": "sum(default_DOT_repair_orders_fact_DOT_price "
-#             "* "
-#             "default_DOT_repair_orders_fact_DOT_discount)",
-#             "measures": [
-#                 {
-#                     "agg": "sum",
-#                     "field_name": "default_DOT_repair_orders_fact_DOT_price",
-#                     "name": "default.repair_orders_fact.price",
-#                     "type": "float",
-#                 },
-#                 {
-#                     "agg": "sum",
-#                     "field_name": "default_DOT_repair_orders_fact_DOT_discount",
-#                     "name": "default.repair_orders_fact.discount",
-#                     "type": "float",
-#                 },
-#             ],
-#             "metric": "default.total_repair_order_discounts",
-#         },
-#     }
-
-
 @pytest.fixture
 def repairs_cube_elements():
     """
@@ -805,8 +710,6 @@ GROUP BY
   default_DOT_dispatcher.company_name,
   default_DOT_municipality_dim.local_region,
   default_DOT_hard_hat_to_delete.hire_date"""
-    print('metrics_sql_results["sql"]', metrics_sql_results["sql"])
-    print('cube_sql_results["sql"]', cube_sql_results["sql"])
     assert_query_strings_equal(metrics_sql_results["sql"], expected_query)
     assert_query_strings_equal(cube_sql_results["sql"], expected_query)
 

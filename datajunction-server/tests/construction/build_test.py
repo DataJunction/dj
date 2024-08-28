@@ -24,43 +24,6 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.naming import amenable_name
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
-# from ..sql.utils import compare_query_strings
-# from .fixtures import BUILD_EXPECTATION_PARAMETERS
-
-# @pytest.mark.parametrize("node_name,db_id", BUILD_EXPECTATION_PARAMETERS)
-# @pytest.mark.asyncio
-# async def test_build_node(
-#     node_name: str,
-#     db_id: int,
-#     request,
-#     construction_session: AsyncSession,
-# ):
-#     """
-#     Test building a node
-#     """
-#     build_expectation: Dict[
-#         str,
-#         Dict[Optional[int], Tuple[bool, str]],
-#     ] = request.getfixturevalue("build_expectation")
-#     succeeds, expected = build_expectation[node_name][db_id]
-#     node = await Node.get_by_name(
-#         construction_session,
-#         node_name,
-#     )
-#     if succeeds:
-#         test_ast = await build_node(
-#             construction_session,
-#             node.current,  # type: ignore
-#         )
-#         assert compare_query_strings(str(test_ast), expected)
-#     else:
-#         with pytest.raises(Exception) as exc:
-#             await build_node(
-#                 construction_session,
-#                 node.current,  # type: ignore
-#             )
-#             assert expected in str(exc)
-
 
 @pytest.mark.asyncio
 async def test_build_metric_with_dimensions_aggs(construction_session: AsyncSession):
@@ -315,41 +278,6 @@ async def test_build_metric_with_dimensions_filters(construction_session: AsyncS
       ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
     """
     assert str(parse(str(query))) == str(parse(expected))
-
-
-# @pytest.mark.asyncio
-# async def test_build_node_with_unnamed_column(
-#     construction_session: AsyncSession,
-#     current_user: User,
-# ):
-#     """
-#     Test building a node that has an unnamed column (so defaults to col<n>)
-#     """
-#     node_foo_ref = Node(
-#         name="foo",
-#         display_name="foo",
-#         type=NodeType.TRANSFORM,
-#         current_version="1",
-#         created_by_id=current_user.id,
-#     )
-#     node_foo = NodeRevision(
-#         node=node_foo_ref,
-#         name="foo",
-#         display_name="foo",
-#         type=NodeType.TRANSFORM,
-#         version="1",
-#         query="""SELECT 1 FROM basic.dimension.countries""",
-#         columns=[
-#             Column(name="col1", type=ct.IntegerType(), order=0),
-#         ],
-#         created_by_id=current_user.id,
-#     )
-#     construction_session.add(node_foo)
-#     await construction_session.commit()
-#     await build_node(
-#         construction_session,
-#         node_foo,
-#     )
 
 
 def test_amenable_name():
