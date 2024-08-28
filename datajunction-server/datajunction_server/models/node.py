@@ -27,6 +27,7 @@ from datajunction_server.models.materialization import MaterializationConfigOutp
 from datajunction_server.models.node_type import NodeNameOutput, NodeType
 from datajunction_server.models.partition import PartitionOutput
 from datajunction_server.models.tag import TagMinimum, TagOutput
+from datajunction_server.models.user import UserNameOnly
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import Version
@@ -753,6 +754,7 @@ class GenericNodeOutputModel(BaseModel):
             "catalog": values.get("catalog"),
             "missing_table": values.get("missing_table"),
             "tags": values.get("tags"),
+            "created_by": values.get("created_by").__dict__,
         }
         for k, v in current_dict.items():
             final_dict[k] = v
@@ -829,11 +831,13 @@ class NodeOutput(GenericNodeOutputModel):
     metric_metadata: Optional[MetricMetadataOutput] = None
     dimension_links: Optional[List[LinkDimensionOutput]]
     created_at: UTCDatetime
+    created_by: UserNameOnly
     tags: List[TagOutput] = []
     current_version: str
     missing_table: Optional[bool] = False
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+        # allow_population_by_field_name = True
         orm_mode = True
 
     @classmethod
@@ -849,6 +853,7 @@ class NodeOutput(GenericNodeOutputModel):
         return [
             selectinload(Node.current).options(*NodeRevision.default_load_options()),
             joinedload(Node.tags),
+            selectinload(Node.created_by),
         ]
 
 

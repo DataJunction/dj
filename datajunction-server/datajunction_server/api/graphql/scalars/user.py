@@ -2,7 +2,6 @@
 User related scalars
 """
 from enum import Enum
-from typing import Optional
 
 import strawberry
 
@@ -26,9 +25,9 @@ class User:  # pylint: disable=too-few-public-methods
     A DataJunction User
     """
 
-    id: BigInt
+    # id: BigInt
     username: str
-    email: Optional[str]
-    name: Optional[str]
-    oauth_provider: OAuthProvider
-    is_admin: bool
+    # email: Optional[str]
+    # name: Optional[str]
+    # oauth_provider: OAuthProvider
+    # is_admin: bool
