@@ -298,8 +298,10 @@ class DJClient(_internal.DJClient):
 
             if node_name:
                 path = f"{path}{node_name}"
-            elif metrics:
-                params["metrics"] = metrics
+            elif metrics:  # pragma: no cover
+                params["metrics"] = metrics  # pragma: no cover
+
+            print(f"Fetching data for '{node_name}' or '{metrics}'")  # pragma: no cover
 
             while job_state not in models.END_JOB_STATES:
                 progress_bar()  # pylint: disable=not-callable
