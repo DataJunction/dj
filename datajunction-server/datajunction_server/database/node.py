@@ -179,7 +179,13 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         ForeignKey("users.id"),
         nullable=False,
     )
-    created_by: Mapped[User] = relationship("User", back_populates="created_nodes")
+
+    created_by: Mapped[User] = relationship(
+        "User",
+        back_populates="created_nodes",
+        foreign_keys=[created_by_id],
+        lazy="selectin",
+    )
     namespace: Mapped[str] = mapped_column(String, default="default")
     current_version: Mapped[str] = mapped_column(
         String,
@@ -269,6 +275,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
                 *NodeRevision.default_load_options(),
             ),
             selectinload(Node.tags),
+            selectinload(Node.created_by),
         ]
         statement = statement.options(*options)
         if not include_inactive:
@@ -362,11 +369,11 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         return node  # pragma: no cover
 
     @classmethod
-    async def find(
+    async def find(  # pylint: disable=keyword-arg-before-vararg
         cls,
         session: AsyncSession,
-        prefix: Optional[str],
-        node_type: NodeType,
+        prefix: Optional[str] = None,
+        node_type: Optional[NodeType] = None,
         *options: ExecutableOption,
     ) -> List["Node"]:
         """
@@ -390,7 +397,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         fragment: Optional[str] = None,
         node_types: Optional[List[NodeType]] = None,
         tags: Optional[List[str]] = None,
-        *options: ExecutableOption,
+        *options: ExecutableOption,  # pylint: disable=keyword-arg-before-vararg
     ) -> List["Node"]:
         """
         Finds a list of nodes by prefix
@@ -458,6 +465,8 @@ class NodeRevision(
     created_by: Mapped[User] = relationship(
         "User",
         back_populates="created_node_revisions",
+        foreign_keys=[created_by_id],
+        lazy="selectin",
     )
     query: Mapped[Optional[str]] = mapped_column(String)
     mode: Mapped[NodeMode] = mapped_column(

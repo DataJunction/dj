@@ -19,6 +19,7 @@ from datajunction_server.database.dimensionlink import (
     JoinCardinality as JoinCardinality_,
 )
 from datajunction_server.database.dimensionlink import JoinType as JoinType_
+from datajunction_server.database.node import Node as DBNode
 from datajunction_server.database.node import NodeRevision as DBNodeRevision
 from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
@@ -182,3 +183,10 @@ class Node:  # pylint: disable=too-few-public-methods
 
     tags: List[Tag]
     created_by: User
+
+    @strawberry.field
+    def edited_by(self, root: "DBNode") -> List[str]:
+        """
+        The users who edited this node
+        """
+        return list({entry.user for entry in root.history})

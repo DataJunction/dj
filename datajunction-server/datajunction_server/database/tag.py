@@ -32,7 +32,12 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
         insert_default=lambda context: labelize(context.current_parameters.get("name")),
     )
     created_by_id: Mapped[int] = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_by: Mapped[User] = relationship("User", back_populates="created_tags")
+    created_by: Mapped[User] = relationship(
+        "User",
+        back_populates="created_tags",
+        foreign_keys=[created_by_id],
+        lazy="selectin",
+    )
     tag_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default={})
 
     nodes: Mapped[List["Node"]] = relationship(

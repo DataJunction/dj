@@ -7,7 +7,7 @@ from http import HTTPStatus
 from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.sql.base import ExecutableOption
 
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJError, DJException, ErrorCode
@@ -30,21 +30,18 @@ def get_password_hash(password) -> str:
     return pwd_context.hash(password)
 
 
-async def get_user(username: str, session: AsyncSession) -> User:
+async def get_user(
+    username: str,
+    session: AsyncSession,
+    *options: ExecutableOption,
+) -> User:
     """
     Get a DJ user
     """
     user = (
         (
             await session.execute(
-                select(User)
-                .options(
-                    joinedload(User.created_collections),
-                    joinedload(User.created_nodes),
-                    joinedload(User.created_node_revisions),
-                    joinedload(User.created_tags),
-                )
-                .where(User.username == username),
+                select(User).options(*options).where(User.username == username),
             )
         )
         .unique()
