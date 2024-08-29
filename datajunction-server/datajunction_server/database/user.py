@@ -1,12 +1,11 @@
 """User database schema."""
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import BigInteger, Enum, Integer, String, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
-from sqlalchemy.sql.base import ExecutableOption
 from datajunction_server.enum import StrEnum
 
 if TYPE_CHECKING:
