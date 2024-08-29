@@ -685,7 +685,9 @@ async def test_find_nodes_with_created_edited_by(
     {
         findNodes(names: ["default.repair_orders_fact"]) {
             name
-            createdBy
+            createdBy {
+              username
+            }
             editedBy
         }
     }
@@ -694,5 +696,9 @@ async def test_find_nodes_with_created_edited_by(
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodes"] == [
-        {"name": "default.repair_orders_fact", "createdBy": "dj", "editedBy": ["dj"]},
+        {
+            "name": "default.repair_orders_fact",
+            "createdBy": {"username": "dj"},
+            "editedBy": ["dj"],
+        },
     ]
