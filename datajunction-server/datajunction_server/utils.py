@@ -290,7 +290,7 @@ async def get_and_update_current_user(
     await session.execute(statement)
     await session.commit()
     refreshed_user = await User.get_by_username(session, current_user.username)
-    return refreshed_user
+    return refreshed_user  # type: ignore
 
 
 SEPARATOR = "."
