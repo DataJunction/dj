@@ -429,7 +429,7 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
     engine_version: Optional[str] = None,
 ) -> QueryWithResults:
     """
-    Return data for a set of metrics with dimensions and filters using server side events
+    Return data for a set of metrics with dimensions and filters using server sent events
     """
     request_headers = dict(request.headers)
     translated_sql, engine, catalog = await build_sql_for_multiple_metrics(

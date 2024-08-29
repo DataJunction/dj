@@ -1207,4 +1207,34 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
             "errors": [],
         }
     ),
+    "SELECTavg(default_DOT_repair_order_details.price)ASdefault_DOT_avg_repair_price,\tdefault"
+    "_DOT_hard_hat.citydefault_DOT_hard_hat_DOT_cityFROMroads.repair_order_detailsASdefault_"
+    "DOT_repair_order_detailsLEFTJOIN(SELECTdefault_DOT_repair_orders.repair_order_id,\tdefault_"
+    "DOT_repair_orders.municipality_id,\tdefault_DOT_repair_orders.hard_hat_id,\tdefault_DOT_"
+    "repair_orders.dispatcher_idFROMroads.repair_ordersASdefault_DOT_repair_orders)ASdefault_"
+    "DOT_repair_orderONdefault_DOT_repair_order_details.repair_order_id=default_DOT_repair_order"
+    ".repair_order_idLEFTJOIN(SELECTdefault_DOT_hard_hats.hard_hat_id,\tdefault_DOT_hard_hats."
+    "city,\tdefault_DOT_hard_hats.stateFROMroads.hard_hatsASdefault_DOT_hard_hats)ASdefault_DOT_"
+    "hard_hatONdefault_DOT_repair_order.hard_hat_id=default_DOT_hard_hat.hard_hat_idGROUPBY"
+    "default_DOT_hard_hat.city": QueryWithResults(
+        **{
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+            "submitted_query": "...",
+            "state": QueryState.FINISHED,
+            "results": [
+                {
+                    "columns": [
+                        {"name": "default_DOT_avg_repair_price", "type": "float"},
+                        {"name": "default_DOT_hard_hat_DOT_city", "type": "str"},
+                    ],
+                    "rows": [
+                        (1.0, "Foo"),
+                        (2.0, "Bar"),
+                    ],
+                    "sql": "",
+                },
+            ],
+            "errors": [],
+        }
+    ),
 }

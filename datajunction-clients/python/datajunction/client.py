@@ -226,7 +226,50 @@ class DJClient(_internal.DJClient):
         async_: bool = True,
     ):
         """
+        Retrieves the data for one or more metrics with the provided dimensions and filters.
+        """
+        return self._data(
+            metrics=metrics,
+            dimensions=dimensions,
+            filters=filters,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            async_=async_,
+        )
+
+    def node_data(  # pylint: disable=too-many-arguments,too-many-locals
+        self,
+        node_name: str,
+        dimensions: Optional[List[str]] = None,
+        filters: Optional[List[str]] = None,
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
+        async_: bool = True,
+    ):
+        """
         Retrieves the data for the node with the provided dimensions and filters.
+        """
+        return self._data(
+            node_name=node_name,
+            dimensions=dimensions,
+            filters=filters,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            async_=async_,
+        )
+
+    def _data(  # pylint: disable=too-many-arguments,too-many-locals
+        self,
+        node_name: Optional[str] = None,
+        metrics: Optional[List[str]] = None,
+        dimensions: Optional[List[str]] = None,
+        filters: Optional[List[str]] = None,
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
+        async_: bool = True,
+    ):
+        """
+        Fetch data for a node or a set of metrics with dimensions and filters.
         """
         printed_links = False
         with alive_bar(
@@ -239,18 +282,32 @@ class DJClient(_internal.DJClient):
             poll_interval = 1  # Initial polling interval in seconds
             job_state = models.QueryState.UNKNOWN
             results = None
+            path = "/data/"
+            params = {
+                "dimensions": dimensions or [],
+                "filters": filters or [],
+                "engine_name": engine_name or self.engine_name,
+                "engine_version": engine_version or self.engine_version,
+                "async_": async_,
+            }
+
+            if (node_name and metrics) or not (node_name or metrics):
+                raise DJClientException(
+                    "Must supply either 'node_name' or 'metrics' to fetch data.",
+                )
+
+            if node_name:
+                path = f"{path}{node_name}"
+            elif metrics:  # pragma: no cover
+                params["metrics"] = metrics  # pragma: no cover
+
+            print(f"Fetching data for '{node_name}' or '{metrics}'")  # pragma: no cover
+
             while job_state not in models.END_JOB_STATES:
                 progress_bar()  # pylint: disable=not-callable
                 response = self._session.get(
-                    "/data/",
-                    params={
-                        "metrics": metrics,
-                        "dimensions": dimensions or [],
-                        "filters": filters or [],
-                        "engine_name": engine_name or self.engine_name,
-                        "engine_version": engine_version or self.engine_version,
-                        "async_": async_,
-                    },
+                    path,
+                    params=params,
                 )
                 results = response.json()
 
