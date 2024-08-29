@@ -15,7 +15,7 @@ from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.models.collection import CollectionInfo
+from datajunction_server.models.collection import CollectionDetails, CollectionInfo
 from datajunction_server.utils import (
     get_and_update_current_user,
     get_session,
@@ -97,7 +97,7 @@ async def get_collection(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
-):
+) -> CollectionDetails:
     """
     Get a collection and its nodes
     """
@@ -106,7 +106,7 @@ async def get_collection(
         name=name,
         raise_if_not_exists=True,
     )
-    return collection
+    return collection  # type: ignore
 
 
 @router.post(
