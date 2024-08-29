@@ -340,17 +340,31 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         """
         Test data retreval for a metric and dimension(s)
         """
-        # Retrieve data for a single metric
-        result = client.data(
-            metrics=["default.avg_repair_price"],
-            dimensions=["default.hard_hat.city"],
-        )
+        # Should throw error when no name or metrics are passed in
+        with pytest.raises(DJClientException):
+            client.node_data("")
 
+        with pytest.raises(DJClientException):
+            client.data([])
+
+        # Retrieve data for a single metric
         expected_df = pandas.DataFrame.from_dict(
             {
                 "default_DOT_avg_repair_price": [1.0, 2.0],
                 "default_DOT_hard_hat_DOT_city": ["Foo", "Bar"],
             },
+        )
+
+        result = client.data(
+            metrics=["default.avg_repair_price"],
+            dimensions=["default.hard_hat.city"],
+        )
+        pandas.testing.assert_frame_equal(result, expected_df)
+
+        # Retrieve data for a single node
+        result = client.node_data(
+            node_name="default.avg_repair_price",
+            dimensions=["default.hard_hat.city"],
         )
         pandas.testing.assert_frame_equal(result, expected_df)
 
