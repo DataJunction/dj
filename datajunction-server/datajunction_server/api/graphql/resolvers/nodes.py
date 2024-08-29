@@ -51,6 +51,8 @@ def load_node_options(fields):
         options.append(joinedload(DBNode.current).options(*node_revision_options))
     if "created_by" in fields:
         options.append(joinedload(DBNode.created_by))
+    if "edited_by" in fields:
+        options.append(selectinload(DBNode.history))
     if "tags" in fields:
         options.append(selectinload(DBNode.tags))
     return options

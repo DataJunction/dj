@@ -43,20 +43,23 @@ class User(Base):  # pylint: disable=too-few-public-methods
     created_collections: Mapped[list["Collection"]] = relationship(
         "Collection",
         back_populates="created_by",
+        foreign_keys="Collection.created_by_id",
         lazy="joined",
     )
     created_nodes: Mapped[list["Node"]] = relationship(
         "Node",
         back_populates="created_by",
-        lazy="joined",
+        foreign_keys="Node.created_by_id",
+        lazy="selectin",
     )
     created_node_revisions: Mapped[list["NodeRevision"]] = relationship(
         "NodeRevision",
         back_populates="created_by",
-        lazy="joined",
+        foreign_keys="NodeRevision.created_by_id",
     )
     created_tags: Mapped[list["Tag"]] = relationship(
         "Tag",
         back_populates="created_by",
+        foreign_keys="Tag.created_by_id",
         lazy="joined",
     )

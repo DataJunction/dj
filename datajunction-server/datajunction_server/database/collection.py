@@ -28,6 +28,8 @@ class Collection(Base):  # pylint: disable=too-few-public-methods
     created_by: Mapped[User] = relationship(
         "User",
         back_populates="created_collections",
+        foreign_keys=[created_by_id],
+        lazy="selectin",
     )
     nodes: Mapped[List[Node]] = relationship(
         secondary="collectionnodes",

@@ -5608,7 +5608,7 @@ class TestCopyNode:
 
         # Copy all nodes to a node name with _copy appended
         nodes = (await client_with_roads.get("/nodes")).json()
-        for node in nodes:
+        for node in sorted(nodes):
             await client_with_roads.post(f"/nodes/{node}/copy?new_name={node}_copy")
 
         # Check that each node was successfully copied by comparing against the original

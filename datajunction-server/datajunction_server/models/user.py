@@ -51,6 +51,17 @@ class UserOutput(BaseModel):
         orm_mode = True
 
 
+class UserNameOnly(BaseModel):
+    """
+    Username only
+    """
+
+    username: str
+
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        orm_mode = True
+
+
 class UserActivity(BaseModel):
     """
     User activity info
