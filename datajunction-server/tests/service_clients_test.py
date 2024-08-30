@@ -148,6 +148,121 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             query_service_client.get_columns_for_table("hive", "test", "pies")
         assert "No columns found" in str(exc_info.value)
 
+    def test_query_service_client_create_view(self, mocker: MockerFixture) -> None:
+        """
+        Test creating a view using the query service client.
+        """
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "catalog_name": "public",
+            "engine_name": "postgres",
+            "engine_version": "15.2",
+            "id": "ef209eef-c31a-4089-aae6-833259a08e22",
+            "submitted_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
+            "executed_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
+            "scheduled": "2023-01-01T00:00:00.000000",
+            "started": "2023-01-01T00:00:00.000000",
+            "finished": "2023-01-01T00:00:00.000001",
+            "state": "FINISHED",
+            "progress": 1,
+            "results": [],
+            "next": None,
+            "previous": None,
+            "errors": [],
+        }
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        # successful request
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        query_create = QueryCreate(
+            catalog_name="default",
+            engine_name="postgres",
+            engine_version="15.2",
+            submitted_query="CREATE OR REPLACE VIEW foo SELECT 1 as num",
+            async_=False,
+        )
+        query_service_client.create_view(
+            view_name="foo",
+            query_create=query_create,
+        )
+
+        mock_request.assert_called_with(
+            "/queries/",
+            headers=ANY,
+            json={
+                "catalog_name": "default",
+                "engine_name": "postgres",
+                "engine_version": "15.2",
+                "submitted_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
+                "async_": False,
+            },
+        )
+
+    def test_query_service_client_create_view_with_failure(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """
+        Test creating a view using the query service client with a filed response.
+        """
+
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.json.return_value = {"message": "Errors", "errors": ["a", "b"]}
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        # successful request
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        query_create = QueryCreate(
+            catalog_name="default",
+            engine_name="postgres",
+            engine_version="15.2",
+            submitted_query="CREATE OR REPLACE VIEW foo SELECT 1 as num",
+            async_=False,
+        )
+
+        with pytest.raises(DJQueryServiceClientException) as exc_info:
+            query_service_client.create_view(
+                view_name="foo",
+                query_create=query_create,
+            )
+        assert "Error response from query service" in str(exc_info.value)
+        assert exc_info.value.errors == [
+            DJError(
+                code=ErrorCode.QUERY_SERVICE_ERROR,
+                message="a",
+                debug=None,
+                context="",
+            ),
+            DJError(
+                code=ErrorCode.QUERY_SERVICE_ERROR,
+                message="b",
+                debug=None,
+                context="",
+            ),
+        ]
+
+        mock_request.assert_called_with(
+            "/queries/",
+            headers=ANY,
+            json={
+                "catalog_name": "default",
+                "engine_name": "postgres",
+                "engine_version": "15.2",
+                "submitted_query": "CREATE OR REPLACE VIEW foo SELECT 1 as num",
+                "async_": False,
+            },
+        )
+
     def test_query_service_client_submit_query(self, mocker: MockerFixture) -> None:
         """
         Test submitting a query to a query service client.
