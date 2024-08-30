@@ -551,7 +551,7 @@ class TestDataForNode:
             assert response.status_code == 200
             full_text = "".join([text async for text in response.aiter_text()])
             assert "event: message" in full_text
-            assert "COUNT(default_DOT_repair_orders_fact.repair_order_id)" in full_text
+            assert "count(default_DOT_repair_orders_fact.repair_order_id)" in full_text
 
         # Test streaming of node data for a transform
         async with module__client_with_roads.stream(
@@ -1643,6 +1643,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "default.revenue",
         )
         revenue = (await module__session.execute(statement)).scalar_one()
+        await module__session.refresh(revenue, ["current"])
+        await module__session.refresh(revenue.current, ["availability"])
         node_dict = AvailabilityStateBase.from_orm(revenue.current.availability).dict()
         assert node_dict == {
             "valid_through_ts": 20230101,
