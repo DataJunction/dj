@@ -1559,22 +1559,79 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = await client.post("/register/table/foo/bar/baz/")
         data = response.json()
         assert data["message"] == (
-            "Registering tables requires that a query "
-            "service is configured for table columns inference"
+            "Registering tables or views requires that a query "
+            "service is configured for columns inference"
         )
         assert response.status_code == 500
 
     @pytest.mark.asyncio
+    async def test_register_view_without_query_service(
+        self,
+        client: AsyncClient,
+    ):
+        """
+        Trying to register a view without a query service set up should fail.
+        """
+        response = await client.post("/register/view/foo/bar/baz/?query=SELECT+1")
+        data = response.json()
+        assert data["message"] == (
+            "Registering tables or views requires that a query "
+            "service is configured for columns inference"
+        )
+        assert response.status_code == 500
+
+    @pytest.mark.asyncio
+    async def test_register_view_with_query_service(
+        self,
+        module__client_with_basic,
+    ):
+        """
+        Registering a view with a query service set up should succeed.
+        """
+        response = await module__client_with_basic.post(
+            "/register/view/public/basic/view_foo?"
+            "query=SELECT+1+AS+one+,+'two'+AS+two&replace=True",
+        )
+        data = response.json()
+        assert data["name"] == "source.public.basic.view_foo"
+        assert data["type"] == "source"
+        assert data["display_name"] == "source.public.basic.view_foo"
+        assert data["version"] == "v1.0"
+        assert data["status"] == "valid"
+        assert data["mode"] == "published"
+        assert data["catalog"]["name"] == "public"
+        assert data["schema_"] == "basic"
+        assert data["table"] == "view_foo"
+        assert data["columns"] == [
+            {
+                "name": "one",
+                "type": "int",
+                "display_name": "One",
+                "attributes": [],
+                "dimension": None,
+                "partition": None,
+            },
+            {
+                "name": "two",
+                "type": "string",
+                "display_name": "Two",
+                "attributes": [],
+                "dimension": None,
+                "partition": None,
+            },
+        ]
+        assert response.status_code == 201
+
+    @pytest.mark.asyncio
     async def test_create_source_node_with_query_service(
         self,
-        client_with_query_service_example_loader,
+        module__client_with_basic,
     ):
         """
         Creating a source node without columns but with a query service set should
         result in the source node columns being inferred via the query service.
         """
-        custom_client = await client_with_query_service_example_loader(["BASIC"])
-        response = await custom_client.post(
+        response = await module__client_with_basic.post(
             "/register/table/public/basic/comments/",
         )
         data = response.json()

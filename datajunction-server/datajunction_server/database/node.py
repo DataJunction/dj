@@ -685,12 +685,6 @@ class NodeRevision(
         """
         Extra validation for node data.
         """
-        if self.type in (NodeType.SOURCE,):
-            if self.query:
-                raise DJInvalidInputException(
-                    f"Node {self.name} of type {self.type} should not have a query",
-                )
-
         if self.type in {NodeType.TRANSFORM, NodeType.METRIC, NodeType.DIMENSION}:
             if not self.query:
                 raise DJInvalidInputException(

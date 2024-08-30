@@ -165,6 +165,21 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         mock_submit_query,
     )
 
+    def mock_create_view(
+        view_name: str,
+        query_create: QueryCreate,  # pylint: disable=unused-argument
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
+    ) -> str:
+        return f"View {view_name} created successfully."
+
+    mocker.patch.object(
+        qs_client,
+        "create_view",
+        mock_create_view,
+    )
+
     mock_materialize = MagicMock()
     mock_materialize.return_value = MaterializationInfo(
         urls=["http://fake.url/job"],

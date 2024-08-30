@@ -2428,6 +2428,10 @@ COLUMN_MAPPINGS = {
         Column(name="dispatcher_id", type=IntegerType(), order=6),
         Column(name="rating", type=IntegerType(), order=7),
     ],
+    "public.basic.view_foo": [
+        Column(name="one", type=IntegerType(), order=0),
+        Column(name="two", type=StringType(), order=1),
+    ],
 }
 
 QUERY_DATA_MAPPINGS = {
