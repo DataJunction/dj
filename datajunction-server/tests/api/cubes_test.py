@@ -681,18 +681,18 @@ async def test_create_cube(
   FROM roads.hard_hats AS default_DOT_hard_hats
 )
 SELECT
-  default_DOT_hard_hat.country AS default_DOT_hard_hat_DOT_country,
-  default_DOT_hard_hat.postal_code AS default_DOT_hard_hat_DOT_postal_code,
-  default_DOT_hard_hat.city AS default_DOT_hard_hat_DOT_city,
-  default_DOT_hard_hat.state AS default_DOT_hard_hat_DOT_state,
-  default_DOT_dispatcher.company_name AS default_DOT_dispatcher_DOT_company_name,
-  default_DOT_municipality_dim.local_region AS default_DOT_municipality_dim_DOT_local_region,
-  default_DOT_hard_hat_to_delete.hire_date AS default_DOT_hard_hat_to_delete_DOT_hire_date,
+  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
+  default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
+  default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
+  default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state,
+  default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
+  default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region,
+  default_DOT_hard_hat_to_delete.hire_date default_DOT_hard_hat_to_delete_DOT_hire_date,
   CAST(SUM(IF(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / COUNT(*) AS default_DOT_discounted_orders_rate,
-  COUNT(default_DOT_repair_orders_fact.repair_order_id) AS default_DOT_num_repair_orders,
-  AVG(default_DOT_repair_orders_fact.price) AS default_DOT_avg_repair_price,
-  SUM(default_DOT_repair_orders_fact.total_repair_cost) AS default_DOT_total_repair_cost,
-  SUM(default_DOT_repair_orders_fact.price * default_DOT_repair_orders_fact.discount) AS default_DOT_total_repair_order_discounts
+  COUNT(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
+  AVG(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
+  SUM(default_DOT_repair_orders_fact.total_repair_cost) default_DOT_total_repair_cost,
+  SUM(default_DOT_repair_orders_fact.price * default_DOT_repair_orders_fact.discount) default_DOT_total_repair_order_discounts
 FROM default_DOT_repair_orders_fact
 INNER JOIN default_DOT_hard_hat
   ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
@@ -1244,12 +1244,12 @@ async def test_cube_sql_generation_with_availability(
             FROM roads.hard_hats AS default_DOT_hard_hats
             WHERE  default_DOT_hard_hats.country = 'NZ'
             )
-            SELECT  default_DOT_hard_hat.country AS default_DOT_hard_hat_DOT_country,
-                default_DOT_hard_hat.postal_code AS default_DOT_hard_hat_DOT_postal_code,
-                default_DOT_hard_hat.hire_date AS default_DOT_hard_hat_DOT_hire_date,
-                CAST(SUM(IF(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / COUNT(*) AS default_DOT_discounted_orders_rate,
-                COUNT(default_DOT_repair_orders_fact.repair_order_id) AS default_DOT_num_repair_orders,
-                AVG(default_DOT_repair_orders_fact.price) AS default_DOT_avg_repair_price
+            SELECT  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
+                default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
+                default_DOT_hard_hat.hire_date default_DOT_hard_hat_DOT_hire_date,
+                CAST(SUM(IF(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / COUNT(*) default_DOT_discounted_orders_rate,
+                COUNT(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
+                AVG(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price
             FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
             GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.hire_date
             LIMIT 100
@@ -2099,8 +2099,8 @@ async def test_get_unmaterialized_cube_dimensions_values(
         },
     )
     results = response.json()
-    assert "SELECT\n  default_DOT_hard_hat_DOT_city" in results["sql"]
-    assert "GROUP BY\n  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "SELECT  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "GROUP BY  default_DOT_hard_hat_DOT_city" in results["sql"]
 
     # Get data for single dimension
     response = await client_with_repairs_cube.get(
@@ -2135,9 +2135,9 @@ async def test_get_unmaterialized_cube_dimensions_values(
         },
     )
     results = response.json()
-    assert "SELECT\n  default_DOT_hard_hat_DOT_city,\n  COUNT(*)" in results["sql"]
-    assert "GROUP BY\n  default_DOT_hard_hat_DOT_city" in results["sql"]
-    assert "ORDER BY\n  2 DESC" in results["sql"]
+    assert "SELECT  default_DOT_hard_hat_DOT_city,\n\tCOUNT(*)" in results["sql"]
+    assert "GROUP BY  default_DOT_hard_hat_DOT_city" in results["sql"]
+    assert "ORDER BY 2 DESC" in results["sql"]
 
     # Get data for single dimension with counts
     response = await client_with_repairs_cube.get(

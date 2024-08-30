@@ -471,10 +471,10 @@ async def test_link_complex_dimension_with_role(
   FROM examples.users AS default_DOT_users_table
 )
 SELECT
-  default_DOT_users.user_id AS default_DOT_users_DOT_user_id_LBRACK_user_windowed_RBRACK,
-  default_DOT_users.snapshot_date AS default_DOT_users_DOT_snapshot_date_LBRACK_user_windowed_RBRACK,
-  default_DOT_users.registration_country AS default_DOT_users_DOT_registration_country_LBRACK_user_windowed_RBRACK,
-  SUM(default_DOT_events.elapsed_secs) AS default_DOT_elapsed_secs
+  default_DOT_users.user_id default_DOT_users_DOT_user_id_LBRACK_user_windowed_RBRACK,
+  default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_windowed_RBRACK,
+  default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_windowed_RBRACK,
+  SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
 FROM default_DOT_events
 LEFT JOIN default_DOT_users
   ON default_DOT_events.user_id = default_DOT_users.user_id
@@ -509,10 +509,10 @@ GROUP BY
       FROM examples.users AS default_DOT_users_table
     )
     SELECT
-      default_DOT_users.user_id AS default_DOT_users_DOT_user_id_LBRACK_user_direct_RBRACK,
-      default_DOT_users.snapshot_date AS default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
-      default_DOT_users.registration_country AS default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
-      SUM(default_DOT_events.elapsed_secs) AS default_DOT_elapsed_secs
+      default_DOT_users.user_id default_DOT_users_DOT_user_id_LBRACK_user_direct_RBRACK,
+      default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
+      default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
+      SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
     FROM default_DOT_events
     LEFT JOIN default_DOT_users
       ON default_DOT_events.user_id = default_DOT_users.user_id
@@ -564,9 +564,9 @@ GROUP BY
   FROM examples.countries AS default_DOT_countries_table
 )
 SELECT
-  default_DOT_users.snapshot_date AS default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
-  default_DOT_users.registration_country AS default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
-  SUM(default_DOT_events.elapsed_secs) AS default_DOT_elapsed_secs
+  default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
+  default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
+  SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
 FROM default_DOT_events
 LEFT JOIN default_DOT_users
   ON default_DOT_events.user_id = default_DOT_users.user_id
@@ -696,8 +696,8 @@ async def test_measures_sql_with_dimension_roles(
   FROM examples.countries AS default_DOT_countries_table
 )
 SELECT
-  default_DOT_events.elapsed_secs AS default_DOT_events_DOT_elapsed_secs,
-  default_DOT_countries.name AS default_DOT_countries_DOT_name
+  default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+  default_DOT_countries.name default_DOT_countries_DOT_name
 FROM default_DOT_events
 LEFT JOIN default_DOT_users
   ON default_DOT_events.user_id = default_DOT_users.user_id
