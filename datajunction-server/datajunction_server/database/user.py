@@ -1,7 +1,8 @@
 """User database schema."""
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, Enum, Integer, String
+from sqlalchemy import BigInteger, Enum, Integer, String, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
@@ -63,3 +64,16 @@ class User(Base):  # pylint: disable=too-few-public-methods
         foreign_keys="Tag.created_by_id",
         lazy="joined",
     )
+
+    @classmethod
+    async def get_by_username(
+        cls,
+        session: AsyncSession,
+        username: str,
+    ) -> Optional["User"]:
+        """
+        Find a user by username
+        """
+        statement = select(User).where(User.username == username)
+        result = await session.execute(statement)
+        return result.unique().scalar_one_or_none()
