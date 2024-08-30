@@ -81,6 +81,27 @@ ROADS = (  # type: ignore
         {
             "columns": [
                 {"name": "repair_order_id", "type": "int"},
+                {"name": "municipality_id", "type": "string"},
+                {"name": "hard_hat_id", "type": "int"},
+                {"name": "order_date", "type": "timestamp"},
+                {"name": "required_date", "type": "timestamp"},
+                {"name": "dispatched_date", "type": "timestamp"},
+                {"name": "dispatcher_id", "type": "int"},
+            ],
+            "description": "All repair orders (view)",
+            "mode": "published",
+            "name": "default.repair_orders_view",
+            "catalog": "default",
+            "schema_": "roads",
+            "table": "repair_orders_view",
+            "query": "CREATE OR REPLACE VIEW roads.repair_orders_view AS SELECT * FROM roads.repair_orders",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "columns": [
+                {"name": "repair_order_id", "type": "int"},
                 {"name": "repair_type_id", "type": "int"},
                 {"name": "price", "type": "float"},
                 {"name": "quantity", "type": "int"},
@@ -2428,7 +2449,17 @@ COLUMN_MAPPINGS = {
         Column(name="dispatcher_id", type=IntegerType(), order=6),
         Column(name="rating", type=IntegerType(), order=7),
     ],
-    "public.basic.view_foo": [
+    "default.roads.repair_orders_view": [
+        Column(name="repair_order_id", type=IntegerType(), order=0),
+        Column(name="municipality_id", type=StringType(), order=1),
+        Column(name="hard_hat_id", type=IntegerType(), order=2),
+        Column(name="order_date", type=TimestampType(), order=3),
+        Column(name="required_date", type=TimestampType(), order=4),
+        Column(name="dispatched_date", type=TimestampType(), order=5),
+        Column(name="dispatcher_id", type=IntegerType(), order=6),
+        Column(name="rating", type=IntegerType(), order=7),
+    ],
+    "public.main.view_foo": [
         Column(name="one", type=IntegerType(), order=0),
         Column(name="two", type=StringType(), order=1),
     ],

@@ -30,7 +30,7 @@ async def test_list_all_namespaces(
         {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
         {"namespace": "dbt.source.stripe", "num_nodes": 1},
         {"namespace": "dbt.transform", "num_nodes": 1},
-        {"namespace": "default", "num_nodes": 62},
+        {"namespace": "default", "num_nodes": 63},
         {
             "namespace": "different.basic",
             "num_nodes": 2,
@@ -666,6 +666,7 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
         "us_region.source.yaml",
         "us_state.dimension.yaml",
         "us_states.source.yaml",
+        "repair_orders_view.source.yaml",
     }
     assert {d["directory"] for d in project_definition} == {""}
 
