@@ -483,7 +483,7 @@ async def create_source(
         columns=columns,
         parents=[],
         created_by_id=current_user.id,
-        query=data.query if hasattr(data, "query") else None,
+        query=data.query,
     )
     node.display_name = node_revision.display_name
 
@@ -770,13 +770,13 @@ async def register_view(  # pylint: disable=too-many-locals
         )
     namespace = f"{settings.source_node_namespace}.{catalog}.{schema_}"
     node_name = f"{namespace}.{view}"
-    if not replace:
-        await raise_if_node_exists(session, node_name)
+    view_name = f"{schema_}.{view}"
+    await raise_if_node_exists(session, node_name)
 
     # Re-create the view in the database
     _catalog = await get_catalog_by_name(session=session, name=catalog)
     or_replace = "OR REPLACE" if replace else ""
-    query = f"CREATE {or_replace} VIEW {view} AS {query}"
+    query = f"CREATE {or_replace} VIEW {view_name} AS {query}"
     query_create = QueryCreate(
         engine_name=_catalog.engines[0].name,
         catalog_name=_catalog.name,
@@ -785,7 +785,7 @@ async def register_view(  # pylint: disable=too-many-locals
         async_=False,
     )
     query_service_client.create_view(
-        view,
+        view_name,
         query_create,
         request_headers,
     )
@@ -1037,7 +1037,7 @@ async def tags_node(
     response_model=NodeOutput,
     status_code=201,
 )
-async def refresh_source_node(
+async def refresh_source_node(  # pylint: disable=too-many-locals
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
@@ -1058,6 +1058,27 @@ async def refresh_source_node(
         ],
     )
     current_revision = source_node.current  # type: ignore
+
+    # If this is a view-based source node, let's rerun the create view
+    new_query = None
+    if current_revision.query:
+        catalog = await get_catalog_by_name(
+            session=session,
+            name=current_revision.catalog.name,
+        )
+        query_create = QueryCreate(
+            engine_name=catalog.engines[0].name,
+            catalog_name=catalog.name,
+            engine_version=catalog.engines[0].version,
+            submitted_query=current_revision.query,
+            async_=False,
+        )
+        query_service_client.create_view(
+            view_name=current_revision.table,
+            query_create=query_create,
+            request_headers=request_headers,
+        )
+        new_query = current_revision.query
 
     # Get the latest columns for the source node's table from the query service
     new_columns = []
@@ -1120,6 +1141,7 @@ async def refresh_source_node(
             for link in current_revision.dimension_links
         ],
         created_by_id=current_user.id,
+        query=new_query,
     )
     new_revision.version = str(old_version.next_major_version())
     new_revision.columns = [

@@ -208,6 +208,7 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "default.contractor",
         "foo.bar.total_repair_order_discounts",
         "default.repair_orders",
+        "default.repair_orders_view",
         "basic.paint_colors_spark",
         "default.long_events",
         "default.items",
@@ -1572,7 +1573,9 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         """
         Trying to register a view without a query service set up should fail.
         """
-        response = await client.post("/register/view/foo/bar/baz/?query=SELECT+1")
+        response = await client.post(
+            "/register/view/foo/bar/baz/?query=SELECT+1&replace=True",
+        )
         data = response.json()
         assert data["message"] == (
             "Registering tables or views requires that a query "
@@ -1589,18 +1592,18 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         Registering a view with a query service set up should succeed.
         """
         response = await module__client_with_basic.post(
-            "/register/view/public/basic/view_foo?"
-            "query=SELECT+1+AS+one+,+'two'+AS+two&replace=True",
+            "/register/view/public/main/view_foo?"
+            "query=SELECT+1+AS+one+,+'two'+AS+two",
         )
         data = response.json()
-        assert data["name"] == "source.public.basic.view_foo"
+        assert data["name"] == "source.public.main.view_foo"
         assert data["type"] == "source"
-        assert data["display_name"] == "source.public.basic.view_foo"
+        assert data["display_name"] == "source.public.main.view_foo"
         assert data["version"] == "v1.0"
         assert data["status"] == "valid"
         assert data["mode"] == "published"
         assert data["catalog"]["name"] == "public"
-        assert data["schema_"] == "basic"
+        assert data["schema_"] == "main"
         assert data["table"] == "view_foo"
         assert data["columns"] == [
             {
@@ -1683,12 +1686,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
     @pytest.mark.asyncio
     async def test_refresh_source_node(
         self,
-        client_with_query_service_example_loader,
+        module__client_with_roads,
     ):
         """
         Refresh a source node with a query service
         """
-        custom_client = await client_with_query_service_example_loader(["ROADS"])
+        custom_client = module__client_with_roads
         response = await custom_client.post(
             "/nodes/default.repair_orders/refresh/",
         )
@@ -1818,20 +1821,19 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
     @pytest.mark.asyncio
     async def test_refresh_source_node_with_problems(
         self,
-        client_with_query_service_example_loader,
-        query_service_client: QueryServiceClient,
+        module__client_with_roads,
+        module__query_service_client: QueryServiceClient,
         mocker: MockerFixture,
     ):
         """
         Refresh a source node with a query service and find that no columns are returned.
         """
-        custom_client = await client_with_query_service_example_loader(["ROADS"])
-        response = await custom_client.post(
+        response = await module__client_with_roads.post(
             "/nodes/default.repair_orders/refresh/",
         )
         data = response.json()
 
-        the_good_columns = query_service_client.get_columns_for_table(
+        the_good_columns = module__query_service_client.get_columns_for_table(
             "default",
             "roads",
             "repair_orders",
@@ -1845,7 +1847,9 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["status"] == "valid"
         assert data["missing_table"] is False
 
-        response = await custom_client.get("/history?node=default.repair_orders")
+        response = await module__client_with_roads.get(
+            "/history?node=default.repair_orders",
+        )
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
@@ -1858,11 +1862,11 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Refresh it again, but this time no columns are found
         mocker.patch.object(
-            query_service_client,
+            module__query_service_client,
             "get_columns_for_table",
             lambda *args: [],
         )
-        response = await custom_client.post(
+        response = await module__client_with_roads.post(
             "/nodes/default.repair_orders/refresh/",
         )
         data_second = response.json()
@@ -1874,13 +1878,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Refresh it again, but this time the table is missing
         mocker.patch.object(
-            query_service_client,
+            module__query_service_client,
             "get_columns_for_table",
             lambda *args: (_ for _ in ()).throw(
                 DJDoesNotExistException(message="Table not found: foo.bar.baz"),
             ),
         )
-        response = await custom_client.post(
+        response = await module__client_with_roads.post(
             "/nodes/default.repair_orders/refresh/",
         )
         data_third = response.json()
@@ -1892,11 +1896,11 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Refresh it again, back to normal state
         mocker.patch.object(
-            query_service_client,
+            module__query_service_client,
             "get_columns_for_table",
             lambda *args: the_good_columns,
         )
-        response = await custom_client.post(
+        response = await module__client_with_roads.post(
             "/nodes/default.repair_orders/refresh/",
         )
         data_fourth = response.json()
@@ -1905,6 +1909,102 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert len(data_fourth["columns"]) == 8
         assert data_fourth["status"] == "valid"
         assert data_fourth["missing_table"] is False
+
+    @pytest.mark.asyncio
+    async def test_refresh_source_node_with_query(
+        self,
+        module__client_with_roads,
+    ):
+        """
+        Refresh a source node based on a view.
+        """
+        custom_client = module__client_with_roads
+        response = await custom_client.post(
+            "/nodes/default.repair_orders_view/refresh/",
+        )
+        data = response.json()
+
+        # Columns have changed, so the new node revision should be bumped to a new
+        # version with an additional `ratings` column. Existing dimension links remain
+        new_columns = [
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Repair Order Id",
+                "name": "repair_order_id",
+                "type": "int",
+                "partition": None,
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Municipality Id",
+                "name": "municipality_id",
+                "type": "string",
+                "partition": None,
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Hard Hat Id",
+                "name": "hard_hat_id",
+                "type": "int",
+                "partition": None,
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Order Date",
+                "name": "order_date",
+                "type": "timestamp",
+                "partition": None,
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Required Date",
+                "name": "required_date",
+                "type": "timestamp",
+                "partition": None,
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Dispatched Date",
+                "name": "dispatched_date",
+                "type": "timestamp",
+                "partition": None,
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Dispatcher Id",
+                "name": "dispatcher_id",
+                "type": "int",
+                "partition": None,
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Rating",
+                "name": "rating",
+                "type": "int",
+                "partition": None,
+            },
+        ]
+
+        assert data["version"] == "v2.0"
+        assert data["columns"] == new_columns
+        assert response.status_code == 201
+
+        response = await custom_client.get("/history?node=default.repair_orders_view")
+        history = response.json()
+        assert [
+            (activity["activity_type"], activity["entity_type"]) for activity in history
+        ] == [
+            ("refresh", "node"),
+            ("create", "node"),
+        ]
 
     @pytest.mark.asyncio
     async def test_create_update_source_node(

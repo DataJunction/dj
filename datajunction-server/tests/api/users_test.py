@@ -18,7 +18,7 @@ class TestUsers:
         """
 
         response = await module__client_with_roads.get("/users?with_activity=true")
-        assert response.json() == [{"username": "dj", "count": 67}]
+        assert response.json() == [{"username": "dj", "count": 68}]
 
         response = await module__client_with_roads.get("/users")
         assert response.json() == ["dj"]
@@ -33,8 +33,9 @@ class TestUsers:
         """
 
         response = await module__client_with_roads.get("/users/dj")
-        assert [(node["name"], node["type"]) for node in response.json()] == [
+        assert {(node["name"], node["type"]) for node in response.json()} == {
             ("default.repair_orders", "source"),
+            ("default.repair_orders_view", "source"),
             ("default.repair_order_details", "source"),
             ("default.repair_type", "source"),
             ("default.contractors", "source"),
@@ -69,4 +70,4 @@ class TestUsers:
             ("default.total_repair_order_discounts", "metric"),
             ("default.avg_repair_order_discounts", "metric"),
             ("default.avg_time_to_dispatch", "metric"),
-        ]
+        }
