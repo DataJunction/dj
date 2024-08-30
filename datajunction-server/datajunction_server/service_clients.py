@@ -139,6 +139,37 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             for idx, column in enumerate(table_columns)
         ]
 
+    def create_view(  # pylint: disable=too-many-arguments
+        self,
+        view_name: str,
+        query_create: QueryCreate,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """
+        Re-create a view using the query service.
+        """
+        response = self.requests_session.post(
+            "/queries/",
+            headers={
+                **self.requests_session.headers,
+                **QueryServiceClient.filtered_headers(request_headers),
+            }
+            if request_headers
+            else self.requests_session.headers,
+            json=query_create.dict(),
+        )
+        response_data = response.json()
+        if response.status_code not in (200, 201):
+            raise DJQueryServiceClientException(
+                message=f"Error response from query service: {response_data['message']}",
+                errors=[
+                    DJError(code=ErrorCode.QUERY_SERVICE_ERROR, message=error)
+                    for error in response_data["errors"]
+                ],
+                http_status_code=response.status_code,
+            )
+        return f"View '{view_name}' created successfully."
+
     def submit_query(  # pylint: disable=too-many-arguments
         self,
         query_create: QueryCreate,

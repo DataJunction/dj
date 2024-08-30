@@ -96,6 +96,7 @@ from datajunction_server.models.partition import (
     PartitionInput,
     PartitionType,
 )
+from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     _node_output_options,
@@ -470,7 +471,6 @@ async def create_source(
         )
         for idx, column_data in enumerate(data.columns)
     ]
-
     node_revision = NodeRevision(
         name=data.name,
         display_name=data.display_name or f"{catalog.name}.{data.schema_}.{data.table}",
@@ -483,6 +483,7 @@ async def create_source(
         columns=columns,
         parents=[],
         created_by_id=current_user.id,
+        query=data.query if hasattr(data, "query") else None,
     )
     node.display_name = node_revision.display_name
 
@@ -696,8 +697,8 @@ async def register_table(
     request_headers = dict(request.headers)
     if not query_service_client:
         raise DJException(
-            message="Registering tables requires that a query "
-            "service is configured for table columns inference",
+            message="Registering tables or views requires that a query "
+            "service is configured for columns inference",
         )
     namespace = f"{settings.source_node_namespace}.{catalog}.{schema_}"
     name = f"{namespace}.{table}"
@@ -730,6 +731,92 @@ async def register_table(
             columns=[ColumnOutput.from_orm(col) for col in columns],
             description="This source node was automatically created as a registered table.",
             mode=NodeMode.PUBLISHED,
+        ),
+        session=session,
+        current_user=current_user,
+        background_tasks=background_tasks,
+        request=request,
+    )
+
+
+@router.post(
+    "/register/view/{catalog}/{schema_}/{view}/",
+    response_model=NodeOutput,
+    status_code=201,
+)
+async def register_view(  # pylint: disable=too-many-locals
+    catalog: str,
+    schema_: str,
+    view: str,
+    query: str,
+    replace: bool = False,
+    *,
+    session: AsyncSession = Depends(get_session),
+    request: Request,
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    current_user: User = Depends(get_and_update_current_user),
+    background_tasks: BackgroundTasks,
+) -> NodeOutput:
+    """
+    Register a view by creating the view in the database and adding a source node for it.
+    The source node is created in the SOURCE_NODE_NAMESPACE and
+    its schema will be inferred using the configured query service.
+    """
+    request_headers = dict(request.headers)
+    if not query_service_client:
+        raise DJException(
+            message="Registering tables or views requires that a query "
+            "service is configured for columns inference",
+        )
+    namespace = f"{settings.source_node_namespace}.{catalog}.{schema_}"
+    node_name = f"{namespace}.{view}"
+    if not replace:
+        await raise_if_node_exists(session, node_name)
+
+    # Re-create the view in the database
+    _catalog = await get_catalog_by_name(session=session, name=catalog)
+    or_replace = "OR REPLACE" if replace else ""
+    query = f"CREATE {or_replace} VIEW {view} AS {query}"
+    query_create = QueryCreate(
+        engine_name=_catalog.engines[0].name,
+        catalog_name=_catalog.name,
+        engine_version=_catalog.engines[0].version,
+        submitted_query=query,
+        async_=False,
+    )
+    query_service_client.create_view(
+        view,
+        query_create,
+        request_headers,
+    )
+
+    # Use reflection to get column names and types
+    columns = query_service_client.get_columns_for_table(
+        _catalog.name,
+        schema_,
+        view,
+        request_headers,
+        _catalog.engines[0] if len(_catalog.engines) >= 1 else None,
+    )
+
+    # Create the namespace if required (idempotent)
+    await create_node_namespace(
+        namespace=namespace,
+        session=session,
+        current_user=current_user,
+    )
+
+    return await create_source(
+        data=CreateSourceNode(
+            catalog=catalog,
+            schema_=schema_,
+            table=view,
+            name=node_name,
+            display_name=node_name,
+            columns=[ColumnOutput.from_orm(col) for col in columns],
+            description="This source node was automatically created as a registered view.",
+            mode=NodeMode.PUBLISHED,
+            query=query,
         ),
         session=session,
         current_user=current_user,
