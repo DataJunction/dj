@@ -15,7 +15,7 @@ from datajunction_server.models.node import ColumnOutput
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from tests.sql.utils import assert_query_strings_equal, compare_query_strings
+from tests.sql.utils import compare_query_strings
 
 
 async def make_a_test_cube(
@@ -688,11 +688,11 @@ SELECT
   default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
   default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region,
   default_DOT_hard_hat_to_delete.hire_date default_DOT_hard_hat_to_delete_DOT_hire_date,
-  CAST(SUM(IF(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / COUNT(*) AS default_DOT_discounted_orders_rate,
-  COUNT(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
-  AVG(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
-  SUM(default_DOT_repair_orders_fact.total_repair_cost) default_DOT_total_repair_cost,
-  SUM(default_DOT_repair_orders_fact.price * default_DOT_repair_orders_fact.discount) default_DOT_total_repair_order_discounts
+  CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate,
+  count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
+  avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
+  sum(default_DOT_repair_orders_fact.total_repair_cost) default_DOT_total_repair_cost,
+  sum(default_DOT_repair_orders_fact.price * default_DOT_repair_orders_fact.discount) default_DOT_total_repair_order_discounts
 FROM default_DOT_repair_orders_fact
 INNER JOIN default_DOT_hard_hat
   ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
@@ -710,8 +710,8 @@ GROUP BY
   default_DOT_dispatcher.company_name,
   default_DOT_municipality_dim.local_region,
   default_DOT_hard_hat_to_delete.hire_date"""
-    assert_query_strings_equal(metrics_sql_results["sql"], expected_query)
-    assert_query_strings_equal(cube_sql_results["sql"], expected_query)
+    assert str(parse(metrics_sql_results["sql"])) == str(parse(expected_query))
+    assert str(parse(cube_sql_results["sql"])) == str(parse(expected_query))
 
 
 @pytest.mark.asyncio
@@ -1364,9 +1364,9 @@ async def test_cube_sql_generation_with_availability(
             SELECT  default_DOT_hard_hat.country AS default_DOT_hard_hat_DOT_country,
                 default_DOT_hard_hat.postal_code AS default_DOT_hard_hat_DOT_postal_code,
                 default_DOT_hard_hat.hire_date AS default_DOT_hard_hat_DOT_hire_date,
-                CAST(SUM(IF(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / COUNT(*) AS default_DOT_discounted_orders_rate,
-                COUNT(default_DOT_repair_orders_fact.repair_order_id) AS default_DOT_num_repair_orders,
-                AVG(default_DOT_repair_orders_fact.price) AS default_DOT_avg_repair_price
+                CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / COUNT(*) AS default_DOT_discounted_orders_rate,
+                count(default_DOT_repair_orders_fact.repair_order_id) AS default_DOT_num_repair_orders,
+                avg(default_DOT_repair_orders_fact.price) AS default_DOT_avg_repair_price
             FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
             GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.hire_date
             """,
