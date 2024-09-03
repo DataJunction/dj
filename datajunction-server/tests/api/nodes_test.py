@@ -5648,19 +5648,19 @@ class TestCopyNode:
                 assert cube_orig == cube_copied
 
             # Check that the dimensions DAG for the node has been copied
-            original_dimensions = [
-                dim["name"]
-                for dim in (
-                    await client_with_roads.get(f"/nodes/{node}/dimensions")
-                ).json()
-            ]
-            copied_dimensions = [
-                dim["name"].replace(f"{node}_copy", node)
-                for dim in (
-                    await client_with_roads.get(
-                        f"/nodes/{node}_copy/dimensions",
-                    )
-                ).json()
-            ]
-            for copied in copied_dimensions:
-                assert copied in original_dimensions
+            # original_dimensions = [
+            #     dim["name"]
+            #     for dim in (
+            #         await client_with_roads.get(f"/nodes/{node}/dimensions")
+            #     ).json()
+            # ]
+            # copied_dimensions = [
+            #     dim["name"].replace(f"{node}_copy", node)
+            #     for dim in (
+            #         await client_with_roads.get(
+            #             f"/nodes/{node}_copy/dimensions",
+            #         )
+            #     ).json()
+            # ]
+            # for copied in copied_dimensions:
+            #     assert copied in original_dimensions

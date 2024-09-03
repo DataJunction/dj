@@ -1241,8 +1241,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     "default_DOT_avg_repair_priceFROMdefault_DOT_repair_order_detailsLEFTJOINdefault_DOT"
     "_repair_orderONdefault_DOT_repair_order_details.repair_order_id=default_DOT_repair_"
     "order.repair_order_idLEFTJOINdefault_DOT_hard_hatONdefault_DOT_repair_order.hard_hat"
-    "_id=default_DOT_hard_hat.hard_hat_idGROUPBYdefault_DOT_hard_hat.city":
-    QueryWithResults(
+    "_id=default_DOT_hard_hat.hard_hat_idGROUPBYdefault_DOT_hard_hat.city": QueryWithResults(
         **{
             "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
             "submitted_query": "...",
