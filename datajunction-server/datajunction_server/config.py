@@ -103,6 +103,9 @@ class Settings(
     db_keepalives_interval = 10
     db_keepalives_count = 5
 
+    # Maximum amount of nodes to return for requests to list all nodes
+    node_list_max = 10000
+
     @property
     def celery(self) -> Celery:
         """
