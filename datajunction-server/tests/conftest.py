@@ -1,8 +1,8 @@
+# pylint: disable=too-many-lines
 """
 Fixtures for testing.
 """
 
-# pylint: disable=too-many-lines
 import asyncio
 import os
 import re

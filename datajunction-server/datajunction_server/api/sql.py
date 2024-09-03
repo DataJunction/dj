@@ -39,88 +39,6 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["sql"])
 
 
-@router.get("/sql/measures/", response_model=TranslatedSQL, name="Get Measures SQL")
-async def get_measures_sql_for_cube(
-    metrics: List[str] = Query([]),
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
-    *,
-    include_all_columns: bool = Query(
-        False,
-        description=(
-            "Whether to include all columns or only those necessary "
-            "for the metrics and dimensions in the cube"
-        ),
-    ),
-    session: AsyncSession = Depends(get_session),
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
-    current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access,
-    ),
-) -> TranslatedSQL:
-    """
-    Return the measures SQL for a set of metrics with dimensions and filters.
-    This SQL can be used to produce an intermediate table with all the measures
-    and dimensions needed for an analytics database (e.g., Druid).
-    """
-    from datajunction_server.construction.build import (  # pylint: disable=import-outside-toplevel,line-too-long
-        get_measures_query,
-    )
-
-    if query_request := await QueryRequest.get_query_request(
-        session,
-        nodes=metrics,
-        dimensions=dimensions,
-        filters=filters,
-        orderby=[],
-        limit=None,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        query_type=QueryBuildType.MEASURES,
-        other_args={"include_all_columns": include_all_columns},
-    ):
-        engine = (
-            await get_engine(session, engine_name, engine_version)  # type: ignore
-            if engine_name
-            else None
-        )
-        return TranslatedSQL(
-            sql=query_request.query,
-            columns=query_request.columns,
-            dialect=engine.dialect if engine else None,
-        )
-
-    measures_query = await get_measures_query(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions,
-        filters=filters,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        current_user=current_user,
-        validate_access=validate_access,
-        include_all_columns=include_all_columns,
-    )
-
-    await QueryRequest.save_query_request(
-        session=session,
-        nodes=metrics,
-        dimensions=dimensions,
-        filters=filters,
-        orderby=[],
-        limit=None,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        query_type=QueryBuildType.MEASURES,
-        query=measures_query.sql,
-        columns=[col.dict() for col in measures_query.columns],  # type: ignore
-        other_args={"include_all_columns": include_all_columns},
-    )
-    return measures_query
-
-
 @router.get(
     "/sql/measures/v2/",
     response_model=List[GeneratedSQL],
@@ -162,6 +80,7 @@ async def get_measures_sql_for_cube_v2(
         get_measures_query,
     )
 
+    metrics = list(OrderedDict.fromkeys(set(metrics)))
     measures_query = await get_measures_query(
         session=session,
         metrics=metrics,
@@ -187,6 +106,7 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
     session: AsyncSession = Depends(get_session),
     engine: Engine,
     access_control: AccessControlStore,
+    ignore_errors: bool = True,
 ) -> QueryRequest:
     """
     Build node SQL and save it to query requests
@@ -202,7 +122,7 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
         dimensions = list(
             OrderedDict.fromkeys(node.current.cube_node_dimensions + dimensions),
         )
-        translated_sql, _, _ = await build_sql_for_multiple_metrics(
+        translated_sql, engine, _ = await build_sql_for_multiple_metrics(
             session=session,
             metrics=node.current.cube_node_metrics,
             dimensions=dimensions,
@@ -236,21 +156,39 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
         return request
 
     # For all other nodes, build the node query
-    query_ast = await get_query(
-        session=session,
-        node_name=node_name,
-        dimensions=dimensions,
-        filters=filters,
-        orderby=orderby,
-        limit=limit,
-        engine=engine,
-        access_control=access_control,
-    )
-    columns = [
-        assemble_column_metadata(col)  # type: ignore
-        for col in query_ast.select.projection
-    ]
-    query = str(query_ast)
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)  # type: ignore
+    if node.type == NodeType.METRIC:
+        translated_sql, engine, _ = await build_sql_for_multiple_metrics(
+            session,
+            [node_name],
+            dimensions,
+            filters,
+            orderby,
+            limit,
+            engine.name if engine else None,
+            engine.version if engine else None,
+            access_control=access_control,
+            ignore_errors=ignore_errors,
+        )
+        query = translated_sql.sql
+        columns = translated_sql.columns
+    else:
+        query_ast = await get_query(
+            session=session,
+            node_name=node_name,
+            dimensions=dimensions,
+            filters=filters,
+            orderby=orderby,
+            limit=limit,
+            engine=engine,
+            access_control=access_control,
+        )
+        columns = [
+            assemble_column_metadata(col)  # type: ignore
+            for col in query_ast.select.projection
+        ]
+        query = str(query_ast)
+
     query_request = await QueryRequest.save_query_request(
         session=session,
         nodes=[node_name],
@@ -262,7 +200,7 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
         engine_version=engine.version if engine else None,
         query_type=QueryBuildType.NODE,
         query=query,
-        columns=[col.dict() for col in columns],
+        columns=[col.dict() for col in columns or []],
     )
     return query_request
 
@@ -280,6 +218,7 @@ async def get_node_sql(  # pylint: disable=too-many-locals
     current_user: User,
     validate_access: access.ValidateAccessFn,  # pylint: disable=redefined-outer-name
     background_tasks: BackgroundTasks,
+    ignore_errors: bool = True,
 ) -> Tuple[TranslatedSQL, QueryRequest]:
     """
     Return SQL for a node.
@@ -339,6 +278,7 @@ async def get_node_sql(  # pylint: disable=too-many-locals
         session=session,
         engine=engine,  # type: ignore
         access_control=access_control,
+        ignore_errors=ignore_errors,
     )
     return (
         TranslatedSQL(
@@ -370,6 +310,7 @@ async def get_sql(  # pylint: disable=too-many-locals
         validate_access,
     ),
     background_tasks: BackgroundTasks,
+    ignore_errors: Optional[bool] = True,
 ) -> TranslatedSQL:
     """
     Return SQL for a node.
@@ -386,6 +327,7 @@ async def get_sql(  # pylint: disable=too-many-locals
         current_user=current_user,
         validate_access=validate_access,
         background_tasks=background_tasks,
+        ignore_errors=ignore_errors,  # type: ignore
     )
     return translated_sql
 
@@ -405,6 +347,7 @@ async def get_sql_for_metrics(
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
+    ignore_errors: Optional[bool] = True,
 ) -> TranslatedSQL:
     """
     Return SQL for a set of metrics with dimensions and filters
@@ -448,6 +391,7 @@ async def get_sql_for_metrics(
         engine_name,
         engine_version,
         access_control,
+        ignore_errors=ignore_errors,  # type: ignore
     )
 
     await QueryRequest.save_query_request(

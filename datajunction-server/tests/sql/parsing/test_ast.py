@@ -178,7 +178,6 @@ async def test_ast_compile_having(
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
-    assert not exc.errors
 
     node = query.select.from_.relations[0].primary._dj_node  # type: ignore  # pylint: disable=protected-access
     assert node

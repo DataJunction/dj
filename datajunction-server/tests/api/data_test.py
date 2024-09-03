@@ -428,7 +428,7 @@ class TestDataForNode:
                             "semantic_entity": (
                                 "default.num_repair_orders.default_DOT_num_repair_orders"
                             ),
-                            "semantic_type": None,
+                            "semantic_type": "metric",
                             "type": "bigint",
                         },
                     ],
@@ -473,6 +473,14 @@ class TestDataForNode:
                 {
                     "columns": [
                         {
+                            "column": "company_name",
+                            "name": "default_DOT_dispatcher_DOT_company_name",
+                            "node": "default.dispatcher",
+                            "semantic_entity": "default.dispatcher.company_name",
+                            "semantic_type": "dimension",
+                            "type": "string",
+                        },
+                        {
                             "column": "default_DOT_num_repair_orders",
                             "name": "default_DOT_num_repair_orders",
                             "node": "default.num_repair_orders",
@@ -492,20 +500,12 @@ class TestDataForNode:
                             "semantic_type": "metric",
                             "type": "double",
                         },
-                        {
-                            "column": "company_name",
-                            "name": "default_DOT_dispatcher_DOT_company_name",
-                            "node": "default.dispatcher",
-                            "semantic_entity": "default.dispatcher.company_name",
-                            "semantic_type": "dimension",
-                            "type": "string",
-                        },
                     ],
                     "row_count": 0,
                     "rows": [
-                        [9, 51913.88888888889, "Federal Roads Group"],
-                        [8, 62205.875, "Pothole Pete"],
-                        [8, 68914.75, "Asphalts R Us"],
+                        ["Federal Roads Group", 9, 51913.88888888889],
+                        ["Pothole Pete", 8, 62205.875],
+                        ["Asphalts R Us", 8, 68914.75],
                     ],
                     "sql": mock.ANY,
                 },
@@ -625,7 +625,7 @@ class TestDataForNode:
                         "semantic_entity": (
                             "default.num_repair_orders.default_DOT_num_repair_orders"
                         ),
-                        "semantic_type": None,
+                        "semantic_type": "metric",
                         "type": "bigint",
                     },
                 ],
@@ -1643,6 +1643,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "default.revenue",
         )
         revenue = (await module__session.execute(statement)).scalar_one()
+        await module__session.refresh(revenue, ["current"])
+        await module__session.refresh(revenue.current, ["availability"])
         node_dict = AvailabilityStateBase.from_orm(revenue.current.availability).dict()
         assert node_dict == {
             "valid_through_ts": 20230101,

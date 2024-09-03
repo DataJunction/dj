@@ -32,10 +32,9 @@ class TestDataAccessControl:  # pylint: disable=too-few-public-methods
         app.dependency_overrides[validate_access] = validate_access_override
         response = await module__client_with_examples.get("/data/basic.num_comments/")
         data = response.json()
-        assert data["message"] == (
-            "Authorization of User `dj` for this request failed."
-            "\nThe following requests were denied:\nread:node/basic.num_comments."
-        )
+        assert "Authorization of User `dj` for this request failed" in data["message"]
+        assert "read:node/basic.num_comments" in data["message"]
+        assert "read:node/basic.source.comments" in data["message"]
         assert response.status_code == 403
         app.dependency_overrides.clear()
 
