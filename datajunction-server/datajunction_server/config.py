@@ -89,7 +89,7 @@ class Settings(
     google_oauth_client_secret_file: Optional[str] = None
 
     # Interval in seconds with which to expire caching of any indexes
-    index_cache_expire = 60
+    index_cache_expire = 180
 
     # SQLAlchemy engine config
     db_pool_size = 20
