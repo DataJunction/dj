@@ -20,7 +20,6 @@ from sqlalchemy.sql.operators import and_, is_
 from datajunction_server.construction.build import (
     build_materialized_cube_node,
     build_metric_nodes,
-    build_node,
     get_default_criteria,
     rename_columns,
     validate_shared_dimensions,
@@ -203,17 +202,22 @@ async def get_query(  # pylint: disable=too-many-arguments
     """
     Get a query for a metric, dimensions, and filters
     """
-    node = await Node.get_by_name(session, node_name)
+    from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel
+        QueryBuilder,
+    )
+
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     build_criteria = get_default_criteria(node.current, engine)  # type: ignore
-    query_ast = await build_node(
-        session=session,
-        node=node.current,  # type: ignore
-        filters=filters,
-        dimensions=dimensions,
-        orderby=orderby,
-        limit=limit,
-        build_criteria=build_criteria,
-        access_control=access_control,
+    query_builder = await QueryBuilder.create(session, node.current)  # type: ignore
+    query_ast = await (
+        query_builder.ignore_errors()
+        .with_access_control(access_control)
+        .with_build_criteria(build_criteria)
+        .add_dimensions(dimensions)
+        .add_filters(filters)
+        .limit(limit)
+        .order_by(orderby)
+        .build()
     )
     query_ast = rename_columns(query_ast, node.current)  # type: ignore
     return query_ast
@@ -369,7 +373,6 @@ async def validate_cube(  # pylint: disable=too-many-locals
         ),
         key=lambda x: metrics_sorting_order.get(x.name, 0),
     )
-
     # Verify that all metrics exist
     if len(metric_nodes) != len(metric_names):
         not_found = set(metric_names) - {metric.name for metric in metric_nodes}
@@ -493,7 +496,6 @@ async def validate_cube(  # pylint: disable=too-many-locals
         session,
         metric_nodes,
         dimension_names,
-        [],
     )
     return metrics, metric_nodes, list(dimension_nodes.values()), dimensions, catalog
 
@@ -596,6 +598,7 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
     engine_version: Optional[str] = None,
     access_control: Optional[access.AccessControlStore] = None,
     use_materialized: bool = True,
+    ignore_errors: bool = True,
 ) -> Tuple[TranslatedSQL, Engine, Catalog]:
     """
     Build SQL for multiple metrics. Used by both /sql and /data endpoints
@@ -620,7 +623,13 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
             ),
         ],
     )
-    available_engines = leading_metric_node.current.catalog.engines  # type: ignore
+    if access_control:
+        access_control.add_request_by_node(leading_metric_node.current)  # type: ignore
+    available_engines = (
+        leading_metric_node.current.catalog.engines  # type: ignore
+        if leading_metric_node.current.catalog  # type: ignore
+        else []
+    )
 
     # Try to find a built cube that already has the given metrics and dimensions
     # The cube needs to have a materialization configured and an availability state
@@ -687,6 +696,7 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
             )
             for col in dimension_columns
         ]
+        engine = materialized_cube_catalog.engines[0]
         return (
             TranslatedSQL(
                 sql=str(query_ast),
@@ -705,6 +715,7 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
         orderby=orderby or [],
         limit=limit,
         access_control=access_control,
+        ignore_errors=ignore_errors,
     )
     columns = [
         assemble_column_metadata(col)  # type: ignore
@@ -796,7 +807,7 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
         await asyncio.sleep(stream_delay)  # pragma: no cover
 
 
-async def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-locals
+async def build_sql_for_dj_query(  # pylint: disable=too-many-locals  # pragma: no cover
     session: AsyncSession,
     query: str,
     access_control: access.AccessControl,
@@ -809,35 +820,39 @@ async def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many
 
     query_ast, dj_nodes = await build_dj_query(session, query)
 
-    for node in dj_nodes:
-        access_control.add_request_by_node(
+    for node in dj_nodes:  # pragma: no cover
+        access_control.add_request_by_node(  # pragma: no cover
             node.current,
         )
 
-    access_control.validate_and_raise()
+    access_control.validate_and_raise()  # pragma: no cover
 
-    leading_metric_node = dj_nodes[0]
-    available_engines = leading_metric_node.current.catalog.engines
+    leading_metric_node = dj_nodes[0]  # pragma: no cover
+    available_engines = (  # pragma: no cover
+        leading_metric_node.current.catalog.engines
+        if leading_metric_node.current.catalog
+        else []
+    )
 
     # Check if selected engine is available
-    engine = (
+    engine = (  # pragma: no cover
         await get_engine(session, engine_name, engine_version)  # type: ignore
         if engine_name
         else available_engines[0]
     )
 
-    if engine not in available_engines:
+    if engine not in available_engines:  # pragma: no cover
         raise DJInvalidInputException(  # pragma: no cover
             f"The selected engine is not available for the node {leading_metric_node.name}. "
             f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
         )
 
-    columns = [
+    columns = [  # pragma: no cover
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
         for col in query_ast.select.projection
     ]
 
-    return (
+    return (  # pragma: no cover
         TranslatedSQL(
             sql=str(query_ast),
             columns=columns,

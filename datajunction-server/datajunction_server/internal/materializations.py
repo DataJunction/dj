@@ -7,11 +7,8 @@ from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import build_sql_for_multiple_metrics
-from datajunction_server.construction.build import (
-    build_node,
-    get_default_criteria,
-    get_measures_query,
-)
+from datajunction_server.construction.build import get_default_criteria
+from datajunction_server.construction.build_v2 import QueryBuilder, get_measures_query
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.user import User
@@ -65,17 +62,18 @@ async def rewrite_metrics_expressions(
             full_column_name = (
                 col.table.dj_node.name + SEPARATOR + col.alias_or_name.name  # type: ignore
             )
-            measures_for_metric.append(
-                Measure(
-                    name=full_column_name,
-                    field_name=measures_to_output_columns_lookup[full_column_name],
-                    type=str(col.type),
-                    agg="sum",
-                ),
-            )
             if (
                 full_column_name in measures_to_output_columns_lookup
             ):  # pragma: no cover
+                measures_for_metric.append(
+                    Measure(
+                        name=full_column_name,
+                        field_name=measures_to_output_columns_lookup[full_column_name],
+                        type=str(col.type),
+                        agg="sum",
+                    ),
+                )
+
                 col._table = None  # pylint: disable=protected-access
                 col.name = ast.Name(
                     measures_to_output_columns_lookup[full_column_name],
@@ -85,11 +83,12 @@ async def rewrite_metrics_expressions(
             and metric_ast.select.projection[0].alias  # type: ignore
         ):
             metric_ast.select.projection[0].alias.name = ""  # type: ignore
-        metrics_expressions[metric.name] = MetricMeasures(
-            metric=metric.name,
-            measures=measures_for_metric,
-            combiner=str(metric_ast.select.projection[0]),
-        )
+        if measures_for_metric:
+            metrics_expressions[metric.name] = MetricMeasures(
+                metric=metric.name,
+                measures=measures_for_metric,
+                combiner=str(metric_ast.select.projection[0]),
+            )
     return metrics_expressions
 
 
@@ -144,7 +143,7 @@ async def build_cube_materialization_config(
             return generic_config
 
         # Druid Measures Cube (Pre-Agg)
-        measures_query = await get_measures_query(
+        measures_queries = await get_measures_query(
             session=session,
             metrics=[node.name for node in current_revision.cube_metrics()],
             dimensions=current_revision.cube_dimensions(),
@@ -153,24 +152,25 @@ async def build_cube_materialization_config(
             validate_access=validate_access,
             cast_timestamp_to_ms=True,
         )
-        metrics_expressions = await rewrite_metrics_expressions(
-            session,
-            current_revision,
-            measures_query,
-        )
-        generic_config = DruidMeasuresCubeConfig(
-            node_name=current_revision.name,
-            query=measures_query.sql,
-            dimensions=[
-                col.name
-                for col in measures_query.columns  # type: ignore # pylint: disable=not-an-iterable
-                if col.semantic_type == SemanticType.DIMENSION
-            ],
-            measures=metrics_expressions,
-            spark=upsert_input.config.spark,
-            upstream_tables=measures_query.upstream_tables,
-            columns=measures_query.columns,
-        )
+        for measures_query in measures_queries:
+            metrics_expressions = await rewrite_metrics_expressions(
+                session,
+                current_revision,
+                measures_query,
+            )
+            generic_config = DruidMeasuresCubeConfig(
+                node_name=current_revision.name,
+                query=measures_query.sql,
+                dimensions=[
+                    col.name
+                    for col in measures_query.columns  # type: ignore # pylint: disable=not-an-iterable
+                    if col.semantic_type == SemanticType.DIMENSION
+                ],
+                measures=metrics_expressions,
+                spark=upsert_input.config.spark,
+                upstream_tables=measures_query.upstream_tables,
+                columns=measures_query.columns,
+            )
         return generic_config
     except (KeyError, ValidationError, AttributeError) as exc:  # pragma: no cover
         raise DJInvalidInputException(  # pragma: no cover
@@ -194,12 +194,9 @@ async def build_non_cube_materialization_config(
     build_criteria = get_default_criteria(
         node=current_revision,
     )
-    materialization_ast = await build_node(
-        session=session,
-        node=current_revision,
-        dimensions=[],
-        orderby=[],
-        build_criteria=build_criteria,
+    query_builder = await QueryBuilder.create(session, current_revision)
+    materialization_ast = await (
+        query_builder.ignore_errors().with_build_criteria(build_criteria).build()
     )
     generic_config = GenericMaterializationConfig(
         lookback_window=upsert.config.lookback_window,

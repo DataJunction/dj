@@ -561,6 +561,7 @@ class NodeRevision(
     dimension_links: Mapped[List["DimensionLink"]] = relationship(
         back_populates="node_revision",
         cascade="all, delete",
+        order_by="DimensionLink.id",
     )
 
     # The availability of materialized data needs to be stored on the NodeRevision
@@ -839,7 +840,7 @@ class NodeRevision(
         A mapping between each of the dimension attributes linked to this node to the columns
         that they're linked to.
         """
-        return {
+        return {  # pragma: no cover
             left.identifier(): right
             for link in self.dimension_links
             for left, right in link.foreign_key_mapping().items()

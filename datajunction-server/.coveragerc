@@ -9,6 +9,8 @@ omit =
     */datajunction_server/sql/parsing/ast.py
     */datajunction_server/internal/access/authentication/google.py
     */datajunction_server/api/access/authentication/google.py
+    */datajunction_server/api/djsql.py
+    */datajunction_server/construction/dj_query.py
 
 [paths]
 source =

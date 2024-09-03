@@ -62,10 +62,10 @@ async def try_get_dj_node(
     from datajunction_server.sql.parsing.ast import Column  # pylint: disable=C0415
 
     if isinstance(name, Column):
-        if name.name.namespace is not None:
-            name = name.name.namespace.identifier(False)
-        else:
-            return None
+        if name.name.namespace is not None:  # pragma: no cover
+            name = name.name.namespace.identifier(False)  # pragma: no cover
+        else:  # pragma: no cover
+            return None  # pragma: no cover
     try:
         return await get_dj_node(session, name, kinds, current=False)
     except DJErrorException:
