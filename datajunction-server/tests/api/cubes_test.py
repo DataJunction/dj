@@ -1247,9 +1247,9 @@ async def test_cube_sql_generation_with_availability(
             SELECT  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
                 default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
                 default_DOT_hard_hat.hire_date default_DOT_hard_hat_DOT_hire_date,
-                CAST(SUM(IF(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / COUNT(*) default_DOT_discounted_orders_rate,
-                COUNT(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
-                AVG(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price
+                CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate,
+                count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
+                avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price
             FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
             GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.hire_date
             LIMIT 100
@@ -1361,12 +1361,12 @@ async def test_cube_sql_generation_with_availability(
                 default_DOT_hard_hats.contractor_id
             FROM roads.hard_hats AS default_DOT_hard_hats
             )
-            SELECT  default_DOT_hard_hat.country AS default_DOT_hard_hat_DOT_country,
-                default_DOT_hard_hat.postal_code AS default_DOT_hard_hat_DOT_postal_code,
-                default_DOT_hard_hat.hire_date AS default_DOT_hard_hat_DOT_hire_date,
-                CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / COUNT(*) AS default_DOT_discounted_orders_rate,
-                count(default_DOT_repair_orders_fact.repair_order_id) AS default_DOT_num_repair_orders,
-                avg(default_DOT_repair_orders_fact.price) AS default_DOT_avg_repair_price
+            SELECT  default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
+                default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
+                default_DOT_hard_hat.hire_date default_DOT_hard_hat_DOT_hire_date,
+                CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate,
+                count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
+                avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price
             FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
             GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.hire_date
             """,

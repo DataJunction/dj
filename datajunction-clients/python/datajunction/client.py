@@ -313,7 +313,9 @@ class DJClient(_internal.DJClient):
 
                 # Raise errors if any
                 if not response.status_code < 400:
-                    raise DJClientException(f"Error retrieving data: {response.text}")  # pragma: no cover  # pylint: disable=line-too-long
+                    raise DJClientException(
+                        f"Error retrieving data: {response.text}",
+                    )  # pragma: no cover  # pylint: disable=line-too-long
                 if results["state"] not in models.QueryState.list():
                     raise DJClientException(  # pragma: no cover
                         f"Query state {results['state']} is not a DJ-parseable query state!"
