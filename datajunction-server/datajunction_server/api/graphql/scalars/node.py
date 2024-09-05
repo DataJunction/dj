@@ -77,7 +77,7 @@ class Tag:  # pylint: disable=too-few-public-methods
     """
 
     name: str
-    description: str = ""
+    description: Optional[str]
     tag_type: str
     tag_metadata: JSON
 
