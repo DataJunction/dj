@@ -6,7 +6,7 @@ groups = ["default", "test"]
 cross_platform = true
 static_urls = false
 lock_version = "4.3"
-content_hash = "sha256:ab94599642fda4b8feaed7c568eeb4f7d3d5293461bd27415a6afdaa7cd793b6"
+content_hash = "sha256:34318118bc6e33e87be45db8019b6b0d59ff5f026cf73882693c5e0889bc7fd9"
 
 [[package]]
 name = "accept-types"
@@ -1192,6 +1192,35 @@ files = [
 ]
 
 [[package]]
+name = "psycopg"
+version = "3.2.1"
+requires_python = ">=3.8"
+summary = "PostgreSQL database adapter for Python"
+dependencies = [
+    "backports-zoneinfo>=0.2.0; python_version < \"3.9\"",
+    "typing-extensions>=4.4",
+    "tzdata; sys_platform == \"win32\"",
+]
+files = [
+    {file = "psycopg-3.2.1-py3-none-any.whl", hash = "sha256:ece385fb413a37db332f97c49208b36cf030ff02b199d7635ed2fbd378724175"},
+    {file = "psycopg-3.2.1.tar.gz", hash = "sha256:dc8da6dc8729dacacda3cc2f17d2c9397a70a66cf0d2b69c91065d60d5f00cb7"},
+]
+
+[[package]]
+name = "psycopg"
+version = "3.2.1"
+extras = ["async"]
+requires_python = ">=3.8"
+summary = "PostgreSQL database adapter for Python"
+dependencies = [
+    "psycopg==3.2.1",
+]
+files = [
+    {file = "psycopg-3.2.1-py3-none-any.whl", hash = "sha256:ece385fb413a37db332f97c49208b36cf030ff02b199d7635ed2fbd378724175"},
+    {file = "psycopg-3.2.1.tar.gz", hash = "sha256:dc8da6dc8729dacacda3cc2f17d2c9397a70a66cf0d2b69c91065d60d5f00cb7"},
+]
+
+[[package]]
 name = "pycparser"
 version = "2.22"
 requires_python = ">=3.8"
@@ -1680,47 +1709,6 @@ files = [
     {file = "SQLAlchemy-1.4.52-cp39-cp39-win32.whl", hash = "sha256:c124912fd4e1bb9d1e7dc193ed482a9f812769cb1e69363ab68e01801e859821"},
     {file = "SQLAlchemy-1.4.52-cp39-cp39-win_amd64.whl", hash = "sha256:2c286fab42e49db23c46ab02479f328b8bdb837d3e281cae546cc4085c83b680"},
     {file = "SQLAlchemy-1.4.52.tar.gz", hash = "sha256:80e63bbdc5217dad3485059bdf6f65a7d43f33c8bde619df5c220edf03d87296"},
-]
-
-[[package]]
-name = "sqlalchemy-utils"
-version = "0.41.2"
-requires_python = ">=3.7"
-summary = "Various utility functions for SQLAlchemy."
-dependencies = [
-    "SQLAlchemy>=1.3",
-]
-files = [
-    {file = "SQLAlchemy-Utils-0.41.2.tar.gz", hash = "sha256:bc599c8c3b3319e53ce6c5c3c471120bd325d0071fb6f38a10e924e3d07b9990"},
-    {file = "SQLAlchemy_Utils-0.41.2-py3-none-any.whl", hash = "sha256:85cf3842da2bf060760f955f8467b87983fb2e30f1764fd0e24a48307dc8ec6e"},
-]
-
-[[package]]
-name = "sqlalchemy2-stubs"
-version = "0.0.2a38"
-requires_python = ">=3.6"
-summary = "Typing Stubs for SQLAlchemy 1.4"
-dependencies = [
-    "typing-extensions>=3.7.4",
-]
-files = [
-    {file = "sqlalchemy2-stubs-0.0.2a38.tar.gz", hash = "sha256:861d722abeb12f13eacd775a9f09379b11a5a9076f469ccd4099961b95800f9e"},
-    {file = "sqlalchemy2_stubs-0.0.2a38-py3-none-any.whl", hash = "sha256:b62aa46943807287550e2033dafe07564b33b6a815fbaa3c144e396f9cc53bcb"},
-]
-
-[[package]]
-name = "sqlmodel"
-version = "0.0.11"
-requires_python = ">=3.7,<4.0"
-summary = "SQLModel, SQL databases in Python, designed for simplicity, compatibility, and robustness."
-dependencies = [
-    "SQLAlchemy<2.0.0,>=1.4.36",
-    "pydantic<2.0.0,>=1.9.0",
-    "sqlalchemy2-stubs",
-]
-files = [
-    {file = "sqlmodel-0.0.11-py3-none-any.whl", hash = "sha256:bc0d64c4b901d919d2f16bbd79aefb07cb268c29f7c1dd83a84758772ccc95c6"},
-    {file = "sqlmodel-0.0.11.tar.gz", hash = "sha256:fc33abbf7ec29caafabe3d0e1db61e33597857a289e5fd1ecdb91be702b26084"},
 ]
 
 [[package]]
