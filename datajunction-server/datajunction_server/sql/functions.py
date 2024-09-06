@@ -2191,16 +2191,13 @@ def infer_type(
     options: Optional[Function] = None,
 ) -> ct.StructType:
     # pylint: disable=import-outside-toplevel
-    from datajunction_server.sql.parsing.backends.antlr4 import (
-        parse_rule,
-    )
+    from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
+
     schema_type = re.sub(r"^'(.*)'$", r"\1", schema.value)
     try:
         return parse_rule(schema_type, "dataType")
     except DJParseException:
-        return ct.StructType(
-            *parse_rule(schema_type, "complexColTypeList")
-        )
+        return ct.StructType(*parse_rule(schema_type, "complexColTypeList"))
 
 
 class FromUnixtime(Function):

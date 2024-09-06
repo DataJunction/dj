@@ -3,9 +3,9 @@
 Tests for ``datajunction_server.sql.functions``.
 """
 
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Union
 
 import datajunction_server.sql.functions as F
 import datajunction_server.sql.parsing.types as ct
@@ -1828,7 +1828,9 @@ async def test_from_json_func(session: AsyncSession):
     """
     Test the `from_json` function
     """
-    query = parse("SELECT from_json('1,2,3', 'a INT, b INT, c INT'), from_json('[\"a\",\"b\"]', 'ARRAY<STRING>')")
+    query = parse(
+        "SELECT from_json('1,2,3', 'a INT, b INT, c INT'), from_json('[\"a\",\"b\"]', 'ARRAY<STRING>')",
+    )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
