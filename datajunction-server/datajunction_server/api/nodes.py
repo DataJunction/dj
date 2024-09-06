@@ -25,7 +25,6 @@ from datajunction_server.api.helpers import (
 )
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
-from datajunction_server.constants import NODE_LIST_MAX
 from datajunction_server.database import DimensionLink
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
@@ -280,16 +279,17 @@ async def list_all_nodes_with_details(
             Node.type == node_type if node_type else True,
             is_(Node.deactivated_at, None),
         )
-        .limit(NODE_LIST_MAX)
+        .order_by(NodeRevision.updated_at.desc())
+        .limit(settings.node_list_max)
     )  # Very high limit as a safeguard
     results = [
         NodeIndexItem(name=row[0], display_name=row[1], description=row[2], type=row[3])
         for row in (await session.execute(nodes_query)).all()
     ]
-    if len(results) == NODE_LIST_MAX:  # pragma: no cover
+    if len(results) == settings.node_list_max:  # pragma: no cover
         _logger.warning(
             "%s limit reached when returning all nodes, all nodes may not be captured in results",
-            NODE_LIST_MAX,
+            settings.node_list_max,
         )
     approvals = [
         approval.access_object.name

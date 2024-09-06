@@ -370,6 +370,7 @@ async def validate_cube(  # pylint: disable=too-many-locals
                     selectinload(NodeRevision.parents),
                 ),
             ],
+            include_inactive=False,
         ),
         key=lambda x: metrics_sorting_order.get(x.name, 0),
     )
