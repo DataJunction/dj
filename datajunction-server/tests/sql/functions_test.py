@@ -1836,7 +1836,7 @@ async def test_from_json_func(session: AsyncSession):
     await query.compile(ctx)
     assert not exc.errors
     assert isinstance(query.select.projection[0].type, ct.StructType)  # type: ignore
-    assert isinstance(query.select.projection[1].type, ct.ListType)
+    assert isinstance(query.select.projection[1].type, ct.ListType)  # type: ignore
 
 
 @pytest.mark.asyncio
