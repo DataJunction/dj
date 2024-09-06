@@ -198,6 +198,7 @@ async def get_query(  # pylint: disable=too-many-arguments
     limit: Optional[int] = None,
     engine: Optional[Engine] = None,
     access_control: Optional[access.AccessControlStore] = None,
+    use_materialized: bool = True,
 ) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
@@ -208,7 +209,11 @@ async def get_query(  # pylint: disable=too-many-arguments
 
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     build_criteria = get_default_criteria(node.current, engine)  # type: ignore
-    query_builder = await QueryBuilder.create(session, node.current)  # type: ignore
+    query_builder = await QueryBuilder.create(
+        session,
+        node.current,  # type: ignore
+        use_materialized=use_materialized,
+    )
     query_ast = await (
         query_builder.ignore_errors()
         .with_access_control(access_control)
@@ -598,8 +603,8 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     access_control: Optional[access.AccessControlStore] = None,
-    use_materialized: bool = True,
     ignore_errors: bool = True,
+    use_materialized: bool = True,
 ) -> Tuple[TranslatedSQL, Engine, Catalog]:
     """
     Build SQL for multiple metrics. Used by both /sql and /data endpoints
