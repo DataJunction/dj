@@ -2185,20 +2185,22 @@ class FromJson(Function):  # pragma: no cover
 
 
 @FromJson.register  # type: ignore
-def infer_type(  # pragma: no cover
+def infer_type(
     json: ct.StringType,
     schema: ct.StringType,
     options: Optional[Function] = None,
 ) -> ct.StructType:
-    # TODO: Handle options?  # pylint: disable=fixme
     # pylint: disable=import-outside-toplevel
     from datajunction_server.sql.parsing.backends.antlr4 import (
-        parse_rule,  # pragma: no cover
+        parse_rule,
     )
-
-    return ct.StructType(
-        *parse_rule(schema.value, "complexColTypeList")
-    )  # pragma: no cover
+    schema_type = re.sub(r"^'(.*)'$", r"\1", schema.value)
+    try:
+        return parse_rule(schema_type, "dataType")
+    except DJParseException:
+        return ct.StructType(
+            *parse_rule(schema_type, "complexColTypeList")
+        )
 
 
 class FromUnixtime(Function):
