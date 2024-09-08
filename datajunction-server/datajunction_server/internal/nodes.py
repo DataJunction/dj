@@ -1200,6 +1200,14 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
                     errors=node_validator.errors,
                 )
 
+        # Update dimension links based on new columns
+        new_column_names = {col.name for col in new_revision.columns}
+        new_revision.dimension_links = [
+            link
+            for link in old_revision.dimension_links
+            if link.foreign_key_column_names.intersection(new_column_names)
+        ]
+
         new_parents = [n.name for n in node_validator.dependencies_map]
         parent_refs = (
             (
@@ -1860,7 +1868,7 @@ async def activate_node(
     await session.commit()
 
 
-async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statements
+async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statements,too-many-branches
     name: str,
     session: AsyncSession,
     current_user: User,
@@ -1936,8 +1944,16 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
     # Update the status
     node.current.status = node_validator.status  # type: ignore
 
-    # Check if any columns have been updated
     existing_columns = {col.name: col for col in node.current.columns}  # type: ignore
+
+    # Validate dimension links
+    to_remove = set()
+    for link in node.current.dimension_links:  # type: ignore
+        if not link.foreign_key_column_names.intersection(set(existing_columns)):
+            to_remove.add(link)
+            await session.delete(link)
+
+    # Check if any columns have been updated
     updated_columns = False
     for col in node_validator.columns:
         if existing_col := existing_columns.get(col.name):
