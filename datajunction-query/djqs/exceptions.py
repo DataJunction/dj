@@ -4,8 +4,6 @@ Errors and warnings.
 
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
-from sqlmodel import SQLModel
-
 from djqs.enum import IntEnum
 
 
@@ -53,20 +51,31 @@ class DJErrorType(TypedDict):
     debug: Optional[DebugType]
 
 
-class DJError(SQLModel):
+class DJError:
     """
     An error.
     """
 
-    code: ErrorCode
-    message: str
-    debug: Optional[Dict[str, Any]]
+    def __init__(self, code: ErrorCode, message: str, debug: Optional[Dict[str, Any]] = None):
+        self.code = code
+        self.message = message
+        self.debug = debug
 
     def __str__(self) -> str:
         """
         Format the error nicely.
         """
         return f"{self.message} (error code: {self.code})"
+
+    def dict(self) -> Dict[str, Any]:
+        """
+        Convert the error to a dictionary.
+        """
+        return {
+            "code": self.code,
+            "message": self.message,
+            "debug": self.debug,
+        }
 
 
 class DJWarningType(TypedDict):
@@ -79,14 +88,25 @@ class DJWarningType(TypedDict):
     debug: Optional[DebugType]
 
 
-class DJWarning(SQLModel):
+class DJWarning:
     """
     A warning.
     """
 
-    code: Optional[ErrorCode] = None
-    message: str
-    debug: Optional[Dict[str, Any]]
+    def __init__(self, message: str, code: Optional[ErrorCode] = None, debug: Optional[Dict[str, Any]] = None):
+        self.code = code
+        self.message = message
+        self.debug = debug
+
+    def dict(self) -> Dict[str, Any]:
+        """
+        Convert the warning to a dictionary.
+        """
+        return {
+            "code": self.code,
+            "message": self.message,
+            "debug": self.debug,
+        }
 
 
 DBAPIExceptions = Literal[
@@ -118,16 +138,6 @@ class DJException(Exception):
     Base class for errors.
     """
 
-    message: str
-    errors: List[DJError]
-    warnings: List[DJWarning]
-
-    # exception that should be raised when ``DJException`` is caught by the DB API cursor
-    dbapi_exception: DBAPIExceptions = "Error"
-
-    # status code that should be returned when ``DJException`` is caught by the API layer
-    http_status_code: int = 500
-
     def __init__(  # pylint: disable=too-many-arguments
         self,
         message: Optional[str] = None,
@@ -139,11 +149,8 @@ class DJException(Exception):
         self.errors = errors or []
         self.warnings = warnings or []
         self.message = message or "\n".join(error.message for error in self.errors)
-
-        if dbapi_exception is not None:
-            self.dbapi_exception = dbapi_exception
-        if http_status_code is not None:
-            self.http_status_code = http_status_code
+        self.dbapi_exception = dbapi_exception or "Error"
+        self.http_status_code = http_status_code or 500
 
         super().__init__(self.message)
 
@@ -186,8 +193,8 @@ class DJInvalidInputException(DJException):
     Exception raised when the input provided by the user is invalid.
     """
 
-    dbapi_exception: DBAPIExceptions = "ProgrammingError"
-    http_status_code: int = 422
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, dbapi_exception="ProgrammingError", http_status_code=422, **kwargs)
 
 
 class DJNotImplementedException(DJException):
@@ -195,8 +202,8 @@ class DJNotImplementedException(DJException):
     Exception raised when some functionality hasn't been implemented in DJ yet.
     """
 
-    dbapi_exception: DBAPIExceptions = "NotSupportedError"
-    http_status_code: int = 500
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, dbapi_exception="NotSupportedError", http_status_code=500, **kwargs)
 
 
 class DJInternalErrorException(DJException):
@@ -204,8 +211,8 @@ class DJInternalErrorException(DJException):
     Exception raised when we do something wrong in the code.
     """
 
-    dbapi_exception: DBAPIExceptions = "InternalError"
-    http_status_code: int = 500
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, dbapi_exception="InternalError", http_status_code=500, **kwargs)
 
 
 class DJInvalidTableRef(DJException):

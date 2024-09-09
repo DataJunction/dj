@@ -26,12 +26,12 @@ dependencies = [
     "python-dotenv==0.19.2",
     "requests<=2.29.0,>=2.28.2",
     "rich>=10.16.2",
-    "sqlparse<1.0.0,>=0.4.3",
     "toml>=0.10.2",
     "snowflake-connector-python>=3.3.1",
     "pyyaml>=6.0.1",
     "trino>=0.324.0",
     "psycopg[async,pool]>=3.2.1",
+    "sqlalchemy>=2.0.34",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.rst"

@@ -2,6 +2,8 @@
 Dependency for getting the postgres pool and running backend DB queries
 """
 from typing import List
+from uuid import UUID
+from datetime import datetime
 
 from fastapi import Request, App
 from psycopg import sql
@@ -28,29 +30,65 @@ class DBQuery:
         self.selects: List = []
         self.inserts: List = []
 
-    def get_query(self, foo):
+    def get_query(self, query_id: UUID):
         """
         Get metadata about a query
         """
         self.selects.append(
             sql.SQL(
                 """
-                SELECT ...
+                SELECT id, catalog_name, engine_name, engine_version, submitted_query, 
+                       async_, executed_query, scheduled, started, finished, state, progress
+                FROM query
+                WHERE id = {query_id}
                 """,
-            ).format(foo=foo),
+            ).format(query_id=sql.Literal(query_id)),
         )
         return self
     
-    def save_query(self, foo):
+    def save_query(self, query_id: UUID, catalog_name: str, engine_name: str, engine_version: str, 
+                   submitted_query: str, async_: bool, state: str, progress: float, 
+                   executed_query: str = None, scheduled: datetime = None, 
+                   started: datetime = None, finished: datetime = None):
         """
         Save metadata about a query
         """
         self.inserts.append(
             sql.SQL(
                 """
-                SELECT ...
-                """,
-            ).format(foo=foo)
+                INSERT INTO query (id, catalog_name, engine_name, engine_version, 
+                                   submitted_query, async_, executed_query, scheduled, 
+                                   started, finished, state, progress)
+                VALUES ({query_id}, {catalog_name}, {engine_name}, {engine_version}, 
+                        {submitted_query}, {async_}, {executed_query}, {scheduled}, 
+                        {started}, {finished}, {state}, {progress})
+                ON CONFLICT (id) DO UPDATE SET
+                    catalog_name = EXCLUDED.catalog_name,
+                    engine_name = EXCLUDED.engine_name,
+                    engine_version = EXCLUDED.engine_version,
+                    submitted_query = EXCLUDED.submitted_query,
+                    async_ = EXCLUDED.async_,
+                    executed_query = EXCLUDED.executed_query,
+                    scheduled = EXCLUDED.scheduled,
+                    started = EXCLUDED.started,
+                    finished = EXCLUDED.finished,
+                    state = EXCLUDED.state,
+                    progress = EXCLUDED.progress
+                """
+            ).format(
+                query_id=sql.Literal(query_id),
+                catalog_name=sql.Literal(catalog_name),
+                engine_name=sql.Literal(engine_name),
+                engine_version=sql.Literal(engine_version),
+                submitted_query=sql.Literal(submitted_query),
+                async_=sql.Literal(async_),
+                executed_query=sql.Literal(executed_query),
+                scheduled=sql.Literal(scheduled),
+                started=sql.Literal(started),
+                finished=sql.Literal(finished),
+                state=sql.Literal(state),
+                progress=sql.Literal(progress),
+            )
         )
         return self
     
