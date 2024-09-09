@@ -163,6 +163,7 @@ class DJClient(_internal.DJClient):
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
         measures: bool = False,
+        use_materialized: bool = True,
     ):
         """
         Builds SQL for one or more metrics with the provided group by dimensions and filters.
@@ -178,6 +179,7 @@ class DJClient(_internal.DJClient):
                 "filters": filters or [],
                 "engine_name": engine_name or self.engine_name,
                 "engine_version": engine_version or self.engine_version,
+                "use_materialized": use_materialized,
             },
         )
         if response.status_code != 200:
@@ -196,6 +198,7 @@ class DJClient(_internal.DJClient):
         filters: Optional[List[str]] = None,
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
+        use_materialized: bool = True,
     ):
         """
         Builds SQL for a node with the provided dimensions and filters.
@@ -207,6 +210,7 @@ class DJClient(_internal.DJClient):
                 "filters": filters or [],
                 "engine_name": engine_name or self.engine_name,
                 "engine_version": engine_version or self.engine_version,
+                "use_materialized": use_materialized,
             },
         )
         if response.status_code == 200:
