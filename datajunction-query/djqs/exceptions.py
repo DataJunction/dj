@@ -56,7 +56,12 @@ class DJError:
     An error.
     """
 
-    def __init__(self, code: ErrorCode, message: str, debug: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        code: ErrorCode,
+        message: str,
+        debug: Optional[Dict[str, Any]] = None,
+    ):
         self.code = code
         self.message = message
         self.debug = debug
@@ -88,12 +93,17 @@ class DJWarningType(TypedDict):
     debug: Optional[DebugType]
 
 
-class DJWarning:
+class DJWarning:  # pylint: disable=too-few-public-methods
     """
     A warning.
     """
 
-    def __init__(self, message: str, code: Optional[ErrorCode] = None, debug: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        message: str,
+        code: Optional[ErrorCode] = None,
+        debug: Optional[Dict[str, Any]] = None,
+    ):
         self.code = code
         self.message = message
         self.debug = debug
@@ -154,7 +164,7 @@ class DJException(Exception):
 
         super().__init__(self.message)
 
-    def to_dict(self) -> DJExceptionType:
+    def to_dict(self) -> dict:
         """
         Convert to dict.
         """
@@ -194,7 +204,9 @@ class DJInvalidInputException(DJException):
     """
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, dbapi_exception="ProgrammingError", http_status_code=422, **kwargs)
+        super().__init__(
+            *args, dbapi_exception="ProgrammingError", http_status_code=422, **kwargs
+        )
 
 
 class DJNotImplementedException(DJException):
@@ -203,7 +215,9 @@ class DJNotImplementedException(DJException):
     """
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, dbapi_exception="NotSupportedError", http_status_code=500, **kwargs)
+        super().__init__(
+            *args, dbapi_exception="NotSupportedError", http_status_code=500, **kwargs
+        )
 
 
 class DJInternalErrorException(DJException):
@@ -212,7 +226,9 @@ class DJInternalErrorException(DJException):
     """
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, dbapi_exception="InternalError", http_status_code=500, **kwargs)
+        super().__init__(
+            *args, dbapi_exception="InternalError", http_status_code=500, **kwargs
+        )
 
 
 class DJInvalidTableRef(DJException):
@@ -230,4 +246,16 @@ class DJTableNotFound(DJException):
 class DJDatabaseError(DJException):
     """
     Ran into an issue while submitting a query to the backend DB
+    """
+
+
+class DJUnknownCatalog(DJException):
+    """
+    Raised when a catalog cannot be found
+    """
+
+
+class DJUnknownEngine(DJException):
+    """
+    Raised when an engine or engine version cannot be found
     """

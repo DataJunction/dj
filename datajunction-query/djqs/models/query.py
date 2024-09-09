@@ -3,12 +3,12 @@ Models for queries.
 """
 
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, List, Optional
 from uuid import UUID, uuid4
 
 import msgpack
-from dataclasses import dataclass, field
 
 from djqs.enum import IntEnum
 from djqs.typing import QueryState, Row
@@ -19,16 +19,18 @@ class BaseQuery:
     """
     Base class for query models.
     """
+
     catalog_name: Optional[str] = None
     engine_name: Optional[str] = None
     engine_version: Optional[str] = None
 
 
 @dataclass
-class Query(BaseQuery):
+class Query(BaseQuery):  # pylint: disable=too-many-instance-attributes
     """
     A query.
     """
+
     id: UUID = field(default_factory=uuid4)
     submitted_query: str = ""
     catalog_name: str = ""
@@ -48,6 +50,7 @@ class QueryCreate(BaseQuery):
     """
     Model for submitted queries.
     """
+
     submitted_query: str = ""
     async_: bool = False
 
@@ -57,6 +60,7 @@ class ColumnMetadata:
     """
     A simple model for column metadata.
     """
+
     name: str
     type: str
 
@@ -68,17 +72,19 @@ class StatementResults:
 
     This contains the SQL, column names and types, and rows
     """
+
     sql: str
     columns: List[ColumnMetadata] = field(default_factory=list)
     rows: List[Row] = field(default_factory=list)
-    row_count: int = 0  # this indicates the total number of rows, and is useful for paginated requests
+    row_count: int = 0  # used for pagination
 
 
 @dataclass
-class QueryResults(BaseQuery):
+class QueryResults(BaseQuery):  # pylint: disable=too-many-instance-attributes
     """
     Model for query with results.
     """
+
     id: uuid.UUID = field(default_factory=uuid4)
     engine_name: Optional[str] = None
     engine_version: Optional[str] = None
@@ -88,6 +94,7 @@ class QueryResults(BaseQuery):
     started: Optional[datetime] = None
     finished: Optional[datetime] = None
     state: QueryState = QueryState.UNKNOWN
+    async_: bool = False
     progress: float = 0.0
     results: List[StatementResults] = field(default_factory=list)
     next: Optional[str] = None  # Changed to str, as AnyHttpUrl was from pydantic
@@ -99,6 +106,7 @@ class QueryExtType(IntEnum):
     """
     Custom ext type for msgpack.
     """
+
     UUID = 1
     DATETIME = 2
 

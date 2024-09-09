@@ -17,7 +17,8 @@ depends_on = None
 
 
 def upgrade():
-    op.execute("""
+    op.execute(
+        """
     CREATE TABLE query (
         id UUID PRIMARY KEY,
         catalog_name VARCHAR NOT NULL,
@@ -32,7 +33,8 @@ def upgrade():
         state VARCHAR NOT NULL,
         progress FLOAT NOT NULL
     )
-    """)
+    """,
+    )
 
 
 def downgrade():
