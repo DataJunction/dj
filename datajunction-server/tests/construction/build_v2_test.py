@@ -35,6 +35,7 @@ async def create_source(
     table: str,
     columns: List[Column],
     current_user: User,
+    query: str = None,
 ) -> Tuple[Node, NodeRevision]:
     """Create source node."""
     source_node = Node(
@@ -50,6 +51,7 @@ async def create_source(
         display_name=display_name,
         type=NodeType.SOURCE,
         version="1",
+        query=query,
         schema_=schema_,
         table=table,
         columns=columns,
@@ -136,7 +138,12 @@ async def events(session: AsyncSession, current_user: User) -> Node:
             Column(name="utc_date", type=ct.BigIntType(), order=4),
         ],
         current_user=current_user,
+        query=(
+            "SELECT event_id, user_id, device_id, country_code, "
+            "latency, utc_date FROM test.events"
+        ),
     )
+
     return events_node
 
 
@@ -262,6 +269,7 @@ async def devices(
             Column(name="device_manufacturer", type=ct.StringType(), order=2),
         ],
         current_user=current_user,
+        query="SELECT device_id, device_name, device_manufacturer FROM test.devices",
     )
 
     devices_dim_node, _ = await create_node_with_query(
@@ -312,6 +320,7 @@ async def manufacturers_dim(
             Column(name="created_on", type=ct.TimestampType(), order=2),
         ],
         current_user=current_user,
+        query="SELECT manufacturer_name, company_name, created_on FROM test.manufacturers",
     )
     manufacturers_dim_node, _ = await create_node_with_query(
         session,
@@ -365,6 +374,7 @@ async def country_dim(
             Column(name="population", type=ct.IntegerType(), order=3),
         ],
         current_user=current_user,
+        query="SELECT country_code, country_name, region_code, population FROM test.countries",
     )
 
     await create_source(
@@ -378,6 +388,7 @@ async def country_dim(
             Column(name="region_name", type=ct.StringType(), order=1),
         ],
         current_user=current_user,
+        query="SELECT region_code, region_name FROM test.regions",
     )
 
     await create_node_with_query(
@@ -1322,6 +1333,138 @@ async def test_query_builder(
     ]
     assert query_builder._limit == 100  # pylint: disable=protected-access
     assert not query_builder.include_dimensions_in_groupby
+
+
+@pytest.mark.asyncio
+async def test_build_transform_sql_without_materialized_tables(
+    session: AsyncSession,
+    events: Node,  # pylint: disable=unused-argument
+    events_agg: Node,
+    devices: Node,  # pylint: disable=unused-argument
+    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
+    manufacturers_dim: Node,  # pylint: disable=unused-argument
+    country_dim: Node,  # pylint: disable=unused-argument
+    events_agg_countries_link: DimensionLink,  # pylint: disable=unused-argument
+):
+    """
+    Test building a transform node with filters and dimensions that forces skipping the materialized
+    tables for the dependent nodes.
+    """
+    query_builder = await QueryBuilder.create(
+        session,
+        events_agg.current,
+        use_materialized=False,
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.manufacturers.company_name = 'Apple'")
+        .filter_by("shared.manufacturers.created_at > 20240101")
+        .filter_by("shared.countries.region_name = 'APAC'")
+        .add_dimension("shared.devices.device_manufacturer")
+        .add_dimension("shared.countries.region_name")
+        .build()
+    )
+    expected = """
+    WITH
+    source_DOT_events AS (
+    SELECT  event_id,
+        user_id,
+        device_id,
+        country_code,
+        latency,
+        utc_date
+     FROM test.events
+    ),
+    agg_DOT_events AS (
+    SELECT  source_DOT_events.user_id,
+        source_DOT_events.utc_date,
+        source_DOT_events.device_id,
+        source_DOT_events.country_code,
+        SUM(source_DOT_events.latency) AS total_latency
+     FROM source_DOT_events
+     GROUP BY  source_DOT_events.user_id, source_DOT_events.device_id, source_DOT_events.country_code
+    ),
+    source_DOT_devices AS (
+    SELECT  device_id,
+        device_name,
+        device_manufacturer
+     FROM test.devices
+    ),
+    shared_DOT_devices AS (
+    SELECT  CAST(source_DOT_devices.device_id AS INT) device_id,
+        CAST(source_DOT_devices.device_name AS STRING) device_name,
+        source_DOT_devices.device_manufacturer
+     FROM source_DOT_devices
+    ),
+    source_DOT_countries AS (
+    SELECT  country_code,
+        country_name,
+        region_code,
+        population
+     FROM test.countries
+    ),
+    source_DOT_regions AS (
+    SELECT  region_code,
+        region_name
+     FROM test.regions
+    ),
+    shared_DOT_regions AS (
+    SELECT  source_DOT_regions.region_code,
+        source_DOT_regions.region_name
+     FROM source_DOT_regions
+    ),
+    shared_DOT_countries AS (
+    SELECT  countries.country_code,
+        countries.country_name,
+        shared_DOT_regions.region_code,
+        shared_DOT_regions.region_name,
+        countries.population
+     FROM source_DOT_countries countries JOIN shared_DOT_regions ON countries.region_code = shared_DOT_regions.region_code
+     WHERE  shared_DOT_regions.region_name = 'APAC'
+    ),
+    source_DOT_manufacturers AS (
+    SELECT  manufacturer_name,
+        company_name,
+        created_on
+     FROM test.manufacturers
+    ),
+    shared_DOT_manufacturers AS (
+    SELECT  CAST(manufacturers.manufacturer_name AS STRING) name,
+        CAST(manufacturers.company_name AS STRING) company_name,
+        manufacturers.created_on AS created_at,
+        COUNT( DISTINCT devices.device_id) AS devices_produced
+     FROM source_DOT_manufacturers manufacturers JOIN shared_DOT_devices devices ON manufacturers.manufacturer_name = devices.device_manufacturer
+     WHERE  CAST(manufacturers.company_name AS STRING) = 'Apple' AND manufacturers.created_on > 20240101
+    )
+
+    SELECT  agg_DOT_events.user_id,
+        agg_DOT_events.utc_date,
+        agg_DOT_events.device_id,
+        agg_DOT_events.country_code,
+        agg_DOT_events.total_latency,
+        shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
+        shared_DOT_countries.region_name shared_DOT_countries_DOT_region_name,
+        shared_DOT_manufacturers.company_name shared_DOT_manufacturers_DOT_company_name,
+        shared_DOT_manufacturers.created_at shared_DOT_manufacturers_DOT_created_at
+     FROM agg_DOT_events INNER JOIN shared_DOT_devices ON shared_DOT_devices.device_id = agg_DOT_events.device_id
+    INNER JOIN shared_DOT_countries ON agg_DOT_events.country_code = shared_DOT_countries.country_code
+    INNER JOIN shared_DOT_manufacturers ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
+    """
+    assert str(query_ast).strip() == str(parse(expected)).strip()
+
+    query_builder = await QueryBuilder.create(
+        session,
+        events_agg.current,
+        use_materialized=True,
+    )
+    query_ast = await (
+        query_builder.filter_by("shared.manufacturers.company_name = 'Apple'")
+        .filter_by("shared.manufacturers.created_at > 20240101")
+        .filter_by("shared.countries.region_name = 'APAC'")
+        .add_dimension("shared.devices.device_manufacturer")
+        .add_dimension("shared.countries.region_name")
+        .build()
+    )
+    assert str(query_ast).strip() != str(parse(expected)).strip()
 
 
 @pytest.mark.asyncio
