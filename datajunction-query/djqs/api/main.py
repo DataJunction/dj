@@ -17,7 +17,6 @@ from psycopg_pool import AsyncConnectionPool
 
 from djqs import __version__
 from djqs.api import queries, tables
-from djqs.config import load_djqs_config
 from djqs.exceptions import DJException
 from djqs.utils import get_settings
 
@@ -28,13 +27,10 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create the connection pool
     pool = AsyncConnectionPool(settings.index)
     try:
-        # Yield the pool so it can be used in the app
-        yield pool
+        yield {"pool": pool}
     finally:
-        # Close the connection pool
         await pool.close()
 
 

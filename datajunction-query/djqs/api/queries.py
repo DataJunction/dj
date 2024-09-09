@@ -32,7 +32,7 @@ from djqs.models.query import (
     decode_results,
     encode_results,
 )
-from djqs.utils import get_session, get_settings
+from djqs.utils import get_settings
 
 _logger = logging.getLogger(__name__)
 router = APIRouter(tags=["SQL Queries"])
@@ -46,22 +46,6 @@ router = APIRouter(tags=["SQL Queries"])
         200: {
             "content": {"application/msgpack": {}},
             "description": "Return results as JSON or msgpack",
-        },
-    },
-    openapi_extra={
-        "requestBody": {
-            "content": {
-                "application/json": {
-                    "schema": QueryCreate.schema(
-                        ref_template="#/components/schemas/{model}",
-                    ),
-                },
-                "application/msgpack": {
-                    "schema": QueryCreate.schema(
-                        ref_template="#/components/schemas/{model}",
-                    ),
-                },
-            },
         },
     },
 )

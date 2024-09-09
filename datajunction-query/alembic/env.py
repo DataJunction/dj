@@ -44,7 +44,7 @@ def run_migrations_offline():
     script output.
 
     """
-    url = settings.index
+    url = settings.alembic_uri
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -63,7 +63,7 @@ def run_migrations_online():
     and associate a connection with the context.
 
     """
-    connectable = create_engine(settings.index)
+    connectable = create_engine(settings.alembic_uri)
 
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
