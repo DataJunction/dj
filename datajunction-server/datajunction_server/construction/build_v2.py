@@ -991,14 +991,19 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
         for ref_expr in reference_expressions:
 
             # Try to find a materialized table attached to this node, if one exists.
-            physical_table = cast(
-                Optional[ast.Table],
-                get_table_for_node(
-                    referenced_node,
-                    build_criteria=build_criteria,
-                ),
-            )
-            if not physical_table or not use_materialized:
+            physical_table = None
+            if use_materialized:
+                print(f"Checking for physical node: {referenced_node.name}")
+                physical_table = cast(
+                    Optional[ast.Table],
+                    get_table_for_node(
+                        referenced_node,
+                        build_criteria=build_criteria,
+                    ),
+                )
+
+            if not physical_table:
+                print(f"No physical node for {referenced_node.name}")
                 # Build a new CTE with the query AST if there is no materialized table
                 if referenced_node.name not in ctes_mapping:
                     node_query = parse(cast(str, referenced_node.query))
