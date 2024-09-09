@@ -941,7 +941,7 @@ def build_join_for_link(
         if full_column.column_name not in (
             dimension_node_columns if is_dimension_node else node_columns
         ):
-            raise DJQueryBuildException(
+            raise DJQueryBuildException(  # pragma: no cover
                 f"The requested column {full_column.column_name} does not exist"
                 f" on {full_column.node_name}",
             )

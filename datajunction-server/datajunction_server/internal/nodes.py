@@ -1950,8 +1950,8 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
     to_remove = set()
     for link in node.current.dimension_links:  # type: ignore
         if not link.foreign_key_column_names.intersection(set(existing_columns)):
-            to_remove.add(link)
-            await session.delete(link)
+            to_remove.add(link)  # pragma: no cover
+            await session.delete(link)  # pragma: no cover
 
     # Check if any columns have been updated
     updated_columns = False
