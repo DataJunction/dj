@@ -3,7 +3,7 @@ Table related APIs.
 """
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
 from djqs.api.helpers import get_columns
 from djqs.exceptions import DJInvalidTableRef
@@ -31,19 +31,20 @@ def table_columns(
         )
     settings = get_settings()
 
-    if engine_version == "":
-        version = ""
-    else:  # pragma: no cover
-        version = engine_version or settings.default_engine_version
-
     if engine and engine_version:
-        engine = settings.find_engine(engine_name=engine, engine_version=version)
+        engine_config = settings.find_engine(
+            engine_name=engine,
+            engine_version=engine_version or settings.default_engine_version,
+        )
     else:
-        engine = settings.find_engine(engine_name=settings.default_engine, engine_version=version)
+        engine_config = settings.find_engine(
+            engine_name=settings.default_engine,
+            engine_version=engine_version or settings.default_engine_version,
+        )
     print(settings.engines)
     external_columns = get_columns(
-        uri=engine.uri,
-        extra_params=engine.extra_params,
+        uri=engine_config.uri,
+        extra_params=engine_config.extra_params,
         catalog=table_parts[0],
         schema=table_parts[1],
         table=table_parts[2],

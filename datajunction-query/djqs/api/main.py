@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
+from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from djqs import __version__
@@ -26,9 +26,16 @@ settings = get_settings()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    pool = AsyncConnectionPool(settings.index)
-    app.state.pool = pool
+async def lifespan(fastapi_app: FastAPI):
+    """
+    Create a postgres connection pool and store it in the app state
+    """
+    pool = AsyncConnectionPool(
+        settings.index,
+        kwargs={"row_factory": dict_row},
+        check=AsyncConnectionPool.check_connection,
+    )
+    fastapi_app.state.pool = pool
     try:
         yield
     finally:
@@ -49,6 +56,7 @@ app.include_router(queries.router)
 app.include_router(tables.router)
 
 app.router.lifespan_context = lifespan
+
 
 @app.exception_handler(DJException)
 async def dj_exception_handler(  # pylint: disable=unused-argument

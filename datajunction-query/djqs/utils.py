@@ -3,7 +3,6 @@ Utility functions.
 """
 # pylint: disable=line-too-long
 
-import datetime
 import logging
 import os
 from functools import lru_cache

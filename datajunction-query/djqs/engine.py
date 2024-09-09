@@ -4,17 +4,19 @@ Query related functions.
 import json
 import logging
 import os
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 import duckdb
 import snowflake.connector
-from sqlalchemy import create_engine, text
 from psycopg_pool import AsyncConnectionPool
+from sqlalchemy import create_engine, text
 
-from djqs.db.postgres import DBQuery
-from djqs.config import Settings, EngineType
+from djqs.config import EngineType, Settings
 from djqs.constants import SQLALCHEMY_URI
+from djqs.db.postgres import DBQuery
+from djqs.exceptions import DJDatabaseError
 from djqs.models.query import (
     ColumnMetadata,
     Query,
@@ -82,7 +84,10 @@ def run_query(  # pylint: disable=R0914
     settings = get_settings()
     engine_name = query.engine_name or settings.default_engine
     engine_version = query.engine_name or settings.default_engine_version
-    engine = settings.find_engine(engine_name=engine_name, engine_version=engine_version)
+    engine = settings.find_engine(
+        engine_name=engine_name,
+        engine_version=engine_version,
+    )
     query_server = headers.get("SQLALCHEMY_URI") if headers else None
 
     if query_server:
@@ -119,14 +124,15 @@ def run_query(  # pylint: disable=R0914
     connection = sqla_engine.connect()
 
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
-    for statement in query.executed_query.split(";"):
-        results = connection.execute(text(statement))
-        stream = (tuple(row) for row in results)
-        columns = get_columns_from_description(
-            results.cursor.description,
-            sqla_engine.dialect,
-        )
-        output.append((statement, columns, stream))
+    if query.executed_query:
+        for statement in query.executed_query.split(";"):
+            results = connection.execute(text(statement))
+            stream = (tuple(row) for row in results)
+            columns = get_columns_from_description(
+                results.cursor.description,
+                sqla_engine.dialect,
+            )
+            output.append((statement, columns, stream))
 
     return output
 
@@ -200,14 +206,24 @@ async def process_query(
     query.finished = datetime.now(timezone.utc)
 
     async with postgres_pool.connection() as conn:
-        dbquery_results = await DBQuery().save_query(
-            query_id=query.id,
-            submitted_query=query.submitted_query,
-            async_=query.async_
-        ).execute(conn=conn)
+        dbquery_results = (
+            await DBQuery()
+            .save_query(
+                query_id=query.id,
+                submitted_query=query.submitted_query,
+                state=QueryState.FINISHED.value,
+                async_=query.async_,
+            )
+            .execute(conn=conn)
+        )
         query_save_result = dbquery_results[0]
         if not query_save_result:
-            raise Exception("Query failed to save")
+            raise DJDatabaseError("Query failed to save")
+
+    settings.results_backend.add(
+        str(query.id),
+        json.dumps([asdict(statement_result) for statement_result in results]),
+    )
 
     return QueryResults(
         id=query.id,
@@ -222,5 +238,5 @@ async def process_query(
         state=query.state,
         progress=query.progress,
         results=results,
-        errors=errors
+        errors=errors,
     )
