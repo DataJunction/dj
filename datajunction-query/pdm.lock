@@ -6,7 +6,7 @@ groups = ["default", "test"]
 cross_platform = true
 static_urls = false
 lock_version = "4.3"
-content_hash = "sha256:34318118bc6e33e87be45db8019b6b0d59ff5f026cf73882693c5e0889bc7fd9"
+content_hash = "sha256:9ca23872506738113cf355ce9505bce7348f9e04f0066a2589539c7abb9196d1"
 
 [[package]]
 name = "accept-types"
@@ -1200,6 +1200,34 @@ dependencies = [
     "backports-zoneinfo>=0.2.0; python_version < \"3.9\"",
     "typing-extensions>=4.4",
     "tzdata; sys_platform == \"win32\"",
+]
+files = [
+    {file = "psycopg-3.2.1-py3-none-any.whl", hash = "sha256:ece385fb413a37db332f97c49208b36cf030ff02b199d7635ed2fbd378724175"},
+    {file = "psycopg-3.2.1.tar.gz", hash = "sha256:dc8da6dc8729dacacda3cc2f17d2c9397a70a66cf0d2b69c91065d60d5f00cb7"},
+]
+
+[[package]]
+name = "psycopg-pool"
+version = "3.2.2"
+requires_python = ">=3.8"
+summary = "Connection Pool for Psycopg"
+dependencies = [
+    "typing-extensions>=4.4",
+]
+files = [
+    {file = "psycopg_pool-3.2.2-py3-none-any.whl", hash = "sha256:273081d0fbfaced4f35e69200c89cb8fbddfe277c38cc86c235b90a2ec2c8153"},
+    {file = "psycopg_pool-3.2.2.tar.gz", hash = "sha256:9e22c370045f6d7f2666a5ad1b0caf345f9f1912195b0b25d0d3bcc4f3a7389c"},
+]
+
+[[package]]
+name = "psycopg"
+version = "3.2.1"
+extras = ["async", "pool"]
+requires_python = ">=3.8"
+summary = "PostgreSQL database adapter for Python"
+dependencies = [
+    "psycopg-pool",
+    "psycopg==3.2.1",
 ]
 files = [
     {file = "psycopg-3.2.1-py3-none-any.whl", hash = "sha256:ece385fb413a37db332f97c49208b36cf030ff02b199d7635ed2fbd378724175"},
