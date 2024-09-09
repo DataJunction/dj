@@ -8,13 +8,11 @@ from typing import Dict, List, Optional, Tuple
 
 import duckdb
 import snowflake.connector
-import sqlparse
-from sqlalchemy import create_engine, text
-from sqlmodel import Session, select
+from sqlalchemy import create_engine
 
-from djqs.config import Settings
+from djqs.db.postgres import DBQuery
+from djqs.config import Settings, EngineType
 from djqs.constants import SQLALCHEMY_URI
-from djqs.models.engine import Engine, EngineType
 from djqs.models.query import (
     ColumnMetadata,
     Query,
@@ -24,6 +22,7 @@ from djqs.models.query import (
     StatementResults,
 )
 from djqs.typing import ColumnType, Description, SQLADialect, Stream, TypeEnum
+from djqs.utils import get_settings
 
 _logger = logging.getLogger(__name__)
 
@@ -67,7 +66,6 @@ def get_columns_from_description(
 
 
 def run_query(  # pylint: disable=R0914
-    session: Session,
     query: Query,
     headers: Optional[Dict[str, str]] = None,
 ) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
@@ -80,12 +78,10 @@ def run_query(  # pylint: disable=R0914
 
     _logger.info("Running query on catalog %s", query.catalog_name)
 
-    engine = session.exec(
-        select(Engine)
-        .where(Engine.name == query.engine_name)
-        .where(Engine.version == query.engine_version),
-    ).one()
-
+    settings = get_settings()
+    engine = settings.find_engine(engine_name=query.engine_name, engine_version=query.engine_version)
+    if not engine:
+        raise Exception(f"Cannot find engine {query.engine_name} with version {query.engine_version}")
     query_server = headers.get("SQLALCHEMY_URI") if headers else None
 
     if query_server:
@@ -94,7 +90,7 @@ def run_query(  # pylint: disable=R0914
             SQLALCHEMY_URI,
         )
         sqla_engine = create_engine(query_server)
-    elif engine.type == EngineType.DUCKDB:
+    elif engine.type == EngineType.DUCKDB.value:
         _logger.info("Creating duckdb connection")
         conn = (
             duckdb.connect()
@@ -122,12 +118,8 @@ def run_query(  # pylint: disable=R0914
     connection = sqla_engine.connect()
 
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
-    statements = sqlparse.parse(query.executed_query)
-    for statement in statements:
-        # Druid doesn't like statements that end in a semicolon...
-        sql = str(statement).strip().rstrip(";")
-
-        results = connection.execute(text(sql))
+    for statement in query.executed_query.split(";"):
+        results = connection.execute(statement)
         stream = (tuple(row) for row in results)
         columns = get_columns_from_description(
             results.cursor.description,
@@ -167,7 +159,6 @@ def run_snowflake_query(
 
 
 def process_query(
-    session: Session,
     settings: Settings,
     query: Query,
     headers: Optional[Dict[str, str]] = None,
@@ -184,7 +175,6 @@ def process_query(
     try:
         root = []
         for sql, columns, stream in run_query(
-            session=session,
             query=query,
             headers=headers,
         ):
@@ -208,9 +198,10 @@ def process_query(
 
     query.finished = datetime.now(timezone.utc)
 
-    session.add(query)
-    session.commit()
-    session.refresh(query)
+    # TODO Replace with DBQuery
+    # session.add(query)
+    # session.commit()
+    # session.refresh(query)
 
     settings.results_backend.add(str(query.id), results.json())
 

@@ -8,121 +8,105 @@ from typing import Any, List, Optional
 from uuid import UUID, uuid4
 
 import msgpack
-from pydantic import AnyHttpUrl
-from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlalchemy_utils import UUIDType
-from sqlmodel import Field, SQLModel
+from dataclasses import dataclass, field
 
 from djqs.enum import IntEnum
 from djqs.typing import QueryState, Row
 
 
-class BaseQuery(SQLModel):
+@dataclass
+class BaseQuery:
     """
     Base class for query models.
     """
-
-    catalog_name: Optional[str]
+    catalog_name: Optional[str] = None
     engine_name: Optional[str] = None
     engine_version: Optional[str] = None
 
-    class Config:  # pylint: disable=too-few-public-methods, missing-class-docstring
-        allow_population_by_field_name = True
 
-
-class Query(BaseQuery, table=True):  # type: ignore
+@dataclass
+class Query(BaseQuery):
     """
     A query.
     """
-
-    id: UUID = Field(
-        default_factory=uuid4,
-        sa_column=SqlaColumn(UUIDType(), primary_key=True),
-    )
-    submitted_query: str
-    catalog_name: str
-    engine_name: str
-    engine_version: str
-    async_: bool
+    id: UUID = field(default_factory=uuid4)
+    submitted_query: str = ""
+    catalog_name: str = ""
+    engine_name: str = ""
+    engine_version: str = ""
+    async_: bool = False
     executed_query: Optional[str] = None
     scheduled: Optional[datetime] = None
     started: Optional[datetime] = None
     finished: Optional[datetime] = None
-
     state: QueryState = QueryState.UNKNOWN
     progress: float = 0.0
 
 
+@dataclass
 class QueryCreate(BaseQuery):
     """
     Model for submitted queries.
     """
-
     submitted_query: str
     async_: bool = False
 
 
-class ColumnMetadata(SQLModel):
+@dataclass
+class ColumnMetadata:
     """
     A simple model for column metadata.
     """
-
     name: str
     type: str
 
 
-class StatementResults(SQLModel):
+@dataclass
+class StatementResults:
     """
     Results for a given statement.
 
     This contains the SQL, column names and types, and rows
     """
-
     sql: str
-    columns: List[ColumnMetadata]
-    rows: List[Row]
-
-    # this indicates the total number of rows, and is useful for paginated requests
-    row_count: int = 0
+    columns: List[ColumnMetadata] = field(default_factory=list)
+    rows: List[Row] = field(default_factory=list)
+    row_count: int = 0  # this indicates the total number of rows, and is useful for paginated requests
 
 
-class Results(SQLModel):
+@dataclass
+class Results:
     """
     Results for a given query.
     """
+    __root__: List[StatementResults] = field(default_factory=list)
 
-    __root__: List[StatementResults]
 
-
+@dataclass
 class QueryResults(BaseQuery):
     """
     Model for query with results.
     """
-
-    id: uuid.UUID
+    id: uuid.UUID = field(default_factory=uuid4)
     engine_name: Optional[str] = None
     engine_version: Optional[str] = None
-    submitted_query: str
+    submitted_query: str = ""
     executed_query: Optional[str] = None
-
     scheduled: Optional[datetime] = None
     started: Optional[datetime] = None
     finished: Optional[datetime] = None
-
     state: QueryState = QueryState.UNKNOWN
     progress: float = 0.0
-
-    results: Results
-    next: Optional[AnyHttpUrl] = None
-    previous: Optional[AnyHttpUrl] = None
-    errors: List[str]
+    results: Results = field(default_factory=Results)
+    next: Optional[str] = None  # Changed to str, as AnyHttpUrl was from pydantic
+    previous: Optional[str] = None  # Changed to str, as AnyHttpUrl was from pydantic
+    errors: List[str] = field(default_factory=list)
 
 
 class QueryExtType(IntEnum):
     """
     Custom ext type for msgpack.
     """
-
     UUID = 1
     DATETIME = 2
 

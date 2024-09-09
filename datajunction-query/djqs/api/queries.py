@@ -19,7 +19,6 @@ from fastapi import (
     Request,
     Response,
 )
-from sqlmodel import Session
 
 from djqs.config import Settings
 from djqs.engine import process_query
@@ -69,7 +68,6 @@ router = APIRouter(tags=["SQL Queries"])
 async def submit_query(  # pylint: disable=too-many-arguments
     accept: Optional[str] = Header(None),
     *,
-    session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
     request: Request,
     response: Response,
@@ -101,7 +99,6 @@ async def submit_query(  # pylint: disable=too-many-arguments
 
     query_with_results = save_query_and_run(
         create_query,
-        session,
         settings,
         response,
         background_tasks,
@@ -132,7 +129,6 @@ async def submit_query(  # pylint: disable=too-many-arguments
 
 def save_query_and_run(  # pylint: disable=R0913
     create_query: QueryCreate,
-    session: Session,
     settings: Settings,
     response: Response,
     background_tasks: BackgroundTasks,
@@ -144,17 +140,18 @@ def save_query_and_run(  # pylint: disable=R0913
     query = Query(**create_query.dict(by_alias=True))
     query.state = QueryState.ACCEPTED
 
-    session.add(query)
-    session.commit()
-    session.refresh(query)
+    # TODO replace with DBQuery
+    # session.add(query)
+    # session.commit()
+    # session.refresh(query)
 
     if query.async_:
-        background_tasks.add_task(process_query, session, settings, query, headers)
+        background_tasks.add_task(process_query, settings, query, headers)
 
         response.status_code = HTTPStatus.CREATED
         return QueryResults(results=[], errors=[], **query.dict())
 
-    return process_query(session, settings, query, headers)
+    return process_query(settings, query, headers)
 
 
 def load_query_results(
@@ -182,7 +179,6 @@ def load_query_results(
 def read_query(
     query_id: uuid.UUID,
     *,
-    session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> QueryResults:
     """
@@ -191,7 +187,9 @@ def read_query(
     For paginated queries we move the data from the results backend to the cache for a
     short period, anticipating additional requests.
     """
-    query = session.get(Query, query_id)
+    # TODO replace with DBQuery
+    # query = session.get(Query, query_id)
+    query=None
     if not query:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Query not found")
 

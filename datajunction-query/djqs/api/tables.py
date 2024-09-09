@@ -4,7 +4,6 @@ Table related APIs.
 from typing import Optional
 
 from fastapi import APIRouter, Depends
-from sqlmodel import Session
 
 from djqs.api.helpers import get_columns, get_engine
 from djqs.exceptions import DJInvalidTableRef
@@ -19,8 +18,6 @@ def table_columns(
     table: str,
     engine: Optional[str] = None,
     engine_version: Optional[str] = None,
-    *,
-    session: Session = Depends(get_session),
 ) -> TableInfo:
     """
     Get column information for a table
@@ -39,11 +36,11 @@ def table_columns(
     else:  # pragma: no cover
         version = engine_version or settings.default_reflection_engine_version
 
-    engine = get_engine(
-        session=session,
-        name=engine or settings.default_reflection_engine,
-        version=version,
-    )
+    # engine = get_engine(
+    #     session=session,
+    #     name=engine or settings.default_reflection_engine,
+    #     version=version,
+    # )
     external_columns = get_columns(
         uri=engine.uri,
         extra_params=engine.extra_params,
