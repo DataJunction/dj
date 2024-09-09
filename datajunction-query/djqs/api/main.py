@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from psycopg_pool import AsyncConnectionPool
 
 from djqs import __version__
-from djqs.api import catalogs, engines, queries, tables
+from djqs.api import queries, tables
 from djqs.config import load_djqs_config
 from djqs.exceptions import DJException
 from djqs.utils import get_settings
@@ -48,12 +48,8 @@ app = FastAPI(
     },
     lifespan=lifespan,
 )
-app.include_router(catalogs.get_router)
-app.include_router(engines.get_router)
 app.include_router(queries.router)
 app.include_router(tables.router)
-app.include_router(catalogs.post_router) if settings.enable_dynamic_config else None
-app.include_router(engines.post_router) if settings.enable_dynamic_config else None
 
 app.router.lifespan_context = lifespan
 
