@@ -28,8 +28,9 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     pool = AsyncConnectionPool(settings.index)
+    app.state.pool = pool
     try:
-        yield {"pool": pool}
+        yield
     finally:
         await pool.close()
 
