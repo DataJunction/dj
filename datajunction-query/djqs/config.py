@@ -26,7 +26,7 @@ class EngineType(Enum):
 class EngineInfo:
     def __init__(self, name: str, version: str, type: str, uri: str, extra_params: Optional[Dict[str, str]] = None):
         self.name = name
-        self.version = version
+        self.version = str(version)
         self.type = EngineType(type)
         self.uri = uri
         self.extra_params = extra_params or {}
@@ -47,8 +47,9 @@ class Settings:  # pylint: disable=too-few-public-methods
         self.url: str = os.getenv("URL", "http://localhost:8001/")
         
         # SQLAlchemy URI for the metadata database.
-        self.index: str = os.getenv("INDEX", "postgresql+psycopg://dj:dj@postgres_metadata:5432/djqs")
+        self.index: str = os.getenv("INDEX", "postgresql://dj:dj@postgres_metadata:5432/djqs")
         
+        self.alembic_uri: str = os.getenv("ALEMBIC_URI", "postgresql+psycopg://dj:dj@postgres_metadata:5432/djqs")
         # The default engine to use for reflection
         self.default_reflection_engine: str = os.getenv("DEFAULT_REFLECTION_ENGINE", "default")
         
@@ -97,13 +98,19 @@ class Settings:  # pylint: disable=too-few-public-methods
         self.catalogs = [CatalogInfo(**catalog) for catalog in config.get('catalogs', [])]
 
     def find_engine(self, engine_name: str, engine_version: str) -> Optional[EngineInfo]:
+        found_engine = None
         for engine in self.engines:
             if engine.name == engine_name and engine.version == engine_version:
-                return engine
-        return None
+                found_engine = engine
+        if not found_engine:
+            raise Exception(f"Cannot find engine {engine_name} with version {engine_version}")
+        return found_engine
 
     def find_catalog(self, catalog_name: str) -> Optional[CatalogInfo]:
+        found_catalog = None
         for catalog in self.catalogs:
             if catalog.name == catalog_name:
-                return catalog
-        return None
+                found_catalog = catalog
+        if not found_catalog:
+            raise Exception(f"Cannot find catalog {catalog_name}")
+        return found_catalog

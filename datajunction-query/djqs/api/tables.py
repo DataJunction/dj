@@ -5,10 +5,10 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends
 
-from djqs.api.helpers import get_columns, get_engine
+from djqs.api.helpers import get_columns
 from djqs.exceptions import DJInvalidTableRef
 from djqs.models.table import TableInfo
-from djqs.utils import get_session, get_settings
+from djqs.utils import get_settings
 
 router = APIRouter(tags=["Table Reflection"])
 
@@ -36,11 +36,11 @@ def table_columns(
     else:  # pragma: no cover
         version = engine_version or settings.default_reflection_engine_version
 
-    # engine = get_engine(
-    #     session=session,
-    #     name=engine or settings.default_reflection_engine,
-    #     version=version,
-    # )
+    if engine and engine_version:
+        engine = settings.find_engine(engine_name=engine, engine_version=version)
+    else:
+        engine = settings.find_engine(engine_name=settings.default_reflection_engine, engine_version=version)
+    print(settings.engines)
     external_columns = get_columns(
         uri=engine.uri,
         extra_params=engine.extra_params,

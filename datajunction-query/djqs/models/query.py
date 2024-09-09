@@ -48,7 +48,7 @@ class QueryCreate(BaseQuery):
     """
     Model for submitted queries.
     """
-    submitted_query: str
+    submitted_query: str = ""
     async_: bool = False
 
 

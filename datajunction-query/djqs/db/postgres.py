@@ -5,7 +5,7 @@ from typing import List
 from uuid import UUID
 from datetime import datetime
 
-from fastapi import Request, App
+from fastapi import Request
 from psycopg import sql
 from psycopg_pool import AsyncConnectionPool
 
