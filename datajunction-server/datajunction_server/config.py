@@ -91,6 +91,8 @@ class Settings(
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire = 60
 
+    default_catalog_id: int = 0
+
     # SQLAlchemy engine config
     db_pool_size = 20
     db_max_overflow = 20
