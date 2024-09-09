@@ -34,12 +34,12 @@ def table_columns(
     if engine_version == "":
         version = ""
     else:  # pragma: no cover
-        version = engine_version or settings.default_reflection_engine_version
+        version = engine_version or settings.default_engine_version
 
     if engine and engine_version:
         engine = settings.find_engine(engine_name=engine, engine_version=version)
     else:
-        engine = settings.find_engine(engine_name=settings.default_reflection_engine, engine_version=version)
+        engine = settings.find_engine(engine_name=settings.default_engine, engine_version=version)
     print(settings.engines)
     external_columns = get_columns(
         uri=engine.uri,

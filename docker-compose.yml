@@ -183,7 +183,7 @@ services:
 
   dj-trino:
     container_name: dj-trino
-    profiles: ["trino"]
+    profiles: ["demo"]
     image: 'trinodb/trino:latest'
     hostname: trino-coordinator
     ports:

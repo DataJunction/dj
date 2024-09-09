@@ -16,7 +16,7 @@ async def get_postgres_pool(request: Request) -> AsyncConnectionPool:
     Get the postgres pool from the app instance
     """
     app = request.app
-    return app.router.lifespan_context
+    return app.state.pool
 
 class DBQuery:
     """
@@ -46,8 +46,8 @@ class DBQuery:
         )
         return self
     
-    def save_query(self, query_id: UUID, catalog_name: str, engine_name: str, engine_version: str, 
-                   submitted_query: str, async_: bool, state: str, progress: float, 
+    def save_query(self, query_id: UUID, catalog_name: str = "", engine_name: str = "", engine_version: str = "", 
+                   submitted_query: str = "", async_: bool = False, state: str = "", progress: float = 0.0, 
                    executed_query: str = None, scheduled: datetime = None, 
                    started: datetime = None, finished: datetime = None):
         """
@@ -74,6 +74,7 @@ class DBQuery:
                     finished = EXCLUDED.finished,
                     state = EXCLUDED.state,
                     progress = EXCLUDED.progress
+                RETURNING *
                 """
             ).format(
                 query_id=sql.Literal(query_id),

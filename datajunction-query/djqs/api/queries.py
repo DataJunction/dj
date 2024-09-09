@@ -1,6 +1,7 @@
 """
 Query related APIs.
 """
+import asyncio
 import json
 import logging
 import uuid
@@ -19,7 +20,9 @@ from fastapi import (
     Request,
     Response,
 )
+from psycopg_pool import AsyncConnectionPool
 
+from djqs.db.postgres import DBQuery, get_postgres_pool
 from djqs.config import Settings
 from djqs.engine import process_query
 from djqs.models.query import (
@@ -27,7 +30,6 @@ from djqs.models.query import (
     QueryCreate,
     QueryResults,
     QueryState,
-    Results,
     StatementResults,
     decode_results,
     encode_results,
@@ -55,6 +57,7 @@ async def submit_query(  # pylint: disable=too-many-arguments
     settings: Settings = Depends(get_settings),
     request: Request,
     response: Response,
+    postgres_pool: AsyncConnectionPool = Depends(get_postgres_pool),
     background_tasks: BackgroundTasks,
     body: Any = Body(...),
 ) -> QueryResults:
@@ -81,89 +84,61 @@ async def submit_query(  # pylint: disable=too-many-arguments
         )
     create_query = QueryCreate(**data)
 
-    query_with_results = save_query_and_run(
-        create_query,
-        settings,
-        response,
-        background_tasks,
-        request.headers,
+
+    query_with_results = await save_query_and_run(
+        create_query=create_query,
+        settings=settings,
+        response=response,
+        background_tasks=background_tasks,
+        postgres_pool=postgres_pool,
+        headers=request.headers,
     )
 
-    return_type = get_best_match(accept, ["application/json", "application/msgpack"])
-    if not return_type:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_ACCEPTABLE,
-            detail="Client MUST accept: application/json, application/msgpack",
-        )
-
-    if return_type == "application/msgpack":
-        content = msgpack.packb(
-            query_with_results.dict(by_alias=True),
-            default=encode_results,
-        )
-    else:
-        content = query_with_results.json(by_alias=True)
-
-    return Response(
-        content=content,
-        media_type=return_type,
-        status_code=response.status_code or HTTPStatus.OK,
-    )
+    return query_with_results
 
 
-def save_query_and_run(  # pylint: disable=R0913
+async def save_query_and_run(  # pylint: disable=R0913
     create_query: QueryCreate,
     settings: Settings,
     response: Response,
     background_tasks: BackgroundTasks,
+    postgres_pool: AsyncConnectionPool,
     headers: Optional[Dict[str, str]] = None,
 ) -> QueryResults:
     """
     Store a new query to the DB and run it.
     """
-    query = Query(**create_query.dict(by_alias=True))
+    query = Query(
+        submitted_query=create_query.submitted_query,
+        async_=create_query.async_,
+    )
     query.state = QueryState.ACCEPTED
 
-    # TODO replace with DBQuery
-    # session.add(query)
-    # session.commit()
-    # session.refresh(query)
+    async with postgres_pool.connection() as conn:
+        results = await DBQuery().save_query(
+            query_id=query.id,
+            submitted_query=query.submitted_query,
+            async_=query.async_
+        ).execute(conn=conn)
+        query_save_result = results[0]
+        if not query_save_result:
+            raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Query failed to save")
 
-    if query.async_:
-        background_tasks.add_task(process_query, settings, query, headers)
+        if query.async_:
+            background_tasks.add_task(asyncio.create_task, process_query(settings=settings, postgres_pool=postgres_pool, query=query, headers=headers))
 
-        response.status_code = HTTPStatus.CREATED
-        return QueryResults(results=[], errors=[], **query.dict())
+            response.status_code = HTTPStatus.CREATED
+            return QueryResults(results=[], errors=[], **query.dict())
 
-    return process_query(settings, query, headers)
-
-
-def load_query_results(
-    settings: Settings,
-    key: str,
-) -> List[StatementResults]:
-    """
-    Load results from backend, if available.
-
-    If ``paginate`` is true we also load the results into the cache, anticipating more
-    paginated queries.
-    """
-    if settings.results_backend.has(key):
-        _logger.info("Reading results from results backend")
-        cached = settings.results_backend.get(key)
-        query_results = json.loads(cached)
-    else:
-        _logger.warning("No results found")
-        query_results = []
-
+    query_results = await process_query(settings=settings, postgres_pool=postgres_pool, query=query, headers=headers)
     return query_results
 
-
 @router.get("/queries/{query_id}/", response_model=QueryResults)
-def read_query(
+async def read_query(
     query_id: uuid.UUID,
     *,
     settings: Settings = Depends(get_settings),
+    postgres_pool: AsyncConnectionPool = Depends(get_postgres_pool),
 ) -> QueryResults:
     """
     Fetch information about a query.
@@ -171,16 +146,15 @@ def read_query(
     For paginated queries we move the data from the results backend to the cache for a
     short period, anticipating additional requests.
     """
-    # TODO replace with DBQuery
-    # query = session.get(Query, query_id)
-    query=None
-    if not query:
-        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Query not found")
-
-    query_results = load_query_results(settings, str(query_id))
+    async with postgres_pool.connection() as conn:
+        results = await DBQuery().get_query(query_id=query_id).execute(conn=conn)
+        queries = results[0]
+        if not queries:
+            raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Query not found")
+        else:
+            query = queries[0]
 
     prev = next_ = None
-    results = Results(__root__=query_results)
 
     return QueryResults(
         results=results, next=next_, previous=prev, errors=[], **query.dict()

@@ -51,10 +51,10 @@ class Settings:  # pylint: disable=too-few-public-methods
         
         self.alembic_uri: str = os.getenv("ALEMBIC_URI", "postgresql+psycopg://dj:dj@postgres_metadata:5432/djqs")
         # The default engine to use for reflection
-        self.default_reflection_engine: str = os.getenv("DEFAULT_REFLECTION_ENGINE", "default")
+        self.default_engine: str = os.getenv("DEFAULT_ENGINE", "default")
         
         # The default engine version to use for reflection
-        self.default_reflection_engine_version: str = os.getenv("DEFAULT_REFLECTION_ENGINE_VERSION", "")
+        self.default_engine_version: str = os.getenv("DEFAULT_ENGINE_VERSION", "")
         
         # Where to store the results from queries.
         self.results_backend: BaseCache = FileSystemCache(
@@ -103,7 +103,7 @@ class Settings:  # pylint: disable=too-few-public-methods
             if engine.name == engine_name and engine.version == engine_version:
                 found_engine = engine
         if not found_engine:
-            raise Exception(f"Cannot find engine {engine_name} with version {engine_version}")
+            raise Exception(f"Configuration error, cannot find engine {engine_name} with version {engine_version}")
         return found_engine
 
     def find_catalog(self, catalog_name: str) -> Optional[CatalogInfo]:
@@ -112,5 +112,5 @@ class Settings:  # pylint: disable=too-few-public-methods
             if catalog.name == catalog_name:
                 found_catalog = catalog
         if not found_catalog:
-            raise Exception(f"Cannot find catalog {catalog_name}")
+            raise Exception(f"Configuration error, cannot find catalog {catalog_name}")
         return found_catalog

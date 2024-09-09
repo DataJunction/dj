@@ -75,14 +75,6 @@ class StatementResults:
 
 
 @dataclass
-class Results:
-    """
-    Results for a given query.
-    """
-    __root__: List[StatementResults] = field(default_factory=list)
-
-
-@dataclass
 class QueryResults(BaseQuery):
     """
     Model for query with results.
@@ -97,7 +89,7 @@ class QueryResults(BaseQuery):
     finished: Optional[datetime] = None
     state: QueryState = QueryState.UNKNOWN
     progress: float = 0.0
-    results: Results = field(default_factory=Results)
+    results: List[StatementResults] = field(default_factory=list)
     next: Optional[str] = None  # Changed to str, as AnyHttpUrl was from pydantic
     previous: Optional[str] = None  # Changed to str, as AnyHttpUrl was from pydantic
     errors: List[str] = field(default_factory=list)
