@@ -27,7 +27,7 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - db_migration
+      - db-migration
       - postgres_metadata
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -53,22 +53,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  db_migration:
-    container_name: db_migration
-    networks:
-      - core
-    build:
-      context: ./datajunction-server
-    volumes:
-      - ./datajunction-server:/code
-    command: /bin/bash -c "alembic upgrade head"
-    restart: on-failure
-    depends_on:
-      postgres_metadata:
-        condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   djui:
     container_name: djui
@@ -97,10 +81,27 @@ services:
     ports:
       - "8001:8001"
 
+  db-migration:
+    container_name: db-migration
+    networks:
+      - core
+    build:
+      context: ./datajunction-server
+    volumes:
+      - ./datajunction-server:/code
+    command: /bin/bash -c "alembic upgrade head"
+    restart: on-failure
+    depends_on:
+      postgres_metadata:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   djqs-db-migration:
     container_name: djqs-db-migration
     profiles: ["demo"]
     networks:
+      - core
       - djqs-network
     build:
       context: ./datajunction-query
@@ -109,7 +110,8 @@ services:
     command: /bin/bash -c "alembic upgrade head"
     restart: on-failure
     depends_on:
-      - djqs
+      postgres_metadata:
+        condition: service_healthy
 
   djrs-redis:
     container_name: djrs-redis

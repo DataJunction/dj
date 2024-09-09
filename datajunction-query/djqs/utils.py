@@ -36,7 +36,7 @@ def setup_logging(loglevel: str) -> None:
     )
 
 
-@lru_cache
+@lru_cache(1)
 def get_settings() -> Settings:
     """
     Return a cached settings object.
@@ -54,16 +54,6 @@ def get_metadata_engine() -> Engine:
     engine = create_engine(settings.index)
 
     return engine
-
-
-def get_session() -> Iterator[Session]:
-    """
-    Per-request session.
-    """
-    engine = get_metadata_engine()
-
-    with Session(engine, autoflush=False) as session:  # pragma: no cover
-        yield session
 
 
 class UTCDatetime(datetime.datetime):  # pragma: no cover

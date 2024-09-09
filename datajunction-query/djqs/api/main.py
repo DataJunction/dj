@@ -12,29 +12,30 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+from psycopg_pool import AsyncConnectionPool
 
 from djqs import __version__
 from djqs.api import catalogs, engines, queries, tables
 from djqs.config import load_djqs_config
 from djqs.exceptions import DJException
-from djqs.utils import get_session, get_settings
+from djqs.utils import get_settings
 
 _logger = logging.getLogger(__name__)
 
 settings = get_settings()
-session = next(get_session())
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):  # pylint: disable=W0621,W0613
-    """
-    Load DJQS config on app startup
-    """
+async def lifespan(app: FastAPI):
+    # Create the connection pool
+    pool = AsyncConnectionPool(settings.index)
     try:
-        load_djqs_config(settings=settings, session=session)
-    except Exception as e:  # pylint: disable=W0718,C0103
-        _logger.warning("Could not load DJQS config: %s", e)
-    yield
+        # Yield the pool so it can be used in the app
+        yield pool
+    finally:
+        # Close the connection pool
+        await pool.close()
 
 
 app = FastAPI(
@@ -54,6 +55,7 @@ app.include_router(tables.router)
 app.include_router(catalogs.post_router) if settings.enable_dynamic_config else None
 app.include_router(engines.post_router) if settings.enable_dynamic_config else None
 
+app.router.lifespan_context = lifespan
 
 @app.exception_handler(DJException)
 async def dj_exception_handler(  # pylint: disable=unused-argument
