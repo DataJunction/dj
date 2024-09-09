@@ -5,12 +5,8 @@ Environment for Alembic migrations.
 
 from logging.config import fileConfig
 
-from sqlmodel import SQLModel, create_engine
-
+from sqlalchemy import create_engine
 from alembic import context
-from djqs.models.catalog import Catalog
-from djqs.models.engine import Engine
-from djqs.models.query import Query
 from djqs.utils import get_settings
 
 settings = get_settings()
@@ -28,7 +24,7 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-target_metadata = SQLModel.metadata
+target_metadata = None
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

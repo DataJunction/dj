@@ -218,3 +218,9 @@ class DJTableNotFound(DJException):
     """
     Raised for tables that cannot be found
     """
+
+
+class DJDatabaseError(DJException):
+    """
+    Ran into an issue while submitting a query to the backend DB
+    """
