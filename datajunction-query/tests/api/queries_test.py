@@ -1,7 +1,7 @@
 """
 Tests for the queries API.
 """
-
+from dataclasses import asdict
 import datetime
 import json
 from http import HTTPStatus
@@ -11,50 +11,36 @@ import msgpack
 from fastapi.testclient import TestClient
 from freezegun import freeze_time
 from pytest_mock import MockerFixture
-from sqlmodel import Session
 
-from djqs.config import Settings
+from djqs.config import EngineType, Settings
 from djqs.engine import process_query
-from djqs.models.catalog import Catalog
-from djqs.models.engine import Engine, EngineType
 from djqs.models.query import (
     Query,
     QueryCreate,
     QueryState,
-    Results,
     StatementResults,
     decode_results,
     encode_results,
 )
+from djqs.utils import get_settings
 
 
-def test_submit_query(session: Session, client: TestClient) -> None:
+def test_submit_query(client: TestClient) -> None:
     """
     Test ``POST /queries/``.
     """
-    engine = Engine(
-        name="test_engine",
-        type=EngineType.DUCKDB,
-        version="1.0",
-        uri="duckdb:///:memory:",
-    )
-    catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
-
     query_create = QueryCreate(
-        catalog_name=catalog.name,
-        engine_name=engine.name,
-        engine_version=engine.version,
+        catalog_name="warehouse-inmemory",
+        engine_name="duckdb-inmemory",
+        engine_version="0.7.1",
         submitted_query="SELECT 1 AS col",
     )
-    payload = query_create.json(by_alias=True)
+    payload = json.dumps(asdict(query_create))
     assert payload == json.dumps(
         {
-            "catalog_name": "test_catalog",
-            "engine_name": "test_engine",
-            "engine_version": "1.0",
+            "catalog_name": "warehouse-inmemory",
+            "engine_name": "duckdb-inmemory",
+            "engine_version": "0.7.1",
             "submitted_query": "SELECT 1 AS col",
             "async_": False,
         },
@@ -69,53 +55,41 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     data = response.json()
 
     assert response.status_code == 200
-    assert data["catalog_name"] == "test_catalog"
-    assert data["engine_name"] == "test_engine"
-    assert data["engine_version"] == "1.0"
+    assert data["catalog_name"] == "warehouse-inmemory"
+    assert data["engine_name"] == "duckdb-inmemory"
+    assert data["engine_version"] == "0.7.1"
     assert data["submitted_query"] == "SELECT 1 AS col"
     assert data["executed_query"] == "SELECT 1 AS col"
-    assert data["scheduled"] == "2021-01-01T00:00:00"
-    assert data["started"] == "2021-01-01T00:00:00"
-    assert data["finished"] == "2021-01-01T00:00:00"
+    assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
+    assert data["started"] == "2021-01-01 00:00:00+00:00"
+    assert data["finished"] == "2021-01-01 00:00:00+00:00"
     assert data["state"] == "FINISHED"
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
-    assert data["results"][0]["columns"] == []
+    assert data["results"][0]["columns"] == [{'name': 'col', 'type': 'STR'}]
     assert data["results"][0]["rows"] == [[1]]
     assert data["errors"] == []
 
 
 def test_submit_query_with_sqlalchemy_uri_header(
-    session: Session,
     client: TestClient,
 ) -> None:
     """
     Test ``POST /queries/`` with the SQLALCHEMY_URI defined in the header.
     """
-    engine = Engine(
-        name="test_engine",
-        type=EngineType.DUCKDB,
-        version="1.0",
-        uri="duckdb:///:memory:",
-    )
-    catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
-
     query_create = QueryCreate(
-        catalog_name=catalog.name,
-        engine_name=engine.name,
-        engine_version=engine.version,
+        catalog_name="warehouse-inmemory",
+        engine_name="duckdb-inmemory",
+        engine_version="0.7.1",
         submitted_query="SELECT 1 AS col",
     )
-    payload = query_create.json(by_alias=True)
+    payload = json.dumps(asdict(query_create))
     assert payload == json.dumps(
         {
-            "catalog_name": "test_catalog",
-            "engine_name": "test_engine",
-            "engine_version": "1.0",
+            "catalog_name": "warehouse-inmemory",
+            "engine_name": "duckdb-inmemory",
+            "engine_version": "0.7.1",
             "submitted_query": "SELECT 1 AS col",
             "async_": False,
         },
@@ -134,14 +108,14 @@ def test_submit_query_with_sqlalchemy_uri_header(
     data = response.json()
 
     assert response.status_code == 200
-    assert data["catalog_name"] == "test_catalog"
-    assert data["engine_name"] == "test_engine"
-    assert data["engine_version"] == "1.0"
+    assert data["catalog_name"] == "warehouse-inmemory"
+    assert data["engine_name"] == "duckdb-inmemory"
+    assert data["engine_version"] == "0.7.1"
     assert data["submitted_query"] == "SELECT 1 AS col"
     assert data["executed_query"] == "SELECT 1 AS col"
-    assert data["scheduled"] == "2021-01-01T00:00:00"
-    assert data["started"] == "2021-01-01T00:00:00"
-    assert data["finished"] == "2021-01-01T00:00:00"
+    assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
+    assert data["started"] == "2021-01-01 00:00:00+00:00"
+    assert data["finished"] == "2021-01-01 00:00:00+00:00"
     assert data["state"] == "FINISHED"
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
@@ -151,28 +125,17 @@ def test_submit_query_with_sqlalchemy_uri_header(
     assert data["errors"] == []
 
 
-def test_submit_query_msgpack(session: Session, client: TestClient) -> None:
+def test_submit_query_msgpack(client: TestClient) -> None:
     """
     Test ``POST /queries/`` using msgpack.
     """
-    engine = Engine(
-        name="test_engine",
-        type=EngineType.DUCKDB,
-        version="1.0",
-        uri="duckdb:///:memory:",
-    )
-    catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
-
     query_create = QueryCreate(
-        catalog_name=catalog.name,
-        engine_name=engine.name,
-        engine_version=engine.version,
+        catalog_name="warehouse-inmemory",
+        engine_name="duckdb-inmemory",
+        engine_version="0.7.1",
         submitted_query="SELECT 1 AS col",
     )
-    payload = query_create.dict(by_alias=True)
+    payload = json.dumps(asdict(query_create))
     data = msgpack.packb(payload, default=encode_results)
 
     with freeze_time("2021-01-01T00:00:00Z"):
@@ -188,49 +151,38 @@ def test_submit_query_msgpack(session: Session, client: TestClient) -> None:
 
     assert response.headers.get("content-type") == "application/msgpack"
     assert response.status_code == 200
-    assert data["catalog_name"] == "test_catalog"
-    assert data["engine_name"] == "test_engine"
-    assert data["engine_version"] == "1.0"
+    assert data["catalog_name"] == "warehouse-inmemory"
+    assert data["engine_name"] == "duckdb-inmemory"
+    assert data["engine_version"] == "0.7.1"
     assert data["submitted_query"] == "SELECT 1 AS col"
     assert data["executed_query"] == "SELECT 1 AS col"
-    assert data["scheduled"] == datetime.datetime(2021, 1, 1)
-    assert data["started"] == datetime.datetime(2021, 1, 1)
-    assert data["finished"] == datetime.datetime(2021, 1, 1)
+    assert data["scheduled"] == datetime.datetime(2021, 1, 1, tzinfo=datetime.timezone.utc)
+    assert data["started"] == datetime.datetime(2021, 1, 1, tzinfo=datetime.timezone.utc)
+    assert data["finished"] == datetime.datetime(2021, 1, 1, tzinfo=datetime.timezone.utc)
     assert data["state"] == "FINISHED"
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
-    assert data["results"][0]["columns"] == []
+    assert data["results"][0]["columns"] == [{'name': 'col', 'type': 'STR'}]
     assert data["results"][0]["rows"] == [[1]]
     assert data["errors"] == []
 
 
 def test_submit_query_errors(
-    session: Session,
     client_no_config_file: TestClient,
 ) -> None:
     """
     Test ``POST /queries/`` with missing/invalid content type.
     """
     client = client_no_config_file
-    engine = Engine(
-        name="test_engine",
-        type=EngineType.DUCKDB,
-        version="1.0",
-        uri="duckdb:///:memory:",
-    )
-    catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
 
     query_create = QueryCreate(
-        catalog_name=catalog.name,
-        engine_name=engine.name,
-        engine_version=engine.version,
+        catalog_name="warehouse-inmemory",
+        engine_name="duckdb-inmemory",
+        engine_version="0.7.1",
         submitted_query="SELECT 1 AS col",
     )
-    payload = query_create.json(by_alias=True)
+    payload = json.dumps(asdict(query_create))
 
     response = client.post(
         "/queries/",
@@ -264,45 +216,35 @@ def test_submit_query_errors(
     }
 
 
-def test_submit_query_multiple_statements(session: Session, client: TestClient) -> None:
+def test_submit_query_multiple_statements(client: TestClient) -> None:
     """
     Test ``POST /queries/``.
     """
-    engine = Engine(
-        name="test_engine",
-        type=EngineType.SQLALCHEMY,
-        version="1.0",
-        uri="duckdb:///test.db",
-    )
-    catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
-
     query_create = QueryCreate(
-        catalog_name=catalog.name,
-        engine_name=engine.name,
-        engine_version=engine.version,
+        catalog_name="warehouse-inmemory",
+        engine_name="duckdb-inmemory",
+        engine_version="0.7.1",
         submitted_query="SELECT 1 AS col; SELECT 2 AS another_col",
     )
 
+    payload = json.dumps(asdict(query_create))
     with freeze_time("2021-01-01T00:00:00Z"):
         response = client.post(
             "/queries/",
-            data=query_create.json(),
+            data=payload,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
         )
     data = response.json()
 
     assert response.status_code == 200
-    assert data["catalog_name"] == "test_catalog"
-    assert data["engine_name"] == "test_engine"
-    assert data["engine_version"] == "1.0"
+    assert data["catalog_name"] == "warehouse-inmemory"
+    assert data["engine_name"] == "duckdb-inmemory"
+    assert data["engine_version"] == "0.7.1"
     assert data["submitted_query"] == "SELECT 1 AS col; SELECT 2 AS another_col"
     assert data["executed_query"] == "SELECT 1 AS col; SELECT 2 AS another_col"
-    assert data["scheduled"] == "2021-01-01T00:00:00"
-    assert data["started"] == "2021-01-01T00:00:00"
-    assert data["finished"] == "2021-01-01T00:00:00"
+    assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
+    assert data["started"] == "2021-01-01 00:00:00+00:00"
+    assert data["finished"] == "2021-01-01 00:00:00+00:00"
     assert data["state"] == "FINISHED"
     assert data["progress"] == 1.0
     assert len(data["results"]) == 2
@@ -313,54 +255,42 @@ def test_submit_query_multiple_statements(session: Session, client: TestClient) 
 
 
 def test_submit_query_results_backend(
-    session: Session,
     settings: Settings,
     client: TestClient,
 ) -> None:
     """
     Test that ``POST /queries/`` stores results.
     """
-    engine = Engine(
-        name="test_engine",
-        type=EngineType.DUCKDB,
-        version="1.0",
-        uri="duckdb:///:memory:",
-    )
-    catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
-
     query_create = QueryCreate(
-        catalog_name=catalog.name,
-        engine_name=engine.name,
-        engine_version=engine.version,
+        catalog_name="warehouse-inmemory",
+        engine_name="duckdb-inmemory",
+        engine_version="0.7.1",
         submitted_query="SELECT 1 AS col",
     )
-
+    payload = json.dumps(asdict(query_create))
     with freeze_time("2021-01-01T00:00:00Z"):
         response = client.post(
             "/queries/",
-            data=query_create.json(),
+            data=payload,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
         )
     data = response.json()
     assert data == {
-        "catalog_name": "test_catalog",
-        "engine_name": "test_engine",
-        "engine_version": "1.0",
+        "catalog_name": "warehouse-inmemory",
+        "engine_name": "duckdb-inmemory",
+        "engine_version": "0.7.1",
         "id": mock.ANY,
         "submitted_query": "SELECT 1 AS col",
         "executed_query": "SELECT 1 AS col",
-        "scheduled": "2021-01-01T00:00:00",
-        "started": "2021-01-01T00:00:00",
-        "finished": "2021-01-01T00:00:00",
+        "scheduled": "2021-01-01 00:00:00+00:00",
+        "started": "2021-01-01 00:00:00+00:00",
+        "finished": "2021-01-01 00:00:00+00:00",
         "state": "FINISHED",
         "progress": 1.0,
         "results": [
             {
                 "sql": "SELECT 1 AS col",
-                "columns": [],
+                "columns": [{'name': 'col', 'type': 'STR'}],
                 "rows": [[1]],
                 "row_count": 1,
             },
@@ -382,7 +312,6 @@ def test_submit_query_results_backend(
 
 def test_submit_query_async(
     mocker: MockerFixture,
-    session: Session,
     client: TestClient,
 ) -> None:
     """
@@ -397,9 +326,9 @@ def test_submit_query_async(
         uri="sqlite://",
     )
     catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
+    # session.add(catalog)
+    # session.commit()
+    # session.refresh(catalog)
 
     query_create = QueryCreate(
         catalog_name=catalog.name,
@@ -440,7 +369,7 @@ def test_submit_query_async(
     assert isinstance(arguments[3], Query)
 
 
-def test_submit_query_error(session: Session, client: TestClient) -> None:
+def test_submit_query_error(client: TestClient) -> None:
     """
     Test submitting invalid query to ``POST /queries/``.
     """
@@ -451,9 +380,9 @@ def test_submit_query_error(session: Session, client: TestClient) -> None:
         uri="sqlite://",
     )
     catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
+    # session.add(catalog)
+    # session.commit()
+    # session.refresh(catalog)
 
     query_create = QueryCreate(
         catalog_name=catalog.name,
@@ -482,7 +411,7 @@ def test_submit_query_error(session: Session, client: TestClient) -> None:
     assert "(sqlite3.OperationalError)" in data["errors"][0]
 
 
-def test_read_query(session: Session, settings: Settings, client: TestClient) -> None:
+def test_read_query(settings: Settings, client: TestClient) -> None:
     """
     Test ``GET /queries/{query_id}``.
     """
@@ -493,9 +422,9 @@ def test_read_query(session: Session, settings: Settings, client: TestClient) ->
         uri="sqlite://",
     )
     catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
+    # session.add(catalog)
+    # session.commit()
+    # session.refresh(catalog)
 
     query = Query(
         catalog_name=catalog.name,
@@ -507,19 +436,17 @@ def test_read_query(session: Session, settings: Settings, client: TestClient) ->
         progress=0.5,
         async_=False,
     )
-    session.add(query)
-    session.commit()
-    session.refresh(query)
+    # session.add(query)
+    # session.commit()
+    # session.refresh(query)
 
-    results = Results(
-        __root__=[
-            StatementResults(
-                sql="SELECT 1",
-                columns=[{"name": "col", "type": "STR"}],
-                rows=[[1]],
-            ),
-        ],
-    )
+    results = [
+        StatementResults(
+            sql="SELECT 1",
+            columns=[{"name": "col", "type": "STR"}],
+            rows=[[1]],
+        ),
+    ]
     settings.results_backend.add(str(query.id), results.json())
 
     response = client.get(f"/queries/{query.id}")
@@ -546,7 +473,7 @@ def test_read_query(session: Session, settings: Settings, client: TestClient) ->
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 
 
-def test_read_query_no_results_backend(session: Session, client: TestClient) -> None:
+def test_read_query_no_results_backend(client: TestClient) -> None:
     """
     Test ``GET /queries/{query_id}``.
     """
@@ -557,9 +484,9 @@ def test_read_query_no_results_backend(session: Session, client: TestClient) -> 
         uri="sqlite://",
     )
     catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
+    # session.add(catalog)
+    # session.commit()
+    # session.refresh(catalog)
 
     query = Query(
         catalog_name=catalog.name,
@@ -571,9 +498,9 @@ def test_read_query_no_results_backend(session: Session, client: TestClient) -> 
         progress=0.5,
         async_=False,
     )
-    session.add(query)
-    session.commit()
-    session.refresh(query)
+    # session.add(query)
+    # session.commit()
+    # session.refresh(query)
 
     response = client.get(f"/queries/{query.id}")
     data = response.json()
@@ -598,7 +525,6 @@ def test_read_query_no_results_backend(session: Session, client: TestClient) -> 
 @mock.patch("djqs.engine.duckdb.connect")
 def test_submit_duckdb_query(
     mock_duckdb_connect,
-    session: Session,
     client: TestClient,
     duckdb_conn,
 ) -> None:
@@ -613,9 +539,9 @@ def test_submit_duckdb_query(
         uri="duckdb:///:memory:",
     )
     catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
+    # session.add(catalog)
+    # session.commit()
+    # session.refresh(catalog)
 
     query_create = QueryCreate(
         catalog_name=catalog.name,
@@ -663,7 +589,6 @@ def test_submit_duckdb_query(
 @mock.patch("djqs.engine.snowflake.connector")
 def test_submit_snowflake_query(
     mock_snowflake_connect,
-    session: Session,
     client: TestClient,
 ) -> None:
     """
@@ -685,9 +610,9 @@ def test_submit_snowflake_query(
         extra_params={"user": "foo", "account": "bar", "database": "foobar"},
     )
     catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
+    # session.add(catalog)
+    # session.commit()
+    # session.refresh(catalog)
 
     query_create = QueryCreate(
         catalog_name=catalog.name,

@@ -71,7 +71,7 @@ async def submit_query(  # pylint: disable=too-many-arguments
     if content_type == "application/json":
         data = body
     elif content_type == "application/msgpack":
-        data = msgpack.unpackb(body, ext_hook=decode_results)
+        data = json.loads(msgpack.unpackb(body, ext_hook=decode_results))
     elif content_type is None:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
@@ -127,6 +127,9 @@ async def save_query_and_run(  # pylint: disable=R0913
     Store a new query to the DB and run it.
     """
     query = Query(
+        catalog_name=create_query.catalog_name,
+        engine_name=create_query.engine_name,
+        engine_version=create_query.engine_version,
         submitted_query=create_query.submitted_query,
         async_=create_query.async_,
     )
@@ -137,8 +140,12 @@ async def save_query_and_run(  # pylint: disable=R0913
             await DBQuery()
             .save_query(
                 query_id=query.id,
+                catalog_name=query.catalog_name,
+                engine_name=query.engine_name,
+                engine_version=query.engine_version,
                 submitted_query=query.submitted_query,
                 async_=query.async_,
+                state=query.state.value,
             )
             .execute(conn=conn)
         )

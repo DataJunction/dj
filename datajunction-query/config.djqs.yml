@@ -12,6 +12,10 @@ engines:
     extra_params:
       http_scheme: http
       user: admin
+  - name: duckdb-inmemory
+    version: 0.7.1
+    type: duckdb
+    uri: "duckdb:///:memory:"
 catalogs:
   - name: warehouse
     engines:
@@ -19,3 +23,6 @@ catalogs:
   - name: tpch
     engines:
       - trino
+  - name: warehouse-inmemory
+    engines:
+      - duckdb-inmemory

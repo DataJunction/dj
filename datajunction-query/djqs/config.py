@@ -3,6 +3,7 @@ Configuration for the query service
 """
 
 import json
+import logging
 import os
 from datetime import timedelta
 from enum import Enum
@@ -14,6 +15,8 @@ from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
 
 from djqs.exceptions import DJUnknownCatalog, DJUnknownEngine
+
+_logger = logging.getLogger(__name__)
 
 
 class EngineType(Enum):
@@ -54,7 +57,7 @@ class CatalogInfo:  # pylint: disable=too-few-public-methods
 
     def __init__(self, name: str, engines: List[str]):
         self.name = name
-        self.engines = [EngineType(engine) for engine in engines]
+        self.engines = [engine for engine in engines]
 
 
 class Settings:  # pylint: disable=too-many-instance-attributes
@@ -62,76 +65,103 @@ class Settings:  # pylint: disable=too-many-instance-attributes
     Configuration for the query service
     """
 
-    def __init__(self):
-        self.name: str = os.getenv("NAME", "DJQS")
-        self.description: str = os.getenv("DESCRIPTION", "A DataJunction Query Service")
-        self.url: str = os.getenv("URL", "http://localhost:8001/")
+    def __init__(
+        self,
+        name: Optional[str] = "DJQS",
+        description: Optional[str] = "A DataJunction Query Service",
+        url: Optional[str] = "http://localhost:8001/",
+        index: Optional[str] = "postgresql://dj:dj@postgres_metadata:5432/djqs",
+        alembic_uri: Optional[
+            str
+        ] = "postgresql+psycopg://dj:dj@postgres_metadata:5432/djqs",
+        default_engine: Optional[str] = "default",
+        default_engine_version: Optional[str] = "",
+        results_backend: Optional[BaseCache] = None,
+        results_backend_path: Optional[str] = "/tmp/djqs",
+        results_backend_timeout: Optional[BaseCache] = "0",
+        paginating_timeout_minutes: Optional[str] = "5",
+        do_ping_timeout_seconds: Optional[timedelta] = "5",
+        configuration_file: Optional[str] = None,
+        engines: Optional[List[EngineInfo]] = [],
+        catalogs: Optional[List[CatalogInfo]] = [],
+    ):
+        self.name: str = os.getenv("NAME", name)
+        self.description: str = os.getenv("DESCRIPTION", description)
+        self.url: str = os.getenv("URL", url)
 
         # SQLAlchemy URI for the metadata database.
         self.index: str = os.getenv(
             "INDEX",
-            "postgresql://dj:dj@postgres_metadata:5432/djqs",
+            index,
         )
 
         self.alembic_uri: str = os.getenv(
             "ALEMBIC_URI",
-            "postgresql+psycopg://dj:dj@postgres_metadata:5432/djqs",
+            alembic_uri,
         )
         # The default engine to use for reflection
-        self.default_engine: str = os.getenv("DEFAULT_ENGINE", "default")
+        self.default_engine: str = os.getenv("DEFAULT_ENGINE", default_engine)
 
         # The default engine version to use for reflection
-        self.default_engine_version: str = os.getenv("DEFAULT_ENGINE_VERSION", "")
+        self.default_engine_version: str = os.getenv(
+            "DEFAULT_ENGINE_VERSION", default_engine_version,
+        )
 
         # Where to store the results from queries.
-        self.results_backend: BaseCache = FileSystemCache(
-            os.getenv("RESULTS_BACKEND_PATH", "/tmp/djqs"),
-            default_timeout=int(os.getenv("RESULTS_BACKEND_TIMEOUT", "0")),
+        self.results_backend: BaseCache = results_backend or FileSystemCache(
+            os.getenv("RESULTS_BACKEND_PATH", results_backend_path),
+            default_timeout=int(
+                os.getenv("RESULTS_BACKEND_TIMEOUT", results_backend_timeout),
+            ),
         )
 
         self.paginating_timeout: timedelta = timedelta(
-            minutes=int(os.getenv("PAGINATING_TIMEOUT_MINUTES", "5")),
+            minutes=int(
+                os.getenv("PAGINATING_TIMEOUT_MINUTES", paginating_timeout_minutes),
+            ),
         )
 
         # How long to wait when pinging databases to find out the fastest online database.
         self.do_ping_timeout: timedelta = timedelta(
-            seconds=int(os.getenv("DO_PING_TIMEOUT_SECONDS", "5")),
+            seconds=int(os.getenv("DO_PING_TIMEOUT_SECONDS", do_ping_timeout_seconds)),
         )
 
         # Configuration file for catalogs and engines
-        self.configuration_file: Optional[str] = os.getenv("CONFIGURATION_FILE")
+        self.configuration_file: Optional[str] = (
+            os.getenv("CONFIGURATION_FILE") or configuration_file
+        )
 
-        # Enable setting catalog and engine config via REST API calls
-        self.enable_dynamic_config: bool = os.getenv(
-            "ENABLE_DYNAMIC_CONFIG",
-            "true",
-        ).lower() in ["true", "1", "yes"]
-
-        self.engines: List[EngineInfo] = []
-        self.catalogs: List[CatalogInfo] = []
+        self.engines: List[EngineInfo] = engines
+        self.catalogs: List[CatalogInfo] = catalogs
 
         self._load_configuration()
 
     def _load_configuration(self):
         config_file = self.configuration_file
-        self.configuration_file = config_file
 
-        if config_file.endswith(".yaml") or config_file.endswith(".yml"):
-            with open(config_file, "r", encoding="utf-8") as file:
-                config = yaml.safe_load(file)
-        elif config_file.endswith(".toml"):
-            with open(config_file, "r", encoding="utf-8") as file:
-                config = toml.load(file)
-        elif config_file.endswith(".json"):
-            with open(config_file, "r", encoding="utf-8") as file:
-                config = json.load(file)
+        if config_file:
+            if config_file.endswith(".yaml") or config_file.endswith(".yml"):
+                with open(config_file, "r", encoding="utf-8") as file:
+                    config = yaml.safe_load(file)
+            elif config_file.endswith(".toml"):
+                with open(config_file, "r", encoding="utf-8") as file:
+                    config = toml.load(file)
+            elif config_file.endswith(".json"):
+                with open(config_file, "r", encoding="utf-8") as file:
+                    config = json.load(file)
+            else:
+                raise ValueError(
+                    f"Unsupported configuration file format: {config_file}",
+                )
+
+            self.engines = [
+                EngineInfo(**engine) for engine in config.get("engines", [])
+            ]
+            self.catalogs = [
+                CatalogInfo(**catalog) for catalog in config.get("catalogs", [])
+            ]
         else:
-            raise ValueError(f"Unsupported configuration file format: {config_file}")
-
-        self.engines = [EngineInfo(**engine) for engine in config.get("engines", [])]
-        self.catalogs = [
-            CatalogInfo(**catalog) for catalog in config.get("catalogs", [])
-        ]
+            _logger.warn("No settings configuration file has been set")
 
     def find_engine(
         self,
@@ -149,7 +179,7 @@ class Settings:  # pylint: disable=too-many-instance-attributes
             raise DJUnknownEngine(
                 (
                     f"Configuration error, cannot find engine {engine_name} "
-                    "with version {engine_version}"
+                    f"with version {engine_version}"
                 ),
             )
         return found_engine
