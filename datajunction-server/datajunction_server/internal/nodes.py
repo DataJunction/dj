@@ -83,9 +83,11 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import SEPARATOR, Version, VersionUpgrade
+from datajunction_server.utils import SEPARATOR, Version, VersionUpgrade, get_settings
 
 _logger = logging.getLogger(__name__)
+
+settings = get_settings()
 
 
 def get_node_column(node: Node, column_name: str) -> Column:
@@ -260,7 +262,7 @@ async def create_node_revision(
         raise DJException(
             f"Cannot create nodes with multi-catalog dependencies: {set(catalog_ids)}",
         )
-    catalog_id = next(iter(catalog_ids), 0)
+    catalog_id = next(iter(catalog_ids), settings.default_catalog_id)
     parent_refs = (
         (
             await session.execute(
