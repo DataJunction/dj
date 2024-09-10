@@ -83,7 +83,7 @@ def run_query(  # pylint: disable=R0914
 
     settings = get_settings()
     engine_name = query.engine_name or settings.default_engine
-    engine_version = query.engine_name or settings.default_engine_version
+    engine_version = query.engine_version or settings.default_engine_version
     engine = settings.find_engine(
         engine_name=engine_name,
         engine_version=engine_version,

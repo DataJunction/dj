@@ -5,7 +5,14 @@ engines:
     uri: duckdb:////code/docker/default.duckdb
     extra_params:
       location: /code/docker/default.duckdb
+  - name: duckdb-inmemory
+    version: 0.7.1
+    type: duckdb
+    uri: duckdb:///:memory:
 catalogs:
   - name: warehouse
     engines:
       - duckdb
+  - name: warehouse-inmemory
+    engines:
+      - duckdb-inmemory

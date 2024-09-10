@@ -5,10 +5,35 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["djqs"]
 
+[tool.pdm]
 [tool.pdm.build]
 includes = ["djqs"]
 
-[project]
+[tool.pdm.dev-dependencies]
+test = [
+    "alembic>=1.7.7",
+    "codespell>=2.1.0",
+    "freezegun>=1.1.0",
+    "pre-commit>=3.2.2",
+    "pyfakefs>=4.5.1",
+    "pylint>=2.15.3",
+    "pytest-asyncio==0.15.1",
+    "pytest-cov>=2.12.1",
+    "pytest-integration==0.2.2",
+    "pytest-mock>=3.6.1",
+    "pytest>=6.2.5",
+    "requests-mock>=1.9.3",
+    "setuptools>=49.6.0",
+    "pip-tools>=6.4.0",
+    "pydruid>=0.6.4",
+    "typing-extensions>=4.3.0",
+    "httpx>=0.24.1",
+    "pytest-postgresql>=6.1.1",
+    "psycopg[async,binary,pool]>=3.2.1",
+]
+
+[tool.pdm.scripts]
+pytest = { cmd = "pytest", env = { "CONFIGURATION_FILE" = "./config.djqs.yml", "INDEX" = "postgresql://dj:dj@localhost:5432/djqs" } }
 name = "datajunction-query"
 dynamic = ["version"]
 description = "OSS Implementation of a DataJunction Query Service"
@@ -57,27 +82,6 @@ path = "djqs/__about__.py"
 [project.urls]
 repository = "https://github.com/DataJunction/dj"
 
-[tool.pdm.dev-dependencies]
-test = [
-    "alembic>=1.7.7",
-    "codespell>=2.1.0",
-    "freezegun>=1.1.0",
-    "pre-commit>=3.2.2",
-    "pyfakefs>=4.5.1",
-    "pylint>=2.15.3",
-    "pytest-asyncio==0.15.1",
-    "pytest-cov>=2.12.1",
-    "pytest-integration==0.2.2",
-    "pytest-mock>=3.6.1",
-    "pytest>=6.2.5",
-    "requests-mock>=1.9.3",
-    "setuptools>=49.6.0",
-    "pip-tools>=6.4.0",
-    "pydruid>=0.6.4",
-    "typing-extensions>=4.3.0",
-    "httpx>=0.24.1",
-]
-
 [tool.hatch.metadata]
 allow-direct-references = true
 
@@ -87,3 +91,4 @@ source = ['djqs/']
 [tool.isort]
 src_paths = ["djqs/", "tests/"]
 profile = 'black'
+
