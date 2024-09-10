@@ -101,6 +101,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     cast_timestamp_to_ms: bool = False,  # pylint: disable=unused-argument
     include_all_columns: bool = False,
     sql_transpilation_library: Optional[str] = None,
+    use_materialized: bool = True,
 ) -> List[GeneratedSQL]:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.
@@ -158,7 +159,11 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     measures_queries = []
     for parent_node, _ in common_parents.items():  # type: ignore
         measure_columns, dimensional_columns = [], []
-        query_builder = await QueryBuilder.create(session, parent_node.current)
+        query_builder = await QueryBuilder.create(
+            session,
+            parent_node.current,
+            use_materialized=use_materialized,
+        )
         parent_ast = await (
             query_builder.ignore_errors()
             .with_access_control(access_control)
@@ -233,9 +238,15 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
     validation, allowing for dynamic node query generation based on runtime conditions.
     """
 
-    def __init__(self, session: AsyncSession, node_revision: NodeRevision):
+    def __init__(
+        self,
+        session: AsyncSession,
+        node_revision: NodeRevision,
+        use_materialized: bool = True,
+    ):
         self.session = session
         self.node_revision = node_revision
+        self.use_materialized = use_materialized
 
         self._filters: List[str] = []
         self._required_dimensions: List[str] = [
@@ -262,12 +273,13 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         cls,
         session: AsyncSession,
         node_revision: NodeRevision,
+        use_materialized: bool = True,
     ) -> "QueryBuilder":
         """
         Create a QueryBuilder instance for the node revision.
         """
         await session.refresh(node_revision, ["required_dimensions", "dimension_links"])
-        instance = cls(session, node_revision)
+        instance = cls(session, node_revision, use_materialized=use_materialized)
         return instance
 
     def ignore_errors(self):
@@ -464,6 +476,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             filters=self._filters,
             build_criteria=self._build_criteria,
             ctes_mapping=self.cte_mapping,
+            use_materialized=self.use_materialized,
         )
 
     def initialize_final_query_ast(self, node_ast, node_alias):
@@ -523,6 +536,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
                     link,
                     self._filters,
                     self.cte_mapping,
+                    use_materialized=self.use_materialized,
                 )
                 dimension_join.node_query = convert_to_cte(
                     dimension_node_query,
@@ -751,6 +765,7 @@ async def build_dimension_node_query(
     link: DimensionLink,
     filters: List[str],
     cte_mapping: Dict[str, ast.Query],
+    use_materialized: bool = True,
 ):
     """
     Builds a dimension node query with the requested filters
@@ -778,6 +793,7 @@ async def build_dimension_node_query(
         filters=filters,  # type: ignore
         build_criteria=build_criteria,
         ctes_mapping=cte_mapping,
+        use_materialized=use_materialized,
     )
     return dimension_node_query
 
@@ -949,6 +965,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
     build_criteria: Optional[BuildCriteria] = None,
     access_control=None,
     ctes_mapping: Dict[str, ast.Query] = None,
+    use_materialized: bool = True,
 ) -> ast.Query:
     """
     Recursively replaces DJ node references with query ASTs. These are replaced with
@@ -974,14 +991,19 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
         for ref_expr in reference_expressions:
 
             # Try to find a materialized table attached to this node, if one exists.
-            physical_table = cast(
-                Optional[ast.Table],
-                get_table_for_node(
-                    referenced_node,
-                    build_criteria=build_criteria,
-                ),
-            )
+            physical_table = None
+            if use_materialized:
+                logger.debug("Checking for physical node: %s", referenced_node.name)
+                physical_table = cast(
+                    Optional[ast.Table],
+                    get_table_for_node(
+                        referenced_node,
+                        build_criteria=build_criteria,
+                    ),
+                )
+
             if not physical_table:
+                logger.debug("Didn't find physical node: %s", referenced_node.name)
                 # Build a new CTE with the query AST if there is no materialized table
                 if referenced_node.name not in ctes_mapping:
                     node_query = parse(cast(str, referenced_node.query))
@@ -994,6 +1016,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
                         build_criteria=build_criteria,
                         access_control=access_control,
                         ctes_mapping=ctes_mapping,
+                        use_materialized=use_materialized,
                     )
                     cte_name = ast.Name(amenable_name(referenced_node.name))
                     query_ast = query_ast.to_cte(cte_name, parent_ast=query)

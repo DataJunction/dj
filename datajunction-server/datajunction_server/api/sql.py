@@ -64,6 +64,7 @@ async def get_measures_sql_for_cube_v2(
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
+    use_materialized: bool = True,
 ) -> List[GeneratedSQL]:
     """
     Return measures SQL for a set of metrics with dimensions and filters.
@@ -92,6 +93,7 @@ async def get_measures_sql_for_cube_v2(
         validate_access=validate_access,
         include_all_columns=include_all_columns,
         sql_transpilation_library=settings.sql_transpilation_library,
+        use_materialized=use_materialized,
     )
     return measures_query
 
@@ -107,6 +109,7 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
     engine: Engine,
     access_control: AccessControlStore,
     ignore_errors: bool = True,
+    use_materialized: bool = True,
 ) -> QueryRequest:
     """
     Build node SQL and save it to query requests
@@ -132,6 +135,7 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
             engine_name=engine.name if engine else None,
             engine_version=engine.version if engine else None,
             access_control=access_control,
+            use_materialized=use_materialized,
         )
         # We save the request for both the cube and the metrics, so that if someone makes either
         # of these types of requests, they'll go to the cached query
@@ -169,6 +173,7 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
             engine.version if engine else None,
             access_control=access_control,
             ignore_errors=ignore_errors,
+            use_materialized=use_materialized,
         )
         query = translated_sql.sql
         columns = translated_sql.columns
@@ -182,6 +187,7 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
             limit=limit,
             engine=engine,
             access_control=access_control,
+            use_materialized=use_materialized,
         )
         columns = [
             assemble_column_metadata(col)  # type: ignore
@@ -219,6 +225,7 @@ async def get_node_sql(  # pylint: disable=too-many-locals
     validate_access: access.ValidateAccessFn,  # pylint: disable=redefined-outer-name
     background_tasks: BackgroundTasks,
     ignore_errors: bool = True,
+    use_materialized: bool = True,
 ) -> Tuple[TranslatedSQL, QueryRequest]:
     """
     Return SQL for a node.
@@ -259,6 +266,7 @@ async def get_node_sql(  # pylint: disable=too-many-locals
             session=session,
             engine=engine,
             access_control=access_control,
+            use_materialized=use_materialized,
         )
         return (
             TranslatedSQL(
@@ -279,6 +287,7 @@ async def get_node_sql(  # pylint: disable=too-many-locals
         engine=engine,  # type: ignore
         access_control=access_control,
         ignore_errors=ignore_errors,
+        use_materialized=use_materialized,
     )
     return (
         TranslatedSQL(
@@ -311,6 +320,7 @@ async def get_sql(  # pylint: disable=too-many-locals
     ),
     background_tasks: BackgroundTasks,
     ignore_errors: Optional[bool] = True,
+    use_materialized: Optional[bool] = True,
 ) -> TranslatedSQL:
     """
     Return SQL for a node.
@@ -328,12 +338,13 @@ async def get_sql(  # pylint: disable=too-many-locals
         validate_access=validate_access,
         background_tasks=background_tasks,
         ignore_errors=ignore_errors,  # type: ignore
+        use_materialized=use_materialized,  # type: ignore
     )
     return translated_sql
 
 
 @router.get("/sql/", response_model=TranslatedSQL, name="Get SQL For Metrics")
-async def get_sql_for_metrics(
+async def get_sql_for_metrics(  # pylint: disable=too-many-locals
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
@@ -348,6 +359,7 @@ async def get_sql_for_metrics(
         validate_access,
     ),
     ignore_errors: Optional[bool] = True,
+    use_materialized: Optional[bool] = True,
 ) -> TranslatedSQL:
     """
     Return SQL for a set of metrics with dimensions and filters
@@ -392,6 +404,7 @@ async def get_sql_for_metrics(
         engine_version,
         access_control,
         ignore_errors=ignore_errors,  # type: ignore
+        use_materialized=use_materialized,  # type: ignore
     )
 
     await QueryRequest.save_query_request(
