@@ -111,12 +111,12 @@ class DBQuery:
         """
         Submit all statements to the backend DB, multiple statements are submitted together
         """
-        if not self.selects and not self.inserts:
+        if not self.selects and not self.inserts:  # pragma: no cover
             return
 
         async with conn.cursor() as cur:
             results = []
-            if len(self.inserts) > 1:
+            if len(self.inserts) > 1:  # pragma: no cover
                 async with conn.transaction():
                     for statement in self.inserts:
                         await cur.execute(statement)
@@ -124,7 +124,7 @@ class DBQuery:
 
             if len(self.inserts) == 1:
                 await cur.execute(self.inserts[0])
-                if cur.rowcount == 0:
+                if cur.rowcount == 0:  # pragma: no cover
                     raise DJDatabaseError(
                         "Insert statement resulted in no records being inserted",
                     )

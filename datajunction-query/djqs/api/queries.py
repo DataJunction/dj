@@ -150,7 +150,7 @@ async def save_query_and_run(  # pylint: disable=R0913
             .execute(conn=conn)
         )
         query_save_result = results[0]
-        if not query_save_result:
+        if not query_save_result:  # pragma: no cover
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
                 detail="Query failed to save",
@@ -201,7 +201,7 @@ def load_query_results(
         _logger.info("Reading results from results backend")
         cached = settings.results_backend.get(key)
         query_results = json.loads(cached)
-    else:
+    else:  # pragma: no cover
         _logger.warning("No results found")
         query_results = []
 

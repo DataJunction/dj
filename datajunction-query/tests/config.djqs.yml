@@ -13,6 +13,10 @@ engines:
     version: 7.37
     type: snowflake
     uri: "snowflake:///"
+  - name: sqlite_inmemory
+    version: 1.0
+    type: sqlalchemy
+    uri: "sqlite:///"
 catalogs:
   - name: warehouse
     engines:
@@ -23,3 +27,6 @@ catalogs:
   - name: snowflake_warehouse
     engines:
       - snowflake_test
+  - name: sqlite_warehouse
+    engines:
+      - sqlite_inmemory

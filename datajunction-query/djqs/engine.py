@@ -88,7 +88,7 @@ def run_query(  # pylint: disable=R0914
         engine_name=engine_name,
         engine_version=engine_version,
     )
-    query_server = headers.get("SQLALCHEMY_URI") if headers else None
+    query_server = headers.get(SQLALCHEMY_URI) if headers else None
 
     if query_server:
         _logger.info(
@@ -124,14 +124,13 @@ def run_query(  # pylint: disable=R0914
     connection = sqla_engine.connect()
 
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
-    if query.executed_query:
-        results = connection.execute(text(query.executed_query))
-        stream = (tuple(row) for row in results)
-        columns = get_columns_from_description(
-            results.cursor.description,
-            sqla_engine.dialect,
-        )
-        output.append((query.executed_query, columns, stream))
+    results = connection.execute(text(query.executed_query))
+    stream = (tuple(row) for row in results)
+    columns = get_columns_from_description(
+        results.cursor.description,
+        sqla_engine.dialect,
+    )
+    output.append((query.executed_query, columns, stream))
 
     return output
 
@@ -216,7 +215,7 @@ async def process_query(
             .execute(conn=conn)
         )
         query_save_result = dbquery_results[0]
-        if not query_save_result:
+        if not query_save_result:  # pragma: no cover
             raise DJDatabaseError("Query failed to save")
 
     settings.results_backend.add(

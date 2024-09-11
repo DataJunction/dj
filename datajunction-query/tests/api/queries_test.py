@@ -25,6 +25,49 @@ from djqs.models.query import (
 from djqs.utils import get_settings
 
 
+
+def test_submit_query(client: TestClient) -> None:
+    """
+    Test ``POST /queries/``.
+    """
+    query_create = QueryCreate(
+        catalog_name="warehouse_inmemory",
+        submitted_query="SELECT 1 AS col",
+    )
+    payload = json.dumps(asdict(query_create))
+    assert payload == json.dumps(
+        {
+            "catalog_name": "warehouse_inmemory",
+            "submitted_query": "SELECT 1 AS col",
+            "async_": False,
+        },
+    )
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["catalog_name"] == "warehouse_inmemory"
+    assert data["engine_name"] == "duckdb_inmemory"
+    assert data["engine_version"] == "0.7.1"
+    assert data["submitted_query"] == "SELECT 1 AS col"
+    assert data["executed_query"] == "SELECT 1 AS col"
+    assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
+    assert data["started"] == "2021-01-01 00:00:00+00:00"
+    assert data["finished"] == "2021-01-01 00:00:00+00:00"
+    assert data["state"] == "FINISHED"
+    assert data["progress"] == 1.0
+    assert len(data["results"]) == 1
+    assert data["results"][0]["sql"] == "SELECT 1 AS col"
+    assert data["results"][0]["rows"] == [[1]]
+    assert data["errors"] == []
+
+
 def test_submit_query(client: TestClient) -> None:
     """
     Test ``POST /queries/``.
@@ -58,6 +101,53 @@ def test_submit_query(client: TestClient) -> None:
     assert data["catalog_name"] == "warehouse_inmemory"
     assert data["engine_name"] == "duckdb_inmemory"
     assert data["engine_version"] == "0.7.1"
+    assert data["submitted_query"] == "SELECT 1 AS col"
+    assert data["executed_query"] == "SELECT 1 AS col"
+    assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
+    assert data["started"] == "2021-01-01 00:00:00+00:00"
+    assert data["finished"] == "2021-01-01 00:00:00+00:00"
+    assert data["state"] == "FINISHED"
+    assert data["progress"] == 1.0
+    assert len(data["results"]) == 1
+    assert data["results"][0]["sql"] == "SELECT 1 AS col"
+    assert data["results"][0]["rows"] == [[1]]
+    assert data["errors"] == []
+
+
+
+def test_submit_query_generic_sqlalchemy(client: TestClient) -> None:
+    """
+    Test ``POST /queries/``.
+    """
+    query_create = QueryCreate(
+        catalog_name="sqlite_warehouse",
+        engine_name="sqlite_inmemory",
+        engine_version="1.0",
+        submitted_query="SELECT 1 AS col",
+    )
+    payload = json.dumps(asdict(query_create))
+    assert payload == json.dumps(
+        {
+            "catalog_name": "sqlite_warehouse",
+            "engine_name": "sqlite_inmemory",
+            "engine_version": "1.0",
+            "submitted_query": "SELECT 1 AS col",
+            "async_": False,
+        },
+    )
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["catalog_name"] == "sqlite_warehouse"
+    assert data["engine_name"] == "sqlite_inmemory"
+    assert data["engine_version"] == "1.0"
     assert data["submitted_query"] == "SELECT 1 AS col"
     assert data["executed_query"] == "SELECT 1 AS col"
     assert data["scheduled"] == "2021-01-01 00:00:00+00:00"

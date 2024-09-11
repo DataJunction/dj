@@ -31,6 +31,33 @@ def test_table_columns(client: TestClient, mocker):
     }
 
 
+def test_table_columns_w_default_engine(client: TestClient, mocker):
+    """
+    Test getting table columns using the default engine
+    """
+    columns = [
+        {"name": "col_a", "type": "STR"},
+        {"name": "col_b", "type": "INT"},
+        {"name": "col_c", "type": "MAP"},
+        {"name": "col_d", "type": "STR"},
+        {"name": "col_e", "type": "DECIMAL"},
+    ]
+    mocker.patch("djqs.api.tables.get_columns", return_value=columns)
+    response = client.get(
+        "/table/foo.bar.baz/columns/",
+    )
+    assert response.json() == {
+        "name": "foo.bar.baz",
+        "columns": [
+            {"name": "col_a", "type": "STR"},
+            {"name": "col_b", "type": "INT"},
+            {"name": "col_c", "type": "MAP"},
+            {"name": "col_d", "type": "STR"},
+            {"name": "col_e", "type": "DECIMAL"},
+        ],
+    }
+
+
 def test_raise_on_invalid_table_name(client: TestClient):
     """
     Test raising on invalid table names

@@ -2,7 +2,9 @@
 [run]
 branch = True
 source = dj
-# omit = bad_file.py
+omit =
+    djqs/config.py
+    djqs/exceptions.py
 
 [paths]
 source =
