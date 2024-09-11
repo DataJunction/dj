@@ -7,7 +7,6 @@ import logging
 import pytest
 from pytest_mock import MockerFixture
 
-from djqs.config import Settings
 from djqs.utils import get_settings, setup_logging
 
 
