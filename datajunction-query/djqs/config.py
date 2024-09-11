@@ -70,10 +70,10 @@ class Settings:  # pylint: disable=too-many-instance-attributes
         name: Optional[str] = "DJQS",
         description: Optional[str] = "A DataJunction Query Service",
         url: Optional[str] = "http://localhost:8001/",
-        index: Optional[str] = "postgresql://dj:dj@postgres_metadata:5432/djqs",
+        index: Optional[str] = "postgresql://dj:dj@postgres_metadata:5432/dj",
         alembic_uri: Optional[
             str
-        ] = "postgresql+psycopg://dj:dj@postgres_metadata:5432/djqs",
+        ] = "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj",
         default_engine: Optional[str] = "default",
         default_engine_version: Optional[str] = "",
         results_backend: Optional[BaseCache] = None,
