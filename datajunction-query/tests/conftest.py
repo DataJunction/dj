@@ -2,106 +2,84 @@
 Fixtures for testing.
 """
 # pylint: disable=redefined-outer-name, invalid-name
+import logging
 from typing import Iterator
 
+import psycopg
 import pytest
-from cachelib.simple import SimpleCache
 from fastapi.testclient import TestClient
-from pytest_mock import MockerFixture
-from pytest_postgresql import factories
+from testcontainers.core.waiting_utils import wait_for_logs
+from testcontainers.postgres import PostgresContainer
 
 from djqs.api.main import app
-from djqs.config import Settings
-from djqs.utils import get_settings
 
-# Define a PostgreSQL process fixture that will be shared across tests
-postgresql_my_proc = factories.postgresql_proc(
-    port=4321,
-    dbname="djqs",
-    user="dj",
-    password="dj",
-)
+_logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="session")
-def postgresql_my(postgresql_my_proc):
+def postgres_container() -> PostgresContainer:
     """
-    pytest-postgresql instance
+    Setup postgres container
     """
-    return postgresql_my_proc
+    localhost_port = 4321  # The test container will be bound to localhost port 4321
+    postgres = PostgresContainer(
+        image="postgres:latest",
+        username="dj",
+        password="dj",
+        dbname="dj",
+        port=5432,
+        driver="psycopg",
+    ).with_bind_ports(5432, localhost_port)
+    with postgres:
+        wait_for_logs(
+            postgres,
+            r"UTC \[1\] LOG:  database system is ready to accept connections",
+            10,
+        )
+
+        # Manually build the connection string
+        username = postgres.username
+        password = postgres.password
+        host = postgres.get_container_host_ip()
+        port = postgres.get_exposed_port(postgres.port)
+        dbname = postgres.dbname
+
+        connection_url = f"postgresql://{username}:{password}@{host}:{port}/{dbname}"
+
+        with psycopg.connect(  # pylint: disable=not-context-manager
+            connection_url,
+        ) as conn:
+            with conn.cursor() as cur:
+                _logger.info("Creating query table")
+                cur.execute(
+                    """
+                    CREATE TABLE query (
+                        id UUID PRIMARY KEY,
+                        catalog_name VARCHAR NOT NULL,
+                        engine_name VARCHAR NOT NULL,
+                        engine_version VARCHAR NOT NULL,
+                        submitted_query VARCHAR NOT NULL,
+                        async_ BOOLEAN NOT NULL,
+                        executed_query VARCHAR,
+                        scheduled TIMESTAMP,
+                        started TIMESTAMP,
+                        finished TIMESTAMP,
+                        state VARCHAR NOT NULL,
+                        progress FLOAT NOT NULL
+                    )
+                """,
+                )
+                conn.commit()
+                _logger.info("Creating table created")
+        yield postgres
 
 
-pytest_plugins = ["djqs.api.main"]
-
-
-@pytest.fixture
-def settings(mocker: MockerFixture) -> Iterator[Settings]:
-    """
-    Custom settings for unit tests.
-    """
-    settings = Settings(
-        index="sqlite://",
-        results_backend=SimpleCache(default_timeout=0),
-        configuration_file="./tests/config.djqs.yml",
-    )
-
-    mocker.patch(
-        "djqs.utils.get_settings",
-        return_value=settings,
-    )
-
-    yield settings
-
-
-@pytest.fixture
-def settings_no_config_file(mocker: MockerFixture) -> Iterator[Settings]:
-    """
-    Custom settings for unit tests.
-    """
-    settings = Settings(
-        index="sqlite://",
-        results_backend=SimpleCache(default_timeout=0),
-    )
-
-    mocker.patch(
-        "djqs.utils.get_settings",
-        return_value=settings,
-    )
-
-    yield settings
-
-
-@pytest.fixture()
-def client(settings: Settings) -> Iterator[TestClient]:
-    """
-    Create a client for testing APIs.
-    """
-
-    def get_settings_override() -> Settings:
-        return settings
-
-    app.dependency_overrides[get_settings] = get_settings_override
-
-    with TestClient(app) as client:
-        yield client
-
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture()
-def client_no_config_file(
-    settings_no_config_file: Settings,
+@pytest.fixture(scope="session")
+def client(  # pylint: disable=unused-argument
+    postgres_container,
 ) -> Iterator[TestClient]:
     """
     Create a client for testing APIs.
     """
-
-    def get_settings_override() -> Settings:
-        return settings_no_config_file
-
-    app.dependency_overrides[get_settings] = get_settings_override
-
     with TestClient(app) as client:
         yield client
-
-    app.dependency_overrides.clear()

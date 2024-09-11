@@ -22,6 +22,7 @@ from djqs.models.query import (
     decode_results,
     encode_results,
 )
+from djqs.utils import get_settings
 
 
 def test_submit_query_default_engine(client: TestClient) -> None:
@@ -270,13 +271,11 @@ def test_submit_query_msgpack(client: TestClient) -> None:
 
 
 def test_submit_query_errors(
-    client_no_config_file: TestClient,
+    client: TestClient,
 ) -> None:
     """
     Test ``POST /queries/`` with missing/invalid content type.
     """
-    client = client_no_config_file
-
     query_create = QueryCreate(
         catalog_name="warehouse_inmemory",
         engine_name="duckdb_inmemory",
@@ -357,7 +356,6 @@ def test_submit_query_multiple_statements(
 
 
 def test_submit_query_results_backend(
-    settings: Settings,
     client: TestClient,
 ) -> None:
     """
@@ -402,6 +400,7 @@ def test_submit_query_results_backend(
         "errors": [],
         "async_": False,
     }
+    settings = get_settings()
     cached = settings.results_backend.get(data["id"])
     assert json.loads(cached) == [
         {
@@ -490,7 +489,7 @@ def test_submit_query_error(client: TestClient) -> None:
     assert "Parser Error: syntax error at end of input" in data["errors"][0]
 
 
-def test_read_query(settings: Settings, client: TestClient) -> None:
+def test_read_query(client: TestClient) -> None:
     """
     Test ``GET /queries/{query_id}``.
     """
@@ -526,6 +525,7 @@ def test_read_query(settings: Settings, client: TestClient) -> None:
             rows=[[2]],  # type: ignore
         ),
     ]
+    settings = get_settings()
     settings.results_backend.set(
         str(data["id"]),
         json.dumps([asdict(result) for result in results]),
