@@ -37,7 +37,7 @@ async def lifespan(fastapi_app: FastAPI):
         check=AsyncConnectionPool.check_connection,
         min_size=5,
         max_size=20,
-        timeout=2,
+        timeout=15,
     )
     fastapi_app.state.pool = pool
     try:
