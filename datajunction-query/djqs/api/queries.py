@@ -82,6 +82,10 @@ async def submit_query(  # pylint: disable=too-many-arguments
             status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
             detail=f"Content type not accepted: {content_type}",
         )
+
+    # Set default engine if not explicitly selected
+    data["engine_name"] = data.get("engine_name") or settings.default_engine
+    data["engine_version"] = data.get("engine_version") or settings.default_engine_version
     create_query = QueryCreate(**data)
 
     query_with_results = await save_query_and_run(

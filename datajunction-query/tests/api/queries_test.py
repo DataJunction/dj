@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from freezegun import freeze_time
 from pytest_mock import MockerFixture
 
-from djqs.config import EngineType, Settings
+from djqs.config import Settings
 from djqs.engine import process_query
 from djqs.models.query import (
     Query,
@@ -22,11 +22,9 @@ from djqs.models.query import (
     decode_results,
     encode_results,
 )
-from djqs.utils import get_settings
 
 
-
-def test_submit_query(client: TestClient) -> None:
+def test_submit_query_default_engine(client: TestClient) -> None:
     """
     Test ``POST /queries/``.
     """
@@ -38,6 +36,8 @@ def test_submit_query(client: TestClient) -> None:
     assert payload == json.dumps(
         {
             "catalog_name": "warehouse_inmemory",
+            "engine_name": None,
+            "engine_version": None,
             "submitted_query": "SELECT 1 AS col",
             "async_": False,
         },
@@ -60,7 +60,7 @@ def test_submit_query(client: TestClient) -> None:
     assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
     assert data["started"] == "2021-01-01 00:00:00+00:00"
     assert data["finished"] == "2021-01-01 00:00:00+00:00"
-    assert data["state"] == "FINISHED"
+    assert data["state"] == QueryState.FINISHED.value
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
@@ -106,13 +106,12 @@ def test_submit_query(client: TestClient) -> None:
     assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
     assert data["started"] == "2021-01-01 00:00:00+00:00"
     assert data["finished"] == "2021-01-01 00:00:00+00:00"
-    assert data["state"] == "FINISHED"
+    assert data["state"] == QueryState.FINISHED.value
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
     assert data["results"][0]["rows"] == [[1]]
     assert data["errors"] == []
-
 
 
 def test_submit_query_generic_sqlalchemy(client: TestClient) -> None:
@@ -153,7 +152,7 @@ def test_submit_query_generic_sqlalchemy(client: TestClient) -> None:
     assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
     assert data["started"] == "2021-01-01 00:00:00+00:00"
     assert data["finished"] == "2021-01-01 00:00:00+00:00"
-    assert data["state"] == "FINISHED"
+    assert data["state"] == QueryState.FINISHED.value
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
@@ -205,7 +204,7 @@ def test_submit_query_with_sqlalchemy_uri_header(
     assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
     assert data["started"] == "2021-01-01 00:00:00+00:00"
     assert data["finished"] == "2021-01-01 00:00:00+00:00"
-    assert data["state"] == "FINISHED"
+    assert data["state"] == QueryState.FINISHED.value
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
@@ -262,7 +261,7 @@ def test_submit_query_msgpack(client: TestClient) -> None:
         1,
         tzinfo=datetime.timezone.utc,
     )
-    assert data["state"] == "FINISHED"
+    assert data["state"] == QueryState.FINISHED.value
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
@@ -320,7 +319,6 @@ def test_submit_query_errors(
 
 def test_submit_query_multiple_statements(
     client: TestClient,
-    postgresql_connection_string,
 ) -> None:
     """
     Test ``POST /queries/``.
@@ -350,7 +348,7 @@ def test_submit_query_multiple_statements(
     assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
     assert data["started"] == "2021-01-01 00:00:00+00:00"
     assert data["finished"] == "2021-01-01 00:00:00+00:00"
-    assert data["state"] == "FINISHED"
+    assert data["state"] == QueryState.FINISHED.value
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS col; SELECT 2 AS another_col"
@@ -389,7 +387,7 @@ def test_submit_query_results_backend(
         "scheduled": "2021-01-01 00:00:00+00:00",
         "started": "2021-01-01 00:00:00+00:00",
         "finished": "2021-01-01 00:00:00+00:00",
-        "state": "FINISHED",
+        "state": QueryState.FINISHED.value,
         "progress": 1.0,
         "results": [
             {
@@ -447,7 +445,7 @@ def test_submit_query_async(
     assert data["scheduled"] is None
     assert data["started"] is None
     assert data["finished"] is None
-    assert data["state"] == "SCHEDULED"
+    assert data["state"] == QueryState.SCHEDULED.value
     assert data["progress"] == 0.0
     assert data["results"] == []
     assert data["errors"] == []
@@ -486,7 +484,7 @@ def test_submit_query_error(client: TestClient) -> None:
     assert data["engine_version"] == "0.7.1"
     assert data["submitted_query"] == "SELECT FROM"
     assert data["executed_query"] == "SELECT FROM"
-    assert data["state"] == "FAILED"
+    assert data["state"] == QueryState.FAILED.value
     assert data["progress"] == 0.0
     assert data["results"] == []
     assert "Parser Error: syntax error at end of input" in data["errors"][0]
@@ -590,7 +588,7 @@ def test_submit_duckdb_query(client: TestClient) -> None:
     assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
     assert data["started"] == "2021-01-01 00:00:00+00:00"
     assert data["finished"] == "2021-01-01 00:00:00+00:00"
-    assert data["state"] == "FINISHED"
+    assert data["state"] == QueryState.FINISHED.value
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
@@ -648,6 +646,6 @@ def test_submit_snowflake_query(
     assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
     assert data["started"] == "2021-01-01 00:00:00+00:00"
     assert data["finished"] == "2021-01-01 00:00:00+00:00"
-    assert data["state"] == "FINISHED"
+    assert data["state"] == QueryState.FINISHED.value
     assert data["progress"] == 1.0
     assert data["errors"] == []

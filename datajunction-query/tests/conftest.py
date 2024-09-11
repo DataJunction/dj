@@ -2,7 +2,6 @@
 Fixtures for testing.
 """
 # pylint: disable=redefined-outer-name, invalid-name
-
 from typing import Iterator
 from unittest.mock import patch
 
@@ -23,17 +22,11 @@ postgresql_my_proc = factories.postgresql_proc(
     user="dj",
     password="dj",
 )
-import time
 
 
 @pytest.fixture(scope="session")
 def postgresql_my(postgresql_my_proc):
-    print("Starting PostgreSQL instance...")
-    start_time = time.time()
-    proc = postgresql_my_proc
-    end_time = time.time()
-    print(f"PostgreSQL instance started in {end_time - start_time:.2f} seconds")
-    return proc
+    return postgresql_my_proc
 
 
 @pytest.fixture(scope="session")
