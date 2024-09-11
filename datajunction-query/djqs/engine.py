@@ -130,7 +130,7 @@ def run_query(  # pylint: disable=R0914
         results.cursor.description,
         sqla_engine.dialect,
     )
-    output.append((query.executed_query, columns, stream))
+    output.append((query.executed_query, columns, stream))  # type: ignore
 
     return output
 

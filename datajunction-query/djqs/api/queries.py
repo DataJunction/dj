@@ -85,7 +85,9 @@ async def submit_query(  # pylint: disable=too-many-arguments
 
     # Set default engine if not explicitly selected
     data["engine_name"] = data.get("engine_name") or settings.default_engine
-    data["engine_version"] = data.get("engine_version") or settings.default_engine_version
+    data["engine_version"] = (
+        data.get("engine_version") or settings.default_engine_version
+    )
     create_query = QueryCreate(**data)
 
     query_with_results = await save_query_and_run(
@@ -131,9 +133,9 @@ async def save_query_and_run(  # pylint: disable=R0913
     Store a new query to the DB and run it.
     """
     query = Query(
-        catalog_name=create_query.catalog_name,
-        engine_name=create_query.engine_name,
-        engine_version=create_query.engine_version,
+        catalog_name=create_query.catalog_name,  # type: ignore
+        engine_name=create_query.engine_name,  # type: ignore
+        engine_version=create_query.engine_version,  # type: ignore
         submitted_query=create_query.submitted_query,
         async_=create_query.async_,
     )
