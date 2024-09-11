@@ -2,7 +2,7 @@
 Environment for Alembic migrations.
 """
 # pylint: disable=no-member, unused-import, no-name-in-module, import-error
-
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import create_engine
@@ -45,7 +45,7 @@ def run_migrations_offline():
     script output.
 
     """
-    url = settings.alembic_uri
+    url = os.getenv("ALEMBIC_URI_OVERRIDE", settings.alembic_uri)
     context.configure(
         url=url,
         target_metadata=target_metadata,

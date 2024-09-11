@@ -1,6 +1,7 @@
 """
 Query related APIs.
 """
+
 import json
 import logging
 import uuid
@@ -59,7 +60,15 @@ async def submit_query(  # pylint: disable=too-many-arguments
     response: Response,
     postgres_pool: AsyncConnectionPool = Depends(get_postgres_pool),
     background_tasks: BackgroundTasks,
-    body: Any = Body(...),
+    body: Any = Body(
+        ...,
+        example={
+            "catalog_name": "warehouse",
+            "engine_name": "trino",
+            "engine_version": "451",
+            "submitted_query": "select * from tpch.sf1.customer limit 10",
+        },
+    ),
 ) -> QueryResults:
     """
     Run or schedule a query.
