@@ -6,15 +6,48 @@ Fixtures for testing.
 from typing import Iterator
 from unittest.mock import patch
 
-import duckdb
 import pytest
 from cachelib.simple import SimpleCache
 from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
+from pytest_postgresql import factories
 
 from djqs.api.main import app
 from djqs.config import Settings
 from djqs.utils import get_settings
+
+# Define a PostgreSQL process fixture that will be shared across tests
+postgresql_my_proc = factories.postgresql_proc(
+    port=4321,
+    dbname="djqs",
+    user="dj",
+    password="dj",
+)
+import time
+
+
+@pytest.fixture(scope="session")
+def postgresql_my(postgresql_my_proc):
+    print("Starting PostgreSQL instance...")
+    start_time = time.time()
+    proc = postgresql_my_proc
+    end_time = time.time()
+    print(f"PostgreSQL instance started in {end_time - start_time:.2f} seconds")
+    return proc
+
+
+@pytest.fixture(scope="session")
+def postgresql_connection_string(postgresql_my):
+    # Gather connection details from the PostgreSQL instance
+    host = postgresql_my.host
+    port = postgresql_my.port
+    dbname = "postgres"
+    user = "postgres"
+    password = ""
+
+    # Create the connection string
+    connection_string = f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
+    return connection_string
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -102,13 +135,3 @@ def client_no_config_file(
         yield client
 
     app.dependency_overrides.clear()
-
-
-@pytest.fixture(scope="session")
-def duckdb_conn():
-    """
-    A duckdb connection to a roads database
-    """
-    return duckdb.connect(
-        database="docker/default.duckdb",
-    )

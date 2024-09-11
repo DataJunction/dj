@@ -27,10 +27,10 @@ docker-run-with-cockroachdb:
 	docker compose -f docker-compose.yml -f docker-compose.cockroachdb.yml up
 
 test: pyenv
-	pdm run pytest --cov=djqs -vv tests/ --doctest-modules djqs --without-integration --without-slow-integration ${PYTEST_ARGS}
+	pdm run pytest --cov=djqs -vv tests/ --cov-report term-missing --doctest-modules djqs --without-integration --without-slow-integration ${PYTEST_ARGS}
 
 integration: pyenv
-	pdm run pytest --cov=djqs -vv tests/ --doctest-modules djqs --with-integration --with-slow-integration
+	pdm run pytest --cov=djqs -vv tests/ --cov-report term-missing --doctest-modules djqs --with-integration --with-slow-integration
 
 clean:
 	pyenv virtualenv-delete djqs

@@ -168,7 +168,11 @@ async def save_query_and_run(  # pylint: disable=R0913
             response.status_code = HTTPStatus.CREATED
             return QueryResults(
                 id=query.id,
+                catalog_name=query.catalog_name,
+                engine_name=query.engine_name,
+                engine_version=query.engine_version,
                 submitted_query=query.submitted_query,
+                executed_query=query.executed_query,
                 state=QueryState.SCHEDULED,
                 results=[],
                 errors=[],
