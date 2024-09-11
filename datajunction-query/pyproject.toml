@@ -2,38 +2,8 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["djqs"]
-
-[tool.pdm]
-[tool.pdm.build]
-includes = ["djqs"]
-
-[tool.pdm.dev-dependencies]
-test = [
-    "alembic>=1.7.7",
-    "codespell>=2.1.0",
-    "freezegun>=1.1.0",
-    "pre-commit>=3.2.2",
-    "pyfakefs>=4.5.1",
-    "pylint>=2.15.3",
-    "pytest-asyncio==0.15.1",
-    "pytest-cov>=2.12.1",
-    "pytest-integration==0.2.2",
-    "pytest-mock>=3.6.1",
-    "pytest>=6.2.5",
-    "requests-mock>=1.9.3",
-    "setuptools>=49.6.0",
-    "pip-tools>=6.4.0",
-    "pydruid>=0.6.4",
-    "typing-extensions>=4.3.0",
-    "httpx>=0.24.1",
-    "pytest-postgresql>=6.1.1",
-    "psycopg[async,binary,pool]>=3.2.1",
-]
-
-[tool.pdm.scripts]
-pytest = { cmd = "pytest", env = { "CONFIGURATION_FILE" = "./tests/config.djqs.yml", "INDEX" = "postgresql://dj:dj@localhost:5432/djqs", "DEFAULT_ENGINE" = "duckdb_inmemory", "DEFAULT_ENGINE_VERSION" = "0.7.1" } }
+[project]
+requires-python = ">=3.10,<4.0"
 name = "datajunction-query"
 dynamic = ["version"]
 description = "OSS Implementation of a DataJunction Query Service"
@@ -57,8 +27,9 @@ dependencies = [
     "trino>=0.324.0",
     "psycopg[async,pool]>=3.2.1",
     "sqlalchemy>=2.0.34",
+    "pytest-asyncio>=0.24.0",
+    "pytest-integration>=0.2.3",
 ]
-requires-python = ">=3.8,<4.0"
 readme = "README.rst"
 license = {text = "MIT"}
 classifiers = [
@@ -71,10 +42,45 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["djqs"]
+
+
+
+[tool.pdm]
+[tool.pdm.build]
+includes = ["djqs"]
+
+[tool.pdm.dev-dependencies]
+test = [
+    "alembic>=1.7.7",
+    "codespell>=2.1.0",
+    "freezegun>=1.1.0",
+    "pre-commit>=3.2.2",
+    "pyfakefs>=4.5.1",
+    "pylint>=2.15.3",
+    "pytest-cov>=2.12.1",
+    "pytest-mock>=3.6.1",
+    "pytest>=6.2.5",
+    "requests-mock>=1.9.3",
+    "setuptools>=49.6.0",
+    "pip-tools>=6.4.0",
+    "pydruid>=0.6.4",
+    "typing-extensions>=4.3.0",
+    "httpx>=0.24.1",
+    "pytest-postgresql>=6.1.1",
+    "psycopg[async,pool]>=3.2.1",
+]
+
+[tool.pdm.scripts]
+pytest = { cmd = "pytest", env = { "CONFIGURATION_FILE" = "./tests/config.djqs.yml", "INDEX" = "postgresql://dj:dj@localhost:5432/djqs", "DEFAULT_ENGINE" = "duckdb_inmemory", "DEFAULT_ENGINE_VERSION" = "0.7.1" } }
+
 [project.optional-dependencies]
 uvicorn = [
     "uvicorn[standard]>=0.21.1",
 ]
+
+
 
 [tool.hatch.version]
 path = "djqs/__about__.py"

@@ -92,7 +92,7 @@ repos:
   hooks:
   - id: pylint
     name: pylint
-    entry: pylint --disable=duplicate-code,use-implicit-booleaness-not-comparison
+    entry: pdm run pylint --disable=duplicate-code,use-implicit-booleaness-not-comparison
     language: system
     types: [python]
     exclude: ^templates/
