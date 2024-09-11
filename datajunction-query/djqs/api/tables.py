@@ -41,7 +41,6 @@ def table_columns(
             engine_name=settings.default_engine,
             engine_version=engine_version or settings.default_engine_version,
         )
-    print(settings.engines)
     external_columns = get_columns(
         uri=engine_config.uri,
         extra_params=engine_config.extra_params,
