@@ -31,7 +31,7 @@ class Query(BaseQuery):  # pylint: disable=too-many-instance-attributes
     A query.
     """
 
-    id: UUID = field(default_factory=uuid4)
+    id: UUID = field(default_factory=uuid4)  # pylint: disable=invalid-name
     submitted_query: str = ""
     catalog_name: str = ""
     engine_name: str = ""
@@ -85,7 +85,7 @@ class QueryResults(BaseQuery):  # pylint: disable=too-many-instance-attributes
     Model for query with results.
     """
 
-    id: uuid.UUID = field(default_factory=uuid4)
+    id: uuid.UUID = field(default_factory=uuid4)  # pylint: disable=invalid-name
     engine_name: Optional[str] = None
     engine_version: Optional[str] = None
     submitted_query: str = ""

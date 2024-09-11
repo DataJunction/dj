@@ -74,7 +74,8 @@ class Settings:  # pylint: disable=too-many-instance-attributes
         alembic_uri: Optional[
             str
         ] = "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj",
-        default_engine: Optional[str] = "default",
+        default_catalog: Optional[str] = "",
+        default_engine: Optional[str] = "",
         default_engine_version: Optional[str] = "",
         results_backend: Optional[BaseCache] = None,
         results_backend_path: Optional[str] = "/tmp/djqs",
@@ -93,10 +94,14 @@ class Settings:  # pylint: disable=too-many-instance-attributes
         self.index: str = os.getenv("INDEX", index or "")
 
         self.alembic_uri: str = os.getenv("ALEMBIC_URI", alembic_uri or "")
-        # The default engine to use for reflection
+
+        # The default catalog to use if not specified in query payload
+        self.default_catalog: str = os.getenv("DEFAULT_CATALOG", default_catalog or "")
+
+        # The default engine to use if not specified in query payload
         self.default_engine: str = os.getenv("DEFAULT_ENGINE", default_engine or "")
 
-        # The default engine version to use for reflection
+        # The default engine version to use if not specified in query payload
         self.default_engine_version: str = os.getenv(
             "DEFAULT_ENGINE_VERSION",
             default_engine_version or "",
