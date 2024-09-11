@@ -104,7 +104,8 @@ class Settings:  # pylint: disable=too-many-instance-attributes
 
         # The default engine version to use for reflection
         self.default_engine_version: str = os.getenv(
-            "DEFAULT_ENGINE_VERSION", default_engine_version,
+            "DEFAULT_ENGINE_VERSION",
+            default_engine_version,
         )
 
         # Where to store the results from queries.

@@ -8,16 +8,6 @@ def test_table_columns(client: TestClient, mocker):
     """
     Test getting table columns
     """
-    response = client.post(
-        "/engines/",
-        json={
-            "name": "default",
-            "type": "duckdb",
-            "version": "",
-            "uri": "duckdb:///:memory:",
-        },
-    )
-    assert response.status_code == 201
     columns = [
         {"name": "col_a", "type": "STR"},
         {"name": "col_b", "type": "INT"},
@@ -26,7 +16,9 @@ def test_table_columns(client: TestClient, mocker):
         {"name": "col_e", "type": "DECIMAL"},
     ]
     mocker.patch("djqs.api.tables.get_columns", return_value=columns)
-    response = client.get("/table/foo.bar.baz/columns/?engine=default&engine_version=")
+    response = client.get(
+        "/table/foo.bar.baz/columns/?engine=duckdb_inmemory&engine_version=0.7.1",
+    )
     assert response.json() == {
         "name": "foo.bar.baz",
         "columns": [

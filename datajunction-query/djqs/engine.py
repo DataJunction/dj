@@ -96,7 +96,7 @@ def run_query(  # pylint: disable=R0914
             SQLALCHEMY_URI,
         )
         sqla_engine = create_engine(query_server)
-    elif engine.type == EngineType.DUCKDB.value:
+    elif engine.type == EngineType.DUCKDB:
         _logger.info("Creating duckdb connection")
         conn = (
             duckdb.connect()
@@ -125,14 +125,13 @@ def run_query(  # pylint: disable=R0914
 
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
     if query.executed_query:
-        for statement in query.executed_query.split(";"):
-            results = connection.execute(text(statement))
-            stream = (tuple(row) for row in results)
-            columns = get_columns_from_description(
-                results.cursor.description,
-                sqla_engine.dialect,
-            )
-            output.append((statement, columns, stream))
+        results = connection.execute(text(query.executed_query))
+        stream = (tuple(row) for row in results)
+        columns = get_columns_from_description(
+            results.cursor.description,
+            sqla_engine.dialect,
+        )
+        output.append((query.executed_query, columns, stream))
 
     return output
 

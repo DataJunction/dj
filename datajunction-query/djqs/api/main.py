@@ -30,16 +30,23 @@ async def lifespan(fastapi_app: FastAPI):
     """
     Create a postgres connection pool and store it in the app state
     """
+    _logger.info("Starting PostgreSQL connection pool...")
     pool = AsyncConnectionPool(
         settings.index,
         kwargs={"row_factory": dict_row},
         check=AsyncConnectionPool.check_connection,
+        min_size=5,
+        max_size=20,
+        timeout=2,
     )
     fastapi_app.state.pool = pool
     try:
+        _logger.info("PostgreSQL connection pool started with DSN: %s", settings.index)
         yield
     finally:
+        _logger.info("Closing PostgreSQL connection pool")
         await pool.close()
+        _logger.info("PostgreSQL connection pool closed")
 
 
 app = FastAPI(

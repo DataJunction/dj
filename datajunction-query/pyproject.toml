@@ -33,7 +33,7 @@ test = [
 ]
 
 [tool.pdm.scripts]
-pytest = { cmd = "pytest", env = { "CONFIGURATION_FILE" = "./config.djqs.yml", "INDEX" = "postgresql://dj:dj@localhost:5432/djqs" } }
+pytest = { cmd = "pytest", env = { "CONFIGURATION_FILE" = "./tests/config.djqs.yml", "INDEX" = "postgresql://dj:dj@localhost:5432/djqs" } }
 name = "datajunction-query"
 dynamic = ["version"]
 description = "OSS Implementation of a DataJunction Query Service"
@@ -91,4 +91,3 @@ source = ['djqs/']
 [tool.isort]
 src_paths = ["djqs/", "tests/"]
 profile = 'black'
-
