@@ -522,8 +522,8 @@ def test_read_query(settings: Settings, client: TestClient) -> None:
     results = [
         StatementResults(
             sql="SELECT 2 as foo",
-            columns=[{"name": "foo", "type": "STR"}],
-            rows=[[2]],
+            columns=[{"name": "foo", "type": "STR"}],  # type: ignore
+            rows=[[2]],  # type: ignore
         ),
     ]
     settings.results_backend.set(

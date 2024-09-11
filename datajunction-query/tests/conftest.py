@@ -3,7 +3,6 @@ Fixtures for testing.
 """
 # pylint: disable=redefined-outer-name, invalid-name
 from typing import Iterator
-from unittest.mock import patch
 
 import pytest
 from cachelib.simple import SimpleCache
@@ -26,32 +25,10 @@ postgresql_my_proc = factories.postgresql_proc(
 
 @pytest.fixture(scope="session")
 def postgresql_my(postgresql_my_proc):
+    """
+    pytest-postgresql instance
+    """
     return postgresql_my_proc
-
-
-@pytest.fixture(scope="session")
-def postgresql_connection_string(postgresql_my):
-    # Gather connection details from the PostgreSQL instance
-    host = postgresql_my.host
-    port = postgresql_my.port
-    dbname = "postgres"
-    user = "postgres"
-    password = ""
-
-    # Create the connection string
-    connection_string = f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
-    return connection_string
-
-
-@pytest.fixture(scope="session", autouse=True)
-def mock_get_settings():
-    with patch("djqs.utils.get_settings") as mocked_get_settings:
-        mocked_get_settings.return_value = Settings(
-            index="sqlite://",
-            results_backend=SimpleCache(default_timeout=0),
-            configuration_file="./config.djqs.yml",
-        )
-        yield mocked_get_settings
 
 
 pytest_plugins = ["djqs.api.main"]

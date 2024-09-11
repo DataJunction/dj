@@ -57,7 +57,7 @@ class CatalogInfo:  # pylint: disable=too-few-public-methods
 
     def __init__(self, name: str, engines: List[str]):
         self.name = name
-        self.engines = [engine for engine in engines]
+        self.engines = engines
 
 
 class Settings:  # pylint: disable=too-many-instance-attributes
@@ -65,7 +65,7 @@ class Settings:  # pylint: disable=too-many-instance-attributes
     Configuration for the query service
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-locals,dangerous-default-value
         self,
         name: Optional[str] = "DJQS",
         description: Optional[str] = "A DataJunction Query Service",
@@ -78,53 +78,52 @@ class Settings:  # pylint: disable=too-many-instance-attributes
         default_engine_version: Optional[str] = "",
         results_backend: Optional[BaseCache] = None,
         results_backend_path: Optional[str] = "/tmp/djqs",
-        results_backend_timeout: Optional[BaseCache] = "0",
+        results_backend_timeout: Optional[str] = "0",
         paginating_timeout_minutes: Optional[str] = "5",
-        do_ping_timeout_seconds: Optional[timedelta] = "5",
+        do_ping_timeout_seconds: Optional[str] = "5",
         configuration_file: Optional[str] = None,
-        engines: Optional[List[EngineInfo]] = [],
-        catalogs: Optional[List[CatalogInfo]] = [],
+        engines: Optional[List[EngineInfo]] = None,
+        catalogs: Optional[List[CatalogInfo]] = None,
     ):
-        self.name: str = os.getenv("NAME", name)
-        self.description: str = os.getenv("DESCRIPTION", description)
-        self.url: str = os.getenv("URL", url)
+        self.name: str = os.getenv("NAME", name or "")
+        self.description: str = os.getenv("DESCRIPTION", description or "")
+        self.url: str = os.getenv("URL", url or "")
 
         # SQLAlchemy URI for the metadata database.
-        self.index: str = os.getenv(
-            "INDEX",
-            index,
-        )
+        self.index: str = os.getenv("INDEX", index or "")
 
-        self.alembic_uri: str = os.getenv(
-            "ALEMBIC_URI",
-            alembic_uri,
-        )
+        self.alembic_uri: str = os.getenv("ALEMBIC_URI", alembic_uri or "")
         # The default engine to use for reflection
-        self.default_engine: str = os.getenv("DEFAULT_ENGINE", default_engine)
+        self.default_engine: str = os.getenv("DEFAULT_ENGINE", default_engine or "")
 
         # The default engine version to use for reflection
         self.default_engine_version: str = os.getenv(
             "DEFAULT_ENGINE_VERSION",
-            default_engine_version,
+            default_engine_version or "",
         )
 
         # Where to store the results from queries.
         self.results_backend: BaseCache = results_backend or FileSystemCache(
-            os.getenv("RESULTS_BACKEND_PATH", results_backend_path),
+            os.getenv("RESULTS_BACKEND_PATH", results_backend_path or ""),
             default_timeout=int(
-                os.getenv("RESULTS_BACKEND_TIMEOUT", results_backend_timeout),
+                os.getenv("RESULTS_BACKEND_TIMEOUT", results_backend_timeout or "0"),
             ),
         )
 
         self.paginating_timeout: timedelta = timedelta(
             minutes=int(
-                os.getenv("PAGINATING_TIMEOUT_MINUTES", paginating_timeout_minutes),
+                os.getenv(
+                    "PAGINATING_TIMEOUT_MINUTES",
+                    paginating_timeout_minutes or "5",
+                ),
             ),
         )
 
         # How long to wait when pinging databases to find out the fastest online database.
         self.do_ping_timeout: timedelta = timedelta(
-            seconds=int(os.getenv("DO_PING_TIMEOUT_SECONDS", do_ping_timeout_seconds)),
+            seconds=int(
+                os.getenv("DO_PING_TIMEOUT_SECONDS", do_ping_timeout_seconds or "5"),
+            ),
         )
 
         # Configuration file for catalogs and engines
@@ -132,8 +131,8 @@ class Settings:  # pylint: disable=too-many-instance-attributes
             os.getenv("CONFIGURATION_FILE") or configuration_file
         )
 
-        self.engines: List[EngineInfo] = engines
-        self.catalogs: List[CatalogInfo] = catalogs
+        self.engines: List[EngineInfo] = engines or []
+        self.catalogs: List[CatalogInfo] = catalogs or []
 
         self._load_configuration()
 
@@ -162,7 +161,7 @@ class Settings:  # pylint: disable=too-many-instance-attributes
                 CatalogInfo(**catalog) for catalog in config.get("catalogs", [])
             ]
         else:
-            _logger.warn("No settings configuration file has been set")
+            _logger.warning("No settings configuration file has been set")
 
     def find_engine(
         self,
