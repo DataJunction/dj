@@ -687,6 +687,8 @@ class CreateSourceNode(ImmutableNodeFields, MutableNodeFields, SourceNodeFields)
     A create object for source nodes
     """
 
+    query: Optional[str] = None
+
 
 class CreateCubeNode(ImmutableNodeFields, MutableNodeFields, CubeNodeFields):
     """

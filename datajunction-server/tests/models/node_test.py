@@ -47,18 +47,6 @@ def test_extra_validation() -> None:
     """
     Test ``extra_validation``.
     """
-    node = Node(name="A", type=NodeType.SOURCE, current_version="1")
-    node_revision = NodeRevision(
-        name=node.name,
-        type=node.type,
-        node=node,
-        version="1",
-        query="SELECT * FROM B",
-    )
-    with pytest.raises(Exception) as excinfo:
-        node_revision.extra_validation()
-    assert str(excinfo.value) == "Node A of type source should not have a query"
-
     node = Node(name="A", type=NodeType.METRIC, current_version="1")
     node_revision = NodeRevision(
         name=node.name,

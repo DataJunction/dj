@@ -350,6 +350,7 @@ List of all available DJ builder methods:
   - source(self, node_name: str)
   - create_source( ..., mode: Optional[NodeMode] = NodeMode.PUBLISHED)
   - register_table( catalog: str, schema: str, table: str)
+  - register_view( catalog: str, schema: str, view: str, query: str, replace: bool = False)
 
   ### nodes: transform
   - transform(self, node_name: str)

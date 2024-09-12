@@ -244,6 +244,22 @@ def query_service_client(
         mock_submit_query,
     )
 
+    def mock_create_view(
+        view_name: str,
+        query_create: QueryCreate,
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
+    ) -> str:
+        duckdb_conn.sql(query_create.submitted_query)
+        return f"View {view_name} created successfully."
+
+    mocker.patch.object(
+        qs_client,
+        "create_view",
+        mock_create_view,
+    )
+
     def mock_get_query(
         query_id: str,
         request_headers: Optional[  # pylint: disable=unused-argument
@@ -919,6 +935,22 @@ def module__query_service_client(
         qs_client,
         "submit_query",
         mock_submit_query,
+    )
+
+    def mock_create_view(
+        view_name: str,
+        query_create: QueryCreate,
+        request_headers: Optional[  # pylint: disable=unused-argument
+            Dict[str, str]
+        ] = None,
+    ) -> str:
+        duckdb_conn.sql(query_create.submitted_query)
+        return f"View {view_name} created successfully."
+
+    module_mocker.patch.object(
+        qs_client,
+        "create_view",
+        mock_create_view,
     )
 
     def mock_get_query(

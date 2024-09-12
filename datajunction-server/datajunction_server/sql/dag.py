@@ -105,7 +105,10 @@ async def get_downstream_nodes(
 
     # Calculate the maximum depth for each node
     max_depths = (
-        select(paths.c.node_id, func.max(paths.c.depth).label("max_depth"))
+        select(
+            paths.c.node_id,
+            func.max(paths.c.depth).label("max_depth"),  # pylint: disable=not-callable
+        )
         .group_by(paths.c.node_id)
         .cte("max_depths")
     )
