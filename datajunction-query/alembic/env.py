@@ -2,15 +2,13 @@
 Environment for Alembic migrations.
 """
 # pylint: disable=no-member, unused-import, no-name-in-module, import-error
-import os
 from logging.config import fileConfig
 
 from sqlalchemy import create_engine
 
 from alembic import context
-from djqs.utils import get_settings
 
-settings = get_settings()
+DEFAULT_URI = "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj"
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -45,9 +43,9 @@ def run_migrations_offline():
     script output.
 
     """
-    url = os.getenv("ALEMBIC_URI_OVERRIDE", settings.alembic_uri)
+    x_args = context.get_x_argument(as_dictionary=True)
     context.configure(
-        url=url,
+        url=x_args.get("uri") or DEFAULT_URI,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -65,7 +63,8 @@ def run_migrations_online():
     and associate a connection with the context.
 
     """
-    connectable = create_engine(settings.alembic_uri)
+    x_args = context.get_x_argument(as_dictionary=True)
+    connectable = create_engine(x_args.get("uri") or DEFAULT_URI)
 
     with connectable.connect() as connection:
         context.configure(

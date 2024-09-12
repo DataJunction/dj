@@ -28,9 +28,8 @@ from datajunction_server.database import (
 )
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
-from datajunction_server.utils import get_settings
 
-settings = get_settings()
+DEFAULT_URI = "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj"
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -65,9 +64,9 @@ def run_migrations_offline():
     script output.
 
     """
-    url = settings.index
+    x_args = context.get_x_argument(as_dictionary=True)
     context.configure(
-        url=url,
+        url=x_args.get("uri") or DEFAULT_URI,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -85,7 +84,8 @@ def run_migrations_online():
     and associate a connection with the context.
 
     """
-    connectable = create_engine(settings.index)
+    x_args = context.get_x_argument(as_dictionary=True)
+    connectable = create_engine(x_args.get("uri") or DEFAULT_URI)
 
     with connectable.connect() as connection:
         context.configure(
