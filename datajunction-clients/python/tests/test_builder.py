@@ -11,6 +11,7 @@ from datajunction.exceptions import (
     DJNamespaceAlreadyExists,
     DJTableAlreadyRegistered,
     DJTagAlreadyExists,
+    DJViewAlreadyRegistered,
 )
 from datajunction.models import (
     AvailabilityState,
@@ -275,6 +276,44 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         client._session.post = MagicMock(side_effect=Exception("Boom!"))
         with pytest.raises(DJClientException):
             client.register_table(catalog="default", schema="store", table="comments")
+
+    def test_register_view(self, client):  # pylint: disable=unused-argument
+        """
+        Verifies that registering a table works.
+        """
+        client.create_namespace("source")
+        store_comments = client.register_view(
+            catalog="default",
+            schema="store",
+            view="comments_view",
+            query="SELECT * FROM store.comments",
+            replace=True,
+        )
+        assert store_comments.name == "source.default.store.comments_view"
+        assert (
+            "source.default.store.comments_view"
+            in client.namespace("source.default.store").sources()
+        )
+        # and that errors are handled properly
+        client._session.post = MagicMock(
+            side_effect=HTTPError("409 Client Error: Conflict"),
+        )
+        with pytest.raises(DJViewAlreadyRegistered):
+            client.register_view(
+                catalog="default",
+                schema="store",
+                view="comments_view",
+                query="SELECT * FROM store.comments",
+            )
+        client._session.post = MagicMock(side_effect=Exception("Boom!"))
+        with pytest.raises(DJClientException):
+            client.register_view(
+                catalog="default",
+                schema="store",
+                view="comments_view",
+                query="SELECT * FROM store.comments",
+                replace=True,
+            )
 
     def test_create_and_update_node(self, client):  # pylint: disable=unused-argument
         """

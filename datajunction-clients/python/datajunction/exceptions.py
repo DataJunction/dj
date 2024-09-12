@@ -53,3 +53,16 @@ class DJTableAlreadyRegistered(DJClientException):
     def __init__(self, catalog: str, schema: str, table: str, *args) -> None:
         self.message = f"Table `{catalog}.{schema}.{table}` is already registered."
         super().__init__(self.message, *args)
+
+
+class DJViewAlreadyRegistered(DJClientException):
+    """
+    Raised when a view is already regsistered in DJ.
+    """
+
+    def __init__(self, catalog: str, schema: str, view: str, *args) -> None:
+        self.message = (
+            f"View `{catalog}.{schema}.{view}` is already registered, "
+            "use replace=True to force a refresh."
+        )
+        super().__init__(self.message, *args)

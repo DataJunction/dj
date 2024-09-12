@@ -1135,6 +1135,12 @@ COLUMN_MAPPINGS = {
         Column(name="timestamp", type=TimestampType()),
         Column(name="text", type=StringType()),
     ],
+    "default.store.comments_view": [
+        Column(name="id", type=IntegerType()),
+        Column(name="user_id", type=IntegerType()),
+        Column(name="timestamp", type=TimestampType()),
+        Column(name="text", type=StringType()),
+    ],
 }
 
 QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {

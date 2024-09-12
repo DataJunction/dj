@@ -10,6 +10,7 @@ from datajunction.exceptions import (
     DJClientException,
     DJNamespaceAlreadyExists,
     DJTableAlreadyRegistered,
+    DJViewAlreadyRegistered,
 )
 from datajunction.nodes import (
     Cube,
@@ -235,6 +236,35 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 raise DJTableAlreadyRegistered(catalog, schema, table) from exc
             raise DJClientException(
                 f"Failed to register table `{catalog}.{schema}.{table}`: {exc}",
+            ) from exc
+        source_node = Source(
+            **response.json(),
+            dj_client=self,
+        )
+        return source_node
+
+    def register_view(  # pylint: disable=too-many-arguments
+        self,
+        catalog: str,
+        schema: str,
+        view: str,
+        query: str,
+        replace: bool = False,
+    ) -> Source:
+        """
+        Register a table as a source node. This will create a source node under the configured
+        `source_node_namespace` (a server-side setting), which defaults to the `source` namespace.
+        """
+        try:
+            response = self._session.post(
+                f"/register/view/{catalog}/{schema}/{view}/",
+                params={"query": query, "replace": str(replace)},
+            )
+        except Exception as exc:
+            if "409 Client Error" in str(exc):
+                raise DJViewAlreadyRegistered(catalog, schema, view) from exc
+            raise DJClientException(
+                f"Failed to register view `{catalog}.{schema}.{view}`: {exc}",
             ) from exc
         source_node = Source(
             **response.json(),
