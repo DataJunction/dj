@@ -117,7 +117,7 @@ repos:
       entry: pdm lock --check --project datajunction-server
       files: ^datajunction-server/pyproject.toml$
 - repo: https://github.com/pdm-project/pdm
-  rev: 2.8.1
+  rev: 2.18.2
   hooks:
     - id: pdm-lock-check
       name: pdm-lock-check-query

@@ -5,7 +5,28 @@ engines:
     uri: duckdb:////code/docker/default.duckdb
     extra_params:
       location: /code/docker/default.duckdb
+  - name: duckdb_inmemory
+    version: 0.7.1
+    type: duckdb
+    uri: "duckdb:///:memory:"
+  - name: snowflake_test
+    version: 7.37
+    type: snowflake
+    uri: "snowflake:///"
+  - name: sqlite_inmemory
+    version: 1.0
+    type: sqlalchemy
+    uri: "sqlite:///"
 catalogs:
   - name: warehouse
     engines:
       - duckdb
+  - name: warehouse_inmemory
+    engines:
+      - duckdb_inmemory
+  - name: snowflake_warehouse
+    engines:
+      - snowflake_test
+  - name: sqlite_warehouse
+    engines:
+      - sqlite_inmemory

@@ -2,126 +2,84 @@
 Fixtures for testing.
 """
 # pylint: disable=redefined-outer-name, invalid-name
-
+import logging
 from typing import Iterator
 
-import duckdb
+import psycopg
 import pytest
-from cachelib.simple import SimpleCache
 from fastapi.testclient import TestClient
-from pytest_mock import MockerFixture
-from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
+from testcontainers.core.waiting_utils import wait_for_logs
+from testcontainers.postgres import PostgresContainer
 
 from djqs.api.main import app
-from djqs.config import Settings
-from djqs.utils import get_session, get_settings
+
+_logger = logging.getLogger(__name__)
 
 
-@pytest.fixture
-def settings(mocker: MockerFixture) -> Iterator[Settings]:
+@pytest.fixture(scope="session")
+def postgres_container() -> PostgresContainer:
     """
-    Custom settings for unit tests.
+    Setup postgres container
     """
-    settings = Settings(
-        index="sqlite://",
-        results_backend=SimpleCache(default_timeout=0),
-        configuration_file="./config.djqs.yml",
-        enable_dynamic_config=True,
-    )
+    localhost_port = 4321  # The test container will be bound to localhost port 4321
+    postgres = PostgresContainer(
+        image="postgres:latest",
+        username="dj",
+        password="dj",
+        dbname="dj",
+        port=5432,
+        driver="psycopg",
+    ).with_bind_ports(5432, localhost_port)
+    with postgres:
+        wait_for_logs(
+            postgres,
+            r"UTC \[1\] LOG:  database system is ready to accept connections",
+            10,
+        )
 
-    mocker.patch(
-        "djqs.utils.get_settings",
-        return_value=settings,
-    )
+        # Manually build the connection string
+        username = postgres.username
+        password = postgres.password
+        host = postgres.get_container_host_ip()
+        port = postgres.get_exposed_port(postgres.port)
+        dbname = postgres.dbname
 
-    yield settings
+        connection_url = f"postgresql://{username}:{password}@{host}:{port}/{dbname}"
 
-
-@pytest.fixture
-def settings_no_config_file(mocker: MockerFixture) -> Iterator[Settings]:
-    """
-    Custom settings for unit tests.
-    """
-    settings = Settings(
-        index="sqlite://",
-        results_backend=SimpleCache(default_timeout=0),
-    )
-
-    mocker.patch(
-        "djqs.utils.get_settings",
-        return_value=settings,
-    )
-
-    yield settings
-
-
-@pytest.fixture()
-def session() -> Iterator[Session]:
-    """
-    Create an in-memory SQLite session to test models.
-    """
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    SQLModel.metadata.create_all(engine)
-
-    with Session(engine, autoflush=False) as session:
-        yield session
-
-
-@pytest.fixture()
-def client(session: Session, settings: Settings) -> Iterator[TestClient]:
-    """
-    Create a client for testing APIs.
-    """
-
-    def get_session_override() -> Session:
-        return session
-
-    def get_settings_override() -> Settings:
-        return settings
-
-    app.dependency_overrides[get_session] = get_session_override
-    app.dependency_overrides[get_settings] = get_settings_override
-
-    with TestClient(app) as client:
-        yield client
-
-    app.dependency_overrides.clear()
+        with psycopg.connect(  # pylint: disable=not-context-manager
+            connection_url,
+        ) as conn:
+            with conn.cursor() as cur:
+                _logger.info("Creating query table")
+                cur.execute(
+                    """
+                    CREATE TABLE query (
+                        id UUID PRIMARY KEY,
+                        catalog_name VARCHAR NOT NULL,
+                        engine_name VARCHAR NOT NULL,
+                        engine_version VARCHAR NOT NULL,
+                        submitted_query VARCHAR NOT NULL,
+                        async_ BOOLEAN NOT NULL,
+                        executed_query VARCHAR,
+                        scheduled TIMESTAMP,
+                        started TIMESTAMP,
+                        finished TIMESTAMP,
+                        state VARCHAR NOT NULL,
+                        progress FLOAT NOT NULL
+                    )
+                """,
+                )
+                conn.commit()
+                _logger.info("Creating table created")
+        yield postgres
 
 
-@pytest.fixture()
-def client_no_config_file(
-    session: Session,
-    settings_no_config_file: Settings,
+@pytest.fixture(scope="session")
+def client(  # pylint: disable=unused-argument
+    postgres_container,
 ) -> Iterator[TestClient]:
     """
     Create a client for testing APIs.
     """
-
-    def get_session_override() -> Session:
-        return session
-
-    def get_settings_override() -> Settings:
-        return settings_no_config_file
-
-    app.dependency_overrides[get_session] = get_session_override
-    app.dependency_overrides[get_settings] = get_settings_override
-
     with TestClient(app) as client:
         yield client
-
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture(scope="session")
-def duckdb_conn():
-    """
-    A duckdb connection to a roads database
-    """
-    return duckdb.connect(
-        database="docker/default.duckdb",
-    )
