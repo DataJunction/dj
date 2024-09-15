@@ -4,7 +4,7 @@ Basic OAuth Authentication Router
 from datetime import timedelta
 from http import HTTPStatus
 
-from fastapi import APIRouter, Depends, Form
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
@@ -25,14 +25,19 @@ router = APIRouter(tags=["Basic OAuth2"])
 
 @router.post("/basic/user/")
 async def create_a_user(
-    email: str = Form(),
-    username: str = Form(),
-    password: str = Form(),
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> JSONResponse:
     """
     Create a new user
     """
+    body = await request.body()
+    if not body:
+        return JSONResponse(content={"error": "Request body is empty"}, status_code=400)
+    data = await request.json()
+    username = data.get("username")
+    email = data.get("email")
+    password = data.get("password")
     user_result = await session.execute(select(User).where(User.username == username))
     if user_result.unique().scalar_one_or_none():
         raise DJException(

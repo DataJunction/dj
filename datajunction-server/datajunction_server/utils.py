@@ -14,7 +14,7 @@ from typing import AsyncIterator, List, Optional
 from dotenv import load_dotenv
 from fastapi import Depends
 from rich.logging import RichHandler
-from sqlalchemy import AsyncAdaptedQueuePool
+from sqlalchemy import AsyncAdaptedQueuePool, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -70,6 +70,7 @@ class DatabaseSessionManager:
         self.engine: AsyncEngine | None = None
         self.session_maker = None
         self.session = None
+        self.schema = None
 
     def init_db(self):
         """
@@ -94,6 +95,11 @@ class DatabaseSessionManager:
             },
         )
 
+        if self.schema:
+            self.engine = self.engine.execution_options(
+                schema_translate_map={None: self.schema}
+            )
+
         async_session_factory = async_sessionmaker(
             bind=self.engine,
             autocommit=False,
@@ -115,17 +121,20 @@ class DatabaseSessionManager:
 
 
 @lru_cache(maxsize=None)
-def get_session_manager() -> DatabaseSessionManager:
+def get_session_manager(request: Optional[Request] = None) -> DatabaseSessionManager:
     """
     Get session manager
     """
     session_manager = DatabaseSessionManager()
+    session_manager.schema = request.headers.get("tenant")
+    settings = get_settings()
+    settings.customSchema = request.headers.get("new_tenant")
     session_manager.init_db()
     return session_manager
 
 
 @lru_cache(maxsize=None)
-def get_engine() -> AsyncEngine:
+def get_engine(schema: str) -> AsyncEngine:
     """
     Create the metadata engine.
     """
@@ -143,14 +152,16 @@ def get_engine() -> AsyncEngine:
             "connect_timeout": settings.db_connect_timeout,
         },
     )
+    if schema:
+        engine = engine.execution_options(schema_translate_map={None: schema})
     return engine
 
 
-async def get_session() -> AsyncIterator[AsyncSession]:
+async def get_session(request: Request = None) -> AsyncIterator[AsyncSession]:
     """
     Async database session.
     """
-    session_manager = get_session_manager()
+    session_manager = get_session_manager(request)
     session = session_manager.session()
     try:
         yield session

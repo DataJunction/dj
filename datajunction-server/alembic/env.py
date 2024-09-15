@@ -85,7 +85,12 @@ def run_migrations_online():
     and associate a connection with the context.
 
     """
-    connectable = create_engine(settings.index)
+    settings = get_settings()
+
+    connectable = create_engine(
+        settings.index,
+        connect_args={"options": f"-csearch_path={settings.customSchema}"},
+    )
 
     with connectable.connect() as connection:
         context.configure(

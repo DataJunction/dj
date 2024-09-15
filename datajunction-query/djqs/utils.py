@@ -7,13 +7,14 @@ import datetime
 import logging
 import os
 from functools import lru_cache
-from typing import Iterator
+from typing import Iterator, Optional
 
 from dotenv import load_dotenv
 from pydantic.datetime_parse import parse_datetime
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, create_engine
+from starlette.requests import Request
 
 from djqs.config import Settings
 
@@ -56,11 +57,18 @@ def get_metadata_engine() -> Engine:
     return engine
 
 
-def get_session() -> Iterator[Session]:
+def get_session(request: Request = None) -> Iterator[Session]:
     """
     Per-request session.
     """
+    schema = request.headers.get("tenant")
     engine = get_metadata_engine()
+    settings = get_settings()
+
+    if schema:
+        engine = engine.execution_options(schema_translate_map={None: schema})
+
+    settings.customSchema = request.headers.get("new_tenant")
 
     with Session(engine, autoflush=False) as session:  # pragma: no cover
         yield session

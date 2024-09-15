@@ -33,6 +33,8 @@ class Settings(
     # SQLAlchemy URI for the metadata database.
     index: str = "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj"
 
+    customSchema: str = "public"
+
     # Directory where the repository lives. This should have 2 subdirectories, "nodes" and
     # "databases".
     repository: Path = Path(".")
