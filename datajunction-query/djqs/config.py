@@ -71,9 +71,6 @@ class Settings:  # pylint: disable=too-many-instance-attributes
         description: Optional[str] = "A DataJunction Query Service",
         url: Optional[str] = "http://localhost:8001/",
         index: Optional[str] = "postgresql://dj:dj@postgres_metadata:5432/dj",
-        alembic_uri: Optional[
-            str
-        ] = "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj",
         default_catalog: Optional[str] = "",
         default_engine: Optional[str] = "",
         default_engine_version: Optional[str] = "",
@@ -92,8 +89,6 @@ class Settings:  # pylint: disable=too-many-instance-attributes
 
         # SQLAlchemy URI for the metadata database.
         self.index: str = os.getenv("INDEX", index or "")
-
-        self.alembic_uri: str = os.getenv("ALEMBIC_URI", alembic_uri or "")
 
         # The default catalog to use if not specified in query payload
         self.default_catalog: str = os.getenv("DEFAULT_CATALOG", default_catalog or "")
