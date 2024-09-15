@@ -1,29 +1,31 @@
 """
 Query related functions.
 """
+import json
 import logging
 import os
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 import duckdb
 import snowflake.connector
-import sqlparse
+from psycopg_pool import AsyncConnectionPool
 from sqlalchemy import create_engine, text
-from sqlmodel import Session, select
 
-from djqs.config import Settings
+from djqs.config import EngineType, Settings
 from djqs.constants import SQLALCHEMY_URI
-from djqs.models.engine import Engine, EngineType
+from djqs.db.postgres import DBQuery
+from djqs.exceptions import DJDatabaseError
 from djqs.models.query import (
     ColumnMetadata,
     Query,
     QueryResults,
     QueryState,
-    Results,
     StatementResults,
 )
 from djqs.typing import ColumnType, Description, SQLADialect, Stream, TypeEnum
+from djqs.utils import get_settings
 
 _logger = logging.getLogger(__name__)
 
@@ -67,7 +69,6 @@ def get_columns_from_description(
 
 
 def run_query(  # pylint: disable=R0914
-    session: Session,
     query: Query,
     headers: Optional[Dict[str, str]] = None,
 ) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
@@ -80,13 +81,14 @@ def run_query(  # pylint: disable=R0914
 
     _logger.info("Running query on catalog %s", query.catalog_name)
 
-    engine = session.exec(
-        select(Engine)
-        .where(Engine.name == query.engine_name)
-        .where(Engine.version == query.engine_version),
-    ).one()
-
-    query_server = headers.get("SQLALCHEMY_URI") if headers else None
+    settings = get_settings()
+    engine_name = query.engine_name or settings.default_engine
+    engine_version = query.engine_version or settings.default_engine_version
+    engine = settings.find_engine(
+        engine_name=engine_name,
+        engine_version=engine_version,
+    )
+    query_server = headers.get(SQLALCHEMY_URI) if headers else None
 
     if query_server:
         _logger.info(
@@ -122,18 +124,13 @@ def run_query(  # pylint: disable=R0914
     connection = sqla_engine.connect()
 
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
-    statements = sqlparse.parse(query.executed_query)
-    for statement in statements:
-        # Druid doesn't like statements that end in a semicolon...
-        sql = str(statement).strip().rstrip(";")
-
-        results = connection.execute(text(sql))
-        stream = (tuple(row) for row in results)
-        columns = get_columns_from_description(
-            results.cursor.description,
-            sqla_engine.dialect,
-        )
-        output.append((sql, columns, stream))
+    results = connection.execute(text(query.executed_query))
+    stream = (tuple(row) for row in results)
+    columns = get_columns_from_description(
+        results.cursor.description,
+        sqla_engine.dialect,
+    )
+    output.append((query.executed_query, columns, stream))  # type: ignore
 
     return output
 
@@ -166,9 +163,9 @@ def run_snowflake_query(
     return output
 
 
-def process_query(
-    session: Session,
+async def process_query(
     settings: Settings,
+    postgres_pool: AsyncConnectionPool,
     query: Query,
     headers: Optional[Dict[str, str]] = None,
 ) -> QueryResults:
@@ -182,14 +179,13 @@ def process_query(
     errors = []
     query.started = datetime.now(timezone.utc)
     try:
-        root = []
+        results = []
         for sql, columns, stream in run_query(
-            session=session,
             query=query,
             headers=headers,
         ):
             rows = list(stream)
-            root.append(
+            results.append(
                 StatementResults(
                     sql=sql,
                     columns=columns,
@@ -197,21 +193,48 @@ def process_query(
                     row_count=len(rows),
                 ),
             )
-        results = Results(__root__=root)
 
         query.state = QueryState.FINISHED
         query.progress = 1.0
     except Exception as ex:  # pylint: disable=broad-except
-        results = Results(__root__=[])
+        results = []
         query.state = QueryState.FAILED
         errors = [str(ex)]
 
     query.finished = datetime.now(timezone.utc)
 
-    session.add(query)
-    session.commit()
-    session.refresh(query)
+    async with postgres_pool.connection() as conn:
+        dbquery_results = (
+            await DBQuery()
+            .save_query(
+                query_id=query.id,
+                submitted_query=query.submitted_query,
+                state=QueryState.FINISHED.value,
+                async_=query.async_,
+            )
+            .execute(conn=conn)
+        )
+        query_save_result = dbquery_results[0]
+        if not query_save_result:  # pragma: no cover
+            raise DJDatabaseError("Query failed to save")
 
-    settings.results_backend.add(str(query.id), results.json())
+    settings.results_backend.add(
+        str(query.id),
+        json.dumps([asdict(statement_result) for statement_result in results]),
+    )
 
-    return QueryResults(results=results, errors=errors, **query.dict())
+    return QueryResults(
+        id=query.id,
+        catalog_name=query.catalog_name,
+        engine_name=query.engine_name,
+        engine_version=query.engine_version,
+        submitted_query=query.submitted_query,
+        executed_query=query.executed_query,
+        scheduled=query.scheduled,
+        started=query.started,
+        finished=query.finished,
+        state=query.state,
+        progress=query.progress,
+        results=results,
+        errors=errors,
+    )
