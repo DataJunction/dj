@@ -4141,6 +4141,18 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 """,
             },
         )
+        response = await client_with_roads.get("/nodes/default.hard_hat/dimensions")
+        dimensions = response.json()
+        assert [dim["name"] for dim in dimensions] == [
+            "default.hard_hat.hard_hat_id",
+            "default.hard_hat.state",
+            "default.hard_hat.title",
+            "default.us_state.state_id",
+            "default.us_state.state_name",
+            "default.us_state.state_region",
+            "default.us_state.state_short",
+        ]
+
         response = await client_with_roads.get("/history?node=default.hard_hat")
         history = response.json()
         assert [
@@ -4194,6 +4206,24 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             ("create", "link"),
             ("set_attribute", "column_attribute"),
             ("create", "node"),
+        ]
+
+        response = await client_with_roads.patch(
+            "/nodes/default.hard_hat/",
+            json={
+                "query": """
+                SELECT
+                    hard_hat_id,
+                    title
+                FROM default.hard_hats
+                """,
+            },
+        )
+        response = await client_with_roads.get("/nodes/default.hard_hat/dimensions")
+        dimensions = response.json()
+        assert [dim["name"] for dim in dimensions] == [
+            "default.hard_hat.hard_hat_id",
+            "default.hard_hat.title",
         ]
 
     @pytest.mark.asyncio

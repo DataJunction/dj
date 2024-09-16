@@ -207,6 +207,50 @@ def update_transform_node(client_with_roads: AsyncClient):
         ON repair_orders.repair_order_id = repair_order_details.repair_order_id""",
             },
         )
+
+        response = await client_with_roads.post(
+            "/nodes/default.repair_orders_fact/link",
+            json={
+                "dimension_node": "default.municipality_dim",
+                "join_type": "inner",
+                "join_on": (
+                    "default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id"
+                ),
+            },
+        )
+
+        response = await client_with_roads.post(
+            "/nodes/default.repair_orders_fact/link",
+            json={
+                "dimension_node": "default.hard_hat",
+                "join_type": "inner",
+                "join_on": (
+                    "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id"
+                ),
+            },
+        )
+
+        response = await client_with_roads.post(
+            "/nodes/default.repair_orders_fact/link",
+            json={
+                "dimension_node": "default.hard_hat_to_delete",
+                "join_type": "left",
+                "join_on": (
+                    "default.repair_orders_fact.hard_hat_id = default.hard_hat_to_delete.hard_hat_id"
+                ),
+            },
+        )
+
+        response = await client_with_roads.post(
+            "/nodes/default.repair_orders_fact/link",
+            json={
+                "dimension_node": "default.dispatcher",
+                "join_type": "inner",
+                "join_on": (
+                    "default.repair_orders_fact.dispatcher_id = default.dispatcher.dispatcher_id"
+                ),
+            },
+        )
         return response
 
     return _make_request
@@ -286,13 +330,13 @@ async def test_saving_node_sql_requests(  # pylint: disable=too-many-statements
     # This should now trigger error messages when requesting SQL
     response = await transform_node_sql_request()
     assert (
-        "The requested column dispatcher_id does not exist on default.repair_orders"
+        "are not available dimensions on default.repair_orders_fact"
         in response.json()["message"]
     )
 
     # Update the transform node with a new query
     response = await update_transform_node()
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = (await transform_node_sql_request()).json()
 
