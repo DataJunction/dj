@@ -13,11 +13,11 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
     """
 
     @pytest.fixture
-    def client(self, session_with_examples):
+    def client(self, module__session_with_examples):
         """
         Returns a DJ client instance
         """
-        return DJClient(requests_session=session_with_examples)  # type: ignore
+        return DJClient(requests_session=module__session_with_examples)  # type: ignore
 
     #
     # List basic objects: namespaces, dimensions, metrics, cubes
@@ -129,6 +129,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         nodes = client.list_sources()
         assert set(nodes) == {
             "default.repair_orders",
+            "default.repair_orders_foo",
             "default.repair_order_details",
             "default.repair_type",
             "default.contractors",
@@ -195,6 +196,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         assert set(nodes) == set(
             [
                 "default.repair_orders",
+                "default.repair_orders_foo",
                 "default.repair_order_details",
                 "default.repair_type",
                 "default.contractors",
@@ -306,15 +308,15 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         Check that `Source.validate()` works as expected.
         """
         # change the source node
-        source_node = client.source("default.repair_orders")
+        source_node = client.source("default.repair_orders_foo")
         version_before = source_node.current_version
         response = source_node.validate()
         assert response == "valid"
         version_after = source_node.current_version
         assert version_before and version_after and version_before != version_after
 
-        # change the source node (but don't really)
-        source_node = client.source("default.repair_orders")
+        # change the source node (but not really)
+        source_node = client.source("default.repair_orders_foo")
         version_before = source_node.current_version
         response = source_node.validate()
         assert response == "valid"

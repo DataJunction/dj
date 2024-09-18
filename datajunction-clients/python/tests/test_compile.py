@@ -373,6 +373,7 @@ def test_compile_pull_a_namespaces(builder_client: DJBuilder, tmp_path):
         "dispatchers",
         "hard_hat_state",
         "repair_orders",
+        "repair_orders_foo",
         "us_region",
         "repair_orders_thin",
         "repair_order",
