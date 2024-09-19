@@ -11,11 +11,11 @@ class TestDJAdmin:  # pylint: disable=too-many-public-methods
     """
 
     @pytest.fixture
-    def client(self, session_with_examples):
+    def client(self, module__session_with_examples):
         """
         Returns a DJ client instance
         """
-        return DJAdmin(requests_session=session_with_examples)  # type: ignore
+        return DJAdmin(requests_session=module__session_with_examples)  # type: ignore
 
     #
     # Data Catalogs
@@ -95,21 +95,21 @@ class TestDJAdmin:  # pylint: disable=too-many-public-methods
         # try to link engine to catalog
         with pytest.raises(DJClientException) as exc:
             result = client.link_engine_to_catalog(
-                engine="8-cylinder",
+                engine="12-cylinder",
                 version="7.11",
                 catalog="public",
             )
-        assert "Engine not found: `8-cylinder` version `7.11`" in str(exc)
+        assert "Engine not found: `12-cylinder` version `7.11`" in str(exc)
         # add engine
         client.add_engine(
-            name="8-cylinder",
+            name="12-cylinder",
             version="7.11",
             uri="go/to-the-corner",
             dialect="trino",
         )
         # try to link engine to catalog (again)
         result = client.link_engine_to_catalog(
-            engine="8-cylinder",
+            engine="12-cylinder",
             version="7.11",
             catalog="public",
         )
@@ -121,7 +121,7 @@ class TestDJAdmin:  # pylint: disable=too-many-public-methods
                 {"dialect": None, "name": "postgres", "uri": None, "version": "15.2"},
                 {
                     "dialect": "trino",
-                    "name": "8-cylinder",
+                    "name": "12-cylinder",
                     "uri": "go/to-the-corner",
                     "version": "7.11",
                 },

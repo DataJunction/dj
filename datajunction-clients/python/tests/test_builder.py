@@ -1,6 +1,6 @@
 # pylint: disable=too-many-lines,too-many-statements
 """Tests DJ client"""
-from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 from requests.exceptions import HTTPError
@@ -32,11 +32,11 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
     """
 
     @pytest.fixture
-    def client(self, session_with_examples):
+    def client(self, module__session_with_examples):
         """
         Returns a DJ client instance
         """
-        return DJBuilder(requests_session=session_with_examples)  # type: ignore
+        return DJBuilder(requests_session=module__session_with_examples)  # type: ignore
 
     def test_nodes_in_namespace(self, client):
         """
@@ -116,6 +116,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         """
         expected_names_only = {
             "default.repair_orders",
+            "default.repair_orders_foo",
             "default.repair_order_details",
             "default.repair_type",
             "default.contractors",
@@ -151,6 +152,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         result_names_only = client.namespace("default").sources()
         assert set(result_names_only) == {
             "default.repair_orders",
+            "default.repair_orders_foo",
             "default.repair_order_details",
             "default.repair_type",
             "default.contractors",
@@ -256,7 +258,10 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         """
         Verifies that registering a table works.
         """
-        client.create_namespace("source")
+        try:
+            client.create_namespace("source")
+        except DJNamespaceAlreadyExists:
+            pass
         store_comments = client.register_table(
             catalog="default",
             schema="store",
@@ -268,20 +273,31 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             in client.namespace("source.default.store").sources()
         )
         # and that errors are handled properly
-        client._session.post = MagicMock(
-            side_effect=HTTPError("409 Client Error: Conflict"),
-        )
-        with pytest.raises(DJTableAlreadyRegistered):
-            client.register_table(catalog="default", schema="store", table="comments")
-        client._session.post = MagicMock(side_effect=Exception("Boom!"))
-        with pytest.raises(DJClientException):
-            client.register_table(catalog="default", schema="store", table="comments")
+        with patch("starlette.testclient.TestClient.post") as post_mock:
+            post_mock.side_effect = HTTPError("409 Client Error: Conflict")
+            with pytest.raises(DJTableAlreadyRegistered):
+                client.register_table(
+                    catalog="default",
+                    schema="store",
+                    table="comments",
+                )
+        with patch("starlette.testclient.TestClient.post") as post_mock:
+            post_mock.side_effect = Exception("Boom!")
+            with pytest.raises(DJClientException):
+                client.register_table(
+                    catalog="default",
+                    schema="store",
+                    table="comments",
+                )
 
     def test_register_view(self, client):  # pylint: disable=unused-argument
         """
-        Verifies that registering a table works.
+        Verifies that registering a view works.
         """
-        client.create_namespace("source")
+        try:
+            client.create_namespace("source")
+        except DJNamespaceAlreadyExists:
+            pass
         store_comments = client.register_view(
             catalog="default",
             schema="store",
@@ -295,25 +311,25 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             in client.namespace("source.default.store").sources()
         )
         # and that errors are handled properly
-        client._session.post = MagicMock(
-            side_effect=HTTPError("409 Client Error: Conflict"),
-        )
-        with pytest.raises(DJViewAlreadyRegistered):
-            client.register_view(
-                catalog="default",
-                schema="store",
-                view="comments_view",
-                query="SELECT * FROM store.comments",
-            )
-        client._session.post = MagicMock(side_effect=Exception("Boom!"))
-        with pytest.raises(DJClientException):
-            client.register_view(
-                catalog="default",
-                schema="store",
-                view="comments_view",
-                query="SELECT * FROM store.comments",
-                replace=True,
-            )
+        with patch("starlette.testclient.TestClient.post") as post_mock:
+            post_mock.side_effect = HTTPError("409 Client Error: Conflict")
+            with pytest.raises(DJViewAlreadyRegistered):
+                client.register_view(
+                    catalog="default",
+                    schema="store",
+                    view="comments_view",
+                    query="SELECT * FROM store.comments",
+                )
+        with patch("starlette.testclient.TestClient.post") as post_mock:
+            post_mock.side_effect = Exception("Boom!")
+            with pytest.raises(DJClientException):
+                client.register_view(
+                    catalog="default",
+                    schema="store",
+                    view="comments_view",
+                    query="SELECT * FROM store.comments",
+                    replace=True,
+                )
 
     def test_create_and_update_node(self, client):  # pylint: disable=unused-argument
         """
@@ -758,25 +774,27 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         Verifies that deleting a new namespace works.
         """
         # create it first
-        namespace = client.create_namespace(namespace="roads.demo")
-        assert namespace.namespace == "roads.demo"
+        namespace = client.create_namespace(namespace="roads.demo.foo")
+        assert namespace.namespace == "roads.demo.foo"
         with pytest.raises(DJNamespaceAlreadyExists) as exc_info:
-            client.create_namespace(namespace="roads.demo")
-        assert "Node namespace `roads.demo` already exists" in str(exc_info.value)
+            client.create_namespace(namespace="roads.demo.foo")
+        assert "Node namespace `roads.demo.foo` already exists" in str(exc_info.value)
 
         # then delete it
-        response = client.delete_namespace(namespace="roads.demo")
+        response = client.delete_namespace(namespace="roads.demo.foo")
         assert response is None
         with pytest.raises(DJClientException) as exc_info:
-            client.delete_namespace(namespace="roads.demo")
-        assert "Namespace `roads.demo` is already deactivated." in str(exc_info.value)
+            client.delete_namespace(namespace="roads.demo.foo")
+        assert "Namespace `roads.demo.foo` is already deactivated." in str(
+            exc_info.value,
+        )
 
         # and then restore it
-        response = client.restore_namespace(namespace="roads.demo")
+        response = client.restore_namespace(namespace="roads.demo.foo")
         assert response is None
         with pytest.raises(DJClientException) as exc_info:
-            client.restore_namespace(namespace="roads.demo")
-        assert "Node namespace `roads.demo` already exists and is active" in str(
+            client.restore_namespace(namespace="roads.demo.foo")
+        assert "Node namespace `roads.demo.foo` already exists and is active" in str(
             exc_info.value,
         )
 
@@ -784,7 +802,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         """
         Verifies that retrieving node revisions works
         """
-        local_hard_hats = client.dimension("default.local_hard_hats")
+        local_hard_hats = client.dimension("foo.bar.local_hard_hats")
         local_hard_hats.display_name = "local hard hats"
         local_hard_hats.description = "Local hard hats dimension"
         local_hard_hats.save()
@@ -954,13 +972,13 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         Test creating a tag
         """
         client.create_tag(
-            name="foo",
+            name="foo.one",
             description="Foo Bar",
             tag_type="test",
             tag_metadata={"foo": "bar"},
         )
-        tag = client.tag("foo")
-        assert tag.name == "foo"
+        tag = client.tag("foo.one")
+        assert tag.name == "foo.one"
         assert tag.description == "Foo Bar"
         assert tag.tag_type == "test"
         assert tag.tag_metadata == {"foo": "bar"}
@@ -970,38 +988,38 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         Test that the client raises properly when a tag already exists
         """
         client.create_tag(
-            name="foo",
+            name="foo.two",
             description="Foo Bar",
             tag_type="test",
             tag_metadata={"foo": "bar"},
         )
         with pytest.raises(DJTagAlreadyExists) as exc_info:
             client.create_tag(
-                name="foo",
+                name="foo.two",
                 description="Foo Bar",
                 tag_type="test",
                 tag_metadata={"foo": "bar"},
             )
-        assert "Tag `foo` already exists" in str(exc_info.value)
+        assert "Tag `foo.two` already exists" in str(exc_info.value)
 
     def test_updating_a_tag(self, client):
         """
         Test updating a tag
         """
         client.create_tag(
-            name="foo",
+            name="foo.three",
             description="Foo Bar",
             tag_type="test",
             tag_metadata={"foo": "bar"},
         )
-        tag = client.tag("foo")
-        assert tag.name == "foo"
+        tag = client.tag("foo.three")
+        assert tag.name == "foo.three"
         assert tag.description == "Foo Bar"
         assert tag.tag_type == "test"
         assert tag.tag_metadata == {"foo": "bar"}
         tag.description = "This is an updated description."
         tag.save()
-        repulled_tag = client.tag("foo")
+        repulled_tag = client.tag("foo.three")
         assert repulled_tag.description == "This is an updated description."
 
     def test_tag_does_not_exist(self, client):
@@ -1017,12 +1035,12 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         Test that a node can be tagged properly
         """
         client.create_tag(
-            name="foo",
+            name="foo.four",
             description="Foo Bar",
             tag_type="test",
             tag_metadata={"foo": "bar"},
         )
-        tag = client.tag("foo")
+        tag = client.tag("foo.four")
         node = client.source("default.repair_orders")
         node.tags.append(tag)
         node.save()
@@ -1035,7 +1053,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         """
         # create some tags
         tag_foo = client.create_tag(
-            name="foo",
+            name="foo.five",
             description="Foo",
             tag_type="test",
             tag_metadata={"foo": "bar"},
@@ -1063,8 +1081,10 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         node_three.save()
 
         # list nodes with tags
-        nodes_with_foo = client.list_nodes_with_tags(tag_names=["foo"])
-        nodes_with_foo_and_bar = client.list_nodes_with_tags(tag_names=["bar", "foo"])
+        nodes_with_foo = client.list_nodes_with_tags(tag_names=["foo.five"])
+        nodes_with_foo_and_bar = client.list_nodes_with_tags(
+            tag_names=["bar", "foo.five"],
+        )
 
         # evaluate
         with pytest.raises(DJClientException):

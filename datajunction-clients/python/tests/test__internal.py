@@ -2,7 +2,7 @@
 Tests DJ client (internal) functionality.
 """
 
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -16,11 +16,11 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
     """
 
     @pytest.fixture
-    def client(self, server):
+    def client(self, module__server):
         """
         Returns a DJ client instance
         """
-        return DJClient(requests_session=server)
+        return DJClient(requests_session=module__server)
 
     def test_create_user(self, client):
         """
@@ -53,13 +53,12 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
         """
         Check that `client._verify_node_exists()` works as expected.
         """
-        client._session.get = MagicMock(
-            return_value=MagicMock(
+        with patch("starlette.testclient.TestClient.get") as get_mock:
+            get_mock.return_value = MagicMock(
                 json=MagicMock(return_value={"name": "_", "type": "foo"}),
-            ),
-        )
-        with pytest.raises(DJClientException):
-            client._verify_node_exists(node_name="_", type_="bar")
+            )
+            with pytest.raises(DJClientException):
+                client._verify_node_exists(node_name="_", type_="bar")
 
     def test__list_nodes_with_tag(self, client):
         """
