@@ -7,6 +7,15 @@ from datajunction_server.enum import StrEnum
 from datajunction_server.models.node_type import NodeNameOutput
 
 
+class DimensionLinkType(StrEnum):
+    """
+    The type of dimension link
+    """
+
+    JOIN = "join"
+    REFERENCE = "reference"
+
+
 class JoinCardinality(StrEnum):
     """
     The version upgrade type
@@ -39,15 +48,26 @@ class LinkDimensionIdentifier(BaseModel):
     role: Optional[str]
 
 
-class LinkDimensionInput(BaseModel):
+class JoinLinkInput(BaseModel):
     """
-    Input for linking a dimension to a node
+    Input for creating a join link between a dimension node and node
     """
 
     dimension_node: str
     join_type: Optional[JoinType] = JoinType.LEFT
     join_on: str
     join_cardinality: Optional[JoinCardinality] = JoinCardinality.MANY_TO_ONE
+    role: Optional[str]
+
+
+class ReferenceLinkInput(BaseModel):
+    """
+    Input for creating a reference link between a dimension node column and a node column
+    """
+
+    node_column: str
+    dimension_node: str
+    dimension_column: str
     role: Optional[str]
 
 
