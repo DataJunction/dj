@@ -570,6 +570,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
 
         # Find all dimension node joins necessary for the requested dimensions and filters
         dimension_node_joins = await self.find_dimension_node_joins()
+        print("dimension_node_joins", dimension_node_joins)
         for _, dimension_join in dimension_node_joins.items():
             join_path = dimension_join.join_path
             requested_dimensions = list(

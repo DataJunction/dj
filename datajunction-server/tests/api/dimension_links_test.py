@@ -180,6 +180,28 @@ def link_users_to_countries_with_role_registration(
     return _link_users_to_countries_with_role_registration
 
 
+@pytest.fixture
+def reference_link_events_user_registration_country(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Link users to the countries dimension with role "registration_country".
+    """
+
+    async def _reference_link_events_user_registration_country() -> Response:
+        response = await dimensions_link_client.post(
+            "/nodes/default.events/link?link_type=reference",
+            json={
+                "node_column": "user_registration_country",
+                "dimension_node": "default.users",
+                "dimension_column": "registration_country",
+            },
+        )
+        return response
+
+    return _reference_link_events_user_registration_country
+
+
 @pytest.mark.asyncio
 async def test_link_complex_dimension_without_role(
     dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name,
@@ -731,3 +753,56 @@ INNER JOIN default_DOT_countries
     # assert query_request[0].filters == [
     #     "default.countries.name[user_direct -> registration_country]@v1.0 = 'UG'",
     # ]
+
+
+@pytest.mark.asyncio
+async def test_measures_sql_with_reference_dimension_links(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+    reference_link_events_user_registration_country,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test measures SQL generation with reference dimension links
+    """
+    await reference_link_events_user_registration_country()
+    sql_params = {
+        "metrics": ["default.elapsed_secs"],
+        "dimensions": [
+            "default.users.registration_country",
+        ],
+    }
+    response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
+    response_data = response.json()
+    expected_sql = """WITH
+default_DOT_events AS (
+  SELECT
+    default_DOT_events_table.user_id,
+    default_DOT_events_table.event_start_date,
+    default_DOT_events_table.event_end_date,
+    default_DOT_events_table.elapsed_secs,
+    default_DOT_events_table.user_registration_country
+  FROM examples.events AS default_DOT_events_table
+)
+SELECT
+  default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+  default_DOT_events.user_registration_country default_DOT_users_DOT_registration_country
+FROM default_DOT_events"""
+    assert str(parse(response_data[0]["sql"])) == str(parse(expected_sql))
+    assert response_data[0]["errors"] == []
+    assert response_data[0]["columns"] == [
+        {
+            "name": "default_DOT_events_DOT_elapsed_secs",
+            "type": "int",
+            "column": "elapsed_secs",
+            "node": "default.events",
+            "semantic_entity": "default.events.elapsed_secs",
+            "semantic_type": "measure",
+        },
+        {
+            "name": "default_DOT_users_DOT_registration_country",
+            "type": "string",
+            "column": "registration_country",
+            "node": "default.users",
+            "semantic_entity": "default.users.registration_country",
+            "semantic_type": "dimension",
+        },
+    ]
