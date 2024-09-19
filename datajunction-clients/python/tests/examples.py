@@ -69,6 +69,26 @@ EXAMPLES = (  # type: ignore
         {
             "columns": [
                 {"name": "repair_order_id", "type": "int"},
+                {"name": "municipality_id", "type": "string"},
+                {"name": "hard_hat_id", "type": "int"},
+                {"name": "order_date", "type": "timestamp"},
+                {"name": "required_date", "type": "timestamp"},
+                {"name": "dispatched_date", "type": "timestamp"},
+                {"name": "dispatcher_id", "type": "int"},
+            ],
+            "description": "All repair orders",
+            "mode": "published",
+            "name": "default.repair_orders_foo",
+            "catalog": "default",
+            "schema_": "roads",
+            "table": "repair_orders",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "columns": [
+                {"name": "repair_order_id", "type": "int"},
                 {"name": "repair_type_id", "type": "int"},
                 {"name": "price", "type": "float"},
                 {"name": "quantity", "type": "int"},
