@@ -2650,6 +2650,29 @@ class Query(TableExpression, UnNamed):
         if self._is_compiled:
             return
 
+        def _compile(info: Tuple[Column, List[TableExpression]]):
+            """
+            Given a list of table sources, find a matching origin table for the column.
+            """
+            col, table_options = info
+            matching_origin_tables = 0
+            for option in table_options:
+                namespace = col.namespace[0].name if col.namespace else None
+                table_alias = option.alias.name if option.alias else None
+                if not namespace or (namespace and namespace == table_alias):
+                    result = option.add_reference_column(col)
+                    if result:
+                        matching_origin_tables += 1
+                        col._is_compiled = True
+            if matching_origin_tables > 1:
+                ctx.exception.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_COLUMN,
+                        message=f"Column `{col.name.name}` found in multiple tables."
+                        " Consider using fully qualified name.",
+                    ),
+                )
+
         # Work backwards from the table expressions on the query's SELECT clause
         # and assign references between the columns and the tables
         nearest_query = self.get_nearest_parent_of_type(Query)
@@ -2670,27 +2693,6 @@ class Query(TableExpression, UnNamed):
                 await table_options[idx].compile(ctx)
 
             tp = ThreadPoolExecutor()
-
-            def shortcut_compile(info: Tuple[Column, List[TableExpression]]):
-                col, table_options = info
-                matching_origin_tables = 0
-                for option in table_options:
-                    namespace = col.namespace[0].name if col.namespace else None
-                    table_alias = option.alias.name if option.alias else None
-                    if not namespace or (namespace and namespace == table_alias):
-                        result = option.add_reference_column(col)
-                        if result:
-                            matching_origin_tables += 1
-                            col._is_compiled = True
-                if matching_origin_tables > 1:
-                    ctx.exception.errors.append(
-                        DJError(
-                            code=ErrorCode.INVALID_COLUMN,
-                            message=f"Column `{col.name.name}` found in multiple tables."
-                            " Consider using fully qualified name.",
-                        ),
-                    )
-
             expressions_to_compile = [
                 self.select.projection,
                 self.select.group_by,
@@ -2711,7 +2713,7 @@ class Query(TableExpression, UnNamed):
 
             list(
                 tp.map(
-                    shortcut_compile,
+                    _compile,
                     [(col, table_options) for col in columns_to_compile],
                 ),
             )
