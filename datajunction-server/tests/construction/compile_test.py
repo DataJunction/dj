@@ -151,6 +151,7 @@ async def test_raise_on_compile_node_with_no_query(construction_session: AsyncSe
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="DJ should not validate query correctness")
 async def test_raise_on_unjoinable_automatic_dimension_groupby(
     construction_session: AsyncSession,
 ):
