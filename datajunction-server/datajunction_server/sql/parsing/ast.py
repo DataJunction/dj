@@ -2673,11 +2673,23 @@ class Query(TableExpression, UnNamed):
 
             def shortcut_compile(info: Tuple[Column, List[TableExpression]]):
                 col, table_options = info
+                matching_origin_tables = 0
                 for option in table_options:
-                    result = option.add_reference_column(col)
-                    if result:
-                        col._is_compiled = True
-                        break
+                    namespace = col.namespace[0].name if col.namespace else None
+                    table_alias = option.alias.name if option.alias else None
+                    if not namespace or (namespace and namespace == table_alias):
+                        result = option.add_reference_column(col)
+                        if result:
+                            matching_origin_tables += 1
+                            col._is_compiled = True
+                if matching_origin_tables > 1:
+                    ctx.exception.errors.append(
+                        DJError(
+                            code=ErrorCode.INVALID_COLUMN,
+                            message=f"Column `{col.name.name}` found in multiple tables."
+                            " Consider using fully qualified name.",
+                        ),
+                    )
 
             expressions_to_compile = [
                 self.select.projection,
