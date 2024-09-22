@@ -2692,7 +2692,6 @@ class Query(TableExpression, UnNamed):
                         table_options[idx] = cte_mapping[option.name.name]
                 await table_options[idx].compile(ctx)
 
-            tp = ThreadPoolExecutor()
             expressions_to_compile = [
                 self.select.projection,
                 self.select.group_by,
@@ -2711,12 +2710,13 @@ class Query(TableExpression, UnNamed):
                         col for expr in expression for col in expr.find_all(Column)
                     ]
 
-            list(
-                tp.map(
-                    _compile,
-                    [(col, table_options) for col in columns_to_compile],
-                ),
-            )
+            with ThreadPoolExecutor() as executor:
+                list(
+                    executor.map(
+                        _compile,
+                        [(col, table_options) for col in columns_to_compile],
+                    ),
+                )
 
         for child in self.children:
             if child is not self and not child.is_compiled():
