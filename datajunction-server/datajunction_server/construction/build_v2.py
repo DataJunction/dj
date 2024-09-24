@@ -5,7 +5,7 @@ import logging
 import re
 from dataclasses import dataclass
 from functools import cached_property
-from typing import DefaultDict, Dict, List, Optional, Union, cast
+from typing import Any, DefaultDict, Dict, List, Optional, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -391,6 +391,22 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             build_criteria=self._build_criteria,
         )
 
+    @property
+    def context(self) -> Dict[str, Any]:
+        """
+        Debug context
+        """
+        return {
+            "node_revision": self.node_revision.name,
+            "filters": self._filters,
+            "required_dimensions": self._required_dimensions,
+            "dimensions": self._dimensions,
+            "orderby": self._orderby,
+            "limit": self._limit,
+            "ignore_errors": self._ignore_errors,
+            "build_criteria": self._build_criteria,
+        }
+
     async def build(self) -> ast.Query:
         """
         Builds the node SQL with the requested set of dimensions, filter expressions,
@@ -432,9 +448,10 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
 
         self.final_ast.select.limit = self._limit  # type: ignore
         if self._orderby:
-            self.final_ast.select.organization = ast.Organization(  # type: ignore
-                order=self.build_order_bys(),
-            )
+            if order := self.build_order_bys():
+                self.final_ast.select.organization = ast.Organization(  # type: ignore
+                    order=order,
+                )
 
         # Error validation
         self.validate_access()
@@ -449,13 +466,19 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         temp_orderbys = parse(
             f"SELECT 1 ORDER BY {','.join(self._orderby)}",
         ).select.organization.order
-        if any(
-            amenable_name(sortitem.expr.identifier())
-            not in self.final_ast.select.column_mapping
+        valid_sort_items = [
+            sortitem
             for sortitem in temp_orderbys
-        ):
+            if amenable_name(sortitem.expr.identifier())
+            in self.final_ast.select.column_mapping
+        ]
+        if len(valid_sort_items) < len(temp_orderbys):
             self.errors.append(
-                DJQueryBuildError(f"{self._orderby} is not a valid ORDER BY request"),
+                DJQueryBuildError(
+                    code=ErrorCode.INVALID_ORDER_BY,
+                    message=f"{self._orderby} is not a valid ORDER BY request",
+                    debug=self.context,
+                ),
             )
         return [
             ast.SortItem(
@@ -467,7 +490,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
                 asc=sortitem.asc,
                 nulls=sortitem.nulls,
             )
-            for sortitem in temp_orderbys
+            for sortitem in valid_sort_items
         ]
 
     def get_default_criteria(
