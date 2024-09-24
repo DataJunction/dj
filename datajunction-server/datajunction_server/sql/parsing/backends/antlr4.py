@@ -291,7 +291,6 @@ def _(ctx: sbp.RowConstructorContext):
 def _(ctx: sbp.InlineTableContext):
     args = visit(ctx.expression())
     alias, columns = visit(ctx.tableAlias())
-    print("args, alias, columns", args, alias, columns)
 
     # Generate default column aliases if they weren't specified
     args = args[0] if isinstance(args[0], list) else args
@@ -480,9 +479,7 @@ def _(ctx: sbp.QueryPrimaryContext):
 @visit.register
 def _(ctx: sbp.RegularQuerySpecificationContext):
     quantifier, projection, hints = visit(ctx.selectClause())
-    print("quantifier, projection, hints", quantifier, projection, hints)
     from_ = visit(ctx.fromClause()) if ctx.fromClause() else None
-    print("from_", from_)
     laterals = visit(ctx.lateralView())
     group_by = visit(ctx.aggregationClause()) if ctx.aggregationClause() else []
     where = None
