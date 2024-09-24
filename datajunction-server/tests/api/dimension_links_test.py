@@ -298,7 +298,8 @@ async def test_link_complex_dimension_without_role(
         default_DOT_events_table.user_id,
         default_DOT_events_table.event_start_date,
         default_DOT_events_table.event_end_date,
-        default_DOT_events_table.elapsed_secs
+        default_DOT_events_table.elapsed_secs,
+        default_DOT_events_table.user_registration_country
       FROM examples.events AS default_DOT_events_table
     ),
     default_DOT_users AS (
@@ -315,6 +316,7 @@ async def test_link_complex_dimension_without_role(
         default_DOT_events.event_start_date default_DOT_users_DOT_snapshot_date,
         default_DOT_events.event_end_date default_DOT_events_DOT_event_end_date,
         default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+        default_DOT_events.user_registration_country default_DOT_events_DOT_user_registration_country,
         default_DOT_users.registration_country default_DOT_users_DOT_registration_country
     FROM default_DOT_events
     LEFT JOIN default_DOT_users
@@ -481,7 +483,8 @@ async def test_link_complex_dimension_with_role(
     default_DOT_events_table.user_id,
     default_DOT_events_table.event_start_date,
     default_DOT_events_table.event_end_date,
-    default_DOT_events_table.elapsed_secs
+    default_DOT_events_table.elapsed_secs,
+    default_DOT_events_table.user_registration_country
   FROM examples.events AS default_DOT_events_table
 ), default_DOT_users AS (
   SELECT
@@ -519,7 +522,8 @@ GROUP BY
         default_DOT_events_table.user_id,
         default_DOT_events_table.event_start_date,
         default_DOT_events_table.event_end_date,
-        default_DOT_events_table.elapsed_secs
+        default_DOT_events_table.elapsed_secs,
+        default_DOT_events_table.user_registration_country
       FROM examples.events AS default_DOT_events_table
     ), default_DOT_users AS (
       SELECT
@@ -568,7 +572,8 @@ GROUP BY
     default_DOT_events_table.user_id,
     default_DOT_events_table.event_start_date,
     default_DOT_events_table.event_end_date,
-    default_DOT_events_table.elapsed_secs
+    default_DOT_events_table.elapsed_secs,
+    default_DOT_events_table.user_registration_country
   FROM examples.events AS default_DOT_events_table
 ), default_DOT_users AS (
   SELECT
@@ -700,7 +705,8 @@ async def test_measures_sql_with_dimension_roles(
     default_DOT_events_table.user_id,
     default_DOT_events_table.event_start_date,
     default_DOT_events_table.event_end_date,
-    default_DOT_events_table.elapsed_secs
+    default_DOT_events_table.elapsed_secs,
+    default_DOT_events_table.user_registration_country
   FROM examples.events AS default_DOT_events_table
 ), default_DOT_users AS (
   SELECT
