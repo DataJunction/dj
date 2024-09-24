@@ -634,3 +634,53 @@ async def test_measures_sql_include_all_columns(
     assert str(parse(str(expected_sql))) == str(parse(str(translated_sql["sql"])))
     result = duckdb_conn.sql(translated_sql["sql"])
     assert len(result.fetchall()) == 4
+
+
+@pytest.mark.asyncio
+async def test_measures_sql_errors(
+    module__client_with_roads: AsyncClient,
+):
+    """
+    Test ``GET /sql/measures/v2`` with include_all_columns set to true.
+    """
+    await fix_dimension_links(module__client_with_roads)
+
+    response = await module__client_with_roads.get(
+        "/sql/measures/v2",
+        params={
+            "metrics": ["default.avg_time_to_dispatch"],
+            "dimensions": [
+                "default.hard_hat.last_name",
+            ],
+            "filters": [
+                "default.us_state.state_name = 'New Jersey'",
+                "default.hard_hat.last_name IN ('Brian')",
+            ],
+            "orderby": ["default.dispatcher.company_name"],
+        },
+    )
+    data = response.json()
+    assert data[0]["errors"] == [
+        {
+            "code": 208,
+            "message": "['default.dispatcher.company_name'] is not a valid ORDER BY request",
+            "debug": {
+                "node_revision": "default.repair_orders_fact",
+                "filters": [
+                    "default.us_state.state_name = 'New Jersey'",
+                    "default.hard_hat.last_name IN ('Brian')",
+                ],
+                "required_dimensions": [],
+                "dimensions": ["default.hard_hat.last_name"],
+                "orderby": ["default.dispatcher.company_name"],
+                "limit": None,
+                "ignore_errors": True,
+                "build_criteria": {
+                    "timestamp": None,
+                    "dialect": "spark",
+                    "target_node_name": None,
+                },
+            },
+            "context": "",
+        },
+    ]
