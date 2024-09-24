@@ -2697,8 +2697,6 @@ class Query(TableExpression, UnNamed):
                 self.select.group_by,
                 self.select.having,
                 self.select.where,
-                self.select.lateral_views,
-                self.select.set_op,
                 self.select.organization,
             ]
             columns_to_compile = []
