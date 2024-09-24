@@ -94,6 +94,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     metrics: List[str],
     dimensions: List[str],
     filters: List[str],
+    orderby: List[str] = None,
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = None,
@@ -170,6 +171,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
             .with_build_criteria(build_criteria)
             .add_dimensions(dimensions)
             .add_filters(filters)
+            .order_by(orderby)
             .build()
         )
 
@@ -429,12 +431,44 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             self.set_dimension_aliases()
 
         self.final_ast.select.limit = self._limit  # type: ignore
+        if self._orderby:
+            self.final_ast.select.organization = ast.Organization(  # type: ignore
+                order=self.build_order_bys(),
+            )
 
         # Error validation
         self.validate_access()
         if self.errors and not self._ignore_errors:
             raise DJQueryBuildException(errors=self.errors)
         return self.final_ast  # type: ignore
+
+    def build_order_bys(self):
+        """
+        Build the ORDER BY clause from the provided order expressions
+        """
+        temp_orderbys = parse(
+            f"SELECT 1 ORDER BY {','.join(self._orderby)}",
+        ).select.organization.order
+        if any(
+            amenable_name(sortitem.expr.identifier())
+            not in self.final_ast.select.column_mapping
+            for sortitem in temp_orderbys
+        ):
+            self.errors.append(
+                DJQueryBuildError(f"{self._orderby} is not a valid ORDER BY request"),
+            )
+        return [
+            ast.SortItem(
+                expr=self.final_ast.select.column_mapping.get(
+                    amenable_name(sortitem.expr.identifier()),
+                )
+                .copy()
+                .set_alias(None),
+                asc=sortitem.asc,
+                nulls=sortitem.nulls,
+            )
+            for sortitem in temp_orderbys
+        ]
 
     def get_default_criteria(
         self,
