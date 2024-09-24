@@ -1227,9 +1227,9 @@ class TableExpression(Aliasable, Expression):
                     "add Column ref without a compilation context.",
                 )
             await self.compile(ctx)
-        return self.add_reference_column(column)
+        return self.add_column_reference(column)
 
-    def add_reference_column(
+    def add_column_reference(
         self,
         column: Column,
     ) -> bool:
@@ -2659,8 +2659,8 @@ class Query(TableExpression, UnNamed):
             for option in table_options:
                 namespace = col.namespace[0].name if col.namespace else None
                 table_alias = option.alias.name if option.alias else None
-                if not namespace or (namespace and namespace == table_alias):
-                    result = option.add_reference_column(col)
+                if namespace is None or namespace == table_alias:
+                    result = option.add_column_reference(col)
                     if result:
                         matching_origin_tables += 1
                         col._is_compiled = True
