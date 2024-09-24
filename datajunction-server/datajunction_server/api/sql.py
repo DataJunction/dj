@@ -48,6 +48,7 @@ async def get_measures_sql_for_cube_v2(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    orderby: List[str] = Query([]),
     *,
     include_all_columns: bool = Query(
         False,
@@ -87,6 +88,7 @@ async def get_measures_sql_for_cube_v2(
         metrics=metrics,
         dimensions=dimensions,
         filters=filters,
+        orderby=orderby,
         engine_name=engine_name,
         engine_version=engine_version,
         current_user=current_user,

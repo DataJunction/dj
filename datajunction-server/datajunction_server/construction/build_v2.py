@@ -5,7 +5,7 @@ import logging
 import re
 from dataclasses import dataclass
 from functools import cached_property
-from typing import DefaultDict, Dict, List, Optional, Union, cast
+from typing import Any, DefaultDict, Dict, List, Optional, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -94,6 +94,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     metrics: List[str],
     dimensions: List[str],
     filters: List[str],
+    orderby: List[str] = None,
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = None,
@@ -170,6 +171,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
             .with_build_criteria(build_criteria)
             .add_dimensions(dimensions)
             .add_filters(filters)
+            .order_by(orderby)
             .build()
         )
 
@@ -389,6 +391,22 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             build_criteria=self._build_criteria,
         )
 
+    @property
+    def context(self) -> Dict[str, Any]:
+        """
+        Debug context
+        """
+        return {
+            "node_revision": self.node_revision.name,
+            "filters": self._filters,
+            "required_dimensions": self._required_dimensions,
+            "dimensions": self._dimensions,
+            "orderby": self._orderby,
+            "limit": self._limit,
+            "ignore_errors": self._ignore_errors,
+            "build_criteria": self._build_criteria,
+        }
+
     async def build(self) -> ast.Query:
         """
         Builds the node SQL with the requested set of dimensions, filter expressions,
@@ -429,12 +447,51 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             self.set_dimension_aliases()
 
         self.final_ast.select.limit = self._limit  # type: ignore
+        if self._orderby:
+            if order := self.build_order_bys():
+                self.final_ast.select.organization = ast.Organization(  # type: ignore
+                    order=order,
+                )
 
         # Error validation
         self.validate_access()
         if self.errors and not self._ignore_errors:
             raise DJQueryBuildException(errors=self.errors)
         return self.final_ast  # type: ignore
+
+    def build_order_bys(self):
+        """
+        Build the ORDER BY clause from the provided order expressions
+        """
+        temp_orderbys = parse(
+            f"SELECT 1 ORDER BY {','.join(self._orderby)}",
+        ).select.organization.order
+        valid_sort_items = [
+            sortitem
+            for sortitem in temp_orderbys
+            if amenable_name(sortitem.expr.identifier())
+            in self.final_ast.select.column_mapping
+        ]
+        if len(valid_sort_items) < len(temp_orderbys):
+            self.errors.append(
+                DJQueryBuildError(
+                    code=ErrorCode.INVALID_ORDER_BY,
+                    message=f"{self._orderby} is not a valid ORDER BY request",
+                    debug=self.context,
+                ),
+            )
+        return [
+            ast.SortItem(
+                expr=self.final_ast.select.column_mapping.get(
+                    amenable_name(sortitem.expr.identifier()),
+                )
+                .copy()
+                .set_alias(None),
+                asc=sortitem.asc,
+                nulls=sortitem.nulls,
+            )
+            for sortitem in valid_sort_items
+        ]
 
     def get_default_criteria(
         self,
