@@ -5,6 +5,7 @@ import collections
 import decimal
 import logging
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from enum import Enum
@@ -1226,7 +1227,16 @@ class TableExpression(Aliasable, Expression):
                     "add Column ref without a compilation context.",
                 )
             await self.compile(ctx)
+        return self.add_column_reference(column)
 
+    def add_column_reference(
+        self,
+        column: Column,
+    ) -> bool:
+        """
+        Add column referenced from this table. Returns True if the table has the column
+        and False otherwise.
+        """
         if not isinstance(column, Alias):
             ref_col_name = column.name.name
             if matching_column := self.column_mapping.get(ref_col_name):
@@ -2639,6 +2649,72 @@ class Query(TableExpression, UnNamed):
     async def compile(self, ctx: CompileContext):
         if self._is_compiled:
             return
+
+        def _compile(info: Tuple[Column, List[TableExpression]]):
+            """
+            Given a list of table sources, find a matching origin table for the column.
+            """
+            col, table_options = info
+            matching_origin_tables = 0
+            for option in table_options:
+                namespace = col.namespace[0].name if col.namespace else None
+                table_alias = option.alias.name if option.alias else None
+                if namespace is None or namespace == table_alias:
+                    result = option.add_column_reference(col)
+                    if result:
+                        matching_origin_tables += 1
+                        col._is_compiled = True
+            if matching_origin_tables > 1:
+                ctx.exception.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_COLUMN,
+                        message=f"Column `{col.name.name}` found in multiple tables."
+                        " Consider using fully qualified name.",
+                    ),
+                )
+
+        # Work backwards from the table expressions on the query's SELECT clause
+        # and assign references between the columns and the tables
+        nearest_query = self.get_nearest_parent_of_type(Query)
+        cte_mapping = {
+            cte.alias_or_name.name: cte
+            for cte in (nearest_query.ctes if nearest_query else [])
+        }
+        table_options = (
+            list(self.select.from_.find_all(TableExpression))
+            if self.select.from_
+            else []
+        )
+        if table_options:
+            for idx, option in enumerate(table_options):
+                if isinstance(option, Table):
+                    if option.name.name in cte_mapping:
+                        table_options[idx] = cte_mapping[option.name.name]
+                await table_options[idx].compile(ctx)
+
+            expressions_to_compile = [
+                self.select.projection,
+                self.select.group_by,
+                self.select.having,
+                self.select.where,
+                self.select.organization,
+            ]
+            columns_to_compile = []
+            for expression in expressions_to_compile:
+                if expression and not isinstance(expression, list):
+                    columns_to_compile += list(expression.find_all(Column))
+                if isinstance(expression, list):
+                    columns_to_compile += [
+                        col for expr in expression for col in expr.find_all(Column)
+                    ]
+
+            with ThreadPoolExecutor() as executor:
+                list(
+                    executor.map(
+                        _compile,
+                        [(col, table_options) for col in columns_to_compile],
+                    ),
+                )
 
         for child in self.children:
             if child is not self and not child.is_compiled():
