@@ -271,6 +271,12 @@ def _(ctx: sbp.StatementDefaultContext):
 
 
 @visit.register
+def _(ctx: sbp.InlineTableDefault1Context):
+    print("got here after")
+    return visit(ctx.inlineTable())
+
+
+@visit.register
 def _(ctx: sbp.InlineTableDefault2Context):
     return visit(ctx.inlineTable())
 
@@ -285,14 +291,16 @@ def _(ctx: sbp.RowConstructorContext):
 def _(ctx: sbp.InlineTableContext):
     args = visit(ctx.expression())
     alias, columns = visit(ctx.tableAlias())
+    print("args, alias, columns", args, alias, columns)
 
     # Generate default column aliases if they weren't specified
+    args = args[0] if isinstance(args[0], list) else args
     inline_table_columns = (
-        [ast.Column(col, _type=value.type) for col, value in zip(columns, args[0])]
+        [ast.Column(col, _type=value.type) for col, value in zip(columns, args)]
         if columns
         else [
             ast.Column(ast.Name(f"col{idx + 1}"), _type=value.type)
-            for idx, value in enumerate(args[0])
+            for idx, value in enumerate(args)
         ]
     )
     return ast.InlineTable(
@@ -472,7 +480,9 @@ def _(ctx: sbp.QueryPrimaryContext):
 @visit.register
 def _(ctx: sbp.RegularQuerySpecificationContext):
     quantifier, projection, hints = visit(ctx.selectClause())
+    print("quantifier, projection, hints", quantifier, projection, hints)
     from_ = visit(ctx.fromClause()) if ctx.fromClause() else None
+    print("from_", from_)
     laterals = visit(ctx.lateralView())
     group_by = visit(ctx.aggregationClause()) if ctx.aggregationClause() else []
     where = None
