@@ -762,6 +762,61 @@ INNER JOIN default_DOT_countries
 
 
 @pytest.mark.asyncio
+async def test_reference_dimension_links_errors(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+    reference_link_events_user_registration_country,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test various reference dimension link errors
+    """
+    # Not a dimension node being linked
+    dimensions_link_client.post("/nodes/{}")
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/columns/user_registration_country/link",
+        params={
+            "dimension_node": "default.users_table",
+            "dimension_column": "user_id",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["message"] == "Node default.events is not of type dimension!"
+
+    # Wrong type to create a reference dimension link
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/columns/user_registration_country/link",
+        params={
+            "dimension_node": "default.users",
+            "dimension_column": "snapshot_date",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["message"] == (
+        "The column user_registration_country has type string and is being linked to"
+        " the dimension default.users via the dimension column snapshot_date, which "
+        "has type int. These column types are incompatible and the dimension cannot "
+        "be linked"
+    )
+
+    # Delete reference link twice
+    await reference_link_events_user_registration_country()
+    response = await dimensions_link_client.delete(
+        "/nodes/default.events/columns/user_registration_country/link",
+    )
+    assert response.status_code == 200
+    assert response.json()["message"] == (
+        "The reference dimension link on default.events.user_registration_country"
+        " has been removed."
+    )
+    response = await dimensions_link_client.delete(
+        "/nodes/default.events/columns/user_registration_country/link",
+    )
+    assert response.status_code == 200
+    assert response.json()["message"] == (
+        "There is no reference dimension link on default.events.user_registration_country."
+    )
+
+
+@pytest.mark.asyncio
 async def test_measures_sql_with_reference_dimension_links(
     dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
     reference_link_events_user_registration_country,  # pylint: disable=redefined-outer-name
