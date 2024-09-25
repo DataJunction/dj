@@ -765,11 +765,13 @@ INNER JOIN default_DOT_countries
 async def test_measures_sql_with_reference_dimension_links(
     dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
     reference_link_events_user_registration_country,  # pylint: disable=redefined-outer-name
+    link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
 ):
     """
     Test measures SQL generation with reference dimension links
     """
     await reference_link_events_user_registration_country()
+    await link_events_to_users_without_role()
     sql_params = {
         "metrics": ["default.elapsed_secs"],
         "dimensions": [
@@ -812,3 +814,38 @@ FROM default_DOT_events"""
             "semantic_type": "dimension",
         },
     ]
+    response = await dimensions_link_client.delete(
+        "/nodes/default.events/columns/user_registration_country/link",
+    )
+    assert response.status_code == 200
+    response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
+    response_data = response.json()
+    expected_sql = """
+    WITH default_DOT_events AS (
+      SELECT
+        default_DOT_events_table.user_id,
+        default_DOT_events_table.event_start_date,
+        default_DOT_events_table.event_end_date,
+        default_DOT_events_table.elapsed_secs,
+        default_DOT_events_table.user_registration_country
+      FROM examples.events AS default_DOT_events_table
+    ),
+    default_DOT_users AS (
+      SELECT
+        default_DOT_users_table.user_id,
+        default_DOT_users_table.snapshot_date,
+        default_DOT_users_table.registration_country,
+        default_DOT_users_table.residence_country,
+        default_DOT_users_table.account_type
+      FROM examples.users AS default_DOT_users_table
+    )
+    SELECT
+      default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+      default_DOT_users.registration_country default_DOT_users_DOT_registration_country
+    FROM default_DOT_events
+    LEFT JOIN default_DOT_users
+      ON default_DOT_events.user_id = default_DOT_users.user_id
+      AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+    """
+    assert str(parse(response_data[0]["sql"])) == str(parse(expected_sql))
+    assert response_data[0]["errors"] == []

@@ -921,45 +921,32 @@ async def add_reference_dimension_link(
     current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """
-    Add information to a node column
+    Add reference dimension link to a node column
     """
-    node = await Node.get_by_name(
-        session,
-        node_name,
-        raise_if_not_exists=True,
-    )
-    dim_node = await Node.get_by_name(
-        session,
-        dimension_node,
-        raise_if_not_exists=True,
-    )
-    if dim_node.type != NodeType.DIMENSION:  # type: ignore  # pragma: no cover
-        # pragma: no cover
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
+    dim_node = await Node.get_by_name(session, dimension_node, raise_if_not_exists=True)
+    if dim_node.type != NodeType.DIMENSION:  # type: ignore
         raise DJException(message=f"Node {node.name} is not of type dimension!")  # type: ignore
 
-    target_column = await get_column(
-        session,
-        node.current,  # type: ignore
-        node_column,
-    )
-    # Check that the dimension column exists
-    column_from_dimension = await get_column(
-        session,
-        dim_node.current,  # type: ignore
-        dimension_column,
-    )
-    activity_type = (
-        ActivityType.UPDATE if target_column.dimension_column else ActivityType.CREATE
-    )
+    # The target and dimension columns should both exist
+    target_column = await get_column(session, node.current, node_column)  # type: ignore
+    dim_column = await get_column(session, dim_node.current, dimension_column)  # type: ignore
+
     # Check the dimension column's type is compatible with the target column's type
-    if not column_from_dimension.type.is_compatible(target_column.type):
+    if not dim_column.type.is_compatible(target_column.type):
         raise DJInvalidInputException(
             f"The column {target_column.name} has type {target_column.type} "
             f"and is being linked to the dimension {dim_node} "
             f"via the dimension column {dimension_column}, which has "
-            f"type {column_from_dimension.type}. These column types are incompatible"
+            f"type {dim_column.type}. These column types are incompatible"
             " and the dimension cannot be linked",
         )
+
+    activity_type = (
+        ActivityType.UPDATE if target_column.dimension_column else ActivityType.CREATE
+    )
+
+    # Create the reference link
     target_column.dimension_id = dim_node.id  # type: ignore
     target_column.dimension_column = (
         f"{dimension_column}[{role}]" if role else dimension_column
@@ -988,6 +975,54 @@ async def add_reference_dimension_link(
             "message": (
                 f"{node_name}.{node_column} has been successfully "
                 f"linked to {dimension_node}.{dimension_column}"
+            ),
+        },
+    )
+
+
+@router.delete("/nodes/{node_name}/columns/{node_column}/link", status_code=201)
+async def remove_reference_dimension_link(
+    node_name: str,
+    node_column: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_and_update_current_user),
+) -> JSONResponse:
+    """
+    Remove reference dimension link from a node column
+    """
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
+    target_column = await get_column(session, node.current, node_column)  # type: ignore
+    if target_column.dimension_id or target_column.dimension_column:
+        target_column.dimension_id = None
+        target_column.dimension_column = None
+        session.add(target_column)
+        session.add(
+            History(
+                entity_type=EntityType.LINK,
+                entity_name=node.name,  # type: ignore
+                node=node.name,  # type: ignore
+                activity_type=ActivityType.DELETE,
+                details={
+                    "node_name": node_name,  # type: ignore
+                    "node_column": node_column,
+                },
+                user=current_user.username,
+            ),
+        )
+        session.commit()
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": (
+                    f"The reference dimension link on {node_name}.{node_column} has been removed."
+                ),
+            },
+        )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": (
+                f"There is no reference dimension link on {node_name}.{node_column}."
             ),
         },
     )
