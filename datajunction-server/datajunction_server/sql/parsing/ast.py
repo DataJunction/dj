@@ -2270,15 +2270,31 @@ class InlineTable(TableExpression, Named):
     explicit_columns: bool = False
 
     def __str__(self) -> str:
-        values = "VALUES " + ",\n\t".join(
-            [f'({", ".join([str(col) for col in row])})' for row in self.values],
+        row_values = (
+            self.values
+            if isinstance(self.values[0], list)
+            else [[row] for row in self.values]
         )
-        alias = f"{self.alias_or_name.name}" + (
+        values = "VALUES " + ",\n\t".join(
+            [f'({", ".join([str(col) for col in row])})' for row in row_values],
+        )
+        inline_alias = (
+            self.alias_or_name.name
+            if self.alias_or_name and self.alias_or_name.name.strip() != "AS"
+            else ""
+        )
+        print(
+            "self.columns",
+            [col.alias_or_name.name for col in self.columns],
+            inline_alias,
+        )
+        alias = inline_alias + (
             f"({', '.join([col.alias_or_name.name for col in self.columns])})"
             if self.explicit_columns
             else ""
         )
-        return f"{values} AS {alias}"
+        print(f"ALIAS {alias}")
+        return f"{values} AS {alias}" if alias else values
 
 
 @dataclass(eq=False)

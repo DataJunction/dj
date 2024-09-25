@@ -293,13 +293,13 @@ def _(ctx: sbp.InlineTableContext):
     alias, columns = visit(ctx.tableAlias())
 
     # Generate default column aliases if they weren't specified
-    args = args[0] if isinstance(args[0], list) else args
+    col_args = args[0] if isinstance(args[0], list) else args
     inline_table_columns = (
-        [ast.Column(col, _type=value.type) for col, value in zip(columns, args)]
+        [ast.Column(col, _type=value.type) for col, value in zip(columns, col_args)]
         if columns
         else [
             ast.Column(ast.Name(f"col{idx + 1}"), _type=value.type)
-            for idx, value in enumerate(args)
+            for idx, value in enumerate(col_args)
         ]
     )
     return ast.InlineTable(
