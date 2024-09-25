@@ -3,7 +3,7 @@ Cachelib-based cache implementation
 """
 from typing import Any, Optional
 
-from cachelib import SimpleCache
+from cachelib import FileSystemCache, SimpleCache
 
 from datajunction_server.internal.caching.interface import Cache, CacheInterface
 
@@ -13,7 +13,11 @@ class CachelibCache(Cache):
 
     def __init__(self):
         super().__init__()
-        self.cache = SimpleCache()
+        # self.cache = SimpleCache()
+        self.cache = FileSystemCache(
+            cache_dir="/Users/samredai/Workspaces/dj/cache-fun",
+            default_timeout=300,
+        )
 
     def get(self, key: str) -> Optional[Any]:
         """Get a cached value from the simple cache"""

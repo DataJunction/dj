@@ -45,6 +45,8 @@ from datajunction_server.internal.access.authorization import (
     validate_access,
     validate_access_requests,
 )
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import CacheInterface
 from datajunction_server.internal.nodes import (
     activate_node,
     copy_to_new_node,
@@ -1337,7 +1339,10 @@ async def list_node_dag(
     name="List All Dimension Attributes",
 )
 async def list_all_dimension_attributes(
-    name: str, *, session: AsyncSession = Depends(get_session)
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    application_cache: Optional[CacheInterface] = Depends(get_cache),
 ) -> List[DimensionAttributeOutput]:
     """
     List all available dimension attributes for the given node.
@@ -1353,7 +1358,12 @@ async def list_all_dimension_attributes(
             ],
         )
     )
-    dimensions = await get_dimensions(session, node, with_attributes=True)  # type: ignore
+    dimensions = await get_dimensions(
+        session,
+        node,  # type: ignore
+        with_attributes=True,
+        application_cache=application_cache,
+    )
     filter_only_dimensions = await get_filter_only_dimensions(session, name)
     return dimensions + filter_only_dimensions
 

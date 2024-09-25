@@ -2,6 +2,7 @@
 DAG related functions.
 """
 import itertools
+import pickle
 from typing import Dict, List, Optional, Set, Union
 
 from sqlalchemy import and_, func, join, literal, or_, select
@@ -19,6 +20,7 @@ from datajunction_server.database.node import (
     NodeRevision,
 )
 from datajunction_server.errors import DJDoesNotExistException, DJException
+from datajunction_server.internal.caching.interface import CacheInterface
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR, get_settings
@@ -490,21 +492,29 @@ async def get_dimensions(
     session: AsyncSession,
     node: Node,
     with_attributes: bool = True,
+    application_cache: Optional[CacheInterface] = None,
 ) -> List[Union[DimensionAttributeOutput, Node]]:
     """
     Return all available dimensions for a given node.
     * Setting `attributes` to True will return a list of dimension attributes,
     * Setting `attributes` to False will return a list of dimension nodes
     """
-    if node.type == NodeType.METRIC:
-        dag = await get_dimensions_dag(
-            session,
-            node.current.parents[0].current,
-            with_attributes,
-        )
-    else:
-        await session.refresh(node, attribute_names=["current"])
-        dag = await get_dimensions_dag(session, node.current, with_attributes)
+    cache_key = f"{node.name}@{node.current_version}:dimensions"
+    serialized_dag = application_cache.get(key=cache_key) if application_cache else None
+    if serialized_dag:
+        dag = pickle.loads(serialized_dag)
+    else:  # If a cache miss occurs, get the dag and refresh the cache
+        if node.type == NodeType.METRIC:
+            dag = await get_dimensions_dag(
+                session,
+                node.current.parents[0].current,
+                with_attributes,
+            )
+        else:
+            await session.refresh(node, attribute_names=["current"])
+            dag = await get_dimensions_dag(session, node.current, with_attributes)
+        if application_cache:
+            application_cache.set(key=cache_key, value=pickle.dumps(dag))
     return dag
 
 
