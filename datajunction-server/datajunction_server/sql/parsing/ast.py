@@ -2283,17 +2283,11 @@ class InlineTable(TableExpression, Named):
             if self.alias_or_name and self.alias_or_name.name.strip() != "AS"
             else ""
         )
-        print(
-            "self.columns",
-            [col.alias_or_name.name for col in self.columns],
-            inline_alias,
-        )
         alias = inline_alias + (
             f"({', '.join([col.alias_or_name.name for col in self.columns])})"
             if self.explicit_columns
             else ""
         )
-        print(f"ALIAS {alias}")
         return f"{values} AS {alias}" if alias else values
 
 
