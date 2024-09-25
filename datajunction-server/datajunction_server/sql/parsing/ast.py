@@ -2273,12 +2273,13 @@ class InlineTable(TableExpression, Named):
         values = "VALUES " + ",\n\t".join(
             [f'({", ".join([str(col) for col in row])})' for row in self.values],
         )
-        alias = f"{self.alias_or_name.name}" + (
+        inline_alias = self.alias_or_name.name if self.alias_or_name else ""
+        alias = inline_alias + (
             f"({', '.join([col.alias_or_name.name for col in self.columns])})"
             if self.explicit_columns
             else ""
         )
-        return f"{values} AS {alias}"
+        return f"{values} AS {alias}" if alias else values
 
 
 @dataclass(eq=False)
