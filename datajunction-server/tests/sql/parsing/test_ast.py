@@ -1083,7 +1083,7 @@ FROM VALUES
         (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
     ] == [("source", types.StringType())]
     assert [
-        val.value for val in query.select.from_.relations[0].primary.values  # type: ignore
+        val[0].value for val in query.select.from_.relations[0].primary.values  # type: ignore
     ] == ["'a'", "'b'", "'c'"]
     assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
         name="tab",
@@ -1103,7 +1103,7 @@ FROM VALUES
         (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
     ] == [("col1", types.StringType())]
     assert [
-        val.value for val in query.select.from_.relations[0].primary.values  # type: ignore
+        val[0].value for val in query.select.from_.relations[0].primary.values  # type: ignore
     ] == ["'a'", "'b'", "'c'"]
     assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
         name="tab",

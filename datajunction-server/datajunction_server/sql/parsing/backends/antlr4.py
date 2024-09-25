@@ -272,7 +272,6 @@ def _(ctx: sbp.StatementDefaultContext):
 
 @visit.register
 def _(ctx: sbp.InlineTableDefault1Context):
-    print("got here after")
     return visit(ctx.inlineTable())
 
 
@@ -306,7 +305,7 @@ def _(ctx: sbp.InlineTableContext):
         name=alias,
         _columns=inline_table_columns,
         explicit_columns=len(columns) > 0,
-        values=[value for value in args],
+        values=[[value] if not isinstance(value, list) else value for value in args],
     )
 
 
