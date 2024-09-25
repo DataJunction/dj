@@ -190,13 +190,13 @@ def reference_link_events_user_registration_country(
 
     async def _reference_link_events_user_registration_country() -> Response:
         response = await dimensions_link_client.post(
-            "/nodes/default.events/link?link_type=reference",
-            json={
-                "node_column": "user_registration_country",
+            "/nodes/default.events/columns/user_registration_country/link",
+            params={
                 "dimension_node": "default.users",
                 "dimension_column": "registration_country",
             },
         )
+        assert response.status_code == 201
         return response
 
     return _reference_link_events_user_registration_country

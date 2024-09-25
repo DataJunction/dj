@@ -5,7 +5,7 @@ Node related APIs.
 import logging
 import os
 from http import HTTPStatus
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
@@ -67,11 +67,9 @@ from datajunction_server.internal.validation import validate_node_data
 from datajunction_server.models import access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.dimensionlink import (
-    DimensionLinkType,
     JoinLinkInput,
     JoinType,
     LinkDimensionIdentifier,
-    ReferenceLinkInput,
 )
 from datajunction_server.models.node import (
     ColumnOutput,
@@ -912,14 +910,93 @@ async def link_dimension(
     )
 
 
+@router.post("/nodes/{node_name}/columns/{node_column}/link", status_code=201)
+async def add_reference_dimension_link(
+    node_name: str,
+    node_column: str,
+    dimension_node: str,
+    dimension_column: str,
+    role: Optional[str] = None,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_and_update_current_user),
+) -> JSONResponse:
+    """
+    Add information to a node column
+    """
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        raise_if_not_exists=True,
+    )
+    dim_node = await Node.get_by_name(
+        session,
+        dimension_node,
+        raise_if_not_exists=True,
+    )
+    if dim_node.type != NodeType.DIMENSION:  # type: ignore  # pragma: no cover
+        # pragma: no cover
+        raise DJException(message=f"Node {node.name} is not of type dimension!")  # type: ignore
+
+    target_column = await get_column(
+        session,
+        node.current,  # type: ignore
+        node_column,
+    )
+    # Check that the dimension column exists
+    column_from_dimension = await get_column(
+        session,
+        dim_node.current,  # type: ignore
+        dimension_column,
+    )
+    activity_type = (
+        ActivityType.UPDATE if target_column.dimension_column else ActivityType.CREATE
+    )
+    # Check the dimension column's type is compatible with the target column's type
+    if not column_from_dimension.type.is_compatible(target_column.type):
+        raise DJInvalidInputException(
+            f"The column {target_column.name} has type {target_column.type} "
+            f"and is being linked to the dimension {dim_node} "
+            f"via the dimension column {dimension_column}, which has "
+            f"type {column_from_dimension.type}. These column types are incompatible"
+            " and the dimension cannot be linked",
+        )
+    target_column.dimension_id = dim_node.id  # type: ignore
+    target_column.dimension_column = (
+        f"{dimension_column}[{role}]" if role else dimension_column
+    )
+    session.add(target_column)
+    session.add(
+        History(
+            entity_type=EntityType.LINK,
+            entity_name=node.name,  # type: ignore
+            node=node.name,  # type: ignore
+            activity_type=activity_type,
+            details={
+                "node_name": node_name,  # type: ignore
+                "node_column": node_column,
+                "dimension_node": dimension_node,
+                "dimension_column": dimension_column,
+                "role": role,
+            },
+            user=current_user.username,
+        ),
+    )
+    await session.commit()
+    return JSONResponse(
+        status_code=201,
+        content={
+            "message": (
+                f"{node_name}.{node_column} has been successfully "
+                f"linked to {dimension_node}.{dimension_column}"
+            ),
+        },
+    )
+
+
 @router.post("/nodes/{node_name}/link/", status_code=201)
 async def add_complex_dimension_link(  # pylint: disable=too-many-locals
     node_name: str,
-    link_input: Union[JoinLinkInput, ReferenceLinkInput],
-    link_type: DimensionLinkType = Query(
-        DimensionLinkType.JOIN,
-        description="A join link or a reference link",
-    ),
+    link_input: JoinLinkInput,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
@@ -927,60 +1004,12 @@ async def add_complex_dimension_link(  # pylint: disable=too-many-locals
     Links a source, dimension, or transform node to a dimension with a custom join query.
     If a link already exists, updates the link definition.
     """
-    if link_type == DimensionLinkType.JOIN:
-        if not isinstance(link_input, JoinLinkInput):
-            raise DJInvalidInputException("Must provide join link input fields")
-        activity_type = await upsert_complex_dimension_link(
-            session,
-            node_name,
-            link_input,
-            current_user,
-        )
-    else:
-        if not isinstance(link_input, ReferenceLinkInput):
-            raise DJInvalidInputException("Must provide reference link input fields")
-        node = await Node.get_by_name(
-            session,
-            node_name,
-            raise_if_not_exists=True,
-        )
-        dimension_node = await Node.get_by_name(
-            session,
-            link_input.dimension_node,
-            raise_if_not_exists=True,
-        )
-        if dimension_node.type != NodeType.DIMENSION:  # type: ignore  # pragma: no cover
-            # pragma: no cover
-            raise DJException(message=f"Node {node.name} is not of type dimension!")  # type: ignore
-
-        target_column = await get_column(
-            session,
-            node.current,  # type: ignore
-            link_input.node_column,
-        )
-        if link_input.dimension_column:
-            # Check that the dimension column exists
-            column_from_dimension = await get_column(
-                session,
-                dimension_node.current,  # type: ignore
-                link_input.dimension_column,
-            )
-
-            # Check the dimension column's type is compatible with the target column's type
-            if not column_from_dimension.type.is_compatible(target_column.type):
-                raise DJInvalidInputException(
-                    f"The column {target_column.name} has type {target_column.type} "
-                    f"and is being linked to the dimension {link_input.dimension_node} "
-                    f"via the dimension column {link_input.dimension_column}, which has "
-                    f"type {column_from_dimension.type}. These column types are incompatible"
-                    " and the dimension cannot be linked",
-                )
-            target_column.dimension_id = dimension_node.id  # type: ignore
-            target_column.dimension_column = link_input.dimension_column
-            session.add(target_column)
-            await session.commit()
-            activity_type = ActivityType.CREATE
-
+    activity_type = await upsert_complex_dimension_link(
+        session,
+        node_name,
+        link_input,
+        current_user,
+    )
     return JSONResponse(
         status_code=201,
         content={
