@@ -926,7 +926,9 @@ async def add_reference_dimension_link(
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     dim_node = await Node.get_by_name(session, dimension_node, raise_if_not_exists=True)
     if dim_node.type != NodeType.DIMENSION:  # type: ignore
-        raise DJException(message=f"Node {node.name} is not of type dimension!")  # type: ignore
+        raise DJInvalidInputException(
+            message=f"Node {node.name} is not of type dimension!",  # type: ignore
+        )
 
     # The target and dimension columns should both exist
     target_column = await get_column(session, node.current, node_column)  # type: ignore
@@ -936,7 +938,7 @@ async def add_reference_dimension_link(
     if not dim_column.type.is_compatible(target_column.type):
         raise DJInvalidInputException(
             f"The column {target_column.name} has type {target_column.type} "
-            f"and is being linked to the dimension {dim_node} "
+            f"and is being linked to the dimension {dimension_node} "
             f"via the dimension column {dimension_column}, which has "
             f"type {dim_column.type}. These column types are incompatible"
             " and the dimension cannot be linked",
