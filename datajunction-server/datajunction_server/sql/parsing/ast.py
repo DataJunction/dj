@@ -2270,19 +2270,10 @@ class InlineTable(TableExpression, Named):
     explicit_columns: bool = False
 
     def __str__(self) -> str:
-        row_values = (
-            self.values
-            if isinstance(self.values[0], list)
-            else [[row] for row in self.values]
-        )
         values = "VALUES " + ",\n\t".join(
-            [f'({", ".join([str(col) for col in row])})' for row in row_values],
+            [f'({", ".join([str(col) for col in row])})' for row in self.values],
         )
-        inline_alias = (
-            self.alias_or_name.name
-            if self.alias_or_name and self.alias_or_name.name.strip() != "AS"
-            else ""
-        )
+        inline_alias = self.alias_or_name.name if self.alias_or_name else ""
         alias = inline_alias + (
             f"({', '.join([col.alias_or_name.name for col in self.columns])})"
             if self.explicit_columns
