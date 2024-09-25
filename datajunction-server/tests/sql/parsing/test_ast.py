@@ -1071,6 +1071,46 @@ FROM VALUES
     assert query.select.from_.relations[0].primary.values == expected_values  # type: ignore
     assert query.columns[0].table.alias_or_name == expected_table_name  # type: ignore
 
+    query_str = """SELECT tab.source FROM VALUES ('a'), ('b'), ('c') AS tab(source)"""
+    query = parse(query_str)
+    exc = DJException()
+    assert not exc.errors
+    assert str(parse(str(query))) == str(parse(query_str))
+
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert [
+        (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
+    ] == [("source", types.StringType())]
+    assert [
+        val[0].value for val in query.select.from_.relations[0].primary.values  # type: ignore
+    ] == ["'a'", "'b'", "'c'"]
+    assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
+        name="tab",
+        quote_style="",
+        namespace=None,
+    )
+
+    query_str = """SELECT tab.col1 FROM VALUES ('a'), ('b'), ('c') AS tab"""
+    query = parse(query_str)
+    exc = DJException()
+    assert not exc.errors
+    assert str(parse(str(query))) == str(parse(query_str))
+
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert [
+        (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
+    ] == [("col1", types.StringType())]
+    assert [
+        val[0].value for val in query.select.from_.relations[0].primary.values  # type: ignore
+    ] == ["'a'", "'b'", "'c'"]
+    assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
+        name="tab",
+        quote_style="",
+        namespace=None,
+    )
+
 
 @pytest.mark.asyncio
 async def test_ast_subscript_handling(session: AsyncSession):

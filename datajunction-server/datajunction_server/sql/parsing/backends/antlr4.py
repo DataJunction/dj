@@ -271,6 +271,11 @@ def _(ctx: sbp.StatementDefaultContext):
 
 
 @visit.register
+def _(ctx: sbp.InlineTableDefault1Context):
+    return visit(ctx.inlineTable())
+
+
+@visit.register
 def _(ctx: sbp.InlineTableDefault2Context):
     return visit(ctx.inlineTable())
 
@@ -287,19 +292,20 @@ def _(ctx: sbp.InlineTableContext):
     alias, columns = visit(ctx.tableAlias())
 
     # Generate default column aliases if they weren't specified
+    col_args = args[0] if isinstance(args[0], list) else args
     inline_table_columns = (
-        [ast.Column(col, _type=value.type) for col, value in zip(columns, args[0])]
+        [ast.Column(col, _type=value.type) for col, value in zip(columns, col_args)]
         if columns
         else [
             ast.Column(ast.Name(f"col{idx + 1}"), _type=value.type)
-            for idx, value in enumerate(args[0])
+            for idx, value in enumerate(col_args)
         ]
     )
     return ast.InlineTable(
         name=alias,
         _columns=inline_table_columns,
         explicit_columns=len(columns) > 0,
-        values=[value for value in args],
+        values=[[value] if not isinstance(value, list) else value for value in args],
     )
 
 
