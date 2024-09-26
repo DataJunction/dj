@@ -1389,6 +1389,8 @@ def build_join_for_link(
     dimension_node_columns = join_right.select.column_mapping
     join_left = cte_mapping.get(link.node_revision.name)
     node_columns = join_left.select.column_mapping  # type: ignore
+    if not join_ast.criteria:
+        return join_ast
     for col in join_ast.criteria.find_all(ast.Column):  # type: ignore
         full_column = FullColumnName(col.identifier())
         is_dimension_node = full_column.node_name == link.dimension.name

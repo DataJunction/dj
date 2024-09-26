@@ -1528,7 +1528,7 @@ async def upsert_complex_dimension_link(
     join_query = parse(
         f"SELECT 1 FROM {node_name} "
         f"{link_input.join_type} JOIN {link_input.dimension_node} "
-        f"ON {link_input.join_on}",
+        + (f"ON {link_input.join_on}" if link_input.join_on else ""),
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
@@ -1537,11 +1537,18 @@ async def upsert_complex_dimension_link(
 
     # Verify that the query references both the node and the dimension being joined
     expected_references = {node_name, link_input.dimension_node}
-    references = {
-        table.name.namespace.identifier()  # type: ignore
-        for table in join_relation.criteria.on.find_all(ast.Column)  # type: ignore
-    }
-    if expected_references.difference(references):
+    references = (
+        {
+            table.name.namespace.identifier()  # type: ignore
+            for table in join_relation.criteria.on.find_all(ast.Column)  # type: ignore
+        }
+        if join_relation.criteria
+        else {}
+    )
+    if (
+        expected_references.difference(references)
+        and link_input.join_type != JoinType.CROSS
+    ):
         raise DJInvalidInputException(
             f"The join SQL provided does not reference both the origin node {node_name} and the "
             f"dimension node {link_input.dimension_node} that it's being joined to.",
