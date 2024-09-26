@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import re
+from enum import Enum
 from functools import lru_cache
 from http import HTTPStatus
 
@@ -294,3 +295,18 @@ async def get_and_update_current_user(
 
 
 SEPARATOR = "."
+
+
+class CachedValueTypes(Enum):
+    """Types of cached values"""
+
+    DIMENSIONS = "dimensions"
+
+
+async def get_cache_key_for_node(
+    name: str,
+    version: str,
+    cached_value_type: CachedValueTypes,
+):
+    """Create a cache key for getting and setting cached data for nodes"""
+    return f"{name}@{version}:{cached_value_type.value}"

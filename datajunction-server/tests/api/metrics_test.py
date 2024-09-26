@@ -2,6 +2,9 @@
 """
 Tests for the metrics API.
 """
+import pickle
+from unittest.mock import Mock, patch
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
@@ -667,6 +670,94 @@ async def test_get_dimensions(module__client_with_roads: AsyncClient):
 
     data = response.json()
     assert data["dimensions"] == expected_dimensions
+
+
+@pytest.mark.asyncio
+async def test_get_dimensions_with_cache(module__client_with_roads: AsyncClient):
+    """
+    Testing get dimensions twice, second time uses a cache
+    """
+    response = await module__client_with_roads.get("/metrics/default.avg_repair_price/")
+
+    data = response.json()
+    assert data["dimensions"] == expected_dimensions
+
+    response = await module__client_with_roads.get("/metrics/default.avg_repair_price/")
+
+    data = response.json()
+    assert data["dimensions"] == expected_dimensions
+
+
+@pytest.mark.asyncio
+async def test_get_dimensions_confirm_cache_hit(module__client_with_roads: AsyncClient):
+    """
+    Testing with confirmation that the cache get and set methods are called appropriately
+    """
+    with patch(
+        "datajunction_server.internal.caching.cachelib_cache.CachelibCache.get",
+        new_callable=Mock,
+    ) as mock_get, patch(
+        "datajunction_server.internal.caching.cachelib_cache.CachelibCache.set",
+        new_callable=Mock,
+    ) as mock_set:
+
+        # Mock a cache miss
+        mock_get.return_value = None
+
+        response = await module__client_with_roads.get(
+            "/metrics/default.avg_repair_price/",
+        )
+        data = response.json()
+        assert data["dimensions"] == expected_dimensions
+
+        mock_get.assert_called_once()
+        mock_set.assert_called_once()
+
+        # Make sure that if a pickled version is returned from the cache,
+        # the assert in this test still passes
+        mock_get.return_value = pickle.dumps(expected_dimensions)
+
+        response = await module__client_with_roads.get(
+            "/metrics/default.avg_repair_price/",
+        )
+        data = response.json()
+        assert data["dimensions"] == expected_dimensions
+
+        # Get should be called twice, with the first time being a cache miss
+        assert mock_get.call_count == 2
+        # After the first Get's cache miss, the non-cached data should be cached
+        assert mock_set.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_get_dimensions_no_cache_request_header(
+    module__client_with_roads: AsyncClient,
+):
+    """
+    Testing that cache is not used when 'no-cache' is in the cache headers
+    """
+    with patch(
+        "datajunction_server.internal.caching.cachelib_cache.CachelibCache.get",
+        new_callable=Mock,
+    ) as mock_get, patch(
+        "datajunction_server.internal.caching.cachelib_cache.CachelibCache.set",
+        new_callable=Mock,
+    ) as mock_set:
+
+        # Mock a cache miss
+        mock_get.return_value = None
+
+        # Make a request with 'no-cache' in the Cache-Control header
+        response = await module__client_with_roads.get(
+            "/metrics/default.avg_repair_price/",
+            headers={"Cache-Control": "no-cache"},
+        )
+        data = response.json()
+        assert data["dimensions"] == expected_dimensions
+
+        # Assert that get and set were not called
+        mock_get.assert_not_called()
+        mock_set.assert_not_called()
 
 
 @pytest.mark.asyncio

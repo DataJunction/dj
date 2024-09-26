@@ -23,7 +23,12 @@ from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.internal.caching.interface import CacheInterface
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import SEPARATOR, get_settings
+from datajunction_server.utils import (
+    SEPARATOR,
+    CachedValueTypes,
+    get_cache_key_for_node,
+    get_settings,
+)
 
 settings = get_settings()
 
@@ -499,7 +504,11 @@ async def get_dimensions(
     * Setting `attributes` to True will return a list of dimension attributes,
     * Setting `attributes` to False will return a list of dimension nodes
     """
-    cache_key = f"{node.name}@{node.current_version}:dimensions"
+    cache_key = await get_cache_key_for_node(
+        name=node.name,
+        version=node.current_version,
+        cached_value_type=CachedValueTypes.DIMENSIONS,
+    )
     serialized_dag = application_cache.get(key=cache_key) if application_cache else None
     if serialized_dag:
         dag = pickle.loads(serialized_dag)
