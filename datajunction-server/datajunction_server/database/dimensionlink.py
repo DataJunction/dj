@@ -93,7 +93,8 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
 
         return parse(
             f"select 1 from {self.node_revision.name} "
-            f"{self.join_type} join {self.dimension.name} on {self.join_sql}",
+            f"{self.join_type} join {self.dimension.name} "
+            + (f"on {self.join_sql}" if self.join_sql else ""),
         )
 
     def joins(self) -> List["ast.Join"]:
@@ -114,11 +115,15 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
         from datajunction_server.sql.parsing.backends.antlr4 import ast
 
         # Find equality comparions (i.e., fact.order_id = dim.order_id)
-        equality_comparisons = [
-            expr
-            for expr in self.joins()[0].criteria.on.find_all(ast.BinaryOp)  # type: ignore
-            if expr.op == ast.BinaryOpKind.Eq
-        ]
+        equality_comparisons = (
+            [
+                expr
+                for expr in self.joins()[0].criteria.on.find_all(ast.BinaryOp)  # type: ignore
+                if expr.op == ast.BinaryOpKind.Eq
+            ]
+            if self.joins()[0].criteria
+            else []
+        )
         mapping = {}
         for comp in equality_comparisons:
             if isinstance(comp.left, ast.Column) and isinstance(
