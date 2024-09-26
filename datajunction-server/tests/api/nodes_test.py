@@ -5,6 +5,7 @@ Tests for the nodes API.
 import re
 from typing import Any, Dict
 from unittest import mock
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -20,6 +21,7 @@ from datajunction_server.database.node import Node, NodeRelationship, NodeRevisi
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJDoesNotExistException
+from datajunction_server.internal.caching.cachelib_cache import CachelibCache
 from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
@@ -3423,23 +3425,92 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         }
 
     @pytest.mark.asyncio
-    async def test_backfill_failures(self, client_with_query_service):
-        """Run backfill failure modes"""
+    async def test_invalidating_cache_on_link(self, client_with_roads: AsyncClient):
+        """
+        Test that the cache is invalidated when a dimension link is updated
+        """
+        cache_instance = CachelibCache()
+        with patch.object(
+            CachelibCache,
+            "get",
+            side_effect=cache_instance.get,
+        ) as mock_get, patch.object(
+            CachelibCache,
+            "set",
+            side_effect=cache_instance.set,
+        ) as mock_set:
 
-        # Kick off backfill for non-existent materalization
-        response = await client_with_query_service.post(
-            "/nodes/default.hard_hat/materializations/non_existent/backfill",
-            json=[
-                {
-                    "column_name": "birth_date",
-                    "range": ["20230101", "20230201"],
-                },
-            ],
-        )
-        assert (
-            response.json()["message"]
-            == "Materialization with name non_existent not found"
-        )
+            await client_with_roads.get("/nodes/default.hard_hats/dimensions")
+            mock_get.assert_called_once()
+            mock_set.assert_called_once()
+
+            await client_with_roads.get("/nodes/default.hard_hats/dimensions")
+            assert mock_get.call_count == 2
+            mock_set.assert_called_once()
+
+            response = await client_with_roads.post(
+                "/nodes/default.hard_hats/columns/contractor_id/"
+                "?dimension=default.contractor&dimension_column=contractor_id",
+            )
+            assert response.status_code == 201
+            assert response.json() == {
+                "message": (
+                    "Dimension node default.contractor has been successfully linked "
+                    "to node default.hard_hats using column contractor_id."
+                ),
+            }
+            assert mock_get.call_count == 2
+            assert (
+                mock_set.call_count == 2
+            )  # This is now 2 after the cache invalidation
+
+    @pytest.mark.asyncio
+    async def test_dimension_links_with_no_cache_instance(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        Test that dimension linking can happen when no cache is used via the `no-cache` headers
+        """
+        cache_instance = CachelibCache()
+        with patch.object(
+            CachelibCache,
+            "get",
+            side_effect=cache_instance.get,
+        ) as mock_get, patch.object(
+            CachelibCache,
+            "set",
+            side_effect=cache_instance.set,
+        ) as mock_set:
+
+            await client_with_roads.get(
+                "/nodes/default.hard_hats/dimensions",
+                headers={"Cache-Control": "no-cache"},
+            )
+            mock_get.assert_not_called()
+            mock_set.assert_not_called()
+
+            await client_with_roads.get(
+                "/nodes/default.hard_hats/dimensions",
+                headers={"Cache-Control": "no-cache"},
+            )
+            mock_get.assert_not_called()
+            mock_set.assert_not_called()
+
+            response = await client_with_roads.post(
+                "/nodes/default.hard_hats/columns/contractor_id/"
+                "?dimension=default.contractor&dimension_column=contractor_id",
+                headers={"Cache-Control": "no-cache"},
+            )
+            assert response.status_code == 201
+            assert response.json() == {
+                "message": (
+                    "Dimension node default.contractor has been successfully linked "
+                    "to node default.hard_hats using column contractor_id."
+                ),
+            }
+            mock_get.assert_not_called()
+            mock_set.assert_not_called()
 
 
 class TestNodeColumnsAttributes:

@@ -864,7 +864,9 @@ async def link_dimension(
     )
     if dimension_node.type != NodeType.DIMENSION:  # type: ignore  # pragma: no cover
         # pragma: no cover
-        raise DJException(message=f"Node {node.name} is not of type dimension!")  # type: ignore
+        raise DJException(
+            message=(f"Node {dimension_node.name} is not of type dimension!"),  # type: ignore
+        )
     primary_key_columns = dimension_node.current.primary_key()  # type: ignore
     if len(primary_key_columns) > 1:
         raise DJActionNotAllowedException(  # pragma: no cover
