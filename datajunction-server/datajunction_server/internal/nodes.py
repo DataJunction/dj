@@ -51,6 +51,7 @@ from datajunction_server.models.base import labelize
 from datajunction_server.models.cube import CubeElementMetadata, CubeRevisionMetadata
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
+    JoinType,
     LinkDimensionIdentifier,
 )
 from datajunction_server.models.history import status_change_history
