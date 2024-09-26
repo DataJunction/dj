@@ -109,8 +109,10 @@ from datajunction_server.sql.dag import (
 )
 from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
 from datajunction_server.utils import (
+    CachedValueTypes,
     Version,
     get_and_update_current_user,
+    get_cache_key_for_node,
     get_namespace_from_name,
     get_query_service_client,
     get_session,
@@ -835,6 +837,7 @@ async def link_dimension(
     dimension_column: Optional[str] = None,  # pylint: disable=unused-argument
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    application_cache: Optional[CacheInterface] = Depends(get_cache),
 ) -> JSONResponse:
     """
     Add information to a node column
@@ -844,6 +847,16 @@ async def link_dimension(
         name,
         raise_if_not_exists=True,
     )
+    if application_cache:
+        application_cache.set(
+            key=get_cache_key_for_node(
+                name=node.name,  # type: ignore
+                version=node.current_version,  # type: ignore
+                cached_value_type=CachedValueTypes.DIMENSIONS,
+            ),
+            value=None,
+            timeout=0,
+        )
     dimension_node = await Node.get_by_name(
         session,
         dimension,
@@ -886,15 +899,9 @@ async def link_dimension(
     )
     activity_type = await upsert_complex_dimension_link(
         session,
-        name,
+        node,  # type: ignore
         link_input,
         current_user,
-    )
-
-    node = await Node.get_by_name(
-        session,
-        name,
-        raise_if_not_exists=True,
     )
     return JSONResponse(
         status_code=201,
@@ -918,14 +925,29 @@ async def add_complex_dimension_link(  # pylint: disable=too-many-locals
     link_input: LinkDimensionInput,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    application_cache: Optional[CacheInterface] = Depends(get_cache),
 ) -> JSONResponse:
     """
     Links a source, dimension, or transform node to a dimension with a custom join query.
     If a link already exists, updates the link definition.
     """
-    activity_type = await upsert_complex_dimension_link(
+    node = await Node.get_by_name(
         session,
         node_name,
+    )
+    if application_cache:
+        application_cache.set(
+            key=get_cache_key_for_node(
+                name=node.name,  # type: ignore
+                version=node.current_version,  # type: ignore
+                cached_value_type=CachedValueTypes.DIMENSIONS,
+            ),
+            value=None,
+            timeout=0,
+        )
+    activity_type = await upsert_complex_dimension_link(
+        session,
+        node,  # type: ignore
         link_input,
         current_user,
     )
@@ -951,13 +973,25 @@ async def remove_complex_dimension_link(  # pylint: disable=too-many-locals
     link_identifier: LinkDimensionIdentifier,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    application_cache: Optional[CacheInterface] = Depends(get_cache),
 ) -> JSONResponse:
     """
     Removes a complex dimension link based on the dimension node and its role (if any).
     """
+    node = await Node.get_by_name(session, node_name)
+    if application_cache:
+        application_cache.set(
+            key=get_cache_key_for_node(
+                name=node.name,  # type: ignore
+                version=node.current_version,  # type: ignore
+                cached_value_type=CachedValueTypes.DIMENSIONS,
+            ),
+            value=None,
+            timeout=0,
+        )
     return await remove_dimension_link(
         session,
-        node_name,
+        node,  # type: ignore
         link_identifier,
         current_user,
     )
@@ -971,13 +1005,25 @@ async def delete_dimension_link(
     dimension_column: Optional[str] = None,  # pylint: disable=unused-argument
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    application_cache: Optional[CacheInterface] = Depends(get_cache),
 ) -> JSONResponse:
     """
     Remove the link between a node column and a dimension node
     """
+    node = await Node.get_by_name(session, name)
+    if application_cache:
+        application_cache.set(
+            key=get_cache_key_for_node(
+                name=node.name,  # type: ignore
+                version=node.current_version,  # type: ignore
+                cached_value_type=CachedValueTypes.DIMENSIONS,
+            ),
+            value=None,
+            timeout=0,
+        )
     return await remove_dimension_link(
         session,
-        name,
+        node,  # type: ignore
         LinkDimensionIdentifier(dimension_node=dimension, role=None),
         current_user,
     )

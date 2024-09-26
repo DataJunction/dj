@@ -18,10 +18,12 @@ class CachelibCache(Cache):
 
     def get(self, key: str) -> Optional[Any]:
         """Get a cached value from the simple cache"""
+        super().get(key)
         return self.cache.get(key)
 
     def set(self, key: str, value: Any, timeout: int = 3600) -> None:
         """Cache a value in the simple cache"""
+        super().set(key, value, timeout)
         self.cache.set(key, value, timeout=timeout)
 
 

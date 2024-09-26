@@ -1485,7 +1485,7 @@ async def get_cube_revision_metadata(session: AsyncSession, name: str):
 
 async def upsert_complex_dimension_link(
     session: AsyncSession,
-    node_name: str,
+    node: Node,
     link_input: LinkDimensionInput,
     current_user: User,
 ) -> ActivityType:
@@ -1496,10 +1496,6 @@ async def upsert_complex_dimension_link(
     and the role, if any. If an existing dimension link identified by those fields already exists,
     we'll update that dimension link. If no dimension link exists, we'll create a new one.
     """
-    node = await Node.get_by_name(
-        session,
-        node_name,
-    )
     if node.type not in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):  # type: ignore
         raise DJInvalidInputException(
             message=f"Cannot link dimension to a node of type {node.type}. "  # type: ignore
@@ -1526,7 +1522,7 @@ async def upsert_complex_dimension_link(
 
     # Parse the join query and do some basic verification of its validity
     join_query = parse(
-        f"SELECT 1 FROM {node_name} "
+        f"SELECT 1 FROM {node.name} "
         f"{link_input.join_type} JOIN {link_input.dimension_node} "
         f"ON {link_input.join_on}",
     )
@@ -1536,14 +1532,14 @@ async def upsert_complex_dimension_link(
     join_relation = join_query.select.from_.relations[0].extensions[0]  # type: ignore
 
     # Verify that the query references both the node and the dimension being joined
-    expected_references = {node_name, link_input.dimension_node}
+    expected_references = {node.name, link_input.dimension_node}
     references = {
         table.name.namespace.identifier()  # type: ignore
         for table in join_relation.criteria.on.find_all(ast.Column)  # type: ignore
     }
     if expected_references.difference(references):
         raise DJInvalidInputException(
-            f"The join SQL provided does not reference both the origin node {node_name} and the "
+            f"The join SQL provided does not reference both the origin node {node.name} and the "
             f"dimension node {link_input.dimension_node} that it's being joined to.",
         )
 
@@ -1608,15 +1604,13 @@ async def upsert_complex_dimension_link(
 
 async def remove_dimension_link(
     session: AsyncSession,
-    node_name: str,
+    node: Node,
     link_identifier: LinkDimensionIdentifier,
     current_user: User,
 ):
     """
     Removes the dimension link identified by the origin node, the dimension node, and its role.
     """
-    node = await Node.get_by_name(session, node_name)
-
     # Find the dimension node
     dimension_node = await get_node_by_name(
         session=session,
@@ -1628,7 +1622,7 @@ async def remove_dimension_link(
     # Find cubes that are affected by this dimension link removal and update their statuses
     downstream_cubes = await get_downstream_nodes(
         session,
-        node_name,
+        node.name,
         node_type=NodeType.CUBE,
     )
     for cube in downstream_cubes:
@@ -1692,13 +1686,13 @@ async def remove_dimension_link(
             "message": (
                 f"Dimension link {link_identifier.dimension_node} "
                 + (f"(role {link_identifier.role}) " if link_identifier.role else "")
-                + f"to node {node_name} has been removed."
+                + f"to node {node.name} has been removed."
             )
             if removed
             else (
                 f"Dimension link {link_identifier.dimension_node} "
                 + (f"(role {link_identifier.role}) " if link_identifier.role else "")
-                + f"to node {node_name} does not exist!"
+                + f"to node {node.name} does not exist!"
             ),
         },
     )
