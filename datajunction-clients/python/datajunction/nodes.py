@@ -179,6 +179,27 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         self.refresh()
         return link_response
 
+    def add_reference_dimension_link(
+        self,
+        node_column: str,
+        dimension_node: str,
+        dimension_column: str,
+        role: Optional[str] = None,
+    ):
+        """
+        Adds a reference dimension link from the node's `column` to the dimension node's
+        `dimension_column`
+        """
+        link_response = self.dj_client._add_reference_dimension_link(
+            self.name,
+            node_column,
+            dimension_node,
+            dimension_column,
+            role,
+        )
+        self.refresh()
+        return link_response
+
     def link_complex_dimension(  # pylint: disable=too-many-arguments
         self,
         dimension_node: str,
@@ -235,6 +256,20 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         )
         self.refresh()
         return unlink_response
+
+    def remove_reference_dimension_link(
+        self,
+        node_column: str,
+    ):
+        """
+        Remove a reference dimension linkk from the node's `column`.
+        """
+        link_response = self.dj_client._remove_reference_dimension_link(
+            self.name,
+            node_column,
+        )
+        self.refresh()
+        return link_response
 
     def add_materialization(self, config: models.Materialization):
         """

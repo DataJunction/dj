@@ -387,6 +387,29 @@ class DJClient:
         )
         return response.json()
 
+    def _add_reference_dimension_link(  # pylint: disable=too-many-arguments
+        self,
+        node_name: str,
+        node_column: str,
+        dimension_node: str,
+        dimension_column: str,
+        role: Optional[str] = None,
+    ):
+        """
+        Helper function to link a dimension to the node.
+        """
+        params = {
+            "dimension_node": dimension_node,
+            "dimension_column": dimension_column,
+            **({"role": role} if role else {}),
+        }
+        response = self._session.post(
+            f"/nodes/{node_name}/columns/{node_column}/link",
+            timeout=self._timeout,
+            params=params,
+        )
+        return response.json()
+
     def _link_complex_dimension_to_node(  # pylint: disable=too-many-arguments
         self,
         node_name: str,
@@ -448,6 +471,20 @@ class DJClient:
                 "dimension_node": dimension_node,
                 "role": role,
             },
+        )
+        return response.json()
+
+    def _remove_reference_dimension_link(
+        self,
+        node_name: str,
+        node_column: str,
+    ):
+        """
+        Helper function to remove a reference dimension link from a node column.
+        """
+        response = self._session.delete(
+            f"/nodes/{node_name}/columns/{node_column}/link",
+            timeout=self._timeout,
         )
         return response.json()
 
