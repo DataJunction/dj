@@ -245,6 +245,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
                 NodeColumns.node_id.label("node_revision_id"),
                 Column.dimension_id,
                 Column.name,
+                Column.dimension_column,
             )
             .select_from(NodeColumns)
             .join(Column, NodeColumns.column_id == Column.id)
@@ -261,6 +262,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
                     )
                     + literal("]")
                 ).label("name"),
+                literal(None).label("dimension_column"),
             ).select_from(DimensionLink),
         )
         .cte("graph_branches")
@@ -271,6 +273,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
         select(
             initial_node.id.label("path_start"),
             graph_branches.c.name.label("col_name"),
+            graph_branches.c.dimension_column.label("dimension_column"),
             dimension_node.id.label("path_end"),
             (
                 initial_node.name
@@ -306,6 +309,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
         select(
             dimensions_graph.c.path_start,
             graph_branches.c.name.label("col_name"),
+            graph_branches.c.dimension_column.label("dimension_column"),
             next_node.id.label("path_end"),
             (
                 dimensions_graph.c.join_path
@@ -322,7 +326,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
         ).select_from(
             dimensions_graph.join(
                 current_node,
-                dimensions_graph.c.path_end == current_node.id,
+                (dimensions_graph.c.path_end == current_node.id),
             )
             .join(
                 current_rev,
@@ -331,10 +335,15 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
                     current_rev.node_id == current_node.id,
                 ),
             )
-            .join(graph_branches, current_rev.id == graph_branches.c.node_revision_id)
+            .join(
+                graph_branches,
+                (current_rev.id == graph_branches.c.node_revision_id)
+                & (is_(graph_branches.c.dimension_column, None)),
+            )
             .join(
                 next_node,
                 (next_node.id == graph_branches.c.dimension_id)
+                & (is_(graph_branches.c.dimension_column, None))
                 & (is_(next_node.deactivated_at, None)),
             )
             .join(
@@ -380,7 +389,16 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
         )
         .select_from(paths)
         .join(NodeColumns, NodeColumns.node_id == paths.c.node_revision_id)
-        .join(column, NodeColumns.column_id == column.id)
+        .join(
+            column,
+            and_(
+                NodeColumns.column_id == column.id,
+                or_(
+                    is_(paths.c.dimension_column, None),
+                    paths.c.dimension_column == column.name,
+                ),
+            ),
+        )
         .join(ColumnAttribute, column.id == ColumnAttribute.column_id, isouter=True)
         .join(
             AttributeType,

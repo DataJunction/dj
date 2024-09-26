@@ -826,13 +826,46 @@ async def test_measures_sql_with_reference_dimension_links(
     Test measures SQL generation with reference dimension links
     """
     await reference_link_events_user_registration_country()
+
+    response = await dimensions_link_client.get(
+        "/nodes/default.elapsed_secs/dimensions",
+    )
+    dimensions_data = response.json()
+    assert dimensions_data == [
+        {
+            "filter_only": False,
+            "is_primary_key": False,
+            "name": "default.users.registration_country",
+            "node_display_name": "Default: Users",
+            "node_name": "default.users",
+            "path": [
+                "default.events.user_registration_country",
+            ],
+            "type": "string",
+        },
+    ]
+
     await link_events_to_users_without_role()
+    response = await dimensions_link_client.get(
+        "/nodes/default.elapsed_secs/dimensions",
+    )
+    dimensions_data = response.json()
+    assert [dim["name"] for dim in dimensions_data] == [
+        "default.users.account_type",
+        "default.users.registration_country",
+        "default.users.registration_country",
+        "default.users.residence_country",
+        "default.users.snapshot_date",
+        "default.users.user_id",
+    ]
+
     sql_params = {
         "metrics": ["default.elapsed_secs"],
         "dimensions": [
             "default.users.registration_country",
         ],
     }
+
     response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
     response_data = response.json()
     expected_sql = """WITH
