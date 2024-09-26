@@ -961,3 +961,37 @@ FROM default_DOT_events"""
     """
     assert str(parse(response_data[0]["sql"])) == str(parse(expected_sql))
     assert response_data[0]["errors"] == []
+async def test_dimension_link_cross_join(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Testing linking complex dimension with CROSS JOIN as the join type.
+    """
+    response = await dimensions_link_client.post(
+        "/nodes/dimension",
+        json={
+            "description": "Areas",
+            "query": """
+            SELECT tab.area, 1 AS area_rep FROM VALUES ('A'), ('B'), ('C') AS tab(area)
+            """,
+            "mode": "published",
+            "name": "default.areas",
+            "primary_key": ["area"],
+        },
+    )
+    assert response.status_code == 201
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.areas",
+            "join_type": "cross",
+            "join_on": "",
+            "join_cardinality": "many_to_one",
+        },
+    )
+    assert response.status_code == 201
+    response = await dimensions_link_client.get("/nodes/default.events/dimensions")
+    assert [dim["name"] for dim in response.json()] == [
+        "default.areas.area",
+        "default.areas.area_rep",
+    ]
