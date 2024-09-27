@@ -6,4 +6,4 @@ metrics:
 dimensions:
   - ${prefix}roads.hard_hat.state
   - ${prefix}roads.dispatcher.company_name
-filter: []
+filters: []
