@@ -26,10 +26,12 @@ class CachelibCache(CacheInterface):
 
     def get(self, key: str) -> Optional[Any]:
         """Get a cached value from the simple cache"""
+        super().get(key)
         return self.cache.get(key)
 
     def set(self, key: str, value: Any, timeout: int = 300) -> None:
         """Cache a value in the simple cache"""
+        super().set(key, value, timeout)
         self.cache.set(key, value, timeout=timeout)
 ```
 
@@ -88,7 +90,7 @@ def get_cache(request: Request) -> Optional[CacheInterface]:
 
 ### Respecting the `no-cache` Header
 
-The open-source `get_cache` dependency respects the `no-cache` header in requests. This means that if a request contains the `Cache-Control: no-cache` header, the cache will be bypassed, and fresh data will be fetched. It is recommended that custom cache implementations also respect this header to ensure consistency. "Turning off the cache" is as simple as returning `None`
+The open-source `get_cache` dependency respects the `no-cache` header in requests. This means that if a request contains the `Cache-Control: no-cache` header, the cache will be bypassed, and fresh data will be fetched. It is recommended that custom cache implementations also respect this header to ensure consistency. "Turning off the cache" when a `no-cache` header is detected is as simple as returning `None`
 from the dependency injected function. Any logic where the cache is typed as `Optional[CacheInterface]` and will skip
 any attempt to use a cache if the dependency injected function returned `None`.
 

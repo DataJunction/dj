@@ -3427,7 +3427,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
     @pytest.mark.asyncio
     async def test_invalidating_cache_on_link(self, client_with_roads: AsyncClient):
         """
-        Test that the cache is invalidated when a dimension link is updated
+        Test that the cache is invalidated when a dimension link is added
         """
         cache_instance = CachelibCache()
         with patch.object(
@@ -3463,6 +3463,74 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             assert (
                 mock_set.call_count == 2
             )  # This is now 2 after the cache invalidation
+
+    @pytest.mark.asyncio
+    async def test_invalidating_cache_on_unlink(self, client_with_roads: AsyncClient):
+        """
+        Test that the cache is invalidated when a dimension link is removed
+        """
+        cache_instance = CachelibCache()
+        with patch.object(
+            CachelibCache,
+            "get",
+            side_effect=cache_instance.get,
+        ) as mock_get, patch.object(
+            CachelibCache,
+            "set",
+            side_effect=cache_instance.set,
+        ) as mock_set:
+
+            response = await client_with_roads.post(
+                "/nodes/default.hard_hats/columns/contractor_id/"
+                "?dimension=default.contractor&dimension_column=contractor_id",
+            )
+            # This is a set call for explicitly invalidating
+            # the current dimensions stores for default.hard_hats
+            mock_set.assert_called_once()
+
+            await client_with_roads.get("/nodes/default.hard_hats/dimensions")
+
+            response = await client_with_roads.delete(
+                "/nodes/default.hard_hats/columns/contractor_id/"
+                "?dimension=default.contractor&dimension_column=contractor_id",
+            )
+
+            assert response.status_code == 201
+            assert response.json() == {
+                "message": (
+                    "Dimension link default.contractor to node default.hard_hats has been "
+                    "removed."
+                ),
+            }
+            assert mock_get.call_count == 1
+            # set is called 3 times, first is to invalidate it (set it to None) for the first call
+            # that created the link, second is when the dimensions were retrieved, in which case
+            # the dimensions dag was cached, then the third time set is called is when the link
+            # is deleted and the cache is invalidated once again by setting that key to None
+            assert mock_set.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_deleting_a_dimension_link_no_cache(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        Test that deleting a cache works with no issue even when no cache is used
+        """
+        response = await client_with_roads.post(
+            "/nodes/default.hard_hats/columns/contractor_id/"
+            "?dimension=default.contractor&dimension_column=contractor_id",
+            headers={"Cache-Control": "no-cache"},
+        )
+        assert response.status_code == 201
+
+        await client_with_roads.get("/nodes/default.hard_hats/dimensions")
+        response = await client_with_roads.delete(
+            "/nodes/default.hard_hats/columns/contractor_id/"
+            "?dimension=default.contractor&dimension_column=contractor_id",
+            headers={"Cache-Control": "no-cache"},
+        )
+        assert response.status_code == 201
 
     @pytest.mark.asyncio
     async def test_dimension_links_with_no_cache_instance(
