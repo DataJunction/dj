@@ -5,7 +5,8 @@ import logging
 import os
 import platform
 import warnings
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypedDict
+from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypedDict, Union
 from urllib.parse import urljoin
 
 try:
@@ -19,7 +20,6 @@ except ImportError:  # pragma: no cover
         ImportWarning,
     )
 import requests
-from pydantic import BaseModel, Field
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 
 from datajunction import models
@@ -29,9 +29,11 @@ from datajunction.exceptions import (
     DJTagDoesNotExist,
 )
 
-if TYPE_CHECKING:
-    from datajunction.nodes import Node  # pragma: no cover
-    from datajunction.tags import Tag  # pragma: no cover
+if TYPE_CHECKING:  # pragma: no cover
+    from datajunction.admin import DJAdmin
+    from datajunction.builder import DJBuilder
+    from datajunction.nodes import Node
+    from datajunction.tags import Tag
 
 DEFAULT_NAMESPACE = "default"
 _logger = logging.getLogger(__name__)
@@ -277,9 +279,9 @@ class DJClient:
 
     def _validate_node(self, node: "Node"):
         """
-        Check if a locally defined node is valid
+        Check if a locally defined node is valid.
         """
-        node_copy = node.dict().copy()
+        node_copy = node.to_dict()
         node_copy["mode"] = models.NodeMode.PUBLISHED
         response = self._session.post(
             "/nodes/validate/",
@@ -301,21 +303,28 @@ class DJClient:
         response = self._session.post(
             f"/nodes/{node.type}/",
             timeout=self._timeout,
-            json=node.dict(exclude_none=True, exclude={"type"}),
+            json=node.to_dict(exclude=["type"]),
         )
         return response
 
-    def _update_node(self, node_name: str, update_input: models.UpdateNode):
+    def _update_node(
+        self,
+        node_name: str,
+        update_input: models.UpdateNode,
+    ) -> requests.Response:
         """
         Call node update API with attributes to update.
         """
-        return self._session.patch(f"/nodes/{node_name}/", json=update_input.dict())
+        return self._session.patch(f"/nodes/{node_name}/", json=asdict(update_input))
 
     def _publish_node(self, node_name: str, update_input: models.UpdateNode):
         """
         Retrieves a node.
         """
-        response = self._session.patch(f"/nodes/{node_name}/", json=update_input.dict())
+        response = self._session.patch(
+            f"/nodes/{node_name}/",
+            json=asdict(update_input),
+        )
         return response.json()
 
     def _get_node(self, node_name: str):
@@ -461,7 +470,7 @@ class DJClient:
         """
         response = self._session.post(
             f"/nodes/{node_name}/materialization/",
-            json=config.dict(),
+            json=config.to_dict(),
         )
         return response.json()
 
@@ -491,7 +500,7 @@ class DJClient:
         """
         response = self._session.post(
             f"/data/{node_name}/availability/",
-            json=availability.dict(),
+            json=asdict(availability),
         )
         return response.json()
 
@@ -506,7 +515,7 @@ class DJClient:
         """
         response = self._session.post(
             f"/nodes/{node_name}/columns/{column_name}/attributes/",
-            json=[attribute.dict() for attribute in attributes],
+            json=[asdict(attribute) for attribute in attributes],
         )
         return response.json()
 
@@ -540,14 +549,11 @@ class DJClient:
     #
     # Methods for Tags
     #
-    def _update_tag(self, tag_name: str, update_input: models.UpdateNode):
+    def _update_tag(self, tag_name: str, update_input: models.UpdateTag):
         """
         Call tag update API with attributes to update.
         """
-        return self._session.patch(
-            f"/tags/{tag_name}/",
-            json=update_input.dict(exclude_none=True),
-        )
+        return self._session.patch(f"/tags/{tag_name}/", json=asdict(update_input))
 
     def _update_node_tags(self, node_name: str, tags: Optional[List[str]]):
         """
@@ -582,7 +588,7 @@ class DJClient:
         response = self._session.post(
             "/tags/",
             timeout=self._timeout,
-            json=tag.dict(exclude_none=True),
+            json=tag.to_dict(),
         )
         return response
 
@@ -603,18 +609,11 @@ class DJClient:
         return [n["name"] for n in response.json()]
 
 
-class ClientEntity(BaseModel):
+@dataclass
+class ClientEntity:
     """
     Any entity that uses the DJ client.
     """
 
-    dj_client: DJClient = Field(exclude=True)
-
-    class Config:  # pylint: disable=too-few-public-methods
-        """
-        Allow arbitrary types to support DJClient but exclude
-        it from the output.
-        """
-
-        arbitrary_types_allowed = True
-        exclude = {"dj_client"}
+    dj_client: Union[DJClient, "DJBuilder", "DJAdmin"]
+    exclude = ["dj_client"]

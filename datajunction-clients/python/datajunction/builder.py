@@ -1,8 +1,9 @@
 """DataJunction builder client module."""
 # pylint: disable=protected-access
 import re
+from dataclasses import fields
 from http import HTTPStatus
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional
 
 from datajunction import models
 from datajunction.client import DJClient
@@ -86,24 +87,66 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     #
     # Nodes: all
     #
+    def make_node_of_type(
+        self,
+        type_: models.NodeType,
+        data: Dict,
+    ):
+        """
+        Make a new node of the given type.
+        """
+        # common arguments
+        common_args = [
+            field.name
+            for field in fields(Node)
+            if field.name not in ["dj_client", "type"]
+        ]
+        if type_ == models.NodeType.SOURCE:
+            args = common_args + [
+                field.name for field in fields(Source) if field.name not in common_args
+            ]
+            data_ = {k: v for k, v in data.items() if k in args}
+            return Source(dj_client=self, **data_)
+        if type_ == models.NodeType.METRIC:
+            args = common_args + [
+                field.name for field in fields(Metric) if field.name not in common_args
+            ]
+            data_ = {k: v for k, v in data.items() if k in args}
+            return Metric(dj_client=self, **data_)
+        if type_ == models.NodeType.DIMENSION:
+            args = common_args + [
+                field.name
+                for field in fields(Dimension)
+                if field.name not in common_args
+            ]
+            data_ = {k: v for k, v in data.items() if k in args}
+            return Dimension(dj_client=self, **data_)
+        if type_ == models.NodeType.TRANSFORM:
+            args = common_args + [
+                field.name
+                for field in fields(Transform)
+                if field.name not in common_args
+            ]
+            data_ = {k: v for k, v in data.items() if k in args}
+            return Transform(dj_client=self, **data_)
+        if type_ == models.NodeType.CUBE:
+            args = common_args + [
+                field.name for field in fields(Cube) if field.name not in common_args
+            ]
+            data_ = {k: v for k, v in data.items() if k in args}
+            return Cube(dj_client=self, **data_)
+        raise DJClientException(f"Unknown node type: {type_}")  # pragma: no cover
+
     def create_node(
         self,
         type_: models.NodeType,
         name: str,
         data: Dict,
         update_if_exists: bool = True,
-    ) -> "Node":
+    ):
         """
         Create or update a new node
         """
-
-        node_type_to_class: dict[models.NodeType, Type[Node]] = {
-            models.NodeType.METRIC: Metric,
-            models.NodeType.CUBE: Cube,
-            models.NodeType.TRANSFORM: Transform,
-            models.NodeType.SOURCE: Source,
-            models.NodeType.DIMENSION: Dimension,
-        }
 
         data = {
             k: v
@@ -118,15 +161,14 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 # This check is for the unit tests, which don't raise an exception
                 # for >= 400 status codes
                 if "name" in cube_dict:
-                    existing_node_dict["metrics"] = cube_dict["cube_node_metrics"]
-                    existing_node_dict["dimensions"] = cube_dict["cube_node_dimensions"]
+                    data["metrics"] = cube_dict["cube_node_metrics"]
+                    data["dimensions"] = cube_dict["cube_node_dimensions"]
         except DJClientException as e:  # pragma: no cover # pytest fixture doesn't raise
             if re.search(r"node .* does not exist", str(e)):
                 existing_node_dict = None
             else:
                 raise
 
-        node_cls = node_type_to_class[type_]
         # pylint: disable=fixme
         # TODO: checking for "name" in existing_node_dict is a workaround
         #   to accommodate pytest mock client, which return a error message dict (no "name")
@@ -134,11 +176,10 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         if existing_node_dict and "name" in existing_node_dict:
             # update
             if update_if_exists:
-                existing_node = node_cls(dj_client=self, **existing_node_dict)
-                new_node = existing_node.copy(update=data)
-                # dj_client is an Pydantic-excluded field and doesn't survive .copy()
-                #   so we need to set it again
-                new_node.dj_client = self
+                new_node = self.make_node_of_type(
+                    type_=type_,
+                    data=data,
+                )
                 new_node._update_tags()
                 new_node._update()
             else:
@@ -148,8 +189,12 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 )
         else:
             # create
-            new_node = node_cls(dj_client=self, **data)
-            self._create_node(node=new_node, mode=data.get("mode"))
+            new_node = self.make_node_of_type(type_=type_, data=data)
+            response = self._create_node(node=new_node, mode=data.get("mode"))
+            if not response.status_code < 400:
+                raise DJClientException(
+                    f"Creating node `{name}` failed: {response.json()}",
+                )  # pragma: no cover
             new_node._update_tags()
         new_node.refresh()
         return new_node
@@ -238,8 +283,21 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 f"Failed to register table `{catalog}.{schema}.{table}`: {exc}",
             ) from exc
         source_node = Source(
-            **response.json(),
             dj_client=self,
+            name=response.json()["name"],
+            catalog=response.json()["catalog"],
+            schema_=response.json()["schema_"],
+            table=response.json()["table"],
+            columns=response.json()["columns"],
+            description=response.json()["description"],
+            mode=response.json()["mode"],
+            status=response.json()["status"],
+            display_name=response.json()["display_name"],
+            availability=response.json()["availability"],
+            tags=response.json()["tags"],
+            materializations=response.json()["materializations"],
+            version=response.json()["version"],
+            current_version=response.json()["current_version"],
         )
         return source_node
 
@@ -267,8 +325,21 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 f"Failed to register view `{catalog}.{schema}.{view}`: {exc}",
             ) from exc
         source_node = Source(
-            **response.json(),
             dj_client=self,
+            name=response.json()["name"],
+            catalog=response.json()["catalog"],
+            schema_=response.json()["schema_"],
+            table=response.json()["table"],
+            columns=response.json()["columns"],
+            description=response.json()["description"],
+            mode=response.json()["mode"],
+            status=response.json()["status"],
+            display_name=response.json()["display_name"],
+            availability=response.json()["availability"],
+            tags=response.json()["tags"],
+            materializations=response.json()["materializations"],
+            version=response.json()["version"],
+            current_version=response.json()["current_version"],
         )
         return source_node
 
