@@ -9,11 +9,23 @@ from datajunction._internal import ClientEntity
 from datajunction.exceptions import DJClientException
 from datajunction.models import UpdateTag
 
+# @dataclass
+# class TagInfo:
+#     """
+#     Metadata about a tag
+#     """
+
+#     name: str
+#     tag_type: str
+#     description: Optional[str] = None
+#     display_name: Optional[str] = None
+#     tag_metadata: Optional[Dict] = None
+
 
 @dataclass
-class TagInfo:
+class Tag(ClientEntity):
     """
-    Metadata about a tag
+    Node tag.
     """
 
     name: str
@@ -22,16 +34,10 @@ class TagInfo:
     display_name: Optional[str] = None
     tag_metadata: Optional[Dict] = None
 
-
-@dataclass
-class Tag(TagInfo, ClientEntity):
-    """
-    Node tags
-    """
-
     def to_dict(self) -> dict:
         """
-        Converts the tag to a dictionary
+        Convert the tag to a dictionary. We need to make this method because
+        the default asdict() method from dataclasses does not handle nested dataclasses.
         """
         return {
             "name": self.name,

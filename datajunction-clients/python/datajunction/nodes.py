@@ -87,7 +87,8 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
 
     def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
         """
-        Convert the source node to a dictionary
+        Convert the source node to a dictionary. We need to make this method because
+        the default asdict() method from dataclasses does not handle nested dataclasses.
         """
         dict_ = {
             "name": self.name,
@@ -98,7 +99,9 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
             "display_name": self.display_name,
             "availability": self.availability,
             "tags": [
-                tag.to_dict() if isinstance(tag, Tag) else tag for tag in self.tags
+                # asdict() is not used to avoid dataclasses circular serialization error
+                tag.to_dict() if isinstance(tag, Tag) else tag
+                for tag in self.tags
             ]
             if self.tags
             else None,
@@ -108,7 +111,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
             "deactivated_at": self.deactivated_at,
             "current_version": self.current_version,
             "columns": [
-                col.to_dict() if isinstance(col, models.Column) else col
+                asdict(col) if isinstance(col, models.Column) else col
                 for col in self.columns
             ]
             if self.columns
