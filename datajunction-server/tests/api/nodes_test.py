@@ -3425,6 +3425,25 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         }
 
     @pytest.mark.asyncio
+    async def test_backfill_failures(self, client_with_query_service):
+        """Run backfill failure modes"""
+
+        # Kick off backfill for non-existent materalization
+        response = await client_with_query_service.post(
+            "/nodes/default.hard_hat/materializations/non_existent/backfill",
+            json=[
+                {
+                    "column_name": "birth_date",
+                    "range": ["20230101", "20230201"],
+                },
+            ],
+        )
+        assert (
+            response.json()["message"]
+            == "Materialization with name non_existent not found"
+        )
+
+    @pytest.mark.asyncio
     async def test_invalidating_cache_on_link(self, client_with_roads: AsyncClient):
         """
         Test that the cache is invalidated when a dimension link is added
