@@ -101,41 +101,27 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             for field in fields(Node)
             if field.name not in ["dj_client", "type"]
         ]
-        if type_ == models.NodeType.SOURCE:
-            args = common_args + [
-                field.name for field in fields(Source) if field.name not in common_args
-            ]
-            data_ = {k: v for k, v in data.items() if k in args}
-            return Source(dj_client=self, **data_)
-        if type_ == models.NodeType.METRIC:
-            args = common_args + [
-                field.name for field in fields(Metric) if field.name not in common_args
-            ]
-            data_ = {k: v for k, v in data.items() if k in args}
-            return Metric(dj_client=self, **data_)
-        if type_ == models.NodeType.DIMENSION:
-            args = common_args + [
-                field.name
-                for field in fields(Dimension)
-                if field.name not in common_args
-            ]
-            data_ = {k: v for k, v in data.items() if k in args}
-            return Dimension(dj_client=self, **data_)
-        if type_ == models.NodeType.TRANSFORM:
-            args = common_args + [
-                field.name
-                for field in fields(Transform)
-                if field.name not in common_args
-            ]
-            data_ = {k: v for k, v in data.items() if k in args}
-            return Transform(dj_client=self, **data_)
-        if type_ == models.NodeType.CUBE:
-            args = common_args + [
-                field.name for field in fields(Cube) if field.name not in common_args
-            ]
-            data_ = {k: v for k, v in data.items() if k in args}
-            return Cube(dj_client=self, **data_)
-        raise DJClientException(f"Unknown node type: {type_}")  # pragma: no cover
+
+        def type_to_class(type_: str):
+            if type_ == models.NodeType.SOURCE:
+                return Source
+            if type_ == models.NodeType.METRIC:
+                return Metric
+            if type_ == models.NodeType.DIMENSION:
+                return Dimension
+            if type_ == models.NodeType.TRANSFORM:
+                return Transform
+            if type_ == models.NodeType.CUBE:
+                return Cube
+            raise DJClientException(f"Unknown node type: {type_}")  # pragma: no cover
+
+        class_ = type_to_class(type_)
+
+        args = common_args + [
+            field.name for field in fields(class_) if field.name not in common_args
+        ]
+        data_ = {k: v for k, v in data.items() if k in args}
+        return class_(dj_client=self, **data_)
 
     def create_node(
         self,
@@ -282,22 +268,23 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             raise DJClientException(
                 f"Failed to register table `{catalog}.{schema}.{table}`: {exc}",
             ) from exc
+        data = response.json()
         source_node = Source(
             dj_client=self,
-            name=response.json()["name"],
-            catalog=response.json()["catalog"],
-            schema_=response.json()["schema_"],
-            table=response.json()["table"],
-            columns=response.json()["columns"],
-            description=response.json()["description"],
-            mode=response.json()["mode"],
-            status=response.json()["status"],
-            display_name=response.json()["display_name"],
-            availability=response.json()["availability"],
-            tags=response.json()["tags"],
-            materializations=response.json()["materializations"],
-            version=response.json()["version"],
-            current_version=response.json()["current_version"],
+            name=data["name"],
+            catalog=data["catalog"],
+            schema_=data["schema_"],
+            table=data["table"],
+            columns=data["columns"],
+            description=data["description"],
+            mode=data["mode"],
+            status=data["status"],
+            display_name=data["display_name"],
+            availability=data["availability"],
+            tags=data["tags"],
+            materializations=data["materializations"],
+            version=data["version"],
+            current_version=data["current_version"],
         )
         return source_node
 
@@ -324,22 +311,23 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             raise DJClientException(
                 f"Failed to register view `{catalog}.{schema}.{view}`: {exc}",
             ) from exc
+        data = response.json()
         source_node = Source(
             dj_client=self,
-            name=response.json()["name"],
-            catalog=response.json()["catalog"],
-            schema_=response.json()["schema_"],
-            table=response.json()["table"],
-            columns=response.json()["columns"],
-            description=response.json()["description"],
-            mode=response.json()["mode"],
-            status=response.json()["status"],
-            display_name=response.json()["display_name"],
-            availability=response.json()["availability"],
-            tags=response.json()["tags"],
-            materializations=response.json()["materializations"],
-            version=response.json()["version"],
-            current_version=response.json()["current_version"],
+            name=data["name"],
+            catalog=data["catalog"],
+            schema_=data["schema_"],
+            table=data["table"],
+            columns=data["columns"],
+            description=data["description"],
+            mode=data["mode"],
+            status=data["status"],
+            display_name=data["display_name"],
+            availability=data["availability"],
+            tags=data["tags"],
+            materializations=data["materializations"],
+            version=data["version"],
+            current_version=data["current_version"],
         )
         return source_node
 

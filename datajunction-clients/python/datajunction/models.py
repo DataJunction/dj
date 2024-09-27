@@ -148,18 +148,6 @@ class Column:
     attributes: Optional[List[ColumnAttribute]] = None
     dimension: Optional[str] = None
 
-    def to_dict(self) -> Dict:
-        """
-        Convert to a dict
-        """
-        return {
-            "name": self.name,
-            "type": self.type,
-            "display_name": self.display_name,
-            "attributes": self.attributes,
-            "dimension": self.dimension,
-        }
-
 
 @dataclass
 class UpdateNode:  # pylint: disable=too-many-instance-attributes
