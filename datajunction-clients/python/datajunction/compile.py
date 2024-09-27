@@ -15,12 +15,12 @@ import os
 import random
 import string
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union
 
 import yaml
-from pydantic import BaseModel, validator
-from pydantic_yaml import parse_yaml_raw_as
 from rich import box
 from rich.align import Align
 from rich.console import Console
@@ -82,63 +82,58 @@ def find_project_root(directory: Optional[str] = None):
     return checked_dir
 
 
-class TagYAML(BaseModel):
+@dataclass
+class TagYAML:
     """
     YAML representation of a tag
     """
 
     name: str
     description: str = ""
-    tag_type: str
+    tag_type: str = ""
     tag_metadata: Optional[Dict] = None
 
 
-class NodeYAML(BaseModel):
+@dataclass
+class NodeYAML:
     """
     YAML represention of a node
     """
 
     deploy_order: int = 0
 
-    class Config:  # pylint: disable=too-few-public-methods
-        """
-        Pydantic configuration
-        """
 
-        arbitrary_types_allowed = True
-
-
-class SourceYAML(NodeYAML):
+@dataclass
+class SourceYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     """
     YAML representation of a source node
     """
 
     node_type: Literal[NodeType.SOURCE] = NodeType.SOURCE
-    display_name: Optional[str]
-    table: str
-    columns: List[Column]
+    display_name: Optional[str] = None
+    table: str = ""
+    columns: Optional[List[Column]] = None
     description: Optional[str] = None
     primary_key: Optional[List[str]] = None
     tags: Optional[List[Tag]] = None
     mode: NodeMode = NodeMode.PUBLISHED
     dimension_links: Optional[dict] = None
+    query: Optional[str] = None
     deploy_order: int = 1
 
-    @validator("table")
-    def table_is_qualified(cls, value: str) -> str:  # pylint: disable=no-self-argument
+    def __post_init__(self):
         """
         Validate that the table name is fully qualified
         """
         if (
-            value.count(".") != 2
-            or not value.replace(".", "").replace("_", "").isalnum()
+            self.table.count(".") != 2
+            or not self.table.replace(".", "").replace("_", "").isalnum()
         ):
             raise DJClientException(
-                f"Invalid table name {value}, table "
+                f"Invalid table name {self.table}, table "
                 "name must be fully qualified: "
                 "<catalog>.<schema>.<table>",
             )
-        return value
 
     def deploy(self, name: str, prefix: str, client: DJBuilder):
         """
@@ -194,14 +189,15 @@ class SourceYAML(NodeYAML):
                 )
 
 
-class TransformYAML(NodeYAML):
+@dataclass
+class TransformYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     """
     YAML representation of a transform node
     """
 
     node_type: Literal[NodeType.TRANSFORM] = NodeType.TRANSFORM
-    query: str
-    display_name: Optional[str]
+    query: str = ""
+    display_name: Optional[str] = None
     description: Optional[str] = None
     primary_key: Optional[List[str]] = None
     tags: Optional[List[Tag]] = None
@@ -260,17 +256,18 @@ class TransformYAML(NodeYAML):
                 )
 
 
-class DimensionYAML(NodeYAML):
+@dataclass
+class DimensionYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     """
     YAML representation of a dimension node
     """
 
     node_type: Literal[NodeType.DIMENSION] = NodeType.DIMENSION
-    query: str
-    display_name: Optional[str]
-    description: Optional[str]
-    primary_key: Optional[List[str]]
-    tags: Optional[List[Tag]]
+    query: str = ""
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    primary_key: Optional[List[str]] = None
+    tags: Optional[List[Tag]] = None
     mode: NodeMode = NodeMode.PUBLISHED
     dimension_links: Optional[dict] = None
     deploy_order: int = 3
@@ -326,16 +323,17 @@ class DimensionYAML(NodeYAML):
                 )
 
 
+@dataclass
 class MetricYAML(NodeYAML):
     """
     YAML representation of a metric node
     """
 
     node_type: Literal[NodeType.METRIC] = NodeType.METRIC
-    query: str
-    display_name: Optional[str]
-    description: Optional[str]
-    tags: Optional[List[Tag]]
+    query: str = ""
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[List[Tag]] = None
     mode: NodeMode = NodeMode.PUBLISHED
     deploy_order: int = 4
 
@@ -356,18 +354,20 @@ class MetricYAML(NodeYAML):
         return node
 
 
-class CubeYAML(NodeYAML):
+@dataclass
+class CubeYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     """
     YAML representation of a cube node
     """
 
     node_type: Literal[NodeType.CUBE] = NodeType.CUBE
-    display_name: Optional[str]
-    metrics: List[str]
-    dimensions: List[str]
+    display_name: Optional[str] = None
+    metrics: List[str] = field(default_factory=list)
+    dimensions: List[str] = field(default_factory=list)
     filters: Optional[List[str]] = None
     description: Optional[str] = None
     mode: NodeMode = NodeMode.PUBLISHED
+    query: Optional[str] = None
     deploy_order: int = 5
 
     def deploy(self, name: str, prefix: str, client: DJBuilder):
@@ -395,34 +395,38 @@ class CubeYAML(NodeYAML):
         return node
 
 
-class NodeConfig(BaseModel):
+@dataclass
+class NodeConfig:
     """
     A single node configuration
     """
 
     name: str
-    definition: NodeYAML
+    definition: Union[SourceYAML, TransformYAML, DimensionYAML, MetricYAML, CubeYAML]
     path: str
 
 
-class BuildConfig(BaseModel):
+@dataclass
+class BuildConfig:
     """
     A build configuration for a project
     """
 
-    priority: List[str] = []
+    priority: List[str] = field(default_factory=list[str])
 
 
-class Project(BaseModel):
+@dataclass
+class Project:
     """
     A project configuration
     """
 
     name: str
     prefix: str
-    build: BuildConfig = BuildConfig()
     root_path: str = ""
-    tags: Optional[List[TagYAML]] = []
+    description: str = ""
+    build: BuildConfig = field(default_factory=BuildConfig)
+    tags: Optional[List[TagYAML]] = field(default_factory=list[TagYAML])
     mode: NodeMode = NodeMode.PUBLISHED
 
     @classmethod
@@ -440,8 +444,22 @@ class Project(BaseModel):
         root = find_project_root(directory)
         config_file_path = os.path.join(root, CONFIG_FILENAME)
         with open(config_file_path, encoding="utf-8") as f_config:
-            config = parse_yaml_raw_as(cls, f_config)
+            config_dict = yaml.safe_load(f_config)
+            config = cls(**config_dict)
             config.root_path = root
+            config.build = (
+                BuildConfig(**config.build)  # pylint: disable=not-a-mapping
+                if isinstance(config.build, dict)
+                else config.build
+            )
+            config.tags = (
+                [
+                    TagYAML(**tag) if isinstance(tag, dict) else tag
+                    for tag in config.tags
+                ]
+                if config.tags
+                else []
+            )
             return config
 
     def compile(self) -> "CompiledProject":
@@ -452,11 +470,14 @@ class Project(BaseModel):
             repository=Path(self.root_path),
             priority=self.build.priority,
         )
-        compiled = self.dict()
+        compiled = asdict(self)
         compiled.update(
             {"namespaces": collect_namespaces(definitions), "definitions": definitions},
         )
-        return CompiledProject(**compiled)
+        compiled_project = CompiledProject(**compiled)
+        compiled_project.build = self.build
+        compiled_project.tags = self.tags
+        return compiled_project
 
     @staticmethod
     def pull(
@@ -551,15 +572,16 @@ def inject_prefixes(unparameterized_string: str, prefix: str):
     return unparameterized_string.replace(f"{prefix}.", "${prefix}")
 
 
+@dataclass
 class CompiledProject(Project):
     """
     A compiled project with all node definitions loaded
     """
 
-    namespaces: List[str]
-    definitions: List[NodeConfig]
+    namespaces: List[str] = field(default_factory=list)
+    definitions: List[NodeConfig] = field(default_factory=list)
     validated: bool = False
-    errors: List[dict] = []
+    errors: List[dict] = field(default_factory=list)
 
     def _deploy_tags(self, prefix: str, table: Table, client: DJBuilder):
         """
@@ -599,7 +621,7 @@ class CompiledProject(Project):
         """
         Deploy namespaces
         """
-        for namespace in self.namespaces + [prefix]:
+        for namespace in list(self.namespaces) + [prefix]:
             prefixed_name = f"{prefix}.{namespace}" if namespace != prefix else prefix
             try:
                 client.create_namespace(
@@ -657,7 +679,7 @@ class CompiledProject(Project):
                 else ""
             )
             try:
-                rendered_node_config = node_config.copy(deep=True)
+                rendered_node_config = deepcopy(node_config)
                 if isinstance(
                     node_config.definition,
                     (TransformYAML, DimensionYAML, MetricYAML),
@@ -769,6 +791,9 @@ class CompiledProject(Project):
             )
 
     def validate(self, client, console: Console = Console()):
+        """
+        Validate the compiled project
+        """
         self.errors = []
         console.clear()
         validation_id = "".join(random.choices(string.ascii_letters, k=16))
@@ -835,7 +860,9 @@ async def load_data(
     )
     if yaml_cls:
         with open(path, encoding="utf-8") as f_yaml:
-            definition = parse_yaml_raw_as(yaml_cls, f_yaml)
+            yaml_dict = yaml.safe_load(f_yaml)
+            definition = yaml_cls(**yaml_dict)
+
             return NodeConfig(
                 name=get_name_from_path(repository=repository, path=path),
                 definition=definition,
