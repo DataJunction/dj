@@ -1019,7 +1019,9 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert tag.tag_metadata == {"foo": "bar"}
         tag.description = "This is an updated description."
         tag.save()
+        # refresh the tag
         repulled_tag = client.tag("foo.three")
+        repulled_tag.refresh()
         assert repulled_tag.description == "This is an updated description."
 
     def test_tag_does_not_exist(self, client):
@@ -1045,7 +1047,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         node.tags.append(tag)
         node.save()
         repull_node = client.source("default.repair_orders")
-        assert repull_node.tags == [tag]
+        assert repull_node.tags == [tag.to_dict()]
 
     def test_list_nodes_with_tags(self, client):
         """

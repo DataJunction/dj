@@ -100,6 +100,13 @@ class NodeYAML(BaseModel):
 
     deploy_order: int = 0
 
+    class Config:  # pylint: disable=too-few-public-methods
+        """
+        Pydantic configuration
+        """
+
+        arbitrary_types_allowed = True
+
 
 class SourceYAML(NodeYAML):
     """
