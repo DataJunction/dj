@@ -27,8 +27,11 @@ class CachelibCache(Cache):
         self.cache.set(key, value, timeout=timeout)
 
 
+application_cache = CachelibCache()
+
+
 def get_cache(request: Request) -> Optional[CacheInterface]:
     """Dependency for retrieving a cachelib-based cache implementation"""
     cache_control = request.headers.get("Cache-Control", "")
     skip_cache = "no-cache" in cache_control
-    return None if skip_cache else CachelibCache()
+    return None if skip_cache else application_cache
