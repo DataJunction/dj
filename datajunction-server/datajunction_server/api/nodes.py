@@ -36,6 +36,7 @@ from datajunction_server.errors import (
     DJActionNotAllowedException,
     DJAlreadyExistsException,
     DJDoesNotExistException,
+    DJError,
     DJException,
     DJInvalidInputException,
     ErrorCode,
@@ -105,6 +106,7 @@ from datajunction_server.sql.dag import (
     get_dimensions,
     get_downstream_nodes,
     get_filter_only_dimensions,
+    get_nodes_with_dimension,
     get_upstream_nodes,
 )
 from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
@@ -343,6 +345,33 @@ async def delete_node(
     """
     Delete (aka deactivate) the specified node.
     """
+    node = await get_node_by_name(
+        session,
+        name,
+        with_current=True,
+        raise_if_not_exists=True,
+    )
+
+    # For dimension nodes, do not allow deleting when links still exist
+    if node.type == NodeType.DIMENSION:
+        linked_nodes = await get_nodes_with_dimension(
+            session=session,
+            dimension_node=node,
+        )
+        if linked_nodes:
+            raise DJActionNotAllowedException(
+                message=f"Cannot delete dimension node {name} with existing links",
+                errors=[
+                    DJError(
+                        code=ErrorCode.EXISTING_DIMENSION_LINK,
+                        message="Cannot delete dimension due to existing link",
+                        context=node.name,
+                    )
+                    for node in linked_nodes
+                ],
+                http_status_code=HTTPStatus.BAD_REQUEST,
+            )
+
     await deactivate_node(session=session, name=name, current_user=current_user)
     return JSONResponse(
         status_code=HTTPStatus.OK,
@@ -848,12 +877,13 @@ async def link_dimension(
         raise_if_not_exists=True,
     )
     if application_cache:
+        cache_key = await get_cache_key_for_node(
+            name=node.name,  # type: ignore
+            version=node.current_version,  # type: ignore
+            cached_value_type=CachedValueTypes.DIMENSIONS,
+        )
         application_cache.set(
-            key=get_cache_key_for_node(
-                name=node.name,  # type: ignore
-                version=node.current_version,  # type: ignore
-                cached_value_type=CachedValueTypes.DIMENSIONS,
-            ),
+            key=cache_key,
             value=None,
             timeout=0,
         )
@@ -938,12 +968,13 @@ async def add_complex_dimension_link(  # pylint: disable=too-many-locals
         node_name,
     )
     if application_cache:
+        cache_key = await get_cache_key_for_node(
+            name=node.name,  # type: ignore
+            version=node.current_version,  # type: ignore
+            cached_value_type=CachedValueTypes.DIMENSIONS,
+        )
         application_cache.set(
-            key=get_cache_key_for_node(
-                name=node.name,  # type: ignore
-                version=node.current_version,  # type: ignore
-                cached_value_type=CachedValueTypes.DIMENSIONS,
-            ),
+            key=cache_key,
             value=None,
             timeout=0,
         )
@@ -982,12 +1013,13 @@ async def remove_complex_dimension_link(  # pylint: disable=too-many-locals
     """
     node = await Node.get_by_name(session, node_name)
     if application_cache:
+        cache_key = await get_cache_key_for_node(
+            name=node.name,  # type: ignore
+            version=node.current_version,  # type: ignore
+            cached_value_type=CachedValueTypes.DIMENSIONS,
+        )
         application_cache.set(
-            key=get_cache_key_for_node(
-                name=node.name,  # type: ignore
-                version=node.current_version,  # type: ignore
-                cached_value_type=CachedValueTypes.DIMENSIONS,
-            ),
+            key=cache_key,
             value=None,
             timeout=0,
         )
@@ -1014,12 +1046,13 @@ async def delete_dimension_link(
     """
     node = await Node.get_by_name(session, name)
     if application_cache:
+        cache_key = await get_cache_key_for_node(
+            name=node.name,  # type: ignore
+            version=node.current_version,  # type: ignore
+            cached_value_type=CachedValueTypes.DIMENSIONS,
+        )
         application_cache.set(
-            key=get_cache_key_for_node(
-                name=node.name,  # type: ignore
-                version=node.current_version,  # type: ignore
-                cached_value_type=CachedValueTypes.DIMENSIONS,
-            ),
+            key=cache_key,
             value=None,
             timeout=0,
         )

@@ -854,7 +854,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ] == []
 
     @pytest.mark.asyncio
-    async def test_deleting_linked_dimension(
+    async def test_deleting_linked_dimension(  # pylint: disable=too-many-statements
         self,
         client: AsyncClient,
     ):
@@ -1098,15 +1098,60 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             (activity["activity_type"], activity["entity_type"]) for activity in history
         ] == [("create", "link"), ("create", "node")]
 
-        # Delete the dimension node
+        # Delete the dimension node (should fail since the dimension is still linked to)
+        response = await client.delete("/nodes/default.us_users/")
+        assert response.status_code == 400
+        assert response.json() == {
+            "message": "Cannot delete dimension node default.us_users with existing links",
+            "errors": [
+                {
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.messages",
+                },
+                {
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.num_messages",
+                },
+                {
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.num_messages_id",
+                },
+            ],
+            "warnings": [],
+        }
+
+        # Remove the link
+        response = await client.delete(
+            "/nodes/default.messages/columns/user_id/"
+            "?dimension=default.us_users&dimension_column=id",
+        )
+        assert response.status_code in (200, 201)
+
+        # Now deleting the dimension node should work after links to it are removed
         response = await client.delete("/nodes/default.us_users/")
         assert response.status_code in (200, 201)
+
         # Retrieving the deleted node should respond that the node doesn't exist
         assert (await client.get("/nodes/default.us_users/")).json()["message"] == (
             "A node with name `default.us_users` does not exist."
         )
+
         # The deleted dimension's attributes should no longer be available to the metric
-        response = await client.get("/metrics/default.num_messages/")
+        # Note that no-cache is used here. This is because although the transform node has
+        # its cache invalidated when the dimension node is unlinked. We do not also find all
+        # of the downstream metric nodes and invalidate those caches as well. It's worth a
+        # discussion on if this is acceptable when accounting for the frequency of dimension
+        # deletes and the typical TTL on a cache.
+        response = await client.get(
+            "/metrics/default.num_messages/",
+            headers={"Cache-Control": "no-cache"},
+        )
         assert response.status_code in (200, 201)
         assert [] == response.json()["dimensions"]
         # The metric should still be VALID
@@ -1118,92 +1163,101 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         # Retrieving the restored node should work
         response = await client.get("/nodes/default.us_users/")
         assert response.status_code in (200, 201)
+
+        # Note: The test below no longer holds true since dimension links need to be
+        # removed before a dimension node can be deactivated or hard deleted. In
+        # order for the dimension's attributes to show up again, the links that
+        # existed to the dimension node must be manually recreated.
+        # ...
         # The dimension's attributes should now once again show for the linked metric
-        response = await client.get("/metrics/default.num_messages/")
-        assert response.status_code in (200, 201)
-        assert response.json()["dimensions"] == [
-            {
-                "is_primary_key": False,
-                "name": "default.us_users.age",
-                "node_display_name": "Default: Us Users",
-                "node_name": "default.us_users",
-                "path": ["default.messages"],
-                "type": "int",
-                "filter_only": False,
-            },
-            {
-                "is_primary_key": False,
-                "name": "default.us_users.country",
-                "node_display_name": "Default: Us Users",
-                "node_name": "default.us_users",
-                "path": ["default.messages"],
-                "type": "string",
-                "filter_only": False,
-            },
-            {
-                "is_primary_key": False,
-                "name": "default.us_users.created_at",
-                "node_display_name": "Default: Us Users",
-                "node_name": "default.us_users",
-                "path": ["default.messages"],
-                "type": "timestamp",
-                "filter_only": False,
-            },
-            {
-                "is_primary_key": False,
-                "name": "default.us_users.full_name",
-                "node_display_name": "Default: Us Users",
-                "node_name": "default.us_users",
-                "path": ["default.messages"],
-                "type": "string",
-                "filter_only": False,
-            },
-            {
-                "is_primary_key": False,
-                "name": "default.us_users.gender",
-                "node_display_name": "Default: Us Users",
-                "node_name": "default.us_users",
-                "path": ["default.messages"],
-                "type": "string",
-                "filter_only": False,
-            },
-            {
-                "is_primary_key": True,
-                "name": "default.us_users.id",
-                "node_display_name": "Default: Us Users",
-                "node_name": "default.us_users",
-                "path": ["default.messages"],
-                "type": "int",
-                "filter_only": False,
-            },
-            {
-                "is_primary_key": False,
-                "name": "default.us_users.post_processing_timestamp",
-                "node_display_name": "Default: Us Users",
-                "node_name": "default.us_users",
-                "path": ["default.messages"],
-                "type": "timestamp",
-                "filter_only": False,
-            },
-            {
-                "is_primary_key": False,
-                "name": "default.us_users.preferred_language",
-                "node_display_name": "Default: Us Users",
-                "node_name": "default.us_users",
-                "path": ["default.messages"],
-                "type": "string",
-                "filter_only": False,
-            },
-            {
-                "is_primary_key": False,
-                "name": "default.us_users.secret_number",
-                "node_display_name": "Default: Us Users",
-                "node_name": "default.us_users",
-                "path": ["default.messages"],
-                "type": "float",
-                "filter_only": False,
-            },
-        ]
+        # response = await client.get(
+        #     "/metrics/default.num_messages/",
+        #     headers={"Cache-Control": "no-cache"}
+        # )
+        # assert response.status_code in (200, 201)
+        # assert response.json()["dimensions"] == [
+        #     {
+        #         "is_primary_key": False,
+        #         "name": "default.us_users.age",
+        #         "node_display_name": "Default: Us Users",
+        #         "node_name": "default.us_users",
+        #         "path": ["default.messages"],
+        #         "type": "int",
+        #         "filter_only": False,
+        #     },
+        #     {
+        #         "is_primary_key": False,
+        #         "name": "default.us_users.country",
+        #         "node_display_name": "Default: Us Users",
+        #         "node_name": "default.us_users",
+        #         "path": ["default.messages"],
+        #         "type": "string",
+        #         "filter_only": False,
+        #     },
+        #     {
+        #         "is_primary_key": False,
+        #         "name": "default.us_users.created_at",
+        #         "node_display_name": "Default: Us Users",
+        #         "node_name": "default.us_users",
+        #         "path": ["default.messages"],
+        #         "type": "timestamp",
+        #         "filter_only": False,
+        #     },
+        #     {
+        #         "is_primary_key": False,
+        #         "name": "default.us_users.full_name",
+        #         "node_display_name": "Default: Us Users",
+        #         "node_name": "default.us_users",
+        #         "path": ["default.messages"],
+        #         "type": "string",
+        #         "filter_only": False,
+        #     },
+        #     {
+        #         "is_primary_key": False,
+        #         "name": "default.us_users.gender",
+        #         "node_display_name": "Default: Us Users",
+        #         "node_name": "default.us_users",
+        #         "path": ["default.messages"],
+        #         "type": "string",
+        #         "filter_only": False,
+        #     },
+        #     {
+        #         "is_primary_key": True,
+        #         "name": "default.us_users.id",
+        #         "node_display_name": "Default: Us Users",
+        #         "node_name": "default.us_users",
+        #         "path": ["default.messages"],
+        #         "type": "int",
+        #         "filter_only": False,
+        #     },
+        #     {
+        #         "is_primary_key": False,
+        #         "name": "default.us_users.post_processing_timestamp",
+        #         "node_display_name": "Default: Us Users",
+        #         "node_name": "default.us_users",
+        #         "path": ["default.messages"],
+        #         "type": "timestamp",
+        #         "filter_only": False,
+        #     },
+        #     {
+        #         "is_primary_key": False,
+        #         "name": "default.us_users.preferred_language",
+        #         "node_display_name": "Default: Us Users",
+        #         "node_name": "default.us_users",
+        #         "path": ["default.messages"],
+        #         "type": "string",
+        #         "filter_only": False,
+        #     },
+        #     {
+        #         "is_primary_key": False,
+        #         "name": "default.us_users.secret_number",
+        #         "node_display_name": "Default: Us Users",
+        #         "node_name": "default.us_users",
+        #         "path": ["default.messages"],
+        #         "type": "float",
+        #         "filter_only": False,
+        #     },
+        # ]
         # The metric should still be VALID
         response = await client.get("/nodes/default.num_messages/")
         assert response.json()["status"] == NodeStatus.VALID
@@ -1389,7 +1443,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         client_with_roads: AsyncClient,
     ):
         """
-        Test raising when restoring an already active node
+        Test hard deleting a node
         """
         # Hard deleting a node causes downstream nodes to become invalid
         response = await client_with_roads.delete("/nodes/default.repair_orders/hard/")
@@ -1457,80 +1511,93 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "message": "The node `default.repair_orders` has been completely removed.",
         }
 
-        # Hard deleting a dimension creates broken links
-        response = await client_with_roads.delete("/nodes/default.repair_order/hard/")
-        assert response.status_code in (200, 201)
+        # Deleting a dimension that has links is no longer allowed
+        response = await client_with_roads.delete("/nodes/default.repair_order/")
+        assert response.status_code == 400
         data = response.json()
-        assert sorted(data["impact"], key=lambda x: x["name"]) == sorted(
-            [
+        assert data == {
+            "message": "Cannot delete dimension node default.repair_order with existing links",
+            "errors": [
                 {
-                    "effect": "broken link",
-                    "name": "default.repair_order_details",
-                    "status": "valid",
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.discounted_orders_rate",
                 },
                 {
-                    "effect": "broken link",
-                    "name": "default.regional_level_agg",
-                    "status": "invalid",
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.total_repair_order_discounts",
                 },
                 {
-                    "effect": "broken link",
-                    "name": "default.national_level_agg",
-                    "status": "valid",
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.avg_repair_order_discounts",
                 },
                 {
-                    "effect": "broken link",
-                    "name": "default.repair_orders_fact",
-                    "status": "invalid",
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.repair_order_details",
                 },
                 {
-                    "effect": "broken link",
-                    "name": "default.regional_repair_efficiency",
-                    "status": "invalid",
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.avg_time_to_dispatch",
                 },
                 {
-                    "effect": "broken link",
-                    "name": "default.num_repair_orders",
-                    "status": "invalid",
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.regional_level_agg",
                 },
                 {
-                    "effect": "broken link",
-                    "name": "default.avg_repair_price",
-                    "status": "invalid",
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.national_level_agg",
                 },
                 {
-                    "effect": "broken link",
-                    "name": "default.total_repair_cost",
-                    "status": "invalid",
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.repair_orders_fact",
                 },
                 {
-                    "effect": "broken link",
-                    "name": "default.discounted_orders_rate",
-                    "status": "invalid",
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.regional_repair_efficiency",
                 },
                 {
-                    "effect": "broken link",
-                    "name": "default.total_repair_order_discounts",
-                    "status": "invalid",
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.num_repair_orders",
                 },
                 {
-                    "effect": "broken link",
-                    "name": "default.avg_repair_order_discounts",
-                    "status": "invalid",
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.avg_repair_price",
                 },
                 {
-                    "effect": "broken link",
-                    "name": "default.avg_time_to_dispatch",
-                    "status": "invalid",
+                    "code": 700,
+                    "message": "Cannot delete dimension due to existing link",
+                    "debug": None,
+                    "context": "default.total_repair_cost",
                 },
             ],
-            key=lambda x: x["name"],
-        )
-        assert (
-            data["message"]
-            == "The node `default.repair_order` has been completely removed."
-        )
+            "warnings": [],
+        }
 
+        # But hard deleting a dimension that has links is still allowed
+        response = await client_with_roads.delete("/nodes/default.repair_order/hard")
+        assert response.status_code in (200, 201)
+        
         # Hard deleting an unlinked node has no impact
         response = await client_with_roads.delete(
             "/nodes/default.regional_repair_efficiency/hard/",
@@ -5541,8 +5608,23 @@ async def test_delete_recreate_for_all_nodes(client_with_roads: AsyncClient):
         json={"primary_key": ["dispatcher_id"]},
     )
 
-    # Delete a dimension node
-    await client_with_roads.delete("/nodes/default.us_state")
+    # Remove the links from default.us_state dimension so that you can delete it
+    response = await client_with_roads.delete("...")
+
+    # Remove the link from default.us_state to default.hard_hat
+    response = await client_with_roads.request(
+        "DELETE",
+        "/nodes/default.hard_hat/link",
+        json={
+            "dimension_node": "default.us_state",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    # Delete the default.us_state dimension node now that it's unlinked
+    response = await client_with_roads.delete("/nodes/default.us_state")
+    assert response.status_code in (200, 201)
+
     # Trying to create a transform node with the same name will fail
     response = await client_with_roads.post(
         "/nodes/transform",
@@ -5683,10 +5765,26 @@ class TestCopyNode:
         )
 
         # Test copying over deactivated node
-        await client_with_roads.delete("/nodes/default.contractor")
+        # Should fail because of an existing link to default.repair_type
+        response = await client_with_roads.delete("/nodes/default.contractor")
+        assert response.status_code == 400
+
+        # Remove the link from default.contractor to default.repair_type
+        response = await client_with_roads.delete(
+            "/nodes/default.repair_type/columns/contractor_id/"
+            "?dimension=default.contractor",
+        )
+        assert response.status_code in (200, 201)
+
+        # Deleting default.contract after removing links should now succeed
+        response = await client_with_roads.delete("/nodes/default.contractor")
+        assert response.status_code in (200, 201)
+
         await client_with_roads.post(
             "/nodes/default.repair_order/copy?new_name=default.contractor",
         )
+        assert response.status_code in (200, 201)
+
         copied = (await client_with_roads.get("/nodes/default.contractor")).json()
         original = (await client_with_roads.get("/nodes/default.repair_order")).json()
         for field in ["name", "node_id", "node_revision_id", "updated_at"]:
