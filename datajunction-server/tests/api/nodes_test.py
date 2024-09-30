@@ -1597,7 +1597,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         # But hard deleting a dimension that has links is still allowed
         response = await client_with_roads.delete("/nodes/default.repair_order/hard")
         assert response.status_code in (200, 201)
-        
+
         # Hard deleting an unlinked node has no impact
         response = await client_with_roads.delete(
             "/nodes/default.regional_repair_efficiency/hard/",
