@@ -9,7 +9,7 @@ from alive_progress import alive_bar
 
 from datajunction import _internal, models
 from datajunction.exceptions import DJClientException, DJTagDoesNotExist
-from datajunction.nodes import Cube, Dimension, Metric, Node, Source, Transform
+from datajunction.nodes import Cube, Dimension, Metric, Source, Transform
 from datajunction.tags import Tag
 
 
@@ -381,10 +381,7 @@ class DJClient(_internal.DJClient):
             node_name,
             type_=models.NodeType.SOURCE.value,
         )
-        node = Source(
-            **node_dict,
-            dj_client=self,
-        )
+        node = Source.from_dict(dj_client=self, data=node_dict)
         node.primary_key = self._primary_key_from_columns(node_dict["columns"])
         return node
 
@@ -396,10 +393,7 @@ class DJClient(_internal.DJClient):
             node_name,
             type_=models.NodeType.TRANSFORM.value,
         )
-        node = Transform(
-            **node_dict,
-            dj_client=self,
-        )
+        node = Transform.from_dict(dj_client=self, data=node_dict)
         node.primary_key = self._primary_key_from_columns(node_dict["columns"])
         return node
 
@@ -411,10 +405,7 @@ class DJClient(_internal.DJClient):
             node_name,
             type_=models.NodeType.DIMENSION.value,
         )
-        node = Dimension(
-            **node_dict,
-            dj_client=self,
-        )
+        node = Dimension.from_dict(dj_client=self, data=node_dict)
         node.primary_key = self._primary_key_from_columns(node_dict["columns"])
         return node
 
@@ -426,10 +417,7 @@ class DJClient(_internal.DJClient):
             node_name,
             type_=models.NodeType.METRIC.value,
         )
-        node = Metric(
-            **node_dict,
-            dj_client=self,
-        )
+        node = Metric.from_dict(dj_client=self, data=node_dict)
         node.primary_key = self._primary_key_from_columns(node_dict["columns"])
         return node
 
@@ -442,37 +430,33 @@ class DJClient(_internal.DJClient):
             raise DJClientException(f"Cube `{node_name}` does not exist")
         dimensions = node_dict["cube_node_dimensions"]
         metrics = node_dict["cube_node_metrics"]
-        return Cube(
-            **node_dict,
-            metrics=metrics,
-            dimensions=dimensions,
-            dj_client=self,
-        )
+        node_dict["metrics"] = metrics
+        node_dict["dimensions"] = dimensions
+        return Cube.from_dict(dj_client=self, data=node_dict)
 
-    def node(self, node_name: str) -> "Node":
+    def node(self, node_name: str):
         """
         Retrieves a node with the name if one exists
         """
         node_dict = self._verify_node_exists(node_name)
-        node_cls = Node
-        match node_dict["type"]:
-            case models.NodeType.SOURCE.value:
-                node_cls = Source
-            case models.NodeType.DIMENSION.value:
-                node_cls = Dimension
-            case models.NodeType.TRANSFORM.value:
-                node_cls = Transform
-            case models.NodeType.METRIC.value:
-                node_cls = Metric
-            case models.NodeType.CUBE.value:  # pragma: no cover
-                return self.cube(node_name)
+        if not node_dict or "type" not in node_dict:
+            raise DJClientException(
+                f"Node `{node_name}` does not exist.",
+            )  # pragma: no cover
+        if node_dict["type"] == models.NodeType.SOURCE.value:
+            return self.source(node_name)
+        if node_dict["type"] == models.NodeType.DIMENSION.value:
+            return self.dimension(node_name)
+        if node_dict["type"] == models.NodeType.TRANSFORM.value:
+            return self.transform(node_name)
+        if node_dict["type"] == models.NodeType.METRIC.value:
+            return self.metric(node_name)
+        if node_dict["type"] == models.NodeType.CUBE.value:  # pragma: no cover
+            return self.cube(node_name)
 
-        node = node_cls(
-            **node_dict,
-            dj_client=self,
+        raise DJClientException(  # pragma: no cover
+            f"Node `{node_name}` is of unknown type: {node_dict['type']}",
         )
-        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
-        return node
 
     #
     # Tags
