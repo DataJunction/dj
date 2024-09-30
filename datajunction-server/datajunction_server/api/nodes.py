@@ -1336,6 +1336,7 @@ async def list_node_dag(
     response_model=List[DimensionAttributeOutput],
     name="List All Dimension Attributes",
 )
+@cache(expire=settings.index_cache_expire)
 async def list_all_dimension_attributes(
     name: str, *, session: AsyncSession = Depends(get_session)
 ) -> List[DimensionAttributeOutput]:

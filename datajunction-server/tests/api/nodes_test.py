@@ -1104,7 +1104,15 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "A node with name `default.us_users` does not exist."
         )
         # The deleted dimension's attributes should no longer be available to the metric
-        response = await client.get("/metrics/default.num_messages/")
+        # Note that no-cache is used here. This is because although the transform node has
+        # its cache invalidated when the dimension node is unlinked. We do not also find all
+        # of the downstream metric nodes and invalidate those caches as well. It's worth a
+        # discussion on if this is acceptable when accounting for the frequency of dimension
+        # deletes and the typical TTL on a cache.
+        response = await client.get(
+            "/metrics/default.num_messages/",
+            headers={"Cache-Control": "no-cache"},
+        )
         assert response.status_code in (200, 201)
         assert [] == response.json()["dimensions"]
         # The metric should still be VALID
@@ -1117,7 +1125,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = await client.get("/nodes/default.us_users/")
         assert response.status_code in (200, 201)
         # The dimension's attributes should now once again show for the linked metric
-        response = await client.get("/metrics/default.num_messages/")
+        response = await client.get(
+            "/metrics/default.num_messages/",
+            headers={"Cache-Control": "no-cache"},
+        )
         assert response.status_code in (200, 201)
         assert response.json()["dimensions"] == [
             {
@@ -2568,7 +2579,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = await client_with_roads.get("/nodes/default.total_repair_cost")
         data = response.json()
         assert data["version"] == "v3.0"
-        response = await client_with_roads.get("/metrics/default.total_repair_cost")
+        response = await client_with_roads.get(
+            "/metrics/default.total_repair_cost",
+            headers={"Cache-Control": "no-cache"},
+        )
         data = response.json()
         assert data["required_dimensions"] == ["repair_order_id"]
 
@@ -4219,7 +4233,10 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 """,
             },
         )
-        response = await client_with_roads.get("/nodes/default.hard_hat/dimensions")
+        response = await client_with_roads.get(
+            "/nodes/default.hard_hat/dimensions",
+            headers={"Cache-Control": "no-cache"},
+        )
         dimensions = response.json()
         assert [dim["name"] for dim in dimensions] == [
             "default.hard_hat.hard_hat_id",

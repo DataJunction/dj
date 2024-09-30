@@ -6,6 +6,7 @@ from http import HTTPStatus
 from typing import List, Optional
 
 from fastapi import Depends, HTTPException, Query
+from fastapi_cache.decorator import cache
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -95,6 +96,7 @@ async def list_metric_metadata() -> MetricMetadataOptions:
 
 
 @router.get("/metrics/{name}/", response_model=Metric)
+@cache(expire=settings.index_cache_expire)
 async def get_a_metric(
     name: str, *, session: AsyncSession = Depends(get_session)
 ) -> Metric:

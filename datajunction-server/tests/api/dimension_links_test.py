@@ -174,6 +174,7 @@ def link_users_to_countries_with_role_registration(
                 "join_cardinality": "one_to_one",
                 "role": "registration_country",
             },
+            headers={"Cache-Control": "no-cache"},
         )
         return response
 
@@ -602,6 +603,7 @@ async def test_remove_dimension_link(
             "dimension_node": "default.users",
             "role": "user_direct",
         },
+        headers={"Cache-Control": "no-cache"},
     )
     assert response.json() == {
         "message": "Dimension link default.users (role user_direct) to node "
