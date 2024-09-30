@@ -43,7 +43,6 @@ class TestDJAdmin:  # pylint: disable=too-many-public-methods
         result = client.add_catalog(name="foo-bar-baz")
         assert result is None
         # check does exist
-        print(client.list_catalogs())
         result = client.get_catalog(name="foo-bar-baz")
         assert result == {
             "name": "foo-bar-baz",

@@ -1,4 +1,5 @@
 name: My DJ Project 1
+description: The description of my DJ project 1
 prefix: projects.project1
 mode: published
 tags:

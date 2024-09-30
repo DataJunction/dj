@@ -1,11 +1,11 @@
 """Models used by the DJ client."""
 import enum
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
-from pydantic import BaseModel
 
-
-class Engine(BaseModel):
+@dataclass
+class Engine:
     """
     Represents an engine
     """
@@ -43,7 +43,8 @@ class MetricUnit(str, enum.Enum):
     YEAR = "year"
 
 
-class MetricMetadata(BaseModel):
+@dataclass
+class MetricMetadata:
     """
     Metric metadata output
     """
@@ -72,7 +73,8 @@ class MaterializationStrategy(str, enum.Enum):
     VIEW = "view"
 
 
-class Materialization(BaseModel):
+@dataclass
+class Materialization:
     """
     A node's materialization config
     """
@@ -81,6 +83,17 @@ class Materialization(BaseModel):
     strategy: MaterializationStrategy
     schedule: str
     config: Dict
+
+    def to_dict(self) -> Dict:
+        """
+        Convert to a dict
+        """
+        return {
+            "job": self.job.value,
+            "strategy": self.strategy.value,
+            "schedule": self.schedule,
+            "config": self.config,
+        }
 
 
 class NodeMode(str, enum.Enum):
@@ -113,61 +126,66 @@ class NodeType(str, enum.Enum):
     CUBE = "cube"
 
 
-class ColumnAttribute(BaseModel):
+@dataclass
+class ColumnAttribute:
     """
     Represents a column attribute
     """
 
-    namespace: Optional[str] = "system"
     name: str
+    namespace: Optional[str] = "system"
 
 
-class SourceColumn(BaseModel):
+@dataclass
+class Column:
     """
-    A column used in creation of a source node
+    Represents a column
     """
 
     name: str
     type: str
-    attributes: Optional[List[ColumnAttribute]]
-    dimension: Optional[str]
+    display_name: Optional[str] = None
+    attributes: Optional[List[ColumnAttribute]] = None
+    dimension: Optional[str] = None
 
 
-class UpdateNode(BaseModel):
+@dataclass
+class UpdateNode:  # pylint: disable=too-many-instance-attributes
     """
     Fields for updating a node
     """
 
-    display_name: Optional[str]
-    description: Optional[str]
-    mode: Optional[NodeMode]
-    primary_key: Optional[List[str]]
-    query: Optional[str]
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    mode: Optional[NodeMode] = None
+    primary_key: Optional[List[str]] = None
+    query: Optional[str] = None
 
     # source nodes only
-    catalog: Optional[str]
-    schema_: Optional[str]
-    table: Optional[str]
-    columns: Optional[List[SourceColumn]] = []
+    catalog: Optional[str] = None
+    schema_: Optional[str] = None
+    table: Optional[str] = None
+    columns: Optional[List[Column]] = field(default_factory=list[Column])
 
     # cube nodes only
-    metrics: Optional[List[str]]
-    dimensions: Optional[List[str]]
-    filters: Optional[List[str]]
-    orderby: Optional[List[str]]
-    limit: Optional[int]
+    metrics: Optional[List[str]] = None
+    dimensions: Optional[List[str]] = None
+    filters: Optional[List[str]] = None
+    orderby: Optional[List[str]] = None
+    limit: Optional[int] = None
 
     # metric nodes only
-    required_dimensions: Optional[List[str]]
-    metric_metadata: Optional[Dict[str, Any]]
+    required_dimensions: Optional[List[str]] = None
+    metric_metadata: Optional[MetricMetadata] = None
 
 
-class UpdateTag(BaseModel):
+@dataclass
+class UpdateTag:
     """
     Model for a tag update
     """
 
-    description: str
+    description: Optional[str]
     tag_metadata: Optional[Dict]
 
 
@@ -192,29 +210,19 @@ class QueryState(str, enum.Enum):
         return list(map(lambda c: c.value, cls))  # type: ignore
 
 
-class AvailabilityState(BaseModel):
+@dataclass
+class AvailabilityState:
     """
     Represents the availability state for a node.
     """
-
-    min_temporal_partition: Optional[List[str]] = None
-    max_temporal_partition: Optional[List[str]] = None
 
     catalog: str
     schema_: Optional[str]
     table: str
     valid_through_ts: int
 
-
-class Column(BaseModel):
-    """
-    Represents a column
-    """
-
-    name: str
-    type: str
-    display_name: Optional[str]
-    attributes: Optional[List]
+    min_temporal_partition: Optional[List[str]] = None
+    max_temporal_partition: Optional[List[str]] = None
 
 
 END_JOB_STATES = [QueryState.FINISHED, QueryState.CANCELED, QueryState.FAILED]

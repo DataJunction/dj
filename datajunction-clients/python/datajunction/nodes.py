@@ -2,16 +2,21 @@
 import abc
 
 # pylint: disable=redefined-outer-name, import-outside-toplevel, too-many-lines, protected-access
-from typing import Any, Dict, List, Optional, Union
+from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from pydantic import validator
+import requests
 
 from datajunction import models
 from datajunction._internal import ClientEntity
 from datajunction.exceptions import DJClientException
-from datajunction.tags import TagInfo
+from datajunction.tags import Tag
+
+if TYPE_CHECKING:  # pragma: no cover
+    from datajunction.client import DJClient
 
 
+@dataclass
 class Namespace(ClientEntity):  # pylint: disable=protected-access
     """
     Represents a namespace
@@ -58,24 +63,64 @@ class Namespace(ClientEntity):  # pylint: disable=protected-access
         )
 
 
-class Node(ClientEntity):  # pylint: disable=protected-access
+@dataclass
+class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
     """
     Represents a DJ node object
     """
 
     name: str
-    description: Optional[str]
     type: str
-    mode: Optional[models.NodeMode]
+    description: Optional[str] = None
+    mode: Optional[models.NodeMode] = None
     status: Optional[str] = None
-    display_name: Optional[str]
-    availability: Optional[models.AvailabilityState]
-    tags: Optional[List[TagInfo]] = None
-    primary_key: Optional[List[str]]
-    materializations: Optional[List[Dict[str, Any]]]
-    version: Optional[str]
-    deactivated_at: Optional[int]
-    current_version: Optional[str]
+    display_name: Optional[str] = None
+    availability: Optional[models.AvailabilityState] = None
+    tags: Optional[List[Tag]] = None
+    primary_key: Optional[List[str]] = None
+    materializations: Optional[List[Dict[str, Any]]] = None
+    version: Optional[str] = None
+    deactivated_at: Optional[int] = None
+    current_version: Optional[str] = None
+    columns: Optional[List[models.Column]] = None
+    query: Optional[str] = None
+
+    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Convert the source node to a dictionary. We need to make this method because
+        the default asdict() method from dataclasses does not handle nested dataclasses.
+        """
+        dict_ = {
+            "name": self.name,
+            "type": self.type,
+            "description": self.description,
+            "mode": self.mode,
+            "status": self.status,
+            "display_name": self.display_name,
+            "availability": self.availability,
+            "tags": [
+                # asdict() is not used to avoid dataclasses circular serialization error
+                tag.to_dict() if isinstance(tag, Tag) else tag
+                for tag in self.tags
+            ]
+            if self.tags
+            else None,
+            "primary_key": self.primary_key,
+            "materializations": self.materializations,
+            "version": self.version,
+            "deactivated_at": self.deactivated_at,
+            "current_version": self.current_version,
+            "columns": [
+                asdict(col) if isinstance(col, models.Column) else col
+                for col in self.columns
+            ]
+            if self.columns
+            else None,
+            "query": self.query if hasattr(self, "query") else None,
+        }
+        exclude = exclude + self.exclude if exclude else self.exclude
+        dict_ = {k: v for k, v in dict_.items() if k not in exclude}
+        return dict_
 
     #
     # Node level actions
@@ -87,7 +132,7 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         return self.dj_client._get_node_revisions(self.name)
 
     @abc.abstractmethod
-    def _update(self) -> "Node":
+    def _update(self) -> requests.Response:
         """
         Update the node for fields that have changed.
         """
@@ -98,7 +143,16 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         """
         response = self.dj_client._update_node_tags(
             node_name=self.name,
-            tags=[tag.name for tag in self.tags] if self.tags else None,
+            tags=[
+                tag.name
+                if isinstance(tag, Tag)
+                else tag["name"]
+                if isinstance(tag, dict)
+                else None
+                for tag in self.tags
+            ]
+            if self.tags
+            else [],
         )
         if not response.status_code < 400:  # pragma: no cover
             raise DJClientException(
@@ -276,31 +330,62 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         return self.dj_client._set_column_attributes(self.name, column_name, attributes)
 
 
+@dataclass
 class Source(Node):
     """
     DJ source node
     """
 
     type: str = "source"
-    catalog: str
-    schema_: str
-    table: str
-    columns: Optional[List[models.Column]]
+    catalog: Optional[str] = None
+    schema_: Optional[str] = None
+    table: Optional[str] = None
 
-    @validator("catalog", pre=True)
-    def parse_cls(  # pylint: disable=no-self-argument
-        cls,
-        value: Union[str, Dict[str, Any]],
-    ) -> str:
+    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Convert the source node to a dictionary
+        """
+        dict_ = super().to_dict(exclude=exclude)
+        dict_["catalog"] = self.catalog
+        dict_["schema_"] = self.schema_
+        dict_["table"] = self.table
+        return dict_
+
+    @classmethod
+    def from_dict(cls, dj_client: "DJClient", data: Dict[str, Any]) -> "Source":
+        """
+        Create a new source node from a dictionary
+        """
+        return cls(
+            dj_client=dj_client,
+            name=data["name"],
+            description=data.get("description"),
+            mode=data.get("mode"),
+            status=data.get("status"),
+            display_name=data.get("display_name"),
+            availability=data.get("availability"),
+            tags=data.get("tags"),
+            primary_key=data.get("primary_key"),
+            materializations=data.get("materializations"),
+            version=data.get("version"),
+            deactivated_at=data.get("deactivated_at"),
+            current_version=data.get("current_version"),
+            catalog=data.get("catalog"),
+            schema_=data.get("schema_"),
+            table=data.get("table"),
+            columns=data.get("columns"),
+        )
+
+    def __post_init__(self):
         """
         When `catalog` is a dictionary, parse out the catalog's
         name, otherwise just return the string.
         """
-        if isinstance(value, str):
-            return value
-        return value["name"]
+        if self.catalog:
+            if isinstance(self.catalog, dict):
+                self.catalog = self.catalog["name"]
 
-    def _update(self) -> "Node":
+    def _update(self) -> requests.Response:
         """
         Update the node for fields that have changed
         """
@@ -324,14 +409,20 @@ class Source(Node):
         return response["status"]
 
 
+@dataclass
 class NodeWithQuery(Node):
     """
     Nodes with query attribute
     """
 
-    query: str
+    query: str = ""
 
-    def _update(self) -> "Node":
+    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+        dict_ = super().to_dict(exclude=exclude)
+        dict_["query"] = self.query
+        return dict_
+
+    def _update(self) -> requests.Response:
         """
         Update the node for fields that have changed.
         """
@@ -384,24 +475,83 @@ class NodeWithQuery(Node):
         return self.dj_client._get_node_dimensions(self.name)
 
 
+@dataclass
 class Transform(NodeWithQuery):
     """
     DJ transform node
     """
 
     type: str = "transform"
-    columns: Optional[List[models.Column]]
+    # columns: Optional[List[models.Column]] = None
+
+    @classmethod
+    def from_dict(cls, dj_client: "DJClient", data: Dict[str, Any]) -> "Transform":
+        """
+        Create a new transform node from a dictionary
+        """
+        return cls(
+            dj_client=dj_client,
+            name=data["name"],
+            description=data.get("description"),
+            mode=data.get("mode"),
+            status=data.get("status"),
+            display_name=data.get("display_name"),
+            availability=data.get("availability"),
+            tags=data.get("tags"),
+            primary_key=data.get("primary_key"),
+            materializations=data.get("materializations"),
+            version=data.get("version"),
+            deactivated_at=data.get("deactivated_at"),
+            current_version=data.get("current_version"),
+            query=data["query"],
+            columns=data.get("columns"),
+        )
 
 
+@dataclass
 class Metric(NodeWithQuery):
     """
     DJ metric node
     """
 
     type: str = "metric"
-    required_dimensions: Optional[List[str]]
-    metric_metadata: Optional[models.MetricMetadata]
-    columns: Optional[List[models.Column]]
+    required_dimensions: Optional[List[str]] = None
+    metric_metadata: Optional[models.MetricMetadata] = None
+
+    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Convert the source node to a dictionary
+        """
+        dict_ = super().to_dict(exclude=exclude)
+        dict_["required_dimensions"] = self.required_dimensions
+        dict_["metric_metadata"] = (
+            asdict(self.metric_metadata) if self.metric_metadata else None
+        )
+        return dict_
+
+    @classmethod
+    def from_dict(cls, dj_client: "DJClient", data: Dict[str, Any]) -> "Metric":
+        """
+        Create a new metric node from a dictionary
+        """
+        return cls(
+            dj_client=dj_client,
+            name=data["name"],
+            description=data.get("description"),
+            mode=data.get("mode"),
+            status=data.get("status"),
+            display_name=data.get("display_name"),
+            availability=data.get("availability"),
+            tags=data.get("tags"),
+            primary_key=data.get("primary_key"),
+            materializations=data.get("materializations"),
+            version=data.get("version"),
+            deactivated_at=data.get("deactivated_at"),
+            current_version=data.get("current_version"),
+            query=data["query"],
+            required_dimensions=data.get("required_dimensions"),
+            metric_metadata=data.get("metric_metadata"),
+        )
 
     def dimensions(self):
         """
@@ -410,7 +560,7 @@ class Metric(NodeWithQuery):
         metric = self.dj_client.get_metric(self.name)
         return metric["dimensions"]
 
-    def _update(self) -> "Node":
+    def _update(self) -> requests.Response:
         """
         Update the node for fields that have changed.
         """
@@ -425,32 +575,38 @@ class Metric(NodeWithQuery):
         )
         return self.dj_client._update_node(self.name, update_node)
 
-    @validator("metric_metadata", pre=True)
-    def parse_cls(  # pylint: disable=no-self-argument
-        cls,
-        value: Union[models.MetricMetadata, Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        """
-        When `metric_metadata` has a unit value, it should be parsed into a str
-        """
-        if isinstance(value, models.MetricMetadata):
-            value = value.dict()
-        if not value or not value.get("unit"):
-            return value
-        if isinstance(value["unit"], str):
-            return value
-        value["unit"] = value["unit"]["name"].lower()  # pragma: no cover
-        return value  # pragma: no cover
 
-
+@dataclass
 class Dimension(NodeWithQuery):
     """
     DJ dimension node
     """
 
     type: str = "dimension"
-    query: str
-    columns: Optional[List[models.Column]]
+    # columns: Optional[List[models.Column]] = None
+
+    @classmethod
+    def from_dict(cls, dj_client: "DJClient", data: Dict[str, Any]) -> "Dimension":
+        """
+        Create a new dimension node from a dictionary
+        """
+        return cls(
+            dj_client=dj_client,
+            name=data["name"],
+            description=data.get("description"),
+            mode=data.get("mode"),
+            status=data.get("status"),
+            display_name=data.get("display_name"),
+            availability=data.get("availability"),
+            tags=data.get("tags"),
+            primary_key=data.get("primary_key"),
+            materializations=data.get("materializations"),
+            version=data.get("version"),
+            deactivated_at=data.get("deactivated_at"),
+            current_version=data.get("current_version"),
+            query=data["query"],
+            columns=data.get("columns"),
+        )
 
     def linked_nodes(self):
         """
@@ -462,17 +618,52 @@ class Dimension(NodeWithQuery):
         ]
 
 
+@dataclass
 class Cube(Node):  # pylint: disable=abstract-method
     """
     DJ cube node
     """
 
     type: str = "cube"
-    query: Optional[str] = None
-    metrics: List[str]
-    dimensions: List[str]
-    filters: Optional[List[str]]
-    columns: Optional[List[models.Column]]
+    metrics: Optional[List[str]] = None
+    dimensions: Optional[List[str]] = None
+    filters: Optional[List[str]] = None
+
+    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Convert the source node to a dictionary
+        """
+        dict_ = super().to_dict(exclude=exclude)
+        dict_["metrics"] = self.metrics
+        dict_["dimensions"] = self.dimensions
+        dict_["filters"] = self.filters
+        return dict_
+
+    @classmethod
+    def from_dict(cls, dj_client: "DJClient", data: Dict[str, Any]) -> "Cube":
+        """
+        Create a new cube node from a dictionary
+        """
+        return cls(
+            dj_client=dj_client,
+            name=data["name"],
+            description=data.get("description"),
+            mode=data.get("mode"),
+            status=data.get("status"),
+            display_name=data.get("display_name"),
+            availability=data.get("availability"),
+            tags=data.get("tags"),
+            primary_key=data.get("primary_key"),
+            materializations=data.get("materializations"),
+            version=data.get("version"),
+            deactivated_at=data.get("deactivated_at"),
+            current_version=data.get("current_version"),
+            query=data.get("query"),
+            metrics=data.get("metrics"),
+            dimensions=data.get("dimensions"),
+            filters=data.get("filters"),
+            columns=data.get("columns"),
+        )
 
     def _update(self):  # pragma: no cover
         update_node = models.UpdateNode(

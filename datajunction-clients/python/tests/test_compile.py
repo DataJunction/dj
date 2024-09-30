@@ -330,22 +330,6 @@ def test_compile_duplicate_tags(
     compiled_project.deploy(client=builder_client)
 
 
-def test_compile_json_schema_up_to_date(change_to_package_root_dir):
-    """
-    Load dj.project.schema.json and make sure it's current
-
-    If it needs to be updated, that can be done via the Project pydantic model
-
-    ```py
-    from datajunction import Project
-    with open("dj.project.schema.json", "w", encoding="utf-8") as schema_file:
-       schema_file.write(Project.schema_json(indent=2))
-    ```
-    """
-    with open("dj.project.schema.json", "r", encoding="utf-8") as schema_file:
-        assert schema_file.read() == Project.schema_json(indent=2)
-
-
 def test_compile_pull_a_namespaces(builder_client: DJBuilder, tmp_path):
     """
     Test pulling a namespace down into a local YAML project
