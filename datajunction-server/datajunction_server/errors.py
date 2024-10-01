@@ -55,6 +55,9 @@ class ErrorCode(IntEnum):
     INVALID_DIMENSION = 601
     INVALID_METRIC = 602
 
+    # CRUD errors
+    EXISTING_DIMENSION_LINK = 700
+
 
 class DebugType(TypedDict, total=False):
     """

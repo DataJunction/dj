@@ -17,6 +17,8 @@ from datajunction_server.database.user import User
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import CacheInterface
 from datajunction_server.models import access
 from datajunction_server.models.metric import Metric
 from datajunction_server.models.node import (
@@ -96,13 +98,20 @@ async def list_metric_metadata() -> MetricMetadataOptions:
 
 @router.get("/metrics/{name}/", response_model=Metric)
 async def get_a_metric(
-    name: str, *, session: AsyncSession = Depends(get_session)
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    application_cache: Optional[CacheInterface] = Depends(get_cache),
 ) -> Metric:
     """
     Return a metric by name.
     """
     node = await get_metric(session, name)
-    dims = await get_dimensions(session, node.current.parents[0])
+    dims = await get_dimensions(
+        session,
+        node.current.parents[0],
+        application_cache=application_cache,
+    )
     metric = Metric.parse_node(node, dims)
     return metric
 
