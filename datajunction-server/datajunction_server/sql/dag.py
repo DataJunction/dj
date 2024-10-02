@@ -168,20 +168,24 @@ async def get_upstream_nodes(
         )
 
     dag = (
-        select(
-            NodeRelationship.child_id,
-            NodeRevision.id,
-            NodeRevision.node_id,
+        (
+            select(
+                NodeRelationship.child_id,
+                NodeRevision.id,
+                NodeRevision.node_id,
+            )
+            .where(NodeRelationship.child_id == node.current.id)
+            .join(Node, NodeRelationship.parent_id == Node.id)
+            .join(
+                NodeRevision,
+                (Node.id == NodeRevision.node_id)
+                & (Node.current_version == NodeRevision.version),
+            )
         )
-        .where(NodeRelationship.child_id == node.current.id)
-        .join(Node, NodeRelationship.parent_id == Node.id)
-        .join(
-            NodeRevision,
-            (Node.id == NodeRevision.node_id)
-            & (Node.current_version == NodeRevision.version),
+        .cte("upstreams", recursive=True)
+        .suffix_with(
+            "CYCLE node_id SET is_cycle USING path",
         )
-    ).cte("upstreams", recursive=True).suffix_with(
-        "CYCLE node_id SET is_cycle USING path",
     )
 
     paths = dag.union_all(
