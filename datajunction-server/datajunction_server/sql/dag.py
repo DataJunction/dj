@@ -220,6 +220,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
     session: AsyncSession,
     node_revision: NodeRevision,
     with_attributes: bool = True,
+    depth: int = 30,
 ) -> List[Union[DimensionAttributeOutput, Node]]:
     """
     Gets the dimensions graph of the given node revision with a single recursive CTE query.
@@ -284,6 +285,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
             dimension_node.name.label("node_name"),
             dimension_rev.id.label("node_revision_id"),
             dimension_rev.display_name.label("node_display_name"),
+            literal(0).label("depth"),
         )
         .select_from(initial_node)
         .join(graph_branches, node_revision.id == graph_branches.c.node_revision_id)
@@ -301,6 +303,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
         )
         .where(initial_node.id == node_revision.id)
     ).cte("dimensions_graph", recursive=True)
+    dimensions_graph = dimensions_graph.suffix_with("CYCLE node_revision_id SET is_cycle USING path")
 
     paths = dimensions_graph.union_all(
         select(
@@ -319,6 +322,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
             next_node.name.label("node_name"),
             next_rev.id.label("node_revision_id"),
             next_rev.display_name.label("node_display_name"),
+            (dimensions_graph.c.depth + literal(1)).label("depth"),
         ).select_from(
             dimensions_graph.join(
                 current_node,
@@ -344,7 +348,8 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
                     next_rev.node_id == next_node.id,
                 ),
             ),
-        ),
+        )
+        .where(dimensions_graph.c.depth <= depth),
     )
 
     # Final SELECT statements
@@ -490,6 +495,7 @@ async def get_dimensions(
     session: AsyncSession,
     node: Node,
     with_attributes: bool = True,
+    depth: int = 30,
 ) -> List[Union[DimensionAttributeOutput, Node]]:
     """
     Return all available dimensions for a given node.
@@ -501,10 +507,11 @@ async def get_dimensions(
             session,
             node.current.parents[0].current,
             with_attributes,
+            depth=depth,
         )
     else:
         await session.refresh(node, attribute_names=["current"])
-        dag = await get_dimensions_dag(session, node.current, with_attributes)
+        dag = await get_dimensions_dag(session, node.current, with_attributes, depth=depth)
     return dag
 
 
