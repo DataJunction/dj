@@ -86,7 +86,9 @@ async def get_downstream_nodes(
     )
     if not include_cubes:
         initial_dag = initial_dag.where((NodeRevision.type != NodeType.CUBE))
-    dag = initial_dag.cte("downstreams", recursive=True)
+    dag = initial_dag.cte("downstreams", recursive=True).suffix_with(
+        "CYCLE node_id SET is_cycle USING path",
+    )
 
     next_layer = (
         select(
@@ -178,7 +180,9 @@ async def get_upstream_nodes(
             (Node.id == NodeRevision.node_id)
             & (Node.current_version == NodeRevision.version),
         )
-    ).cte("upstreams", recursive=True)
+    ).cte("upstreams", recursive=True).suffix_with(
+        "CYCLE node_id SET is_cycle USING path",
+    )
 
     paths = dag.union_all(
         select(
