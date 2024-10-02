@@ -303,7 +303,9 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
         )
         .where(initial_node.id == node_revision.id)
     ).cte("dimensions_graph", recursive=True)
-    dimensions_graph = dimensions_graph.suffix_with("CYCLE node_revision_id SET is_cycle USING path")
+    dimensions_graph = dimensions_graph.suffix_with(
+        "CYCLE node_revision_id SET is_cycle USING path",
+    )
 
     paths = dimensions_graph.union_all(
         select(
@@ -323,7 +325,8 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
             next_rev.id.label("node_revision_id"),
             next_rev.display_name.label("node_display_name"),
             (dimensions_graph.c.depth + literal(1)).label("depth"),
-        ).select_from(
+        )
+        .select_from(
             dimensions_graph.join(
                 current_node,
                 dimensions_graph.c.path_end == current_node.id,
@@ -511,7 +514,12 @@ async def get_dimensions(
         )
     else:
         await session.refresh(node, attribute_names=["current"])
-        dag = await get_dimensions_dag(session, node.current, with_attributes, depth=depth)
+        dag = await get_dimensions_dag(
+            session,
+            node.current,
+            with_attributes,
+            depth=depth,
+        )
     return dag
 
 
