@@ -1337,10 +1337,7 @@ async def list_node_dag(
     name="List All Dimension Attributes",
 )
 async def list_all_dimension_attributes(
-    name: str,
-    *, 
-    depth: int = 30,
-    session: AsyncSession = Depends(get_session)
+    name: str, *, depth: int = 30, session: AsyncSession = Depends(get_session)
 ) -> List[DimensionAttributeOutput]:
     """
     List all available dimension attributes for the given node.
