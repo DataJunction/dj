@@ -2682,7 +2682,11 @@ class Query(TableExpression, UnNamed):
             for cte in (nearest_query.ctes if nearest_query else [])
         }
         table_options = (
-            list(self.select.from_.find_all(TableExpression))
+            [
+                tbl
+                for tbl in self.select.from_.find_all(TableExpression)
+                if tbl.get_nearest_parent_of_type(Query) is self
+            ]
             if self.select.from_
             else []
         )
