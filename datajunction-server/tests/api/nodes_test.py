@@ -5323,7 +5323,9 @@ async def test_cycle_detection_dimensions_graph(client_with_roads: AsyncClient) 
         " -> ".join(dim["path"] + [""]) + dim["name"] for dim in response.json()
     ] == [
         "default.user -> default.country.country_id",
+        "default.user -> default.country -> default.user -> default.country.country_id",
         "default.user -> default.country.user_id",
+        "default.user -> default.country -> default.user -> default.country.user_id",
         "default.user.birth_country",
         "default.user -> default.country -> default.user.birth_country",
         "default.user.user_id",
@@ -5337,7 +5339,9 @@ async def test_cycle_detection_dimensions_graph(client_with_roads: AsyncClient) 
         "default.events -> default.user -> default.country.user_id",
         "default.events.event_id",
         "default.events -> default.user.birth_country",
+        "default.events -> default.user -> default.country -> default.user.birth_country",
         "default.events -> default.user.user_id",
+        "default.events -> default.user -> default.country -> default.user.user_id",
     ]
 
 
