@@ -312,7 +312,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
         .where(initial_node.id == node_revision.id)
     ).cte("dimensions_graph", recursive=True)
     dimensions_graph = dimensions_graph.suffix_with(
-        "CYCLE path_start SET is_cycle USING path",
+        "CYCLE node_revision_id SET is_cycle USING path",
     )
 
     paths = dimensions_graph.union_all(
