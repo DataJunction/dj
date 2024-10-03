@@ -5238,6 +5238,110 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
 
 
 @pytest.mark.asyncio
+async def test_cycle_detection_dimensions_graph(client_with_roads: AsyncClient) -> None:
+    """
+    Test that getting the dimensions graph detects cycles and does not continue with
+    infinite recursion.
+    """
+    response = await client_with_roads.post(
+        "/nodes/transform",
+        json={
+            "description": "Events",
+            "query": """
+            SELECT
+                1 AS event_id,
+                2 AS user_id
+            """,
+            "mode": "published",
+            "name": "default.events",
+            "primary_key": ["event_id"],
+        },
+    )
+    response = await client_with_roads.post(
+        "/nodes/dimension",
+        json={
+            "description": "User dimension",
+            "query": """
+            SELECT
+                1 AS user_id,
+                2 AS birth_country
+            """,
+            "mode": "published",
+            "name": "default.user",
+            "primary_key": ["user_id"],
+        },
+    )
+    assert response.status_code == 201
+    response = await client_with_roads.post(
+        "/nodes/dimension",
+        json={
+            "description": "Country dimension",
+            "query": """
+            SELECT
+                1 AS country_id,
+                2 AS user_id
+            """,
+            "mode": "published",
+            "name": "default.country",
+            "primary_key": ["country_id"],
+        },
+    )
+    assert response.status_code == 201
+
+    # Create dimension links that are in a cycle
+    response = await client_with_roads.post(
+        "/nodes/default.user/link",
+        json={
+            "dimension_node": "default.country",
+            "join_type": "left",
+            "join_on": ("default.user.birth_country = default.country.country_id"),
+        },
+    )
+    assert response.status_code == 201
+    response = await client_with_roads.post(
+        "/nodes/default.country/link",
+        json={
+            "dimension_node": "default.user",
+            "join_type": "left",
+            "join_on": ("default.user.user_id = default.country.user_id"),
+        },
+    )
+    assert response.status_code == 201
+    response = await client_with_roads.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.user",
+            "join_type": "left",
+            "join_on": ("default.events.user_id = default.user.user_id"),
+        },
+    )
+    assert response.status_code == 201
+
+    # Requesting dimensions for any of the above nodes should have a finite end
+    response = await client_with_roads.get("/nodes/default.user/dimensions")
+    assert [
+        " -> ".join(dim["path"] + [""]) + dim["name"] for dim in response.json()
+    ] == [
+        "default.user -> default.country.country_id",
+        "default.user -> default.country.user_id",
+        "default.user.birth_country",
+        "default.user -> default.country -> default.user.birth_country",
+        "default.user.user_id",
+        "default.user -> default.country -> default.user.user_id",
+    ]
+    response = await client_with_roads.get("/nodes/default.events/dimensions")
+    assert [
+        " -> ".join(dim["path"] + [""]) + dim["name"] for dim in response.json()
+    ] == [
+        "default.events -> default.user -> default.country.country_id",
+        "default.events -> default.user -> default.country.user_id",
+        "default.events.event_id",
+        "default.events -> default.user.birth_country",
+        "default.events -> default.user.user_id",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_set_column_partition(client_with_roads: AsyncClient):
     """
     Test setting temporal and categorical partitions on node
