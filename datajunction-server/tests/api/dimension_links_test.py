@@ -180,6 +180,28 @@ def link_users_to_countries_with_role_registration(
     return _link_users_to_countries_with_role_registration
 
 
+@pytest.fixture
+def reference_link_events_user_registration_country(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Link users to the countries dimension with role "registration_country".
+    """
+
+    async def _reference_link_events_user_registration_country() -> Response:
+        response = await dimensions_link_client.post(
+            "/nodes/default.events/columns/user_registration_country/link",
+            params={
+                "dimension_node": "default.users",
+                "dimension_column": "registration_country",
+            },
+        )
+        assert response.status_code == 201
+        return response
+
+    return _reference_link_events_user_registration_country
+
+
 @pytest.mark.asyncio
 async def test_link_complex_dimension_without_role(
     dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name,
@@ -276,7 +298,8 @@ async def test_link_complex_dimension_without_role(
         default_DOT_events_table.user_id,
         default_DOT_events_table.event_start_date,
         default_DOT_events_table.event_end_date,
-        default_DOT_events_table.elapsed_secs
+        default_DOT_events_table.elapsed_secs,
+        default_DOT_events_table.user_registration_country
       FROM examples.events AS default_DOT_events_table
     ),
     default_DOT_users AS (
@@ -293,6 +316,7 @@ async def test_link_complex_dimension_without_role(
         default_DOT_events.event_start_date default_DOT_users_DOT_snapshot_date,
         default_DOT_events.event_end_date default_DOT_events_DOT_event_end_date,
         default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+        default_DOT_events.user_registration_country default_DOT_events_DOT_user_registration_country,
         default_DOT_users.registration_country default_DOT_users_DOT_registration_country
     FROM default_DOT_events
     LEFT JOIN default_DOT_users
@@ -459,7 +483,8 @@ async def test_link_complex_dimension_with_role(
     default_DOT_events_table.user_id,
     default_DOT_events_table.event_start_date,
     default_DOT_events_table.event_end_date,
-    default_DOT_events_table.elapsed_secs
+    default_DOT_events_table.elapsed_secs,
+    default_DOT_events_table.user_registration_country
   FROM examples.events AS default_DOT_events_table
 ), default_DOT_users AS (
   SELECT
@@ -497,7 +522,8 @@ GROUP BY
         default_DOT_events_table.user_id,
         default_DOT_events_table.event_start_date,
         default_DOT_events_table.event_end_date,
-        default_DOT_events_table.elapsed_secs
+        default_DOT_events_table.elapsed_secs,
+        default_DOT_events_table.user_registration_country
       FROM examples.events AS default_DOT_events_table
     ), default_DOT_users AS (
       SELECT
@@ -546,7 +572,8 @@ GROUP BY
     default_DOT_events_table.user_id,
     default_DOT_events_table.event_start_date,
     default_DOT_events_table.event_end_date,
-    default_DOT_events_table.elapsed_secs
+    default_DOT_events_table.elapsed_secs,
+    default_DOT_events_table.user_registration_country
   FROM examples.events AS default_DOT_events_table
 ), default_DOT_users AS (
   SELECT
@@ -678,7 +705,8 @@ async def test_measures_sql_with_dimension_roles(
     default_DOT_events_table.user_id,
     default_DOT_events_table.event_start_date,
     default_DOT_events_table.event_end_date,
-    default_DOT_events_table.elapsed_secs
+    default_DOT_events_table.elapsed_secs,
+    default_DOT_events_table.user_registration_country
   FROM examples.events AS default_DOT_events_table
 ), default_DOT_users AS (
   SELECT
@@ -731,3 +759,181 @@ INNER JOIN default_DOT_countries
     # assert query_request[0].filters == [
     #     "default.countries.name[user_direct -> registration_country]@v1.0 = 'UG'",
     # ]
+
+
+@pytest.mark.asyncio
+async def test_reference_dimension_links_errors(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+    reference_link_events_user_registration_country,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test various reference dimension link errors
+    """
+    # Not a dimension node being linked
+    dimensions_link_client.post("/nodes/{}")
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/columns/user_registration_country/link",
+        params={
+            "dimension_node": "default.users_table",
+            "dimension_column": "user_id",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["message"] == "Node default.events is not of type dimension!"
+
+    # Wrong type to create a reference dimension link
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/columns/user_registration_country/link",
+        params={
+            "dimension_node": "default.users",
+            "dimension_column": "snapshot_date",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["message"] == (
+        "The column user_registration_country has type string and is being linked to"
+        " the dimension default.users via the dimension column snapshot_date, which "
+        "has type int. These column types are incompatible and the dimension cannot "
+        "be linked"
+    )
+
+    # Delete reference link twice
+    await reference_link_events_user_registration_country()
+    response = await dimensions_link_client.delete(
+        "/nodes/default.events/columns/user_registration_country/link",
+    )
+    assert response.status_code == 200
+    assert response.json()["message"] == (
+        "The reference dimension link on default.events.user_registration_country"
+        " has been removed."
+    )
+    response = await dimensions_link_client.delete(
+        "/nodes/default.events/columns/user_registration_country/link",
+    )
+    assert response.status_code == 200
+    assert response.json()["message"] == (
+        "There is no reference dimension link on default.events.user_registration_country."
+    )
+
+
+@pytest.mark.asyncio
+async def test_measures_sql_with_reference_dimension_links(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+    reference_link_events_user_registration_country,  # pylint: disable=redefined-outer-name
+    link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test measures SQL generation with reference dimension links
+    """
+    await reference_link_events_user_registration_country()
+
+    response = await dimensions_link_client.get(
+        "/nodes/default.elapsed_secs/dimensions",
+    )
+    dimensions_data = response.json()
+    assert dimensions_data == [
+        {
+            "filter_only": False,
+            "is_primary_key": False,
+            "name": "default.users.registration_country",
+            "node_display_name": "Default: Users",
+            "node_name": "default.users",
+            "path": [
+                "default.events.user_registration_country",
+            ],
+            "type": "string",
+        },
+    ]
+
+    await link_events_to_users_without_role()
+    response = await dimensions_link_client.get(
+        "/nodes/default.elapsed_secs/dimensions",
+    )
+    dimensions_data = response.json()
+    assert [dim["name"] for dim in dimensions_data] == [
+        "default.users.account_type",
+        "default.users.registration_country",
+        "default.users.registration_country",
+        "default.users.residence_country",
+        "default.users.snapshot_date",
+        "default.users.user_id",
+    ]
+
+    sql_params = {
+        "metrics": ["default.elapsed_secs"],
+        "dimensions": [
+            "default.users.registration_country",
+        ],
+    }
+
+    response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
+    response_data = response.json()
+    expected_sql = """WITH
+default_DOT_events AS (
+  SELECT
+    default_DOT_events_table.user_id,
+    default_DOT_events_table.event_start_date,
+    default_DOT_events_table.event_end_date,
+    default_DOT_events_table.elapsed_secs,
+    default_DOT_events_table.user_registration_country
+  FROM examples.events AS default_DOT_events_table
+)
+SELECT
+  default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+  default_DOT_events.user_registration_country default_DOT_users_DOT_registration_country
+FROM default_DOT_events"""
+    assert str(parse(response_data[0]["sql"])) == str(parse(expected_sql))
+    assert response_data[0]["errors"] == []
+    assert response_data[0]["columns"] == [
+        {
+            "name": "default_DOT_events_DOT_elapsed_secs",
+            "type": "int",
+            "column": "elapsed_secs",
+            "node": "default.events",
+            "semantic_entity": "default.events.elapsed_secs",
+            "semantic_type": "measure",
+        },
+        {
+            "name": "default_DOT_users_DOT_registration_country",
+            "type": "string",
+            "column": "registration_country",
+            "node": "default.users",
+            "semantic_entity": "default.users.registration_country",
+            "semantic_type": "dimension",
+        },
+    ]
+    response = await dimensions_link_client.delete(
+        "/nodes/default.events/columns/user_registration_country/link",
+    )
+    assert response.status_code == 200
+    response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
+    response_data = response.json()
+    expected_sql = """
+    WITH default_DOT_events AS (
+      SELECT
+        default_DOT_events_table.user_id,
+        default_DOT_events_table.event_start_date,
+        default_DOT_events_table.event_end_date,
+        default_DOT_events_table.elapsed_secs,
+        default_DOT_events_table.user_registration_country
+      FROM examples.events AS default_DOT_events_table
+    ),
+    default_DOT_users AS (
+      SELECT
+        default_DOT_users_table.user_id,
+        default_DOT_users_table.snapshot_date,
+        default_DOT_users_table.registration_country,
+        default_DOT_users_table.residence_country,
+        default_DOT_users_table.account_type
+      FROM examples.users AS default_DOT_users_table
+    )
+    SELECT
+      default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+      default_DOT_users.registration_country default_DOT_users_DOT_registration_country
+    FROM default_DOT_events
+    LEFT JOIN default_DOT_users
+      ON default_DOT_events.user_id = default_DOT_users.user_id
+      AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+    """
+    assert str(parse(response_data[0]["sql"])) == str(parse(expected_sql))
+    assert response_data[0]["errors"] == []

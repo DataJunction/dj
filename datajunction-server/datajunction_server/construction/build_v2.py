@@ -693,7 +693,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
                     self.node_revision,
                     dimension_attr.name,
                 )
-                if not join_path:
+                if not join_path and join_path != []:
                     self.errors.append(
                         DJQueryBuildError(
                             code=ErrorCode.INVALID_DIMENSION_JOIN,
@@ -732,6 +732,15 @@ def get_column_from_canonical_dimension(
     # Dimension requested was on node
     if dimension_attr.node_name == node.name:
         column_name = dimension_attr.column_name
+
+    # Dimension requested has reference link on node
+    for column in node.columns:
+        if (
+            column.dimension
+            and column.dimension.name == dimension_attr.node_name
+            and column.dimension_column == dimension_attr.column_name
+        ):
+            column_name = column.name
 
     # Dimension referenced was foreign key of dimension link
     link = next(
@@ -781,14 +790,18 @@ async def dimension_join_path(
     list of dimension links that represent the join path
     """
     # Check if it is a local dimension
-    if dimension.startswith(node.name):
-        for col in node.columns:  # pragma: no cover
-            # Decide if we should restrict this to only columns marked as dimensional
-            # await session.refresh(col, ["attributes"]) TODO
-            # if col.is_dimensional():
-            #     ...
-            if f"{node.name}.{col.name}" == dimension:
-                return []
+    for col in node.columns:  # pragma: no cover
+        # Decide if we should restrict this to only columns marked as dimensional
+        # await session.refresh(col, ["attributes"]) TODO
+        # if col.is_dimensional():
+        #     ...
+        if f"{node.name}.{col.name}" == dimension:
+            return []
+        if (
+            col.dimension
+            and f"{col.dimension.name}.{col.dimension_column}" == dimension
+        ):
+            return []
 
     dimension_attr = FullColumnName(dimension)
 

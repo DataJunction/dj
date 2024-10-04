@@ -39,9 +39,9 @@ class LinkDimensionIdentifier(BaseModel):
     role: Optional[str]
 
 
-class LinkDimensionInput(BaseModel):
+class JoinLinkInput(BaseModel):
     """
-    Input for linking a dimension to a node
+    Input for creating a join link between a dimension node and node
     """
 
     dimension_node: str

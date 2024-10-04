@@ -50,8 +50,8 @@ from datajunction_server.models.attribute import (
 from datajunction_server.models.base import labelize
 from datajunction_server.models.cube import CubeElementMetadata, CubeRevisionMetadata
 from datajunction_server.models.dimensionlink import (
+    JoinLinkInput,
     LinkDimensionIdentifier,
-    LinkDimensionInput,
 )
 from datajunction_server.models.history import status_change_history
 from datajunction_server.models.materialization import (
@@ -1486,7 +1486,7 @@ async def get_cube_revision_metadata(session: AsyncSession, name: str):
 async def upsert_complex_dimension_link(
     session: AsyncSession,
     node_name: str,
-    link_input: LinkDimensionInput,
+    link_input: JoinLinkInput,
     current_user: User,
 ) -> ActivityType:
     """

@@ -67,9 +67,9 @@ from datajunction_server.internal.validation import validate_node_data
 from datajunction_server.models import access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.dimensionlink import (
+    JoinLinkInput,
     JoinType,
     LinkDimensionIdentifier,
-    LinkDimensionInput,
 )
 from datajunction_server.models.node import (
     ColumnOutput,
@@ -874,7 +874,7 @@ async def link_dimension(
                 " These column types are incompatible and the dimension cannot be linked",
             )
 
-    link_input = LinkDimensionInput(
+    link_input = JoinLinkInput(
         dimension_node=dimension,
         join_type=JoinType.LEFT,
         join_on=(
@@ -910,10 +910,130 @@ async def link_dimension(
     )
 
 
+@router.post("/nodes/{node_name}/columns/{node_column}/link", status_code=201)
+async def add_reference_dimension_link(
+    node_name: str,
+    node_column: str,
+    dimension_node: str,
+    dimension_column: str,
+    role: Optional[str] = None,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_and_update_current_user),
+) -> JSONResponse:
+    """
+    Add reference dimension link to a node column
+    """
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
+    dim_node = await Node.get_by_name(session, dimension_node, raise_if_not_exists=True)
+    if dim_node.type != NodeType.DIMENSION:  # type: ignore
+        raise DJInvalidInputException(
+            message=f"Node {node.name} is not of type dimension!",  # type: ignore
+        )
+
+    # The target and dimension columns should both exist
+    target_column = await get_column(session, node.current, node_column)  # type: ignore
+    dim_column = await get_column(session, dim_node.current, dimension_column)  # type: ignore
+
+    # Check the dimension column's type is compatible with the target column's type
+    if not dim_column.type.is_compatible(target_column.type):
+        raise DJInvalidInputException(
+            f"The column {target_column.name} has type {target_column.type} "
+            f"and is being linked to the dimension {dimension_node} "
+            f"via the dimension column {dimension_column}, which has "
+            f"type {dim_column.type}. These column types are incompatible"
+            " and the dimension cannot be linked",
+        )
+
+    activity_type = (
+        ActivityType.UPDATE if target_column.dimension_column else ActivityType.CREATE
+    )
+
+    # Create the reference link
+    target_column.dimension_id = dim_node.id  # type: ignore
+    target_column.dimension_column = (
+        f"{dimension_column}[{role}]" if role else dimension_column
+    )
+    session.add(target_column)
+    session.add(
+        History(
+            entity_type=EntityType.LINK,
+            entity_name=node.name,  # type: ignore
+            node=node.name,  # type: ignore
+            activity_type=activity_type,
+            details={
+                "node_name": node_name,  # type: ignore
+                "node_column": node_column,
+                "dimension_node": dimension_node,
+                "dimension_column": dimension_column,
+                "role": role,
+            },
+            user=current_user.username,
+        ),
+    )
+    await session.commit()
+    return JSONResponse(
+        status_code=201,
+        content={
+            "message": (
+                f"{node_name}.{node_column} has been successfully "
+                f"linked to {dimension_node}.{dimension_column}"
+            ),
+        },
+    )
+
+
+@router.delete("/nodes/{node_name}/columns/{node_column}/link", status_code=201)
+async def remove_reference_dimension_link(
+    node_name: str,
+    node_column: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_and_update_current_user),
+) -> JSONResponse:
+    """
+    Remove reference dimension link from a node column
+    """
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
+    target_column = await get_column(session, node.current, node_column)  # type: ignore
+    if target_column.dimension_id or target_column.dimension_column:
+        target_column.dimension_id = None
+        target_column.dimension_column = None
+        session.add(target_column)
+        session.add(
+            History(
+                entity_type=EntityType.LINK,
+                entity_name=node.name,  # type: ignore
+                node=node.name,  # type: ignore
+                activity_type=ActivityType.DELETE,
+                details={
+                    "node_name": node_name,  # type: ignore
+                    "node_column": node_column,
+                },
+                user=current_user.username,
+            ),
+        )
+        session.commit()
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": (
+                    f"The reference dimension link on {node_name}.{node_column} has been removed."
+                ),
+            },
+        )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": (
+                f"There is no reference dimension link on {node_name}.{node_column}."
+            ),
+        },
+    )
+
+
 @router.post("/nodes/{node_name}/link/", status_code=201)
 async def add_complex_dimension_link(  # pylint: disable=too-many-locals
     node_name: str,
-    link_input: LinkDimensionInput,
+    link_input: JoinLinkInput,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
