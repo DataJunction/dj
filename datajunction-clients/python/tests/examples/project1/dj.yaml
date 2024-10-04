@@ -6,6 +6,9 @@ tags:
   - name: deprecated
     description: This node is deprecated
     tag_type: Maintenance
+  - name: tag_one
+    description: tag_one
+    tag_type: Maintenance
 build:
   priority:
     - roads.date
