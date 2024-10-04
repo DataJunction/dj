@@ -683,6 +683,30 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "node foo.bar.repair_type has been removed."
         )
 
+    def test_add_remove_reference_dimension_link(self, client):
+        """
+        Check that adding a reference dimension link works as expected
+        """
+
+        repair_type = client.source("foo.bar.repair_type")
+        result = repair_type.add_reference_dimension_link(
+            node_column="contractor_id",
+            dimension_node="foo.bar.contractor",
+            dimension_column="contractor_id",
+        )
+        assert result["message"] == (
+            "foo.bar.repair_type.contractor_id has been successfully linked "
+            "to foo.bar.contractor.contractor_id"
+        )
+
+        # Unlink the dimension
+        result = repair_type.remove_reference_dimension_link(
+            node_column="contractor_id",
+        )
+        assert result["message"] == (
+            "The reference dimension link on foo.bar.repair_type.contractor_id has been removed."
+        )
+
     def test_sql(self, client):  # pylint: disable=unused-argument
         """
         Check that getting sql via the client works as expected.

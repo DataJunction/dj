@@ -2153,6 +2153,7 @@ COMPLEX_DIMENSION_LINK = (
                 {"name": "event_start_date", "type": "int"},
                 {"name": "event_end_date", "type": "int"},
                 {"name": "elapsed_secs", "type": "int"},
+                {"name": "user_registration_country", "type": "string"},
             ],
             "description": "Events table",
             "mode": "published",
@@ -2205,7 +2206,8 @@ COMPLEX_DIMENSION_LINK = (
             user_id,
             event_start_date,
             event_end_date,
-            elapsed_secs
+            elapsed_secs,
+            user_registration_country
         FROM default.events_table
     """,
             "mode": "published",
