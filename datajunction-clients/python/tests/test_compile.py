@@ -4,13 +4,64 @@ Test YAML project related things
 # pylint: disable=unused-argument
 import os
 from typing import Callable
+from unittest.mock import MagicMock
 
 import pytest
 
 from datajunction import DJBuilder
-from datajunction.compile import Project
+from datajunction.compile import CompiledProject, Project, find_project_root
 from datajunction.exceptions import DJClientException, DJDeploymentFailure
 from datajunction.models import NodeMode
+
+
+def test_compiled_project__deploy_namespaces():
+    """
+    Test deploying a namespace.
+    """
+    cp = CompiledProject(
+        name="foo",
+        prefix="foo.fix",
+        mode=NodeMode.DRAFT,
+        root_path="/foo",
+    )
+    builder_client = MagicMock(
+        create_namespace=MagicMock(side_effect=DJClientException("foo error")),
+    )
+    cp._deploy_namespaces(  # pylint: disable=protected-access
+        prefix="foo",
+        table=MagicMock(),
+        client=builder_client,
+    )
+    assert cp.errors[0]["error"] == "foo error"
+
+
+def test_compiled_project__cleanup_namespace():
+    """
+    Test cleaning up a namespace.
+    """
+    cp = CompiledProject(
+        name="foo",
+        prefix="foo.fix",
+        mode=NodeMode.DRAFT,
+        root_path="/foo",
+    )
+    builder_client = MagicMock(
+        delete_namespace=MagicMock(side_effect=DJClientException("foo error")),
+    )
+    cp._cleanup_namespace(  # pylint: disable=protected-access
+        prefix="foo",
+        client=builder_client,
+    )
+    assert cp.errors[0]["error"] == "foo error"
+
+
+def test_find_project_root():
+    """
+    Test finding the project root
+    """
+    with pytest.raises(DJClientException) as exc_info:
+        find_project_root(directory="foo")
+    assert "Directory foo does not exist" in str(exc_info)
 
 
 def test_compile_loading_a_project(change_to_project_dir: Callable):
@@ -182,7 +233,7 @@ def test_compile_validating_a_project(
     change_to_project_dir("project1")
     project = Project.load_current()
     compiled_project = project.compile()
-    compiled_project.validate(client=builder_client)
+    compiled_project.validate(client=builder_client, with_cleanup=True)
 
 
 def test_compile_deploying_a_project(
@@ -236,8 +287,12 @@ def test_compile_raising_on_invalid_file_name(
     """
     change_to_project_dir("project3")
     project = Project.load_current()
-    compiled_project = project.compile()
-    assert compiled_project.definitions == []
+    with pytest.raises(DJClientException) as exc_info:
+        project.compile()
+    assert (
+        "Invalid node definition filename some_node, node definition filename "
+        "must end with a node type i.e. my_node.source.yaml"
+    ) in str(exc_info.value)
 
     change_to_project_dir("project5")
     project = Project.load_current()

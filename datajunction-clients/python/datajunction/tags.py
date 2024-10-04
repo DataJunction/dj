@@ -9,18 +9,6 @@ from datajunction._internal import ClientEntity
 from datajunction.exceptions import DJClientException
 from datajunction.models import UpdateTag
 
-# @dataclass
-# class TagInfo:
-#     """
-#     Metadata about a tag
-#     """
-
-#     name: str
-#     tag_type: str
-#     description: Optional[str] = None
-#     display_name: Optional[str] = None
-#     tag_metadata: Optional[Dict] = None
-
 
 @dataclass
 class Tag(ClientEntity):

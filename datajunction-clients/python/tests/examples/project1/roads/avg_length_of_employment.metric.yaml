@@ -1,3 +1,5 @@
 description: Average length of employment
 query: SELECT avg(NOW() - hire_date) FROM ${prefix}roads.hard_hats
 display_name: Avg Length of Employment
+tags:
+  - tag_one
