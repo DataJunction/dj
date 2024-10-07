@@ -10,7 +10,7 @@ import re
 import time
 import uuid
 from http import HTTPStatus
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -727,6 +727,9 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
         assemble_column_metadata(col)  # type: ignore
         for col in query_ast.select.projection
     ]
+    upstream_tables = [tbl for tbl in query_ast.find_all(ast.Table) if tbl.dj_node]
+    for tbl in upstream_tables:
+        await session.refresh(tbl.dj_node, ["availability"])
     return (
         TranslatedSQL(
             sql=str(query_ast),
@@ -734,12 +737,11 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
             dialect=engine.dialect if engine else None,
             upstream_tables=[
                 f"{leading_metric_node.current.catalog.name}.{tbl.identifier()}"  # type: ignore
-                for tbl in query_ast.find_all(ast.Table)
-                # If a table has a corresponding node, then we can use it as dependency.
-                # It must be either a Source node or some type of Materialized node.
-                # Even if there is no availability state for it right now, this qery may be built
-                # for future execution, so we don't need to check for availability state here.
-                if tbl.dj_node
+                for tbl in upstream_tables
+                # If a table has a corresponding node with an associated physical table (either
+                # a source node or a node with a materialized table).
+                if cast(NodeRevision, tbl.dj_node).type == NodeType.SOURCE
+                or cast(NodeRevision, tbl.dj_node).availability is not None
             ],
         ),
         engine,
