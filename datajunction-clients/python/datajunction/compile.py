@@ -424,7 +424,7 @@ class Project:
     root_path: str = ""
     description: str = ""
     build: BuildConfig = field(default_factory=BuildConfig)
-    tags: Optional[List[TagYAML]] = field(default_factory=list[TagYAML])
+    tags: List[TagYAML] = field(default_factory=list[TagYAML])
     mode: NodeMode = NodeMode.PUBLISHED
 
     @classmethod
@@ -485,7 +485,7 @@ class Project:
         ignore_existing_files: bool = False,
     ):
         """
-        Pull down a namespace to a local project
+        Pull down a namespace to a local project.
         """
         path = Path(target_path)
         if any(path.iterdir()) and not ignore_existing_files:
@@ -585,30 +585,31 @@ class CompiledProject(Project):
         """
         Deploy tags
         """
-        if self.tags:
-            for tag in self.tags:
-                prefixed_name = f"{prefix}.{tag.name}"
-                try:
-                    new_tag = Tag(
-                        name=prefixed_name,
-                        description=tag.description,
-                        tag_type=tag.tag_type,
-                        tag_metadata=tag.tag_metadata,
-                        dj_client=client,
-                    )
-                    new_tag.save()
-                    table.add_row(
-                        *[
-                            prefixed_name,
-                            "[b][#3A4F6C]tag",
-                            f"[green]Tag {prefixed_name} successfully created",
-                        ]
-                    )
-                except DJClientException as exc:  # pragma: no cover
-                    table.add_row(*[tag.name, "tag", f"[i][red]{str(exc)}"])
-                    self.errors.append(
-                        {"name": prefixed_name, "type": "tag", "error": str(exc)},
-                    )
+        if not self.tags:
+            return table
+        for tag in self.tags:
+            prefixed_name = f"{prefix}.{tag.name}"
+            try:
+                new_tag = Tag(
+                    name=prefixed_name,
+                    description=tag.description,
+                    tag_type=tag.tag_type,
+                    tag_metadata=tag.tag_metadata,
+                    dj_client=client,
+                )
+                new_tag.save()
+                table.add_row(
+                    *[
+                        prefixed_name,
+                        "[b][#3A4F6C]tag",
+                        f"[green]Tag {prefixed_name} successfully created",
+                    ]
+                )
+            except DJClientException as exc:  # pragma: no cover
+                table.add_row(*[tag.name, "tag", f"[i][red]{str(exc)}"])
+                self.errors.append(
+                    {"name": prefixed_name, "type": "tag", "error": str(exc)},
+                )
         return table
 
     def _deploy_namespaces(self, prefix: str, table: Table, client: DJBuilder):
@@ -678,9 +679,12 @@ class CompiledProject(Project):
                         prefix,
                     )
                 # pre-fix the tags
+                project_tags = [tag.name for tag in self.tags]
                 if node_config.definition.tags:
                     rendered_node_config.definition.tags = [
-                        f"{prefix}.{tag}" for tag in node_config.definition.tags
+                        f"{prefix}.{tag}"
+                        for tag in node_config.definition.tags
+                        if tag in project_tags
                     ]
                 created_node = rendered_node_config.definition.deploy(
                     name=rendered_node_config.name,
