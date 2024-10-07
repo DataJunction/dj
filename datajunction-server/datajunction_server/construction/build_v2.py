@@ -814,7 +814,7 @@ async def dimension_join_path(
         [(link, [link]) for link in node.dimension_links],
     )
     while processing_queue:
-        current_link, join_path = processing_queue.pop()
+        current_link, join_path = processing_queue.popleft()
         await session.refresh(current_link, ["dimension"])
         if current_link.dimension.name == dimension_attr.node_name:
             return join_path
