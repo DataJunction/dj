@@ -739,7 +739,7 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
                 # It must be either a Source node or some type of Materialized node.
                 # Even if there is no availability state for it right now, this qery may be built
                 # for future execution, so we don't need to check for availability state here.
-                if tbl.dj_node
+                if tbl.dj_node and tbl.dj_node.type == NodeType.SOURCE
             ],
         ),
         engine,
