@@ -503,7 +503,7 @@ SELECT
 FROM default_DOT_events
 LEFT JOIN default_DOT_users
   ON default_DOT_events.user_id = default_DOT_users.user_id
-  AND default_DOT_events.event_start_date BETWEEN default_DOT_users.snapshot_date AND CAST(DATE_ADD(CAST(default_DOT_users.snapshot_date AS DATE), 10) AS INT)
+  AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
 GROUP BY
   default_DOT_users.user_id,
   default_DOT_users.snapshot_date,
@@ -542,8 +542,7 @@ GROUP BY
     FROM default_DOT_events
     LEFT JOIN default_DOT_users
       ON default_DOT_events.user_id = default_DOT_users.user_id
-      AND default_DOT_events.event_start_date BETWEEN default_DOT_users.snapshot_date
-      AND CAST(DATE_ADD(CAST(default_DOT_users.snapshot_date AS DATE), 10) AS INT)
+      AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
     GROUP BY
       default_DOT_users.user_id,
       default_DOT_users.snapshot_date,
@@ -597,7 +596,7 @@ SELECT
 FROM default_DOT_events
 LEFT JOIN default_DOT_users
   ON default_DOT_events.user_id = default_DOT_users.user_id
-  AND default_DOT_events.event_start_date BETWEEN default_DOT_users.snapshot_date AND CAST(DATE_ADD(CAST(default_DOT_users.snapshot_date AS DATE), 10) AS INT)
+  AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
 INNER JOIN default_DOT_countries
   ON default_DOT_users.registration_country = default_DOT_countries.country_code
 GROUP BY
@@ -729,7 +728,7 @@ SELECT
 FROM default_DOT_events
 LEFT JOIN default_DOT_users
   ON default_DOT_events.user_id = default_DOT_users.user_id
-  AND default_DOT_events.event_start_date BETWEEN default_DOT_users.snapshot_date AND CAST(DATE_ADD(CAST(default_DOT_users.snapshot_date AS DATE), 10) AS INT)
+  AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
 INNER JOIN default_DOT_countries
   ON default_DOT_users.registration_country = default_DOT_countries.country_code"""
     assert str(parse(query)) == str(parse(expected))
