@@ -6,8 +6,8 @@ tags:
   - name: deprecated
     description: This node is deprecated
     tag_type: Maintenance
-  - name: tag_one
-    description: tag_one
+  - name: tag_in_project
+    description: tag in project
     tag_type: Maintenance
 build:
   priority:
