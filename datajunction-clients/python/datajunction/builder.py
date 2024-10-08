@@ -234,7 +234,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         primary_key: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-        update_if_exists: bool = True,
+        update_if_exists: bool = False,
     ) -> "Source":
         """
         Creates a new Source node with given parameters.
@@ -348,7 +348,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         primary_key: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-        update_if_exists: bool = True,
+        update_if_exists: bool = False,
     ) -> "Transform":
         """
         Creates or update a Transform node with given parameters.
@@ -380,7 +380,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         display_name: Optional[str] = None,
         tags: Optional[List[str]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-        update_if_exists: bool = True,
+        update_if_exists: bool = False,
     ) -> "Dimension":
         """
         Creates or update a Dimension node with given parameters.
@@ -414,7 +414,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         unit: Optional[models.MetricUnit] = None,
         tags: Optional[List[str]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-        update_if_exists: bool = True,
+        update_if_exists: bool = False,
     ) -> "Metric":
         """
         Creates or update a Metric node with given parameters.
@@ -457,7 +457,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         display_name: Optional[str] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
         tags: Optional[List[str]] = None,
-        update_if_exists: bool = True,
+        update_if_exists: bool = False,
     ) -> "Cube":
         """
         Create or update a cube with the given parameters.
