@@ -1,6 +1,6 @@
 # pylint: disable=too-many-lines,too-many-statements
 """Tests DJ client"""
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from requests.exceptions import HTTPError
@@ -369,6 +369,46 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             description="new description",
         )
         assert account_type_table.description == "new description"
+
+    def test_saving_a_node(self, client):
+        """
+        Verifies that saving a node works.
+        """
+        client._create_node = MagicMock(return_value=MagicMock(status_code=200))
+        client._update_node_tags = MagicMock(return_value=MagicMock(status_code=200))
+
+        client.create_tag(
+            name="foo",
+            description="Foo",
+            tag_type="test",
+            tag_metadata={"foo": "bar"},
+        )
+        account_type_table = client.create_source(
+            name="default.account_type_table",
+            description="A source table for account type data",
+            display_name="Default: Account Type Table",
+            catalog="default",
+            schema="store",
+            table="account_type_table",
+            columns=[
+                Column(name="id", type="int"),
+                Column(name="account_type_name", type="string"),
+                Column(name="account_type_classification", type="int"),
+                Column(name="preferred_payment_method", type="int"),
+            ],
+            mode=NodeMode.DRAFT,
+            tags=["foo"],
+        )
+        assert account_type_table.name == "default.account_type_table"
+        assert account_type_table.display_name == "Default: Account Type Table"
+
+        new_node = account_type_table
+        new_node.name = "default.account_type_table_new"
+        new_node.display_name = "New: Account Type Table"
+        new_node.save()
+        new_node.refresh()
+        assert new_node.name == "default.account_type_table_new"
+        assert new_node.display_name == "New: Account Type Table"
 
     def test_create_nodes(self, client):  # pylint: disable=unused-argument
         """
@@ -1017,6 +1057,15 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             tag_type="test",
             tag_metadata={"foo": "bar"},
         )
+        # update the same tag
+        client.create_tag(
+            name="foo.two",
+            description="Foo Bar",
+            tag_type="test",
+            tag_metadata={"foo": "bar"},
+            update_if_exists=True,
+        )
+        # create a new tag with the same name
         with pytest.raises(DJTagAlreadyExists) as exc_info:
             client.create_tag(
                 name="foo.two",

@@ -11,6 +11,7 @@ from datajunction.exceptions import (
     DJClientException,
     DJNamespaceAlreadyExists,
     DJTableAlreadyRegistered,
+    DJTagAlreadyExists,
     DJViewAlreadyRegistered,
 )
 from datajunction.nodes import (
@@ -42,7 +43,11 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             raise DJClientException(f"Namespace `{namespace}` does not exist.")
         return Namespace(namespace=namespace, dj_client=self)
 
-    def create_namespace(self, namespace: str) -> "Namespace":
+    def create_namespace(
+        self,
+        namespace: str,
+        update_if_exists: bool = False,
+    ) -> "Namespace":
         """
         Create a namespace with a given name.
         """
@@ -51,7 +56,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
         )
         json_response = response.json()
-        if response.status_code == 409:
+        if response.status_code == 409 and not update_if_exists:
             raise DJNamespaceAlreadyExists(json_response["message"])
         return Namespace(namespace=namespace, dj_client=self)
 
@@ -128,7 +133,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         type_: models.NodeType,
         name: str,
         data: Dict,
-        update_if_exists: bool = True,
+        update_if_exists: bool = False,
     ):
         """
         Create or update a new node
@@ -227,7 +232,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         description: Optional[str] = None,
         columns: Optional[List[models.Column]] = None,
         primary_key: Optional[List[str]] = None,
-        tags: Optional[List[Tag]] = None,
+        tags: Optional[List[str]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
         update_if_exists: bool = True,
     ) -> "Source":
@@ -341,7 +346,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         description: Optional[str] = None,
         display_name: Optional[str] = None,
         primary_key: Optional[List[str]] = None,
-        tags: Optional[List[Tag]] = None,
+        tags: Optional[List[str]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
         update_if_exists: bool = True,
     ) -> "Transform":
@@ -373,7 +378,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         primary_key: Optional[List[str]] = None,
         description: Optional[str] = None,
         display_name: Optional[str] = None,
-        tags: Optional[List[Tag]] = None,
+        tags: Optional[List[str]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
         update_if_exists: bool = True,
     ) -> "Dimension":
@@ -407,7 +412,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         required_dimensions: Optional[List[str]] = None,
         direction: Optional[models.MetricDirection] = None,
         unit: Optional[models.MetricUnit] = None,
-        tags: Optional[List[Tag]] = None,
+        tags: Optional[List[str]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
         update_if_exists: bool = True,
     ) -> "Metric":
@@ -451,7 +456,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         description: Optional[str] = None,
         display_name: Optional[str] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-        tags: Optional[List[Tag]] = None,
+        tags: Optional[List[str]] = None,
         update_if_exists: bool = True,
     ) -> "Cube":
         """
@@ -476,12 +481,13 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     #
     # Tag
     #
-    def create_tag(
+    def create_tag(  # pylint: disable=too-many-arguments
         self,
         name: str,
         description: Optional[str],
         tag_metadata: Dict,
         tag_type: str,
+        update_if_exists: bool = False,
     ) -> Tag:
         """
         Create a tag with a given name.
@@ -493,6 +499,10 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             tag_type=tag_type,
             tag_metadata=tag_metadata,
         )
-        self._create_tag(tag=new_tag)
+        try:
+            self._create_tag(tag=new_tag)
+        except DJTagAlreadyExists as exc:
+            if not update_if_exists:
+                raise exc
         new_tag.refresh()
         return new_tag

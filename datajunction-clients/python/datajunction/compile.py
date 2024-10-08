@@ -30,7 +30,6 @@ from rich.table import Table
 from datajunction import DJBuilder
 from datajunction.exceptions import DJClientException, DJDeploymentFailure
 from datajunction.models import Column, NodeMode, NodeType
-from datajunction.nodes import Cube, Dimension, Metric, Source, Transform
 from datajunction.tags import Tag
 
 _logger = logging.getLogger(__name__)
@@ -56,7 +55,7 @@ def _parent_dir(path: Union[str, Path]):
     """
     Returns the parent directory
     """
-    return os.path.dirname(path)
+    return os.path.dirname(os.path.abspath(path))
 
 
 def _conf_exists(path: Union[str, Path]):
@@ -70,6 +69,8 @@ def find_project_root(directory: Optional[str] = None):
     """
     Returns the project root, identified by a root config file
     """
+    if directory and not os.path.isdir(directory):
+        raise DJClientException(f"Directory {directory} does not exist")
     checked_dir = directory or os.getcwd()
     while not _conf_exists(checked_dir):
         checked_dir = _parent_dir(checked_dir)
@@ -115,7 +116,7 @@ class SourceYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     columns: Optional[List[Column]] = None
     description: Optional[str] = None
     primary_key: Optional[List[str]] = None
-    tags: Optional[List[Tag]] = None
+    tags: Optional[List[str]] = None
     mode: NodeMode = NodeMode.PUBLISHED
     dimension_links: Optional[dict] = None
     query: Optional[str] = None
@@ -140,20 +141,19 @@ class SourceYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
         Validate a node by deploying it to a temporary system space
         """
         catalog, schema, table = self.table.split(".")
-        node = Source(
+        node = client.create_source(
             display_name=self.display_name,
             name=f"{prefix}.{name}",
             catalog=catalog,
-            schema_=schema,
+            schema=schema,
             table=table,
             columns=self.columns,
             description=self.description,
             primary_key=self.primary_key,
             tags=self.tags,
             mode=self.mode,
-            dj_client=client,
+            update_if_exists=True,
         )
-        node.save()
         return node
 
     def deploy_dimension_links(
@@ -181,7 +181,7 @@ class SourceYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
                 table.add_row(
                     *[
                         prefixed_name,
-                        "[b]link[/]",
+                        "[b]link",
                         (
                             f"[green]Column {column} linked to dimension {prefixed_dimension}"
                         ),
@@ -200,7 +200,7 @@ class TransformYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     display_name: Optional[str] = None
     description: Optional[str] = None
     primary_key: Optional[List[str]] = None
-    tags: Optional[List[Tag]] = None
+    tags: Optional[List[str]] = None
     mode: NodeMode = NodeMode.PUBLISHED
     dimension_links: Optional[dict] = None
     deploy_order: int = 2
@@ -209,7 +209,7 @@ class TransformYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
         """
         Validate a node by deploying it to a temporary system space
         """
-        node = Transform(
+        node = client.create_transform(
             name=f"{prefix}.{name}",
             display_name=self.display_name,
             query=self.query,
@@ -217,9 +217,8 @@ class TransformYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
             primary_key=self.primary_key,
             tags=self.tags,
             mode=self.mode,
-            dj_client=client,
+            update_if_exists=True,
         )
-        node.save()
         return node
 
     def deploy_dimension_links(
@@ -247,7 +246,7 @@ class TransformYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
                 table.add_row(
                     *[
                         prefixed_name,
-                        "[b]link[/]",
+                        "[b]link",
                         (
                             f"[green]Column {column} linked to column {dimension_column} "
                             f"on dimension {prefixed_dimension}"
@@ -267,7 +266,7 @@ class DimensionYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     display_name: Optional[str] = None
     description: Optional[str] = None
     primary_key: Optional[List[str]] = None
-    tags: Optional[List[Tag]] = None
+    tags: Optional[List[str]] = None
     mode: NodeMode = NodeMode.PUBLISHED
     dimension_links: Optional[dict] = None
     deploy_order: int = 3
@@ -276,7 +275,7 @@ class DimensionYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
         """
         Validate a node by deploying it to a temporary system space
         """
-        node = Dimension(
+        node = client.create_dimension(
             name=f"{prefix}.{name}",
             display_name=self.display_name,
             query=self.query,
@@ -284,9 +283,8 @@ class DimensionYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
             primary_key=self.primary_key,
             tags=self.tags,
             mode=self.mode,
-            dj_client=client,
+            update_if_exists=True,
         )
-        node.save()
         return node
 
     def deploy_dimension_links(
@@ -314,7 +312,7 @@ class DimensionYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
                 table.add_row(
                     *[
                         prefixed_name,
-                        "[b]link[/]",
+                        "[b]link",
                         (
                             f"[green]Column {column} linked to column {dimension_column} "
                             f"on dimension {prefixed_dimension}"
@@ -333,7 +331,7 @@ class MetricYAML(NodeYAML):
     query: str = ""
     display_name: Optional[str] = None
     description: Optional[str] = None
-    tags: Optional[List[Tag]] = None
+    tags: Optional[List[str]] = None
     mode: NodeMode = NodeMode.PUBLISHED
     deploy_order: int = 4
 
@@ -341,16 +339,15 @@ class MetricYAML(NodeYAML):
         """
         Validate a node by deploying it to a temporary system space
         """
-        node = Metric(
+        node = client.create_metric(
             name=f"{prefix}.{name}",
             display_name=self.display_name,
             query=self.query,
             description=self.description,
             tags=self.tags,
             mode=self.mode,
-            dj_client=client,
+            update_if_exists=True,
         )
-        node.save()
         return node
 
 
@@ -368,6 +365,7 @@ class CubeYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     description: Optional[str] = None
     mode: NodeMode = NodeMode.PUBLISHED
     query: Optional[str] = None
+    tags: Optional[List[str]] = None
     deploy_order: int = 5
 
     def deploy(self, name: str, prefix: str, client: DJBuilder):
@@ -381,7 +379,7 @@ class CubeYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
             render_prefixes(dimension_name, prefix)
             for dimension_name in self.dimensions
         ]
-        node = Cube(
+        node = client.create_cube(
             name=f"{prefix}.{name}",
             display_name=self.display_name,
             metrics=prefixed_metrics,
@@ -389,9 +387,9 @@ class CubeYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
             filters=self.filters,
             description=self.description,
             mode=self.mode,
-            dj_client=client,
+            tags=self.tags,
+            update_if_exists=True,
         )
-        node.save()
         return node
 
 
@@ -426,7 +424,7 @@ class Project:
     root_path: str = ""
     description: str = ""
     build: BuildConfig = field(default_factory=BuildConfig)
-    tags: Optional[List[TagYAML]] = field(default_factory=list[TagYAML])
+    tags: List[TagYAML] = field(default_factory=list[TagYAML])
     mode: NodeMode = NodeMode.PUBLISHED
 
     @classmethod
@@ -487,7 +485,7 @@ class Project:
         ignore_existing_files: bool = False,
     ):
         """
-        Pull down a namespace to a local project
+        Pull down a namespace to a local project.
         """
         path = Path(target_path)
         if any(path.iterdir()) and not ignore_existing_files:
@@ -587,34 +585,31 @@ class CompiledProject(Project):
         """
         Deploy tags
         """
-        if self.tags:
-            for tag in self.tags:
-                prefixed_name = f"{prefix}.{tag.name}"
-                try:
-                    new_tag = Tag(
-                        name=prefixed_name,
-                        description=tag.description,
-                        tag_type=tag.tag_type,
-                        tag_metadata=tag.tag_metadata,
-                        dj_client=client,
-                    )
-                    new_tag.save()
-                    table.add_row(
-                        *[
-                            prefixed_name,
-                            "[b][#3A4F6C]tag",
-                            f"[green]Tag {prefixed_name} successfully created",
-                        ]
-                    )
-                except DJClientException as exc:  # pragma: no cover
-                    table.add_row(*[tag.name, "tag", f"[i][red]{str(exc)}"])
-                    self.errors.append(
-                        {
-                            "name": prefixed_name,
-                            "type": "tag",
-                            "error": exc,
-                        },
-                    )
+        if not self.tags:
+            return table
+        for tag in self.tags:
+            prefixed_name = f"{prefix}.{tag.name}"
+            try:
+                new_tag = Tag(
+                    name=prefixed_name,
+                    description=tag.description,
+                    tag_type=tag.tag_type,
+                    tag_metadata=tag.tag_metadata,
+                    dj_client=client,
+                )
+                new_tag.save()
+                table.add_row(
+                    *[
+                        prefixed_name,
+                        "[b][#3A4F6C]tag",
+                        f"[green]Tag {prefixed_name} successfully created",
+                    ]
+                )
+            except DJClientException as exc:  # pragma: no cover
+                table.add_row(*[tag.name, "tag", f"[i][red]{str(exc)}"])
+                self.errors.append(
+                    {"name": prefixed_name, "type": "tag", "error": str(exc)},
+                )
         return table
 
     def _deploy_namespaces(self, prefix: str, table: Table, client: DJBuilder):
@@ -626,6 +621,7 @@ class CompiledProject(Project):
             try:
                 client.create_namespace(
                     namespace=prefixed_name,
+                    update_if_exists=True,
                 )
                 table.add_row(
                     *[
@@ -635,23 +631,15 @@ class CompiledProject(Project):
                     ]
                 )
             except DJClientException as exc:
-                if "already exists" in str(exc):
-                    table.add_row(
-                        *[
-                            prefixed_name,
-                            "[b][#3A4F6C]namespace",
-                            f"[green]Namespace {prefixed_name} successfully created",
-                        ]
-                    )
-                else:  # pragma: no cover
-                    table.add_row(*[namespace, "namespace", f"[i][red]{str(exc)}"])
-                    self.errors.append(
-                        {
-                            "name": prefixed_name,
-                            "type": "namespace",
-                            "error": exc,
-                        },
-                    )
+                # pragma: no cover
+                table.add_row(*[namespace, "namespace", f"[i][red]{str(exc)}"])
+                self.errors.append(
+                    {
+                        "name": prefixed_name,
+                        "type": "namespace",
+                        "error": str(exc),
+                    },
+                )
         return table
 
     def _deploy_nodes(
@@ -680,22 +668,32 @@ class CompiledProject(Project):
             )
             try:
                 rendered_node_config = deepcopy(node_config)
+                prefixed_name = f"{prefix}.{node_config.name}"
+                # pre-fix the query
                 if isinstance(
                     node_config.definition,
                     (TransformYAML, DimensionYAML, MetricYAML),
                 ):
                     rendered_node_config.definition.query = render_prefixes(
-                        node_config.definition.query,
+                        rendered_node_config.definition.query or "",
                         prefix,
                     )
+                # pre-fix the tags
+                project_tags = [tag.name for tag in self.tags]
+                if node_config.definition.tags:
+                    rendered_node_config.definition.tags = [
+                        f"{prefix}.{tag}"
+                        for tag in node_config.definition.tags
+                        if tag in project_tags
+                    ]
                 created_node = rendered_node_config.definition.deploy(
-                    name=node_config.name,
+                    name=rendered_node_config.name,
                     prefix=prefix,
                     client=client,
                 )
                 table.add_row(
                     *[
-                        node_config.name,
+                        prefixed_name,
                         f"{style}{created_node.type}",
                         f"[green]Node {created_node.name} successfully created",
                     ]
@@ -703,17 +701,13 @@ class CompiledProject(Project):
             except DJClientException as exc:
                 table.add_row(
                     *[
-                        node_config.name,
+                        prefixed_name,
                         f"{style}{node_config.definition.node_type}",
                         f"[i][red]{str(exc)}",
                     ]
                 )
                 self.errors.append(
-                    {
-                        "name": node_config.name,
-                        "type": "node",
-                        "error": exc,
-                    },
+                    {"name": prefixed_name, "type": "node", "error": str(exc)},
                 )
 
     def _deploy_dimension_links(self, prefix: str, table: Table, client: DJBuilder):
@@ -737,7 +731,7 @@ class CompiledProject(Project):
                         *[node_config.name, "[b]link[/]", f"[i][red]{str(exc)}"]
                     )
                     self.errors.append(
-                        {"name": node_config.name, "type": "link", "error": exc},
+                        {"name": node_config.name, "type": "link", "error": str(exc)},
                     )
 
     def _deploy(
@@ -766,13 +760,11 @@ class CompiledProject(Project):
         table = Table(show_footer=False)
         table_centered = Align.center(table)
         with Live(table_centered, console=console, screen=False, refresh_per_second=20):
-            table.title = (
-                f"{self.name}\nDeployment Prefix: [bold green]{prefix}[/ bold green]"
-            )
+            table.title = f"{self.name}\nDeployment for Prefix: [bold green]{prefix}[/ bold green]"
             table.box = box.SIMPLE_HEAD
             table.add_column("Name", no_wrap=True)
             table.add_column("Type", no_wrap=True)
-            table.add_column("", no_wrap=True)
+            table.add_column("Message", no_wrap=False)
             self._deploy_tags(prefix=prefix, table=table, client=client)
             self._deploy_namespaces(prefix=prefix, table=table, client=client)
             self._deploy_nodes(
@@ -781,7 +773,6 @@ class CompiledProject(Project):
                 table=table,
                 client=client,
             )
-            # Deploy dimensional graph before deploying cubes
             self._deploy_dimension_links(prefix=prefix, table=table, client=client)
             self._deploy_nodes(
                 node_configs=cubes,
@@ -790,15 +781,59 @@ class CompiledProject(Project):
                 client=client,
             )
 
-    def validate(self, client, console: Console = Console()):
+    def _cleanup_namespace(
+        self,
+        client: DJBuilder,
+        prefix: str,
+        console: Console = Console(),
+    ):
+        """
+        Cleanup a prefix
+        """
+        table = Table(show_footer=False)
+        table_centered = Align.center(table)
+        with Live(table_centered, console=console, screen=False, refresh_per_second=20):
+            table.title = (
+                f"{self.name}\nCleanup for Prefix: [bold red]{prefix}[/ bold red]"
+            )
+            table.box = box.SIMPLE_HEAD
+            table.add_column("Name", no_wrap=True)
+            table.add_column("Type", no_wrap=True)
+            table.add_column("Message", no_wrap=False)
+            try:
+                client.delete_namespace(namespace=prefix, cascade=True)
+                table.add_row(
+                    *[
+                        prefix,
+                        "[b][#3A4F6C]namespace",
+                        f"[green]Namespace {prefix} successfully deleted.",
+                    ]
+                )
+            except DJClientException as exc:
+                table.add_row(*[prefix, "namespace", f"[i][red]{str(exc)}"])
+                self.errors.append(
+                    {
+                        "name": prefix,
+                        "type": "namespace",
+                        "error": str(exc),
+                    },
+                )
+
+    def validate(self, client, console: Console = Console(), with_cleanup: bool = True):
         """
         Validate the compiled project
         """
         self.errors = []
         console.clear()
         validation_id = "".join(random.choices(string.ascii_letters, k=16))
-        system_prefix = f"system.{validation_id}.{self.prefix}"
+        system_prefix = f"system.temp.{validation_id}.{self.prefix}"
         self._deploy(client=client, prefix=system_prefix, console=console)
+        if with_cleanup:  # pragma: no cover
+            self._cleanup_namespace(
+                client=client,
+                prefix=system_prefix,
+                console=console,
+            )
         if self.errors:
             raise DJDeploymentFailure(project_name=self.name, errors=self.errors)
         self.validated = True
@@ -858,17 +893,20 @@ async def load_data(
         if path.stem.endswith(".cube")
         else None
     )
-    if yaml_cls:
-        with open(path, encoding="utf-8") as f_yaml:
-            yaml_dict = yaml.safe_load(f_yaml)
-            definition = yaml_cls(**yaml_dict)
+    if not yaml_cls:
+        raise DJClientException(
+            f"Invalid node definition filename {path.stem}, "
+            "node definition filename must end with a node type i.e. my_node.source.yaml",
+        )
+    with open(path, encoding="utf-8") as f_yaml:
+        yaml_dict = yaml.safe_load(f_yaml)
+        definition = yaml_cls(**yaml_dict)
 
-            return NodeConfig(
-                name=get_name_from_path(repository=repository, path=path),
-                definition=definition,
-                path=str(path),
-            )
-    return None
+        return NodeConfig(
+            name=get_name_from_path(repository=repository, path=path),
+            definition=definition,
+            path=str(path),
+        )
 
 
 def load_node_configs_notebook_safe(repository: Path, priority: List[str]):
@@ -908,7 +946,6 @@ async def load_node_configs(
             set(repository.glob("**/*.yaml")) - set(repository.glob(CONFIG_FILENAME))
         )
     }
-
     node_configs = []
     for node_name in priority:
         try:
