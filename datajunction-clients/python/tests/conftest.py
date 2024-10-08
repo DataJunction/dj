@@ -362,4 +362,10 @@ def builder_client(module__session_with_examples: TestClient):
         username="datajunction",
         password="datajunction",
     )
+    client.create_tag(
+        name="system-tag",
+        description="some system tag",
+        tag_type="system",
+        tag_metadata={},
+    )
     return client

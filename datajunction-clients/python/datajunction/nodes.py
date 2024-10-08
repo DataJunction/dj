@@ -148,6 +148,8 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
                 if isinstance(tag, Tag)
                 else tag["name"]
                 if isinstance(tag, dict)
+                else tag
+                if isinstance(tag, str)
                 else None
                 for tag in self.tags
             ]
@@ -156,7 +158,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
         )
         if not response.status_code < 400:  # pragma: no cover
             raise DJClientException(
-                f"Error updating tags for node {self.name}, {self.tags}",
+                f"Error updating tags for node {self.name}: {response.text}",
             )
 
     def save(self, mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED) -> dict:
