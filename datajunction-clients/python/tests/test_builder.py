@@ -657,13 +657,17 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         )
         assert cube_one.name == "default.cube_one"
         assert cube_one.status == "valid"
+        assert cube_one.metrics == ["default.number_of_account_types"]
         assert [tag["name"] for tag in cube_one.tags] == ["foo"]
 
         # Test updating cube node
         cube_one = client.create_cube(
             name="default.cube_one",
             description="Ice cubes!",
-            metrics=["default.number_of_account_types"],
+            metrics=[
+                "default.number_of_account_types",
+                "default.number_of_account_types2",
+            ],
             dimensions=["default.account_type.account_type_name"],
             mode=NodeMode.PUBLISHED,
             tags=[],
@@ -671,6 +675,10 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         )
         assert cube_one.name == "default.cube_one"
         assert cube_one.description == "Ice cubes!"
+        assert cube_one.metrics == [
+            "default.number_of_account_types",
+            "default.number_of_account_types2",
+        ]
         assert [tag["name"] for tag in cube_one.tags] == []
 
     def test_link_unlink_dimension(self, client):  # pylint: disable=unused-argument
@@ -1059,15 +1067,15 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             tag_type="test",
             tag_metadata={"foo": "bar"},
         )
-        # update the same tag
+        # skip if a tag exists
         client.create_tag(
             name="foo.two",
             description="Foo Bar",
             tag_type="test",
             tag_metadata={"foo": "bar"},
-            update_if_exists=True,
+            skip_if_exists=True,
         )
-        # create a new tag with the same name
+        # fail if a tag exists
         with pytest.raises(DJTagAlreadyExists) as exc_info:
             client.create_tag(
                 name="foo.two",

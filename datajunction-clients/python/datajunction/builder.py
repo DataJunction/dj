@@ -46,7 +46,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def create_namespace(
         self,
         namespace: str,
-        update_if_exists: bool = False,
+        skip_if_exists: bool = False,
     ) -> "Namespace":
         """
         Create a namespace with a given name.
@@ -56,7 +56,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
         )
         json_response = response.json()
-        if response.status_code == 409 and not update_if_exists:
+        if response.status_code == 409 and not skip_if_exists:
             raise DJNamespaceAlreadyExists(json_response["message"])
         return Namespace(namespace=namespace, dj_client=self)
 
@@ -487,7 +487,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         description: Optional[str],
         tag_metadata: Dict,
         tag_type: str,
-        update_if_exists: bool = False,
+        skip_if_exists: bool = False,
     ) -> Tag:
         """
         Create a tag with a given name.
@@ -502,7 +502,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         try:
             self._create_tag(tag=new_tag)
         except DJTagAlreadyExists as exc:
-            if not update_if_exists:
+            if not skip_if_exists:
                 raise exc
         new_tag.refresh()
         return new_tag
