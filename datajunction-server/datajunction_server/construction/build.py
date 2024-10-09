@@ -270,7 +270,41 @@ async def build_metric_nodes(
 
         await parent_ast.compile(context)
         measures_queries.append(parent_ast)
-    return measures_queries[0]
+
+    # Join together the transforms on the shared dimensions and select all
+    # requested metrics and dimensions in the final select projection
+    base_query = measures_queries[0]
+    for parent_query in measures_queries[1:]:
+        base_query.ctes.extend(parent_query.ctes)
+        base_query.select.projection.extend(
+            [
+                proj
+                for proj in parent_query.select.projection
+                if from_amenable_name(proj.alias_or_name.identifier()) not in dimensions
+            ],
+        )
+        base_query.select.from_.relations[0].extensions.append(
+            ast.Join(
+                join_type="left",
+                right=parent_query.select.from_.relations[0],
+                criteria=ast.JoinCriteria(
+                    on=ast.BinaryOp.And(
+                        *[
+                            ast.BinaryOp(
+                                op=ast.BinaryOpKind.Eq,
+                                left=dim_left,
+                                right=dim_right,
+                            )
+                            for dim_left, dim_right in zip(
+                                base_query.select.group_by,
+                                parent_query.select.group_by,
+                            )
+                        ]
+                    ),
+                ),
+            ),
+        )
+    return base_query
 
 
 def build_temp_select(temp_query: str):
