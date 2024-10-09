@@ -383,9 +383,8 @@ class Source(Node):
         When `catalog` is a dictionary, parse out the catalog's
         name, otherwise just return the string.
         """
-        if self.catalog:
-            if isinstance(self.catalog, dict):
-                self.catalog = self.catalog["name"]
+        if self.catalog and isinstance(self.catalog, dict):
+            self.catalog = self.catalog["name"]
 
     def _update(self) -> requests.Response:
         """
