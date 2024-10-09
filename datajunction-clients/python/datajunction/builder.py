@@ -152,24 +152,24 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 # This check is for the unit tests, which don't raise an exception
                 # for >= 400 status codes
                 if "name" in cube_dict:
-                    data["metrics"] = cube_dict["cube_node_metrics"]
-                    data["dimensions"] = cube_dict["cube_node_dimensions"]
+                    existing_node_dict["metrics"] = cube_dict["cube_node_metrics"]
+                    existing_node_dict["dimensions"] = cube_dict["cube_node_dimensions"]
         except DJClientException as e:  # pragma: no cover # pytest fixture doesn't raise
             if re.search(r"node .* does not exist", str(e)):
                 existing_node_dict = None
             else:
                 raise
 
-        # pylint: disable=fixme
-        # TODO: checking for "name" in existing_node_dict is a workaround
+        # Checking for "name" in existing_node_dict is a workaround
         #   to accommodate pytest mock client, which return a error message dict (no "name")
         #   instead of raising like the real client.
         if existing_node_dict and "name" in existing_node_dict:
             # update
             if update_if_exists:
+                existing_node_dict.update(data)
                 new_node = self.make_node_of_type(
                     type_=type_,
-                    data=data,
+                    data=existing_node_dict,
                 )
                 new_node._update_tags()
                 new_node._update()
