@@ -359,14 +359,15 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         with pytest.raises(DJClientException):
             account_type_table = client.create_source(
                 name="default.account_type_table",
-                description="New description",
+                description="new description",
                 update_if_exists=False,
             )
 
-        # ... should work since update_if_exists is set to True by default
+        # ... should work since update_if_exists is set to True
         account_type_table = client.create_source(
             name="default.account_type_table",
             description="new description",
+            update_if_exists=True,
         )
         assert account_type_table.description == "new description"
 
@@ -398,6 +399,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ],
             mode=NodeMode.DRAFT,
             tags=["foo"],
+            update_if_exists=True,
         )
         assert account_type_table.name == "default.account_type_table"
         assert account_type_table.display_name == "Default: Account Type Table"
