@@ -10,7 +10,9 @@ from strawberry.types import Info
 from datajunction_server.api.graphql.catalogs import CatalogInfo, list_catalogs
 from datajunction_server.api.graphql.engines import EngineInfo, list_engines
 from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
-from datajunction_server.api.graphql.scalars.node import Node
+from datajunction_server.api.graphql.scalars import PageMeta
+from datajunction_server.api.graphql.scalars.node import FindNodesResponse, Node
+from datajunction_server.api.graphql.utils import encode_id
 from datajunction_server.models.node import NodeType
 from datajunction_server.utils import get_session, get_settings
 
@@ -72,6 +74,93 @@ class Query:  # pylint: disable=R0903
         Find nodes based on the search parameters.
         """
         return await find_nodes_by(info, names, fragment, node_types, tags)  # type: ignore
+
+    @strawberry.field(
+        description="Find nodes based on the search parameters with pagination",
+    )
+    async def find_nodes_paginated(
+        self,
+        fragment: Annotated[
+            Optional[str],
+            strawberry.argument(
+                description="A fragment of a node name to search for",
+            ),
+        ] = None,
+        names: Annotated[
+            Optional[List[str]],
+            strawberry.argument(
+                description="Filter to nodes with these names",
+            ),
+        ] = None,
+        node_types: Annotated[
+            Optional[List[NodeType]],
+            strawberry.argument(
+                description="Filter nodes to these node types",
+            ),
+        ] = None,
+        tags: Annotated[
+            Optional[List[str]],
+            strawberry.argument(
+                description="Filter to nodes tagged with these tags",
+            ),
+        ] = None,
+        edited_by: Annotated[
+            Optional[str],
+            strawberry.argument(
+                description="Filter to nodes edited by this user",
+            ),
+        ] = None,
+        namespace: Annotated[
+            Optional[str],
+            strawberry.argument(
+                description="Filter to nodes in this namespace",
+            ),
+        ] = None,
+        cursor: Annotated[
+            Optional[str],
+            strawberry.argument(description="Pagination cursor"),
+        ] = None,
+        limit: Annotated[
+            Optional[int],
+            strawberry.argument(description="Limit nodes"),
+        ] = 100,
+        *,
+        info: Info,
+    ) -> FindNodesResponse:
+        """
+        Find nodes based on the search parameters.
+        """
+        nodes_list = await find_nodes_by(
+            info,
+            names,
+            fragment,
+            node_types,
+            tags,
+            edited_by,
+            namespace,
+            limit,
+            cursor,
+        )
+        print("prevcursor", (nodes_list[0].created_at, nodes_list[0].id))
+        prev_cursor = (
+            encode_id((nodes_list[0].created_at, nodes_list[0].id))
+            if nodes_list
+            else None
+        )
+        next_cursor = (
+            encode_id((nodes_list[-1].created_at, nodes_list[-1].id))
+            if nodes_list
+            else None
+        )
+        print("nextcursor", (nodes_list[-1].created_at, nodes_list[-1].id))
+        return FindNodesResponse(  # type: ignore
+            nodes=nodes_list[:limit],
+            page_meta=PageMeta(  # type: ignore
+                prev_cursor=prev_cursor,
+                next_cursor=next_cursor,
+                count=len(nodes_list) - 1,
+            ),
+        )
 
 
 schema = strawberry.Schema(query=Query)
