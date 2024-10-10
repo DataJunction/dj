@@ -24,7 +24,7 @@ from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship, sele
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.operators import is_
 
-from datajunction_server.api.graphql.utils import decode_id, encode_id
+from datajunction_server.api.graphql.utils import decode_id
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.base import Base
@@ -399,7 +399,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         return result.unique().scalars().all()
 
     @classmethod
-    async def find_by(  # pylint: disable=keyword-arg-before-vararg
+    async def find_by(  # pylint: disable=keyword-arg-before-vararg,too-many-locals
         cls,
         session: AsyncSession,
         names: Optional[List[str]] = None,
@@ -416,14 +416,6 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         Finds a list of nodes by prefix
         """
         timestamp_cursor, node_id_cursor = decode_id(cursor)
-        print(
-            "timestamp_cursor",
-            timestamp_cursor,
-            node_id_cursor,
-            edited_by,
-            node_types,
-        )
-
         nodes_with_tags = []
         if tags:
             statement = (
@@ -443,9 +435,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
                 (Node.namespace.like(f"{namespace}.%")) | (Node.namespace == namespace),
             )
         if nodes_with_tags:
-            statement = statement.where(  # pragma: no cover
-                Node.id.in_(nodes_with_tags),
-            )
+            statement = statement.where(Node.id.in_(nodes_with_tags))
         if names:
             statement = statement.where(
                 Node.name.in_(names),  # type: ignore  # pylint: disable=no-member
@@ -469,21 +459,14 @@ class Node(Base):  # pylint: disable=too-few-public-methods
                 onclause=(edited_node_subquery.c.entity_name == Node.name),
             ).distinct()
 
-        statement = statement.where(
-            ((Node.created_at, Node.id) <= (timestamp_cursor, node_id_cursor))
-            if cursor
-            else (1 == 1),
-        ).order_by(Node.created_at.desc(), Node.id.desc())
+        if cursor:
+            statement = statement.where(
+                (Node.created_at, Node.id) <= (timestamp_cursor, node_id_cursor),
+            ).order_by(Node.created_at.desc(), Node.id.desc())
+
+        limit = limit or 100
         if limit != -1:
             statement = statement.limit(limit + 1)
-        from sqlalchemy.dialects import postgresql
-
-        print(
-            statement.options(*options).compile(
-                dialect=postgresql.dialect(),
-                compile_kwargs={"literal_binds": True},
-            ),
-        )
         result = await session.execute(statement.options(*options))
         return result.unique().scalars().all()
 
