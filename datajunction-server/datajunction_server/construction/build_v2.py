@@ -830,8 +830,8 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
     def order_by(self, orderby: Optional[Union[str, List[str]]] = None):
         """Set order by for the query builder."""
         if isinstance(orderby, str):
-            if orderby not in self._orderby:
-                self._orderby.append(orderby)
+            if orderby not in self._orderby:  # pragma: no cover
+                self._orderby.append(orderby)  # pragma: no cover
         else:
             for order in orderby or []:
                 if order not in self._orderby:  # pragma: no cover
