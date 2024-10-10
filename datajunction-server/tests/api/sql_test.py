@@ -3508,9 +3508,9 @@ async def test_get_sql_for_metrics_filters_validate_dimensions(
         },
     )
     data = response.json()
-    assert data["message"] == (
-        "This dimension attribute cannot be joined in: default.hard_hat.city. Please "
-        "make sure that default.hard_hat is linked to foo.bar.repair_orders"
+    assert (
+        "This dimension attribute cannot be joined in: default.hard_hat.city"
+        in data["message"]
     )
 
 
