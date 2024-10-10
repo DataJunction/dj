@@ -5234,6 +5234,17 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "path": ["default.repair_type"],
             "type": "int",
         },
+        {
+            "filter_only": True,
+            "is_primary_key": True,
+            "name": "default.us_state.state_short",
+            "node_display_name": "Default: Us State",
+            "node_name": "default.us_state",
+            "path": [
+                "default.contractors",
+            ],
+            "type": "string",
+        },
     ]
 
 

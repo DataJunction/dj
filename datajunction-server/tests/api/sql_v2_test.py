@@ -1,5 +1,7 @@
 """Tests for all /sql endpoints that use node SQL build v2"""
 # pylint: disable=line-too-long,too-many-lines
+from unittest import mock
+
 import duckdb
 import pytest
 from httpx import AsyncClient
@@ -683,4 +685,119 @@ async def test_measures_sql_errors(
             },
             "context": "",
         },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_metrics_sql_different_parents(
+    module__client_with_roads: AsyncClient,
+    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+):
+    """
+    Test ``GET /sql`` for metrics from different parents.
+    """
+    await fix_dimension_links(module__client_with_roads)
+
+    response = await module__client_with_roads.get(
+        "/sql",
+        params={
+            "metrics": [
+                "default.avg_length_of_employment",
+                "default.total_repair_cost",
+            ],
+            "dimensions": [
+                "default.hard_hat.first_name",
+                "default.hard_hat.last_name",
+            ],
+            "filters": [
+                # "default.hard_hat.first_name like '%a%'",
+            ],
+            "orderby": ["default.hard_hat.last_name"],
+            "limit": 5,
+        },
+    )
+    data = response.json()
+    expected_sql = """WITH
+default_DOT_hard_hat AS (
+SELECT  default_DOT_hard_hats.hard_hat_id,
+    default_DOT_hard_hats.last_name,
+    default_DOT_hard_hats.first_name,
+    default_DOT_hard_hats.title,
+    default_DOT_hard_hats.birth_date,
+    default_DOT_hard_hats.hire_date,
+    default_DOT_hard_hats.address,
+    default_DOT_hard_hats.city,
+    default_DOT_hard_hats.state,
+    default_DOT_hard_hats.postal_code,
+    default_DOT_hard_hats.country,
+    default_DOT_hard_hats.manager,
+    default_DOT_hard_hats.contractor_id
+ FROM roads.hard_hats AS default_DOT_hard_hats
+),
+default_DOT_repair_orders_fact AS (
+SELECT  repair_orders.repair_order_id,
+    repair_orders.municipality_id,
+    repair_orders.hard_hat_id,
+    repair_orders.dispatcher_id,
+    repair_orders.order_date,
+    repair_orders.dispatched_date,
+    repair_orders.required_date,
+    repair_order_details.discount,
+    repair_order_details.price,
+    repair_order_details.quantity,
+    repair_order_details.repair_type_id,
+    repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+    repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+    repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+ FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+),
+default_DOT_hard_hat_metrics AS (
+SELECT  default_DOT_hard_hat.last_name default_DOT_hard_hat_DOT_last_name,
+    default_DOT_hard_hat.first_name default_DOT_hard_hat_DOT_first_name,
+    avg(CAST(NOW() AS DATE) - default_DOT_hard_hat.hire_date) default_DOT_avg_length_of_employment
+ FROM default_DOT_hard_hat
+ GROUP BY  default_DOT_hard_hat.last_name, default_DOT_hard_hat.first_name
+),
+default_DOT_repair_orders_fact_metrics AS (
+SELECT  default_DOT_hard_hat.first_name default_DOT_hard_hat_DOT_first_name,
+    default_DOT_hard_hat.last_name default_DOT_hard_hat_DOT_last_name,
+    sum(default_DOT_repair_orders_fact.total_repair_cost) default_DOT_total_repair_cost
+ FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+ GROUP BY  default_DOT_hard_hat.first_name, default_DOT_hard_hat.last_name
+)
+SELECT  default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_last_name,
+    default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_first_name,
+    default_DOT_hard_hat_metrics.default_DOT_avg_length_of_employment,
+    default_DOT_repair_orders_fact_metrics.default_DOT_total_repair_cost
+ FROM default_DOT_hard_hat_metrics FULL JOIN default_DOT_repair_orders_fact_metrics ON default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_first_name = default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_first_name AND default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_last_name = default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_last_name
+ ORDER BY default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_last_name
+ LIMIT 5"""
+    assert str(parse(str(data["sql"]))) == str(parse(expected_sql))
+
+    response = await module__client_with_roads.get(
+        "/sql",
+        params={
+            "metrics": [
+                "default.avg_length_of_employment",
+                "default.total_repair_cost",
+            ],
+            "dimensions": [
+                "default.hard_hat.first_name",
+                "default.hard_hat.last_name",
+            ],
+            "filters": [],
+            "orderby": "default.hard_hat.last_name",
+            "limit": 5,
+        },
+    )
+    data = response.json()
+    assert str(parse(str(data["sql"]))) == str(parse(expected_sql))
+
+    result = duckdb_conn.sql(data["sql"])
+    assert result.fetchall() == [
+        ("Alfred", "Clarke", mock.ANY, 196787.0),
+        ("Brian", "Perkins", mock.ANY, 218691.0),
+        ("Cathy", "Best", mock.ANY, 229666.0),
+        ("Donna", "Riley", mock.ANY, 320953.0),
+        ("Luka", "Henderson", mock.ANY, 131364.0),
     ]
