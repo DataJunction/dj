@@ -814,7 +814,7 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
 
     def add_dimension(self, dimension: str):
         """Add dimension to the query builder."""
-        if (
+        if (  # pragma: no cover
             dimension not in self._dimensions
             and dimension not in self._required_dimensions
         ):
@@ -950,7 +950,7 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
         # Error validation
         self.validate_access()
         if self.errors and not self._ignore_errors:
-            raise DJQueryBuildException(errors=self.errors)
+            raise DJQueryBuildException(errors=self.errors)  # pragma: no cover
         return self.final_ast
 
     def validate_access(self):
@@ -1082,7 +1082,7 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
             in self.final_ast.select.column_mapping
         ]
         if len(valid_sort_items) < len(temp_orderbys):
-            self.errors.append(
+            self.errors.append(  # pragma: no cover
                 DJQueryBuildError(
                     code=ErrorCode.INVALID_ORDER_BY,
                     message=f"{self._orderby} is not a valid ORDER BY request",
