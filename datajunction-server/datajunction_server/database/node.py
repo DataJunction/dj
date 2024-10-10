@@ -12,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -23,6 +24,7 @@ from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship, sele
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.operators import is_
 
+from datajunction_server.api.graphql.utils import decode_id, encode_id
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.base import Base
@@ -165,6 +167,13 @@ class Node(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "node"
     __table_args__ = (
         UniqueConstraint("name", "namespace", name="unique_node_namespace_name"),
+        Index("cursor_index", "created_at", "id", postgresql_using="btree"),
+        Index(
+            "namespace_index",
+            "namespace",
+            postgresql_using="btree",
+            postgresql_ops={"identifier": "varchar_pattern_ops"},
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -397,11 +406,24 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         fragment: Optional[str] = None,
         node_types: Optional[List[NodeType]] = None,
         tags: Optional[List[str]] = None,
+        edited_by: Optional[str] = None,
+        namespace: Optional[str] = None,
+        limit: Optional[int] = 100,
+        cursor: Optional[str] = None,
         *options: ExecutableOption,  # pylint: disable=keyword-arg-before-vararg
     ) -> List["Node"]:
         """
         Finds a list of nodes by prefix
         """
+        timestamp_cursor, node_id_cursor = decode_id(cursor)
+        print(
+            "timestamp_cursor",
+            timestamp_cursor,
+            node_id_cursor,
+            edited_by,
+            node_types,
+        )
+
         nodes_with_tags = []
         if tags:
             statement = (
@@ -416,6 +438,10 @@ class Node(Base):  # pylint: disable=too-few-public-methods
                 return []
 
         statement = select(Node).where(is_(Node.deactivated_at, None))
+        if namespace:
+            statement = statement.where(
+                (Node.namespace.like(f"{namespace}.%")) | (Node.namespace == namespace),
+            )
         if nodes_with_tags:
             statement = statement.where(  # pragma: no cover
                 Node.id.in_(nodes_with_tags),
@@ -430,6 +456,34 @@ class Node(Base):  # pylint: disable=too-few-public-methods
             )
         if node_types:
             statement = statement.where(Node.type.in_(node_types))
+        if edited_by:
+            edited_node_subquery = (
+                select(History.entity_name)
+                .where((History.user == edited_by))
+                .distinct()
+                .subquery()
+            )
+
+            statement = statement.join(
+                edited_node_subquery,
+                onclause=(edited_node_subquery.c.entity_name == Node.name),
+            ).distinct()
+
+        statement = statement.where(
+            ((Node.created_at, Node.id) <= (timestamp_cursor, node_id_cursor))
+            if cursor
+            else (1 == 1),
+        ).order_by(Node.created_at.desc(), Node.id.desc())
+        if limit != -1:
+            statement = statement.limit(limit + 1)
+        from sqlalchemy.dialects import postgresql
+
+        print(
+            statement.options(*options).compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            ),
+        )
         result = await session.execute(statement.options(*options))
         return result.unique().scalars().all()
 
