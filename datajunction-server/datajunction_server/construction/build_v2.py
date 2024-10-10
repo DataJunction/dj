@@ -720,6 +720,15 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         return dimension_node_joins
 
 
+class CubeQueryBuilder:  # pylint: disable=too-few-public-methods
+    """
+    This class allows users to configure building cube SQL (retrieving SQL for multiple
+    metrics + dimensions) through settings like adding filters, dimensions, ordering, and limit
+    clauses. The builder then handles the management of CTEs, dimension joins, and error
+    validation, allowing for dynamic node query generation based on runtime conditions.
+    """
+
+
 def get_column_from_canonical_dimension(
     dimension_name: str,
     node: NodeRevision,

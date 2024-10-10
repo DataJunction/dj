@@ -13,6 +13,8 @@ from datajunction_server.errors import (
     DJError,
     DJException,
     DJInvalidInputException,
+    DJQueryBuildError,
+    DJQueryBuildException,
     ErrorCode,
 )
 from datajunction_server.internal.engines import get_engine
@@ -152,7 +154,7 @@ async def validate_shared_dimensions(
             )
 
 
-async def build_metric_nodes(
+async def build_metric_nodes(  # pylint: disable=too-many-statements
     session: AsyncSession,
     metric_nodes: List[Node],
     filters: List[str],
@@ -196,7 +198,7 @@ async def build_metric_nodes(
     context = CompileContext(session=session, exception=DJException())
     common_parents = group_metrics_by_parent(metric_nodes)
 
-    measures_queries = []
+    measures_queries = {}
 
     for parent_node, metrics in common_parents.items():  # type: ignore
         await session.refresh(parent_node, ["current"])
@@ -264,46 +266,121 @@ async def build_metric_nodes(
                 expr.set_semantic_entity(semantic_entity)  # type: ignore
                 expr.set_semantic_type(SemanticType.DIMENSION)  # type: ignore
 
-        # Add limit
-        if limit:
-            parent_ast.select.limit = ast.Number(value=limit)
-
         await parent_ast.compile(context)
-        measures_queries.append(parent_ast)
+        measures_queries[parent_node.name] = parent_ast
 
     # Join together the transforms on the shared dimensions and select all
     # requested metrics and dimensions in the final select projection
-    base_query = measures_queries[0]
-    for parent_query in measures_queries[1:]:
-        base_query.ctes.extend(parent_query.ctes)
+    # base_query = measures_queries[0]
+    parent_ctes: List[ast.Query] = []
+    metric_ctes: List[ast.Query] = []
+    for parent_name, parent_query in measures_queries.items():
+        existing_cte_aliases = {cte.alias_or_name.identifier() for cte in parent_ctes}
+        parent_ctes += [
+            cte
+            for cte in parent_query.ctes
+            if cte.alias_or_name.identifier() not in existing_cte_aliases
+        ]
+        parent_query.ctes = []
+        metric_ctes += [
+            parent_query.to_cte(ast.Name(amenable_name(parent_name + "_metrics"))),
+        ]
+
+    initial_cte = metric_ctes[0]
+    base_query = ast.Query(
+        ctes=parent_ctes + metric_ctes,
+        select=ast.Select(
+            projection=[
+                ast.Column(
+                    name=ast.Name(proj.alias, namespace=initial_cte.alias),  # type: ignore
+                    _type=proj.type,  # type: ignore
+                    semantic_entity=proj.semantic_entity,  # type: ignore
+                    semantic_type=proj.semantic_type,  # type: ignore
+                )
+                for proj in initial_cte.select.projection
+            ],
+            from_=ast.From(
+                relations=[ast.Relation(primary=ast.Table(initial_cte.alias))],  # type: ignore
+            ),
+        ),
+    )
+    # Add metrics
+    for metric_cte in metric_ctes[1:]:
         base_query.select.projection.extend(
             [
-                proj
-                for proj in parent_query.select.projection
-                if from_amenable_name(proj.alias_or_name.identifier()) not in dimensions
+                ast.Column(
+                    name=ast.Name(proj.alias, namespace=metric_cte.alias),  # type: ignore
+                    _type=proj.type,  # type: ignore
+                    semantic_entity=proj.semantic_entity,  # type: ignore
+                    semantic_type=proj.semantic_type,  # type: ignore
+                )
+                for proj in metric_cte.select.projection
+                if from_amenable_name(proj.alias_or_name.identifier())  # type: ignore
+                not in dimensions
             ],
         )
-        base_query.select.from_.relations[0].extensions.append(
+        join_on = [
+            ast.BinaryOp(
+                op=ast.BinaryOpKind.Eq,
+                left=ast.Column(
+                    name=ast.Name(proj.alias, namespace=initial_cte.alias),  # type: ignore
+                    _type=proj.type,  # type: ignore
+                ),
+                right=ast.Column(
+                    name=ast.Name(proj.alias, namespace=metric_cte.alias),  # type: ignore
+                    _type=proj.type,  # type: ignore
+                ),
+            )
+            for proj in metric_cte.select.projection  # type: ignore
+            if from_amenable_name(proj.alias_or_name.identifier()) in dimensions  # type: ignore
+        ]
+        base_query.select.from_.relations[0].extensions.append(  # type: ignore
             ast.Join(
-                join_type="left",
-                right=parent_query.select.from_.relations[0],
+                join_type="full",
+                right=ast.Table(metric_cte.alias),  # type: ignore
                 criteria=ast.JoinCriteria(
-                    on=ast.BinaryOp.And(
-                        *[
-                            ast.BinaryOp(
-                                op=ast.BinaryOpKind.Eq,
-                                left=dim_left,
-                                right=dim_right,
-                            )
-                            for dim_left, dim_right in zip(
-                                base_query.select.group_by,
-                                parent_query.select.group_by,
-                            )
-                        ]
-                    ),
+                    on=ast.BinaryOp.And(*join_on),
                 ),
             ),
         )
+    # Add order by
+    if orderby:
+        temp_orderbys = parse(  # type: ignore
+            f"SELECT 1 ORDER BY {','.join(orderby)}",
+        ).select.organization.order
+        valid_sort_items = [
+            sortitem
+            for sortitem in temp_orderbys
+            if amenable_name(sortitem.expr.identifier())  # type: ignore
+            in base_query.select.column_mapping
+        ]
+        if len(valid_sort_items) < len(temp_orderbys):
+            raise DJQueryBuildException(
+                errors=[
+                    DJQueryBuildError(
+                        code=ErrorCode.INVALID_ORDER_BY,
+                        message=f"{orderby} is not a valid ORDER BY request",
+                    ),
+                ],
+            )
+        base_query.select.organization = ast.Organization(
+            order=[
+                ast.SortItem(
+                    expr=base_query.select.column_mapping.get(  # type: ignore
+                        amenable_name(sortitem.expr.identifier()),  # type: ignore
+                    )
+                    .copy()
+                    .set_alias(None),
+                    asc=sortitem.asc,
+                    nulls=sortitem.nulls,
+                )
+                for sortitem in valid_sort_items
+            ],
+        )
+    # Add limit
+    if limit:
+        base_query.select.limit = ast.Number(value=limit)
+
     return base_query
 
 
