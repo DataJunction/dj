@@ -5,14 +5,14 @@ import logging
 import re
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, DefaultDict, Dict, List, Optional, Union, cast
+from typing import Any, DefaultDict, Dict, List, Optional, Tuple, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
 from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.database.node import NodeRevision
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJException,
@@ -718,6 +718,390 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
                 if dim not in dimension_node_joins[dim_node].requested_dimensions:
                     dimension_node_joins[dim_node].requested_dimensions.append(dim)
         return dimension_node_joins
+
+
+class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
+    """
+    This class allows users to configure building cube SQL (retrieving SQL for multiple
+    metrics + dimensions) through settings like adding filters, dimensions, ordering, and limit
+    clauses. The builder then handles the management of CTEs, dimension joins, and error
+    validation, allowing for dynamic node query generation based on runtime conditions.
+    """
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        metric_nodes: List[Node],
+        use_materialized: bool = True,
+    ):
+        self.session = session
+        self.metric_nodes = metric_nodes
+        self.use_materialized = use_materialized
+
+        self._filters: List[str] = []
+        self._required_dimensions: List[str] = [
+            required.name
+            for metric_node in self.metric_nodes
+            for required in metric_node.current.required_dimensions
+        ]
+        self._dimensions: List[str] = []
+        self._orderby: List[str] = []
+        self._limit: Optional[int] = None
+        self._build_criteria: Optional[BuildCriteria] = self.get_default_criteria()
+        self._access_control: Optional[access.AccessControlStore] = None
+        self._ignore_errors: bool = False
+
+        # The following attributes will be modified as the query gets built.
+        # --
+        # Track node query CTEs as they get built
+        self.cte_mapping: Dict[str, ast.Query] = {}  # Maps node name to its CTE
+        # Keep a list of build errors
+        self.errors: List[DJQueryBuildError] = []
+        # The final built query AST
+        self.final_ast: Optional[ast.Query] = None
+
+    def get_default_criteria(
+        self,
+        engine: Optional[Engine] = None,
+    ) -> BuildCriteria:
+        """
+        Get the default build criteria for a node.
+        Set the dialect by using the provided engine, if any. If no engine is specified,
+        set the dialect by finding available engines for this node, or default to Spark
+        """
+        return BuildCriteria(
+            dialect=engine.dialect if engine and engine.dialect else Dialect.SPARK,
+        )
+
+    @classmethod
+    async def create(
+        cls,
+        session: AsyncSession,
+        metric_nodes: List[Node],
+        use_materialized: bool = True,
+    ) -> "CubeQueryBuilder":
+        """
+        Create a QueryBuilder instance for the node revision.
+        """
+        for node in metric_nodes:
+            await session.refresh(node, ["current"])
+            await session.refresh(node.current, ["required_dimensions"])
+
+        instance = cls(session, metric_nodes, use_materialized=use_materialized)
+        return instance
+
+    def ignore_errors(self):
+        """Do not raise on errors in query build."""
+        self._ignore_errors = True
+        return self
+
+    def raise_errors(self):
+        """Raise on errors in query build."""
+        self._ignore_errors = False  # pragma: no cover
+        return self  # pragma: no cover
+
+    def filter_by(self, filter_: str):
+        """Add filter to the query builder."""
+        if filter_ not in self._filters:  # pragma: no cover
+            self._filters.append(filter_)
+        return self
+
+    def add_filters(self, filters: Optional[List[str]] = None):
+        """Add filters to the query builder."""
+        for filter_ in filters or []:
+            self.filter_by(filter_)
+        return self
+
+    def add_dimension(self, dimension: str):
+        """Add dimension to the query builder."""
+        if (  # pragma: no cover
+            dimension not in self._dimensions
+            and dimension not in self._required_dimensions
+        ):
+            self._dimensions.append(dimension)
+        return self
+
+    def add_dimensions(self, dimensions: Optional[List[str]] = None):
+        """Add dimensions to the query builder."""
+        for dimension in dimensions or []:
+            self.add_dimension(dimension)
+        return self
+
+    def order_by(self, orderby: Optional[Union[str, List[str]]] = None):
+        """Set order by for the query builder."""
+        if isinstance(orderby, str):
+            if orderby not in self._orderby:  # pragma: no cover
+                self._orderby.append(orderby)  # pragma: no cover
+        else:
+            for order in orderby or []:
+                if order not in self._orderby:  # pragma: no cover
+                    self._orderby.append(order)
+        return self
+
+    def limit(self, limit: Optional[int] = None):
+        """Set limit for the query builder."""
+        if limit:  # pragma: no cover
+            self._limit = limit
+        return self
+
+    def with_build_criteria(self, build_criteria: Optional[BuildCriteria] = None):
+        """Set build criteria for the query builder."""
+        if build_criteria:  # pragma: no cover
+            self._build_criteria = build_criteria
+        return self
+
+    def with_access_control(
+        self,
+        access_control: Optional[access.AccessControlStore] = None,
+    ):
+        """
+        Set access control for the query builder.
+        """
+        if access_control:  # pragma: no cover
+            access_control.add_request_by_nodes(self.metric_nodes)
+            self._access_control = access_control
+        return self
+
+    @property
+    def dimensions(self) -> List[str]:
+        """All dimensions"""
+        return self._dimensions  # TO DO: add self._required_dimensions
+
+    @property
+    def filters(self) -> List[str]:
+        """All filters"""
+        return self._filters
+
+    async def build(self) -> ast.Query:
+        """
+        Builds SQL for multiple metrics with the requested set of dimensions,
+        filter expressions, order by, and limit clauses.
+        """
+        measures_queries = await self.build_measures_queries()
+
+        # Join together the transforms on the shared dimensions and select all
+        # requested metrics and dimensions in the final select projection
+        parent_ctes, metric_ctes = self.extract_ctes(measures_queries)
+        initial_cte = metric_ctes[0]
+        self.final_ast = ast.Query(
+            ctes=parent_ctes + metric_ctes,
+            select=ast.Select(
+                projection=[
+                    ast.Column(
+                        name=ast.Name(proj.alias, namespace=initial_cte.alias),  # type: ignore
+                        _type=proj.type,  # type: ignore
+                        semantic_entity=proj.semantic_entity,  # type: ignore
+                        semantic_type=proj.semantic_type,  # type: ignore
+                    )
+                    for proj in initial_cte.select.projection
+                ],
+                from_=ast.From(
+                    relations=[ast.Relation(primary=ast.Table(initial_cte.alias))],  # type: ignore
+                ),
+            ),
+        )
+        # Add metrics
+        for metric_cte in metric_ctes[1:]:
+            self.final_ast.select.projection.extend(
+                [
+                    ast.Column(
+                        name=ast.Name(proj.alias, namespace=metric_cte.alias),  # type: ignore
+                        _type=proj.type,  # type: ignore
+                        semantic_entity=proj.semantic_entity,  # type: ignore
+                        semantic_type=proj.semantic_type,  # type: ignore
+                    )
+                    for proj in metric_cte.select.projection
+                    if from_amenable_name(proj.alias_or_name.identifier())  # type: ignore
+                    not in self.dimensions
+                ],
+            )
+            join_on = [
+                ast.BinaryOp(
+                    op=ast.BinaryOpKind.Eq,
+                    left=ast.Column(
+                        name=ast.Name(proj.alias, namespace=initial_cte.alias),  # type: ignore
+                        _type=proj.type,  # type: ignore
+                    ),
+                    right=ast.Column(
+                        name=ast.Name(proj.alias, namespace=metric_cte.alias),  # type: ignore
+                        _type=proj.type,  # type: ignore
+                    ),
+                )
+                for proj in metric_cte.select.projection  # type: ignore
+                if from_amenable_name(proj.alias_or_name.identifier())  # type: ignore
+                in self.dimensions
+            ]
+            self.final_ast.select.from_.relations[0].extensions.append(  # type: ignore
+                ast.Join(
+                    join_type="full",
+                    right=ast.Table(metric_cte.alias),  # type: ignore
+                    criteria=ast.JoinCriteria(
+                        on=ast.BinaryOp.And(*join_on),
+                    ),
+                ),
+            )
+
+        if self._orderby:
+            self.final_ast.select.organization = self.build_orderby()
+
+        if self._limit:
+            self.final_ast.select.limit = ast.Number(value=self._limit)
+
+        # Error validation
+        self.validate_access()
+        if self.errors and not self._ignore_errors:
+            raise DJQueryBuildException(errors=self.errors)  # pragma: no cover
+        return self.final_ast
+
+    def validate_access(self):
+        """Validates access"""
+        if self._access_control:
+            self._access_control.validate_and_raise()
+
+    async def build_measures_queries(self):
+        """
+        Build the metrics' queries grouped by parent
+        """
+        from datajunction_server.construction.build import (  # pylint: disable=import-outside-toplevel,line-too-long
+            group_metrics_by_parent,
+        )
+
+        common_parents = group_metrics_by_parent(self.metric_nodes)
+        measures_queries = {}
+        for parent_node, metrics in common_parents.items():  # type: ignore
+            await self.session.refresh(parent_node, ["current"])
+            query_builder = await QueryBuilder.create(self.session, parent_node.current)
+            if self._ignore_errors:
+                query_builder = query_builder.ignore_errors()
+            parent_ast = await (
+                query_builder.with_access_control(self._access_control)
+                .with_build_criteria(self._build_criteria)
+                .add_dimensions(self.dimensions)
+                .add_filters(self.filters)
+                .build()
+            )
+            self.errors.extend(query_builder.errors)
+
+            dimension_columns = [
+                expr
+                for expr in parent_ast.select.projection
+                if from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
+                in self.dimensions
+            ]
+            parent_ast.select.projection = dimension_columns
+            for col in dimension_columns:
+                group_by_col = col.copy()
+                group_by_col.alias = None
+                parent_ast.select.group_by.append(group_by_col)
+
+            # Add metric aggregations to select
+            for metric_node in metrics:
+                metric_proj = await self.build_metric_agg(metric_node, parent_node)
+                parent_ast.select.projection.extend(metric_proj)
+
+            await self.session.refresh(parent_node.current, ["columns"])
+
+            # Generate semantic types for each
+            for expr in parent_ast.select.projection:
+                column_identifier = expr.alias_or_name.identifier(False)  # type: ignore
+                semantic_entity = from_amenable_name(column_identifier)
+                if semantic_entity in self.dimensions:
+                    expr.set_semantic_entity(semantic_entity)  # type: ignore
+                    expr.set_semantic_type(SemanticType.DIMENSION)  # type: ignore
+
+            ctx = CompileContext(self.session, DJException())
+            await parent_ast.compile(ctx)
+            measures_queries[parent_node.name] = parent_ast
+        return measures_queries
+
+    async def build_metric_agg(self, metric_node, parent_node):
+        """
+        Build the metric's aggregate expression.
+        """
+        if self._access_control:
+            self._access_control.add_request_by_node(metric_node)  # type: ignore
+        metric_query_builder = await QueryBuilder.create(self.session, metric_node)
+        if self._ignore_errors:
+            metric_query_builder = (  # pragma: no cover
+                metric_query_builder.ignore_errors()
+            )
+        metric_query = await (
+            metric_query_builder.with_access_control(self._access_control)
+            .with_build_criteria(self._build_criteria)
+            .build()
+        )
+        self.errors.extend(metric_query_builder.errors)
+
+        metric_query.ctes[-1].select.projection[0].set_semantic_entity(  # type: ignore
+            f"{metric_node.name}.{amenable_name(metric_node.name)}",
+        )
+        metric_query.ctes[-1].select.projection[0].set_alias(  # type: ignore
+            ast.Name(amenable_name(metric_node.name)),
+        )
+        metric_query.ctes[-1].select.projection[0].set_semantic_type(  # type: ignore
+            SemanticType.METRIC,
+        )
+        for col in metric_query.ctes[-1].select.find_all(ast.Column):
+            col._table = ast.Table(
+                name=ast.Name(name=amenable_name(parent_node.name)),
+            )
+        return metric_query.ctes[-1].select.projection
+
+    def extract_ctes(self, measures_queries) -> Tuple[List[ast.Query], List[ast.Query]]:
+        """
+        Extracts the parent CTEs and the metric CTEs from the queries
+        """
+        parent_ctes: List[ast.Query] = []
+        metric_ctes: List[ast.Query] = []
+        for parent_name, parent_query in measures_queries.items():
+            existing_cte_aliases = {
+                cte.alias_or_name.identifier() for cte in parent_ctes
+            }
+            parent_ctes += [
+                cte
+                for cte in parent_query.ctes
+                if cte.alias_or_name.identifier() not in existing_cte_aliases
+            ]
+            parent_query.ctes = []
+            metric_ctes += [
+                parent_query.to_cte(ast.Name(amenable_name(parent_name + "_metrics"))),
+            ]
+        return parent_ctes, metric_ctes
+
+    def build_orderby(self):
+        """
+        Creates an order by ast from the requested order bys
+        """
+        temp_orderbys = parse(  # type: ignore
+            f"SELECT 1 ORDER BY {','.join(self._orderby)}",
+        ).select.organization.order
+        valid_sort_items = [
+            sortitem
+            for sortitem in temp_orderbys
+            if amenable_name(sortitem.expr.identifier())  # type: ignore
+            in self.final_ast.select.column_mapping
+        ]
+        if len(valid_sort_items) < len(temp_orderbys):
+            self.errors.append(  # pragma: no cover
+                DJQueryBuildError(
+                    code=ErrorCode.INVALID_ORDER_BY,
+                    message=f"{self._orderby} is not a valid ORDER BY request",
+                ),
+            )
+        return ast.Organization(
+            order=[
+                ast.SortItem(
+                    expr=self.final_ast.select.column_mapping.get(  # type: ignore
+                        amenable_name(sortitem.expr.identifier()),  # type: ignore
+                    )
+                    .copy()
+                    .set_alias(None),
+                    asc=sortitem.asc,
+                    nulls=sortitem.nulls,
+                )
+                for sortitem in valid_sort_items
+            ],
+        )
 
 
 def get_column_from_canonical_dimension(

@@ -1179,19 +1179,66 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     "DOT_hard_hats.address,\tdefault_DOT_hard_hats.city,\tdefault_DOT_hard_hats.state,"
     "\tdefault_DOT_hard_hats.postal_code,\tdefault_DOT_hard_hats.country,\tdefault_DOT"
     "_hard_hats.manager,\tdefault_DOT_hard_hats.contractor_idFROMroads.hard_hatsASdefault"
-    "_DOT_hard_hats)SELECTdefault_DOT_hard_hat.statedefault_DOT_hard_hat_DOT_state,\tavg"
-    "(default_DOT_repair_order_details.price)ASdefault_DOT_avg_repair_priceFROMdefault_"
-    "DOT_repair_order_detailsLEFTJOINdefault_DOT_repair_orderONdefault_DOT_repair_order_"
-    "details.repair_order_id=default_DOT_repair_order.repair_order_idLEFTJOINdefault_DOT"
-    "_hard_hatONdefault_DOT_repair_order.hard_hat_id=default_DOT_hard_hat.hard_hat_id"
-    "GROUPBYdefault_DOT_hard_hat.state": QueryWithResults(
+    "_DOT_hard_hats),default_DOT_repair_order_details_metricsAS(SELECTdefault_DOT_hard_"
+    "hat.citydefault_DOT_hard_hat_DOT_city,\tavg(default_DOT_repair_order_details.price)"
+    "ASdefault_DOT_avg_repair_priceFROMdefault_DOT_repair_order_detailsLEFTJOINdefault_"
+    "DOT_repair_orderONdefault_DOT_repair_order_details.repair_order_id=default_DOT_"
+    "repair_order.repair_order_idLEFTJOINdefault_DOT_hard_hatONdefault_DOT_repair_order"
+    ".hard_hat_id=default_DOT_hard_hat.hard_hat_idGROUPBYdefault_DOT_hard_hat.city)"
+    "SELECTdefault_DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_city,\t"
+    "default_DOT_repair_order_details_metrics.default_DOT_avg_repair_priceFROMdefault"
+    "_DOT_repair_order_details_metrics"
+    "": QueryWithResults(
         **{
             "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
             "submitted_query": "...",
             "state": QueryState.FINISHED,
-            "results": [],
+            "results": [
+                {
+                    "columns": [
+                        {"name": "default_DOT_hard_hat_DOT_city", "type": "str"},
+                        {"name": "default_DOT_avg_repair_price", "type": "float"},
+                    ],
+                    "rows": [
+                        ("Foo", 1.0),
+                        ("Bar", 2.0),
+                    ],
+                    "sql": "",
+                },
+            ],
             "errors": [],
         }
+    ),
+    "WITHdefault_DOT_repair_order_detailsAS(SELECTdefault_DOT_repair_order_details."
+    "repair_order_id,\tdefault_DOT_repair_order_details.repair_type_id,\tdefault_DOT_repair_order"
+    "_details.price,\tdefault_DOT_repair_order_details.quantity,\tdefault_DOT_repair_order_details"
+    ".discountFROMroads.repair_order_detailsASdefault_DOT_repair_order_details),default_DOT_repair"
+    "_orderAS(SELECTdefault_DOT_repair_orders.repair_order_id,\tdefault_DOT_repair_orders.municipa"
+    "lity_id,\tdefault_DOT_repair_orders.hard_hat_id,\tdefault_DOT_repair_orders.order_date,\tdef"
+    "ault_DOT_repair_orders.required_date,\tdefault_DOT_repair_orders.dispatched_date,\tdefault_"
+    "DOT_repair_orders.dispatcher_idFROMroads.repair_ordersASdefault_DOT_repair_orders),default_"
+    "DOT_hard_hatAS(SELECTdefault_DOT_hard_hats.hard_hat_id,\tdefault_DOT_hard_hats.last_name,\t"
+    "default_DOT_hard_hats.first_name,\tdefault_DOT_hard_hats.title,\tdefault_DOT_hard_hats.birth"
+    "_date,\tdefault_DOT_hard_hats.hire_date,\tdefault_DOT_hard_hats.address,\tdefault_DOT_hard_"
+    "hats.city,\tdefault_DOT_hard_hats.state,\tdefault_DOT_hard_hats.postal_code,\tdefault_DOT_"
+    "hard_hats.country,\tdefault_DOT_hard_hats.manager,\tdefault_DOT_hard_hats.contractor_idFROM"
+    "roads.hard_hatsASdefault_DOT_hard_hats),default_DOT_repair_order_details_metricsAS(SELECT"
+    "default_DOT_hard_hat.statedefault_DOT_hard_hat_DOT_state,\tavg(default_DOT_repair_order_"
+    "details.price)ASdefault_DOT_avg_repair_priceFROMdefault_DOT_repair_order_detailsLEFTJOIN"
+    "default_DOT_repair_orderONdefault_DOT_repair_order_details.repair_order_id=default_DOT_"
+    "repair_order.repair_order_idLEFTJOINdefault_DOT_hard_hatONdefault_DOT_repair_order.hard"
+    "_hat_id=default_DOT_hard_hat.hard_hat_idGROUPBYdefault_DOT_hard_hat.state)SELECTdefault_"
+    "DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_state,\tdefault_DOT_repair_order"
+    "_details_metrics.default_DOT_avg_repair_priceFROMdefault_DOT_repair_order_details_metrics": (
+        QueryWithResults(
+            **{
+                "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+                "submitted_query": "...",
+                "state": QueryState.FINISHED,
+                "results": [],
+                "errors": [],
+            }
+        )
     ),
     "WITHdefault_DOT_repair_order_detailsAS(SELECTdefault_DOT_hard_hat.postal_codedefault_"
     "DOT_hard_hat_DOT_postal_code,\tavg(default_DOT_repair_order_details.price)ASdefault_"
