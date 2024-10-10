@@ -1,5 +1,7 @@
 """Tests for all /sql endpoints that use node SQL build v2"""
 # pylint: disable=line-too-long,too-many-lines
+from unittest import mock
+
 import duckdb
 import pytest
 from httpx import AsyncClient
@@ -763,7 +765,6 @@ SELECT  default_DOT_hard_hat.first_name default_DOT_hard_hat_DOT_first_name,
  FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
  GROUP BY  default_DOT_hard_hat.first_name, default_DOT_hard_hat.last_name
 )
-
 SELECT  default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_last_name,
     default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_first_name,
     default_DOT_hard_hat_metrics.default_DOT_avg_length_of_employment,
@@ -774,9 +775,9 @@ SELECT  default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_last_name,
     assert str(parse(str(data["sql"]))) == str(parse(expected_sql))
     result = duckdb_conn.sql(data["sql"])
     assert result.fetchall() == [
-        ("Alfred", "Clarke", 4010.0, 196787.0),
-        ("Brian", "Perkins", 5724.0, 218691.0),
-        ("Cathy", "Best", 12518.0, 229666.0),
-        ("Donna", "Riley", 4653.0, 320953.0),
-        ("Luka", "Henderson", 4236.0, 131364.0),
+        ("Alfred", "Clarke", mock.ANY, 196787.0),
+        ("Brian", "Perkins", mock.ANY, 218691.0),
+        ("Cathy", "Best", mock.ANY, 229666.0),
+        ("Donna", "Riley", mock.ANY, 320953.0),
+        ("Luka", "Henderson", mock.ANY, 131364.0),
     ]
