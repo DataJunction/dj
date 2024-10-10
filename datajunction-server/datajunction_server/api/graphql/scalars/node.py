@@ -6,7 +6,7 @@ from typing import List, Optional
 import strawberry
 from strawberry.scalars import JSON
 
-from datajunction_server.api.graphql.scalars import BigInt
+from datajunction_server.api.graphql.scalars import BigInt, PageMeta
 from datajunction_server.api.graphql.scalars.availabilitystate import AvailabilityState
 from datajunction_server.api.graphql.scalars.catalog_engine import Catalog
 from datajunction_server.api.graphql.scalars.column import Column, NodeName, Partition
@@ -190,3 +190,13 @@ class Node:  # pylint: disable=too-few-public-methods
         The users who edited this node
         """
         return list({entry.user for entry in root.history})
+
+
+@strawberry.type
+class FindNodesResponse:  # pylint: disable=too-few-public-methods
+    """
+    A paginated list of nodes
+    """
+
+    nodes: List[Node] = strawberry.field(description="The list of nodes")
+    page_meta: PageMeta = strawberry.field(description="Pagination metdata")
