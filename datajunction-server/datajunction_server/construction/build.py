@@ -17,7 +17,6 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
-from datajunction_server.models.column import SemanticType
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.node import BuildCriteria
@@ -152,7 +151,7 @@ async def validate_shared_dimensions(
             )
 
 
-async def build_metric_nodes(
+async def build_metric_nodes(  # pylint: disable=too-many-statements
     session: AsyncSession,
     metric_nodes: List[Node],
     filters: List[str],
@@ -178,7 +177,7 @@ async def build_metric_nodes(
     (f) Select all the requested metrics and dimensions in the final SELECT
     """
     from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel
-        QueryBuilder,
+        CubeQueryBuilder,
     )
 
     engine = (
@@ -186,91 +185,25 @@ async def build_metric_nodes(
         if engine_name and engine_version
         else None
     )
-    build_criteria = BuildCriteria(
+    build_criteria = build_criteria or BuildCriteria(
         dialect=engine.dialect if engine and engine.dialect else Dialect.SPARK,
     )
-
-    if not filters:
-        filters = []
-
-    context = CompileContext(session=session, exception=DJException())
-    common_parents = group_metrics_by_parent(metric_nodes)
-
-    measures_queries = []
-
-    for parent_node, metrics in common_parents.items():  # type: ignore
-        await session.refresh(parent_node, ["current"])
-        query_builder = await QueryBuilder.create(session, parent_node.current)
-        if ignore_errors:
-            query_builder = query_builder.ignore_errors()
-        parent_ast = await (
-            query_builder.with_access_control(access_control)
-            .with_build_criteria(build_criteria)
-            .add_dimensions(dimensions)
-            .add_filters(filters)
-            .build()
-        )
-
-        dimension_columns = [
-            expr
-            for expr in parent_ast.select.projection
-            if from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
-            in dimensions
-        ]
-        parent_ast.select.projection = dimension_columns
-        for col in dimension_columns:
-            group_by_col = col.copy()
-            group_by_col.alias = None
-            parent_ast.select.group_by.append(group_by_col)
-
-        # Add metric aggregations to select
-        for metric_node in metrics:
-            if access_control:
-                access_control.add_request_by_node(metric_node)  # type: ignore
-            metric_query_builder = await QueryBuilder.create(session, metric_node)
-            if ignore_errors:
-                metric_query_builder = (
-                    metric_query_builder.ignore_errors()
-                )  # pragma: no cover
-            metric_query = await (
-                metric_query_builder.with_access_control(access_control)
-                .with_build_criteria(build_criteria)
-                .build()
-            )
-
-            metric_query.ctes[-1].select.projection[0].set_semantic_entity(  # type: ignore
-                f"{metric_node.name}.{amenable_name(metric_node.name)}",
-            )
-            metric_query.ctes[-1].select.projection[0].set_alias(  # type: ignore
-                ast.Name(amenable_name(metric_node.name)),
-            )
-            metric_query.ctes[-1].select.projection[0].set_semantic_type(  # type: ignore
-                SemanticType.METRIC,
-            )
-            for col in metric_query.ctes[-1].select.find_all(ast.Column):
-                col._table = ast.Table(
-                    name=ast.Name(name=amenable_name(parent_node.name)),
-                )
-
-            parent_ast.select.projection.extend(metric_query.ctes[-1].select.projection)
-
-        await session.refresh(parent_node.current, ["columns"])
-
-        # Generate semantic types for each
-        for expr in parent_ast.select.projection:
-            column_identifier = expr.alias_or_name.identifier(False)  # type: ignore
-            semantic_entity = from_amenable_name(column_identifier)
-            if semantic_entity in dimensions:
-                expr.set_semantic_entity(semantic_entity)  # type: ignore
-                expr.set_semantic_type(SemanticType.DIMENSION)  # type: ignore
-
-        # Add limit
-        if limit:
-            parent_ast.select.limit = ast.Number(value=limit)
-
-        await parent_ast.compile(context)
-        measures_queries.append(parent_ast)
-    return measures_queries[0]
+    builder = await CubeQueryBuilder.create(
+        session,
+        metric_nodes,
+        use_materialized=False,
+    )
+    builder = (
+        builder.add_filters(filters)
+        .add_dimensions(dimensions)
+        .order_by(orderby)
+        .limit(limit)
+        .with_build_criteria(build_criteria)
+        .with_access_control(access_control)
+    )
+    if ignore_errors:
+        builder = builder.ignore_errors()
+    return await builder.build()
 
 
 def build_temp_select(temp_query: str):
