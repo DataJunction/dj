@@ -1186,15 +1186,15 @@ async def test_druid_cube_agg_materialization(
             "default_DOT_total_repair_order_discounts",
             "semantic_type": "metric",
         },
-        # {
-        #     "name": "default_DOT_double_total_repair_cost",
-        #     "type": "double",
-        #     "column": "default_DOT_double_total_repair_cost",
-        #     "node": "default.double_total_repair_cost",
-        #     "semantic_entity": "default.double_total_repair_cost."
-        #     "default_DOT_double_total_repair_cost",
-        #     "semantic_type": "metric",
-        # },
+        {
+            "name": "default_DOT_double_total_repair_cost",
+            "type": "double",
+            "column": "default_DOT_double_total_repair_cost",
+            "node": "default.double_total_repair_cost",
+            "semantic_entity": "default.double_total_repair_cost."
+            "default_DOT_double_total_repair_cost",
+            "semantic_type": "metric",
+        },
     ]
     assert druid_materialization["schedule"] == "@daily"
 
@@ -1470,7 +1470,6 @@ async def test_cube_sql_generation_with_availability(
               default_DOT_repair_orders_fact_metrics.default_DOT_num_repair_orders,
               default_DOT_repair_orders_fact_metrics.default_DOT_avg_repair_price
             FROM default_DOT_repair_orders_fact_metrics
-            ORDER BY default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_country ASC
             """,
         ),
     )  # noqa: W191,E101
