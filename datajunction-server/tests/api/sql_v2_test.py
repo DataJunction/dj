@@ -773,6 +773,26 @@ SELECT  default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_last_name,
  ORDER BY default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_last_name
  LIMIT 5"""
     assert str(parse(str(data["sql"]))) == str(parse(expected_sql))
+
+    response = await module__client_with_roads.get(
+        "/sql",
+        params={
+            "metrics": [
+                "default.avg_length_of_employment",
+                "default.total_repair_cost",
+            ],
+            "dimensions": [
+                "default.hard_hat.first_name",
+                "default.hard_hat.last_name",
+            ],
+            "filters": [],
+            "orderby": "default.hard_hat.last_name",
+            "limit": 5,
+        },
+    )
+    data = response.json()
+    assert str(parse(str(data["sql"]))) == str(parse(expected_sql))
+
     result = duckdb_conn.sql(data["sql"])
     assert result.fetchall() == [
         ("Alfred", "Clarke", mock.ANY, 196787.0),
