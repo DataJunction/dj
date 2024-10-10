@@ -136,6 +136,7 @@ async def test_build_metric_with_required_dimensions(
       basic_DOT_source_DOT_comments_metrics.basic_DOT_num_comments_bnd
     FROM basic_DOT_source_DOT_comments_metrics
     """
+    print("blahhhh", str(query))
     assert str(parse(str(query))) == str(parse(str(expected)))
 
 
