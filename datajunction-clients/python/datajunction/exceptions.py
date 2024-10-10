@@ -13,6 +13,10 @@ class DJNamespaceAlreadyExists(DJClientException):
     Raised when a namespace to be created already exists.
     """
 
+    def __init__(self, ns_name: str, *args) -> None:
+        self.message = f"Namespace `{ns_name}` already exists."
+        super().__init__(self.message, *args)
+
 
 class DJTagAlreadyExists(DJClientException):
     """

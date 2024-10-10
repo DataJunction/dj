@@ -28,7 +28,11 @@ from rich.live import Live
 from rich.table import Table
 
 from datajunction import DJBuilder
-from datajunction.exceptions import DJClientException, DJDeploymentFailure
+from datajunction.exceptions import (
+    DJClientException,
+    DJDeploymentFailure,
+    DJNamespaceAlreadyExists,
+)
 from datajunction.models import Column, NodeMode, NodeType
 from datajunction.tags import Tag
 
@@ -602,7 +606,7 @@ class CompiledProject(Project):
                     *[
                         prefixed_name,
                         "[b][#3A4F6C]tag",
-                        f"[green]Tag {prefixed_name} successfully created",
+                        f"[green]Tag {prefixed_name} successfully created (or updated)",
                     ]
                 )
             except DJClientException as exc:  # pragma: no cover
@@ -616,30 +620,51 @@ class CompiledProject(Project):
         """
         Deploy namespaces
         """
-        for namespace in list(self.namespaces) + [prefix]:
-            prefixed_name = f"{prefix}.{namespace}" if namespace != prefix else prefix
+        namespaces_to_create = self.namespaces
+        if prefix:  # pragma: no cover
+            namespaces_to_create = [prefix] + [
+                f"{prefix}.{ns}" for ns in list(self.namespaces)
+            ]
+        for namespace in namespaces_to_create:
             try:
                 client.create_namespace(
-                    namespace=prefixed_name,
-                    update_if_exists=True,
+                    namespace=namespace,
                 )
                 table.add_row(
                     *[
-                        prefixed_name,
+                        namespace,
                         "[b][#3A4F6C]namespace",
-                        f"[green]Namespace {prefixed_name} successfully created",
+                        f"[green]Namespace {namespace} successfully created",
+                    ]
+                )
+            except DJNamespaceAlreadyExists:
+                table.add_row(
+                    *[
+                        namespace,
+                        "namespace",
+                        f"[i][yellow]Namespace {namespace} already exists",
                     ]
                 )
             except DJClientException as exc:
-                # pragma: no cover
-                table.add_row(*[namespace, "namespace", f"[i][red]{str(exc)}"])
-                self.errors.append(
-                    {
-                        "name": prefixed_name,
-                        "type": "namespace",
-                        "error": str(exc),
-                    },
-                )
+                # This is a just-in-case code for some older client versions.
+                if "already exists" in str(exc):
+                    table.add_row(
+                        *[
+                            namespace,
+                            "namespace",
+                            f"[i][yellow]Namespace {namespace} already exists",
+                        ]
+                    )
+                else:
+                    # pragma: no cover
+                    table.add_row(*[namespace, "namespace", f"[i][red]{str(exc)}"])
+                    self.errors.append(
+                        {
+                            "name": namespace,
+                            "type": "namespace",
+                            "error": str(exc),
+                        },
+                    )
         return table
 
     def _deploy_nodes(
@@ -695,7 +720,7 @@ class CompiledProject(Project):
                     *[
                         prefixed_name,
                         f"{style}{created_node.type}",
-                        f"[green]Node {created_node.name} successfully created",
+                        f"[green]Node {created_node.name} successfully created (or updated)",
                     ]
                 )
             except DJClientException as exc:
