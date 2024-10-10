@@ -13,13 +13,10 @@ from datajunction_server.errors import (
     DJError,
     DJException,
     DJInvalidInputException,
-    DJQueryBuildError,
-    DJQueryBuildException,
     ErrorCode,
 )
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
-from datajunction_server.models.column import SemanticType
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.node import BuildCriteria
@@ -180,7 +177,7 @@ async def build_metric_nodes(  # pylint: disable=too-many-statements
     (f) Select all the requested metrics and dimensions in the final SELECT
     """
     from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel
-        QueryBuilder,
+        CubeQueryBuilder,
     )
 
     engine = (
@@ -188,200 +185,25 @@ async def build_metric_nodes(  # pylint: disable=too-many-statements
         if engine_name and engine_version
         else None
     )
-    build_criteria = BuildCriteria(
+    build_criteria = build_criteria or BuildCriteria(
         dialect=engine.dialect if engine and engine.dialect else Dialect.SPARK,
     )
-
-    if not filters:
-        filters = []
-
-    context = CompileContext(session=session, exception=DJException())
-    common_parents = group_metrics_by_parent(metric_nodes)
-
-    measures_queries = {}
-
-    for parent_node, metrics in common_parents.items():  # type: ignore
-        await session.refresh(parent_node, ["current"])
-        query_builder = await QueryBuilder.create(session, parent_node.current)
-        if ignore_errors:
-            query_builder = query_builder.ignore_errors()
-        parent_ast = await (
-            query_builder.with_access_control(access_control)
-            .with_build_criteria(build_criteria)
-            .add_dimensions(dimensions)
-            .add_filters(filters)
-            .build()
-        )
-
-        dimension_columns = [
-            expr
-            for expr in parent_ast.select.projection
-            if from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
-            in dimensions
-        ]
-        parent_ast.select.projection = dimension_columns
-        for col in dimension_columns:
-            group_by_col = col.copy()
-            group_by_col.alias = None
-            parent_ast.select.group_by.append(group_by_col)
-
-        # Add metric aggregations to select
-        for metric_node in metrics:
-            if access_control:
-                access_control.add_request_by_node(metric_node)  # type: ignore
-            metric_query_builder = await QueryBuilder.create(session, metric_node)
-            if ignore_errors:
-                metric_query_builder = (
-                    metric_query_builder.ignore_errors()
-                )  # pragma: no cover
-            metric_query = await (
-                metric_query_builder.with_access_control(access_control)
-                .with_build_criteria(build_criteria)
-                .build()
-            )
-
-            metric_query.ctes[-1].select.projection[0].set_semantic_entity(  # type: ignore
-                f"{metric_node.name}.{amenable_name(metric_node.name)}",
-            )
-            metric_query.ctes[-1].select.projection[0].set_alias(  # type: ignore
-                ast.Name(amenable_name(metric_node.name)),
-            )
-            metric_query.ctes[-1].select.projection[0].set_semantic_type(  # type: ignore
-                SemanticType.METRIC,
-            )
-            for col in metric_query.ctes[-1].select.find_all(ast.Column):
-                col._table = ast.Table(
-                    name=ast.Name(name=amenable_name(parent_node.name)),
-                )
-
-            parent_ast.select.projection.extend(metric_query.ctes[-1].select.projection)
-
-        await session.refresh(parent_node.current, ["columns"])
-
-        # Generate semantic types for each
-        for expr in parent_ast.select.projection:
-            column_identifier = expr.alias_or_name.identifier(False)  # type: ignore
-            semantic_entity = from_amenable_name(column_identifier)
-            if semantic_entity in dimensions:
-                expr.set_semantic_entity(semantic_entity)  # type: ignore
-                expr.set_semantic_type(SemanticType.DIMENSION)  # type: ignore
-
-        await parent_ast.compile(context)
-        measures_queries[parent_node.name] = parent_ast
-
-    # Join together the transforms on the shared dimensions and select all
-    # requested metrics and dimensions in the final select projection
-    # base_query = measures_queries[0]
-    parent_ctes: List[ast.Query] = []
-    metric_ctes: List[ast.Query] = []
-    for parent_name, parent_query in measures_queries.items():
-        existing_cte_aliases = {cte.alias_or_name.identifier() for cte in parent_ctes}
-        parent_ctes += [
-            cte
-            for cte in parent_query.ctes
-            if cte.alias_or_name.identifier() not in existing_cte_aliases
-        ]
-        parent_query.ctes = []
-        metric_ctes += [
-            parent_query.to_cte(ast.Name(amenable_name(parent_name + "_metrics"))),
-        ]
-
-    initial_cte = metric_ctes[0]
-    base_query = ast.Query(
-        ctes=parent_ctes + metric_ctes,
-        select=ast.Select(
-            projection=[
-                ast.Column(
-                    name=ast.Name(proj.alias, namespace=initial_cte.alias),  # type: ignore
-                    _type=proj.type,  # type: ignore
-                    semantic_entity=proj.semantic_entity,  # type: ignore
-                    semantic_type=proj.semantic_type,  # type: ignore
-                )
-                for proj in initial_cte.select.projection
-            ],
-            from_=ast.From(
-                relations=[ast.Relation(primary=ast.Table(initial_cte.alias))],  # type: ignore
-            ),
-        ),
+    builder = await CubeQueryBuilder.create(
+        session,
+        metric_nodes,
+        use_materialized=False,
     )
-    # Add metrics
-    for metric_cte in metric_ctes[1:]:
-        base_query.select.projection.extend(
-            [
-                ast.Column(
-                    name=ast.Name(proj.alias, namespace=metric_cte.alias),  # type: ignore
-                    _type=proj.type,  # type: ignore
-                    semantic_entity=proj.semantic_entity,  # type: ignore
-                    semantic_type=proj.semantic_type,  # type: ignore
-                )
-                for proj in metric_cte.select.projection
-                if from_amenable_name(proj.alias_or_name.identifier())  # type: ignore
-                not in dimensions
-            ],
-        )
-        join_on = [
-            ast.BinaryOp(
-                op=ast.BinaryOpKind.Eq,
-                left=ast.Column(
-                    name=ast.Name(proj.alias, namespace=initial_cte.alias),  # type: ignore
-                    _type=proj.type,  # type: ignore
-                ),
-                right=ast.Column(
-                    name=ast.Name(proj.alias, namespace=metric_cte.alias),  # type: ignore
-                    _type=proj.type,  # type: ignore
-                ),
-            )
-            for proj in metric_cte.select.projection  # type: ignore
-            if from_amenable_name(proj.alias_or_name.identifier()) in dimensions  # type: ignore
-        ]
-        base_query.select.from_.relations[0].extensions.append(  # type: ignore
-            ast.Join(
-                join_type="full",
-                right=ast.Table(metric_cte.alias),  # type: ignore
-                criteria=ast.JoinCriteria(
-                    on=ast.BinaryOp.And(*join_on),
-                ),
-            ),
-        )
-    # Add order by
-    if orderby:
-        temp_orderbys = parse(  # type: ignore
-            f"SELECT 1 ORDER BY {','.join(orderby)}",
-        ).select.organization.order
-        valid_sort_items = [
-            sortitem
-            for sortitem in temp_orderbys
-            if amenable_name(sortitem.expr.identifier())  # type: ignore
-            in base_query.select.column_mapping
-        ]
-        if len(valid_sort_items) < len(temp_orderbys):
-            raise DJQueryBuildException(
-                errors=[
-                    DJQueryBuildError(
-                        code=ErrorCode.INVALID_ORDER_BY,
-                        message=f"{orderby} is not a valid ORDER BY request",
-                    ),
-                ],
-            )
-        base_query.select.organization = ast.Organization(
-            order=[
-                ast.SortItem(
-                    expr=base_query.select.column_mapping.get(  # type: ignore
-                        amenable_name(sortitem.expr.identifier()),  # type: ignore
-                    )
-                    .copy()
-                    .set_alias(None),
-                    asc=sortitem.asc,
-                    nulls=sortitem.nulls,
-                )
-                for sortitem in valid_sort_items
-            ],
-        )
-    # Add limit
-    if limit:
-        base_query.select.limit = ast.Number(value=limit)
-
-    return base_query
+    builder = (
+        builder.add_filters(filters)
+        .add_dimensions(dimensions)
+        .order_by(orderby)
+        .limit(limit)
+        .with_build_criteria(build_criteria)
+        .with_access_control(access_control)
+    )
+    if ignore_errors:
+        builder = builder.ignore_errors()
+    return builder.build()
 
 
 def build_temp_select(temp_query: str):
