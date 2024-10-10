@@ -494,20 +494,29 @@ async def test_link_complex_dimension_with_role(
     default_DOT_users_table.residence_country,
     default_DOT_users_table.account_type
   FROM examples.users AS default_DOT_users_table
+),
+default_DOT_events_metrics AS (
+  SELECT
+    default_DOT_users.user_id default_DOT_users_DOT_user_id_LBRACK_user_windowed_RBRACK,
+    default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_windowed_RBRACK,
+    default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_windowed_RBRACK,
+    SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
+  FROM default_DOT_events
+  LEFT JOIN default_DOT_users
+    ON default_DOT_events.user_id = default_DOT_users.user_id
+    AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+  GROUP BY
+    default_DOT_users.user_id,
+    default_DOT_users.snapshot_date,
+    default_DOT_users.registration_country
 )
 SELECT
-  default_DOT_users.user_id default_DOT_users_DOT_user_id_LBRACK_user_windowed_RBRACK,
-  default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_windowed_RBRACK,
-  default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_windowed_RBRACK,
-  SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
-FROM default_DOT_events
-LEFT JOIN default_DOT_users
-  ON default_DOT_events.user_id = default_DOT_users.user_id
-  AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
-GROUP BY
-  default_DOT_users.user_id,
-  default_DOT_users.snapshot_date,
-  default_DOT_users.registration_country"""
+  default_DOT_events_metrics.default_DOT_users_DOT_user_id_LBRACK_user_windowed_RBRACK,
+  default_DOT_events_metrics.default_DOT_users_DOT_snapshot_date_LBRACK_user_windowed_RBRACK,
+  default_DOT_events_metrics.default_DOT_users_DOT_registration_country_LBRACK_user_windowed_RBRACK,
+  default_DOT_events_metrics.default_DOT_elapsed_secs
+FROM default_DOT_events_metrics
+"""
     assert str(parse(query)) == str(parse(expected))
 
     # Get SQL for the downstream metric grouped by the user dimension of role "user"
@@ -533,20 +542,28 @@ GROUP BY
         default_DOT_users_table.residence_country,
         default_DOT_users_table.account_type
       FROM examples.users AS default_DOT_users_table
+    ),
+    default_DOT_events_metrics AS (
+      SELECT
+        default_DOT_users.user_id default_DOT_users_DOT_user_id_LBRACK_user_direct_RBRACK,
+        default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
+        default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
+        SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
+      FROM default_DOT_events
+      LEFT JOIN default_DOT_users
+        ON default_DOT_events.user_id = default_DOT_users.user_id
+        AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+      GROUP BY
+        default_DOT_users.user_id,
+        default_DOT_users.snapshot_date,
+        default_DOT_users.registration_country
     )
     SELECT
-      default_DOT_users.user_id default_DOT_users_DOT_user_id_LBRACK_user_direct_RBRACK,
-      default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
-      default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
-      SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
-    FROM default_DOT_events
-    LEFT JOIN default_DOT_users
-      ON default_DOT_events.user_id = default_DOT_users.user_id
-      AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
-    GROUP BY
-      default_DOT_users.user_id,
-      default_DOT_users.snapshot_date,
-      default_DOT_users.registration_country"""
+      default_DOT_events_metrics.default_DOT_users_DOT_user_id_LBRACK_user_direct_RBRACK,
+      default_DOT_events_metrics.default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
+      default_DOT_events_metrics.default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
+      default_DOT_events_metrics.default_DOT_elapsed_secs
+    FROM default_DOT_events_metrics"""
     assert str(parse(query)) == str(parse(expected))
 
     # Get SQL for the downstream metric grouped by the user's registration country and
@@ -588,20 +605,28 @@ GROUP BY
     default_DOT_countries_table.name,
     default_DOT_countries_table.population
   FROM examples.countries AS default_DOT_countries_table
+),
+default_DOT_events_metrics AS (
+  SELECT
+    default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
+    default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
+    SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
+  FROM default_DOT_events
+  LEFT JOIN default_DOT_users
+    ON default_DOT_events.user_id = default_DOT_users.user_id
+    AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+  INNER JOIN default_DOT_countries
+    ON default_DOT_users.registration_country = default_DOT_countries.country_code
+  GROUP BY
+    default_DOT_users.snapshot_date,
+    default_DOT_users.registration_country
 )
 SELECT
-  default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
-  default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
-  SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
-FROM default_DOT_events
-LEFT JOIN default_DOT_users
-  ON default_DOT_events.user_id = default_DOT_users.user_id
-  AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
-INNER JOIN default_DOT_countries
-  ON default_DOT_users.registration_country = default_DOT_countries.country_code
-GROUP BY
-  default_DOT_users.snapshot_date,
-  default_DOT_users.registration_country"""
+  default_DOT_events_metrics.default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
+  default_DOT_events_metrics.default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
+  default_DOT_events_metrics.default_DOT_elapsed_secs
+FROM default_DOT_events_metrics
+"""
     assert str(parse(query)) == str(parse(expected))
 
 

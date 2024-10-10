@@ -60,16 +60,23 @@ async def test_build_metric_with_dimensions_aggs(construction_session: AsyncSess
         basic_DOT_source_DOT_users.preferred_language,
         basic_DOT_source_DOT_users.secret_number
       FROM basic.source.users AS basic_DOT_source_DOT_users
+    ),
+    basic_DOT_source_DOT_comments_metrics AS (
+      SELECT
+        basic_DOT_dimension_DOT_users.country basic_DOT_dimension_DOT_users_DOT_country,
+        basic_DOT_dimension_DOT_users.gender basic_DOT_dimension_DOT_users_DOT_gender,
+        COUNT(1) AS basic_DOT_num_comments
+      FROM basic_DOT_source_DOT_comments
+      INNER JOIN basic_DOT_dimension_DOT_users
+        ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
+      GROUP BY
+        basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
     )
     SELECT
-      basic_DOT_dimension_DOT_users.country basic_DOT_dimension_DOT_users_DOT_country,
-      basic_DOT_dimension_DOT_users.gender basic_DOT_dimension_DOT_users_DOT_gender,
-      COUNT(1) AS basic_DOT_num_comments
-    FROM basic_DOT_source_DOT_comments
-    INNER JOIN basic_DOT_dimension_DOT_users
-      ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
-    GROUP BY
-      basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
+      basic_DOT_source_DOT_comments_metrics.basic_DOT_dimension_DOT_users_DOT_country,
+      basic_DOT_source_DOT_comments_metrics.basic_DOT_dimension_DOT_users_DOT_gender,
+      basic_DOT_source_DOT_comments_metrics.basic_DOT_num_comments
+    FROM basic_DOT_source_DOT_comments_metrics
     """
     assert str(parse(str(query))) == str(parse(str(expected)))
 
@@ -112,15 +119,22 @@ async def test_build_metric_with_required_dimensions(
         basic_DOT_source_DOT_users.preferred_language,
         basic_DOT_source_DOT_users.secret_number
       FROM basic.source.users AS basic_DOT_source_DOT_users
+    ),
+    basic_DOT_source_DOT_comments_metrics AS (
+      SELECT
+        basic_DOT_dimension_DOT_users.country basic_DOT_dimension_DOT_users_DOT_country,
+        basic_DOT_dimension_DOT_users.gender basic_DOT_dimension_DOT_users_DOT_gender,
+        COUNT(1) AS basic_DOT_num_comments_bnd
+      FROM basic_DOT_source_DOT_comments
+      INNER JOIN basic_DOT_dimension_DOT_users
+        ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
+      GROUP BY  basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
     )
     SELECT
-      basic_DOT_dimension_DOT_users.country basic_DOT_dimension_DOT_users_DOT_country,
-      basic_DOT_dimension_DOT_users.gender basic_DOT_dimension_DOT_users_DOT_gender,
-      COUNT(1) AS basic_DOT_num_comments_bnd
-    FROM basic_DOT_source_DOT_comments
-    INNER JOIN basic_DOT_dimension_DOT_users
-      ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
-    GROUP BY  basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
+      basic_DOT_source_DOT_comments_metrics.basic_DOT_dimension_DOT_users_DOT_country,
+      basic_DOT_source_DOT_comments_metrics.basic_DOT_dimension_DOT_users_DOT_gender,
+      basic_DOT_source_DOT_comments_metrics.basic_DOT_num_comments_bnd
+    FROM basic_DOT_source_DOT_comments_metrics
     """
     assert str(parse(str(query))) == str(parse(str(expected)))
 
@@ -270,12 +284,16 @@ async def test_build_metric_with_dimensions_filters(construction_session: AsyncS
         basic_DOT_source_DOT_users.secret_number
       FROM basic.source.users AS basic_DOT_source_DOT_users
       WHERE  basic_DOT_source_DOT_users.age >= 25 AND basic_DOT_source_DOT_users.age < 50
+    ),
+    basic_DOT_source_DOT_comments_metrics AS (
+      SELECT
+        COUNT(1) AS basic_DOT_num_comments
+      FROM basic_DOT_source_DOT_comments
+      INNER JOIN basic_DOT_dimension_DOT_users
+        ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
     )
-    SELECT
-      COUNT(1) AS basic_DOT_num_comments
-    FROM basic_DOT_source_DOT_comments
-    INNER JOIN basic_DOT_dimension_DOT_users
-      ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
+    SELECT  basic_DOT_source_DOT_comments_metrics.basic_DOT_num_comments
+    FROM basic_DOT_source_DOT_comments_metrics
     """
     assert str(parse(str(query))) == str(parse(expected))
 

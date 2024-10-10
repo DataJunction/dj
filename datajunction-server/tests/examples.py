@@ -649,15 +649,6 @@ CROSS JOIN
     (
         "/nodes/metric/",
         {
-            "name": "default.num_contractors",
-            "description": "",
-            "mode": "published",
-            "query": """SELECT count(*) FROM default.contractors""",
-        },
-    ),
-    (
-        "/nodes/metric/",
-        {
             "description": "Number of repair orders",
             "query": ("SELECT count(repair_order_id) FROM default.repair_orders_fact"),
             "mode": "published",
