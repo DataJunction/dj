@@ -1187,7 +1187,8 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     ".hard_hat_id=default_DOT_hard_hat.hard_hat_idGROUPBYdefault_DOT_hard_hat.city)"
     "SELECTdefault_DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_city,\t"
     "default_DOT_repair_order_details_metrics.default_DOT_avg_repair_priceFROMdefault"
-    "_DOT_repair_order_details_metrics""": QueryWithResults(
+    "_DOT_repair_order_details_metrics"
+    "": QueryWithResults(
         **{
             "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
             "submitted_query": "...",
