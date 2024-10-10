@@ -649,6 +649,15 @@ CROSS JOIN
     (
         "/nodes/metric/",
         {
+            "name": "default.num_contractors",
+            "description": "",
+            "mode": "published",
+            "query": """SELECT count(*) FROM default.contractors""",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
             "description": "Number of repair orders",
             "query": ("SELECT count(repair_order_id) FROM default.repair_orders_fact"),
             "mode": "published",
@@ -683,7 +692,9 @@ CROSS JOIN
         "/nodes/metric/",
         {
             "description": "Average length of employment",
-            "query": ("SELECT avg(NOW() - hire_date) " "FROM default.hard_hat"),
+            "query": (
+                "SELECT avg(CAST(NOW() AS DATE) - hire_date) " "FROM default.hard_hat"
+            ),
             "mode": "published",
             "name": "default.avg_length_of_employment",
         },
@@ -813,6 +824,14 @@ CROSS JOIN
             "join_on": (
                 "default.repair_orders.dispatcher_id = default.dispatcher.dispatcher_id"
             ),
+        },
+    ),
+    (
+        "/nodes/default.contractors/link",
+        {
+            "dimension_node": "default.us_state",
+            "join_type": "inner",
+            "join_on": ("default.contractors.state = default.us_state.state_short"),
         },
     ),
     (
