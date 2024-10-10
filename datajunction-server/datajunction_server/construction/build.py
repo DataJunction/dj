@@ -203,7 +203,7 @@ async def build_metric_nodes(  # pylint: disable=too-many-statements
     )
     if ignore_errors:
         builder = builder.ignore_errors()
-    return builder.build()
+    return await builder.build()
 
 
 def build_temp_select(temp_query: str):
