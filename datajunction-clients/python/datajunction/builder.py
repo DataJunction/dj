@@ -487,7 +487,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         description: Optional[str],
         tag_metadata: Dict,
         tag_type: str,
-        skip_if_exists: bool = False,
+        update_if_exists: bool = False,
     ) -> Tag:
         """
         Create a tag with a given name.
@@ -502,7 +502,9 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         try:
             self._create_tag(tag=new_tag)
         except DJTagAlreadyExists as exc:
-            if not skip_if_exists:
+            if update_if_exists:
+                new_tag._update()
+            else:
                 raise exc
         new_tag.refresh()
         return new_tag
