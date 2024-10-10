@@ -26,7 +26,7 @@ async def test_list_dimension(
             {"indegree": 2, "name": "default.hard_hat_to_delete"},
             {"indegree": 2, "name": "default.municipality_dim"},
             {"indegree": 1, "name": "default.contractor"},
-            {"indegree": 1, "name": "default.us_state"},
+            {"indegree": 2, "name": "default.us_state"},
             {"indegree": 0, "name": "default.local_hard_hats"},
             {"indegree": 0, "name": "default.local_hard_hats_1"},
             {"indegree": 0, "name": "default.local_hard_hats_2"},
@@ -75,7 +75,23 @@ async def test_list_nodes_with_dimension(
         "/dimensions/default.us_state/nodes/",
     )
     data = response.json()
-    assert {node["name"] for node in data} == roads_nodes
+    assert {node["name"] for node in data} == {
+        "default.repair_orders",
+        "default.repair_order_details",
+        "default.regional_level_agg",
+        "default.national_level_agg",
+        "default.regional_repair_efficiency",
+        "default.num_repair_orders",
+        "default.avg_repair_price",
+        "default.repair_orders_fact",
+        "default.total_repair_cost",
+        "default.discounted_orders_rate",
+        "default.total_repair_order_discounts",
+        "default.avg_repair_order_discounts",
+        "default.avg_time_to_dispatch",
+        "default.contractors",
+        "default.repair_type",
+    }
 
     response = await module__client_with_roads_and_acc_revenue.get(
         "/dimensions/default.municipality_dim/nodes/",
