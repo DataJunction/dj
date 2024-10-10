@@ -26,7 +26,10 @@ def upgrade():
         batch_op.create_index("ix_history_user", ["user"], unique=False)
     with op.batch_alter_table("node", schema=None) as batch_op:
         batch_op.create_index(
-            "cursor_index", ["created_at", "id"], unique=False, postgresql_using="btree",
+            "cursor_index",
+            ["created_at", "id"],
+            unique=False,
+            postgresql_using="btree",
         )
     with op.batch_alter_table("node", schema=None) as batch_op:
         batch_op.create_index(
