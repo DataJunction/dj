@@ -421,6 +421,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             description="Foo Bar",
             tag_type="test",
             tag_metadata={"foo": "bar"},
+            update_if_exists=True,
         )
         foo_tag = client.tag("foo")
         # source nodes
@@ -1067,13 +1068,13 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             tag_type="test",
             tag_metadata={"foo": "bar"},
         )
-        # skip if a tag exists
+        # update if a tag exists
         client.create_tag(
             name="foo.two",
             description="Foo Bar",
             tag_type="test",
             tag_metadata={"foo": "bar"},
-            skip_if_exists=True,
+            update_if_exists=True,
         )
         # fail if a tag exists
         with pytest.raises(DJTagAlreadyExists) as exc_info:
