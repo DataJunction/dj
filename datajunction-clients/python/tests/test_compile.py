@@ -4,7 +4,7 @@ Test YAML project related things
 # pylint: disable=unused-argument
 import os
 from typing import Callable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -14,25 +14,50 @@ from datajunction.exceptions import DJClientException, DJDeploymentFailure
 from datajunction.models import NodeMode
 
 
-def test_compiled_project__deploy_namespaces():
+def test_compiled_project_deploy_namespaces():
     """
     Test deploying a namespace.
     """
+    mock_table = MagicMock()
     cp = CompiledProject(
         name="foo",
         prefix="foo.fix",
-        mode=NodeMode.DRAFT,
         root_path="/foo",
+        namespaces=["foo", "bar"],
     )
+    # namespace creation random error
     builder_client = MagicMock(
         create_namespace=MagicMock(side_effect=DJClientException("foo error")),
     )
     cp._deploy_namespaces(  # pylint: disable=protected-access
         prefix="foo",
-        table=MagicMock(),
+        table=mock_table,
         client=builder_client,
     )
     assert cp.errors[0]["error"] == "foo error"
+    # namespace already exists, not an error
+    cp = CompiledProject(
+        name="foo",
+        prefix="foo.fix",
+        root_path="/foo",
+        namespaces=["foo", "bar"],
+    )
+    builder_client = MagicMock(
+        create_namespace=MagicMock(
+            side_effect=DJClientException("foo bar already exists"),
+        ),
+    )
+    cp._deploy_namespaces(  # pylint: disable=protected-access
+        prefix="foo",
+        table=mock_table,
+        client=builder_client,
+    )
+    assert cp.errors == []
+    assert mock_table.add_row.call_args == call(
+        "foo.bar",
+        "namespace",
+        "[i][yellow]Namespace foo.bar already exists",
+    )
 
 
 def test_compiled_project__cleanup_namespace():
