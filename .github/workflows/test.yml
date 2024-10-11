@@ -64,6 +64,11 @@ jobs:
           prerelease: true
           enable-pep582: true
 
+      - uses: pre-commit/action@v3.0.0
+        name: Force check of all pdm.lock files
+        with:
+          extra_args: pdm-lock-check --all-files
+
       - name: Run Tests
         if: |
           (matrix.library == 'client' && steps.filter.outputs.client == 'true') ||
@@ -83,11 +88,6 @@ jobs:
           # Run tests
           export MODULE=${{ matrix.library == 'server' && 'datajunction_server' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'datajunction_reflection'}}
           pdm run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto' || '' }} --cov-fail-under=100 --cov=$MODULE --cov-report term-missing -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration
-
-      - uses: pre-commit/action@v3.0.0
-        name: Force check of all pdm.lock files
-        with:
-          extra_args: pdm-lock-check --all-files
 
   build-javascript:
     runs-on: ubuntu-latest
