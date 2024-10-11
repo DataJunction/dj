@@ -124,6 +124,10 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
     # If it's a cube, we'll build SQL for the metrics in the cube, along with any additional
     # dimensions or filters provided in the arguments
     if node.type == NodeType.CUBE:
+        node = cast(
+            Node,
+            await Node.get_cube_by_name(session, node_name),
+        )
         dimensions = list(
             OrderedDict.fromkeys(node.current.cube_node_dimensions + dimensions),
         )
@@ -362,6 +366,7 @@ async def get_sql_for_metrics(  # pylint: disable=too-many-locals
     ),
     ignore_errors: Optional[bool] = True,
     use_materialized: Optional[bool] = True,
+    background_tasks: BackgroundTasks,
 ) -> TranslatedSQL:
     """
     Return SQL for a set of metrics with dimensions and filters
@@ -384,6 +389,21 @@ async def get_sql_for_metrics(  # pylint: disable=too-many-locals
         engine_version=engine_version,
         query_type=QueryBuildType.METRICS,
     ):
+        # Update the node SQL in a background task to keep it up-to-date
+        background_tasks.add_task(
+            build_and_save_sql_for_metrics,
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+            filters=filters,
+            orderby=orderby,
+            limit=limit,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            access_control=access_control,
+            ignore_errors=ignore_errors,
+            use_materialized=use_materialized,
+        )
         engine = (
             await get_engine(session, engine_name, engine_version)  # type: ignore
             if engine_name
@@ -395,6 +415,37 @@ async def get_sql_for_metrics(  # pylint: disable=too-many-locals
             dialect=engine.dialect if engine else None,
         )
 
+    return await build_and_save_sql_for_metrics(
+        session,
+        metrics,
+        dimensions,
+        filters,
+        orderby,
+        limit,
+        engine_name,
+        engine_version,
+        access_control,
+        ignore_errors=ignore_errors,  # type: ignore
+        use_materialized=use_materialized,  # type: ignore
+    )
+
+
+async def build_and_save_sql_for_metrics(  # pylint: disable=too-many-arguments,too-many-locals
+    session: AsyncSession,
+    metrics: List[str],
+    dimensions: List[str],
+    filters: List[str] = None,
+    orderby: List[str] = None,
+    limit: Optional[int] = None,
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
+    access_control: Optional[access.AccessControlStore] = None,
+    ignore_errors: bool = True,
+    use_materialized: bool = True,
+):
+    """
+    Builds and saves SQL for metrics.
+    """
     translated_sql, _, _ = await build_sql_for_multiple_metrics(
         session,
         metrics,
@@ -413,8 +464,8 @@ async def get_sql_for_metrics(  # pylint: disable=too-many-locals
         session=session,
         nodes=metrics,
         dimensions=dimensions,
-        filters=filters,
-        orderby=orderby,
+        filters=filters,  # type: ignore
+        orderby=orderby,  # type: ignore
         limit=limit,
         engine_name=engine_name,
         engine_version=engine_version,
