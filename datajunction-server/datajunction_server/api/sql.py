@@ -124,6 +124,10 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
     # If it's a cube, we'll build SQL for the metrics in the cube, along with any additional
     # dimensions or filters provided in the arguments
     if node.type == NodeType.CUBE:
+        node = cast(
+            Node,
+            await Node.get_cube_by_name(session, node_name),
+        )
         dimensions = list(
             OrderedDict.fromkeys(node.current.cube_node_dimensions + dimensions),
         )
