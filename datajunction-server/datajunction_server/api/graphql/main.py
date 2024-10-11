@@ -141,6 +141,7 @@ class Query:  # pylint: disable=R0903
             limit,
             cursor,
         )
+        print("nodes_list", [n.edited_by for n in nodes_list])
         print("prevcursor", (nodes_list[0].created_at, nodes_list[0].id))
         prev_cursor = (
             encode_id((nodes_list[0].created_at, nodes_list[0].id))
