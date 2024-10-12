@@ -1,5 +1,4 @@
 """DJ graphql"""
-
 from typing import Annotated, List, Optional
 
 import strawberry
@@ -10,10 +9,9 @@ from strawberry.types import Info
 from datajunction_server.api.graphql.catalogs import CatalogInfo, list_catalogs
 from datajunction_server.api.graphql.engines import EngineInfo, list_engines
 from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
-from datajunction_server.api.graphql.scalars import PageMeta
-from datajunction_server.api.graphql.scalars.node import FindNodesResponse, Node
-from datajunction_server.api.graphql.utils import encode_id
-from datajunction_server.models.node import NodeType
+from datajunction_server.api.graphql.scalars.node import Node
+from datajunction_server.api.graphql.utils import Connection
+from datajunction_server.models.node import NodeCursor, NodeType
 from datajunction_server.utils import get_session, get_settings
 
 
@@ -116,17 +114,15 @@ class Query:  # pylint: disable=R0903
                 description="Filter to nodes in this namespace",
             ),
         ] = None,
-        cursor: Annotated[
-            Optional[str],
-            strawberry.argument(description="Pagination cursor"),
-        ] = None,
+        after: Optional[str] = None,
+        before: Optional[str] = None,
         limit: Annotated[
             Optional[int],
             strawberry.argument(description="Limit nodes"),
         ] = 100,
         *,
         info: Info,
-    ) -> FindNodesResponse:
+    ) -> Connection[Node]:
         """
         Find nodes based on the search parameters.
         """
@@ -138,28 +134,19 @@ class Query:  # pylint: disable=R0903
             tags,
             edited_by,
             namespace,
-            limit,
-            cursor,
+            (limit or 100) + 1,
+            before,
+            after,
         )
-        print("nodes_list", [n.edited_by for n in nodes_list])
-        print("prevcursor", (nodes_list[0].created_at, nodes_list[0].id))
-        prev_cursor = (
-            encode_id((nodes_list[0].created_at, nodes_list[0].id))
-            if nodes_list
-            else None
-        )
-        next_cursor = (
-            encode_id((nodes_list[-1].created_at, nodes_list[-1].id))
-            if nodes_list
-            else None
-        )
-        print("nextcursor", (nodes_list[-1].created_at, nodes_list[-1].id))
-        return FindNodesResponse(  # type: ignore
-            nodes=nodes_list[:limit],
-            page_meta=PageMeta(  # type: ignore
-                prev_cursor=prev_cursor,
-                next_cursor=next_cursor,
-                count=len(nodes_list) - 1,
+        first_item = nodes_list[0] if nodes_list else None
+        last_item = nodes_list[-1] if nodes_list else None
+        return Connection.from_list(
+            first_item=first_item,
+            last_item=last_item,
+            items=nodes_list[1:-1],
+            encode_cursor=lambda dj_node: NodeCursor(
+                created_at=dj_node.created_at,
+                id=dj_node.id,
             ),
         )
 
