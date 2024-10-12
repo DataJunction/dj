@@ -9,8 +9,8 @@ from strawberry.types import Info
 from datajunction_server.api.graphql.catalogs import CatalogInfo, list_catalogs
 from datajunction_server.api.graphql.engines import EngineInfo, list_engines
 from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
+from datajunction_server.api.graphql.scalars import Connection
 from datajunction_server.api.graphql.scalars.node import Node
-from datajunction_server.api.graphql.utils import Connection
 from datajunction_server.models.node import NodeCursor, NodeType
 from datajunction_server.utils import get_session, get_settings
 
