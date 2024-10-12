@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, cast
 
 import sqlalchemy as sa
 from pydantic import Extra
@@ -24,7 +24,6 @@ from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship, sele
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.operators import is_
 
-from datajunction_server.api.graphql.utils import decode_id
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.base import Base
@@ -40,6 +39,7 @@ from datajunction_server.models.base import labelize
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     BuildCriteria,
+    NodeCursor,
     NodeMode,
     NodeStatus,
 )
@@ -409,13 +409,13 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         edited_by: Optional[str] = None,
         namespace: Optional[str] = None,
         limit: Optional[int] = 100,
-        cursor: Optional[str] = None,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
         *options: ExecutableOption,  # pylint: disable=keyword-arg-before-vararg
     ) -> List["Node"]:
         """
         Finds a list of nodes by prefix
         """
-        timestamp_cursor, node_id_cursor = decode_id(cursor)
         nodes_with_tags = []
         if tags:
             statement = (
@@ -459,16 +459,28 @@ class Node(Base):  # pylint: disable=too-few-public-methods
                 onclause=(edited_node_subquery.c.entity_name == Node.name),
             ).distinct()
 
-        if cursor:
+        statement = statement.order_by(Node.created_at.desc(), Node.id.desc())
+        if after:
+            cursor = cast(NodeCursor, NodeCursor.decode(after))
             statement = statement.where(
-                (Node.created_at, Node.id) <= (timestamp_cursor, node_id_cursor),
-            ).order_by(Node.created_at.desc(), Node.id.desc())
+                (Node.created_at, Node.id) <= (cursor.created_at, cursor.id),
+            )
+        elif before:
+            cursor = NodeCursor.decode(before)
+            statement = statement.where(
+                (Node.created_at, Node.id) >= (cursor.created_at, cursor.id),
+            ).order_by(Node.created_at.asc(), Node.id.asc())
 
         limit = limit or 100
         if limit != -1:
-            statement = statement.limit(limit + 1)
+            statement = statement.limit(limit)
         result = await session.execute(statement.options(*options))
-        return result.unique().scalars().all()
+        nodes = result.unique().scalars().all()
+
+        # Handle reversing for backward pagination
+        if before:
+            nodes.reverse()
+        return nodes
 
 
 class NodeRevision(
