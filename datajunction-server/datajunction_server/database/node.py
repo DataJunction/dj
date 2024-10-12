@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
 from pydantic import Extra
@@ -461,14 +461,16 @@ class Node(Base):  # pylint: disable=too-few-public-methods
 
         statement = statement.order_by(Node.created_at.desc(), Node.id.desc())
         if after:
-            cursor = cast(NodeCursor, NodeCursor.decode(after))
+            cursor = NodeCursor.decode(after)
             statement = statement.where(
-                (Node.created_at, Node.id) <= (cursor.created_at, cursor.id),
+                (Node.created_at, Node.id)
+                <= (cursor.created_at, cursor.id),  # pylint: disable=no-member
             )
         elif before:
             cursor = NodeCursor.decode(before)
             statement = statement.where(
-                (Node.created_at, Node.id) >= (cursor.created_at, cursor.id),
+                (Node.created_at, Node.id)
+                >= (cursor.created_at, cursor.id),  # pylint: disable=no-member
             ).order_by(Node.created_at.asc(), Node.id.asc())
 
         limit = limit or 100
