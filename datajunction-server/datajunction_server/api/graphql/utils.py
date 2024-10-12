@@ -1,9 +1,14 @@
 """Utils for handling GraphQL queries."""
-import base64
+import dataclasses
+import datetime
+import json
 import re
-from typing import Any, Dict, Optional, Tuple
+from base64 import b64decode, b64encode
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Generic, Iterable, TypeVar
 
-from datajunction_server.typing import UTCDatetime
+import strawberry
+from strawberry import field
 
 CURSOR_SEPARATOR = "-"
 
@@ -36,8 +41,8 @@ def extract_fields(query_fields) -> Dict[str, Any]:
     """
     fields = {}
 
-    for field in query_fields.selected_fields:
-        for selection in field.selections:
+    for query_field in query_fields.selected_fields:
+        for selection in query_field.selections:
             field_name = convert_camel_case(selection.name)
             if selection.selections:
                 subfield = extract_subfields(selection)
@@ -48,26 +53,119 @@ def extract_fields(query_fields) -> Dict[str, Any]:
     return fields
 
 
-def encode_id(identifier: Tuple[UTCDatetime, int]) -> str:
+class DateTimeJSONEncoder(json.JSONEncoder):
     """
-    Encode the identifier (a tuple of timestamp + integer ID) to a cursor
+    JSON encoder that handles datetime objects
     """
-    combined = (
-        f"{int(identifier[0].timestamp() * 1e3)}{CURSOR_SEPARATOR}{identifier[1]}"
+
+    def default(self, obj):  # pylint: disable=arguments-renamed
+        """
+        Check if there are datetime objects and serialize them as ISO
+        format strings.
+        """
+        if isinstance(obj, (datetime.datetime, datetime.date, datetime.time)):
+            return obj.isoformat()
+        return super().default(obj)
+
+
+class DateTimeJSONDecoder(json.JSONDecoder):
+    """
+    JSON decoder that handles ISO format datetime strings
+    """
+
+    def __init__(self, *args, **kwargs):
+        json.JSONDecoder.__init__(self, object_hook=self.object_hook, *args, **kwargs)
+
+    def object_hook(self, source):  # pylint: disable=method-hidden
+        """
+        Check if the string is in ISO 8601 format and convert to a datetime
+        object if it is.
+        """
+        for k, v in source.items():
+            if isinstance(v, str):
+                try:
+                    source[k] = datetime.datetime.fromisoformat(str(v))
+                except ValueError:
+                    pass
+        return source
+
+
+@dataclass
+class Cursor:
+    """
+    Dataclass that serializes into a string and back.
+    """
+
+    def encode(self) -> str:
+        """Serialize this cursor into a string."""
+        json_str = json.dumps(dataclasses.asdict(self), cls=DateTimeJSONEncoder)
+        return b64encode(json_str.encode()).decode()
+
+    @classmethod
+    def decode(cls, serialized: str) -> "Cursor":
+        """Parse the string into an instance of this Cursor class."""
+        json_str = b64decode(serialized.encode()).decode()
+        json_obj = json.loads(json_str, cls=DateTimeJSONDecoder)
+        return cls(**json_obj)
+
+
+GenericItem = TypeVar("GenericItem")
+GenericItemNode = TypeVar("GenericItemNode")
+
+
+@strawberry.type
+class PageInfo:  # pylint: disable=too-few-public-methods
+    """Metadata about a page in a connection."""
+
+    has_next_page: bool = field(
+        description="When paginating forwards, are there more nodes?",
     )
-    encoded_identifier = base64.urlsafe_b64encode(combined.encode())
-    print("encode", int(identifier[0].timestamp() * 1e3), identifier[1])
-    return encoded_identifier.decode()
+    has_prev_page: bool = field(
+        description="When paginating forwards, are there more nodes?",
+    )
+    start_cursor: str | None = field(
+        description="When paginating back, the cursor to continue.",
+    )
+    end_cursor: str | None = field(
+        description="When paginating forwards, the cursor to continue.",
+    )
 
 
-def decode_id(cursor: Optional[str]) -> Tuple[Optional[UTCDatetime], Optional[int]]:
+@strawberry.type
+class Edge(Generic[GenericItemNode]):  # pylint: disable=too-few-public-methods
+    """Metadata about an item in a connection."""
+
+    node: GenericItemNode
+
+
+@strawberry.type
+class Connection(Generic[GenericItemNode]):  # pylint: disable=too-few-public-methods
     """
-    Decode the cursor to an identifier (a tuple of timestamp + integer ID)
+    Pagination for a list of items.
     """
-    if not cursor:
-        return None, None
 
-    encoded_identifier = base64.urlsafe_b64decode(cursor.encode())
-    combined = encoded_identifier.decode()
-    timestamp, ide = combined.split(CURSOR_SEPARATOR)
-    return (UTCDatetime.fromtimestamp(int(int(timestamp) / 1e3)), int(ide))
+    page_info: PageInfo
+    edges: list[Edge[GenericItemNode]]
+
+    @classmethod
+    def from_list(
+        cls,
+        first_item: GenericItem | None,
+        last_item: GenericItem | None,
+        items: Iterable[GenericItem],
+        encode_cursor: Callable[[GenericItem], Cursor],
+    ) -> "Connection":
+        """
+        Construct a Connection from a list of items.
+        """
+        start_cursor = encode_cursor(first_item).encode() if first_item else None
+        end_cursor = encode_cursor(last_item).encode() if last_item else None
+        return Connection(  # type: ignore
+            page_info=PageInfo(  # type: ignore
+                has_prev_page=first_item is not None,
+                start_cursor=start_cursor,
+                has_next_page=last_item is not None,
+                end_cursor=end_cursor,
+            ),
+            edges=[Edge(node=item) for item in items],  # type: ignore
+        )

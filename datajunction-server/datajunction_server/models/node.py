@@ -5,7 +5,7 @@ Model for nodes.
 import enum
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from pydantic import BaseModel, Extra, root_validator, validator
 from pydantic.fields import Field
@@ -15,6 +15,7 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum
 from typing_extensions import TypedDict
 
+from datajunction_server.api.graphql.utils import Cursor
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJError
 from datajunction_server.models.base import labelize
@@ -960,3 +961,15 @@ class NodeIndegreeOutput(BaseModel):
 
     name: str
     indegree: int
+
+
+@dataclass
+class NodeCursor(Cursor):
+    """Cursor that represents a node in a paginated list."""
+
+    created_at: int | str
+    id: int
+
+    @classmethod
+    def decode(cls, serialized: str) -> "NodeCursor":
+        return cast(NodeCursor, super().decode(serialized))
