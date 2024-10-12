@@ -20,13 +20,13 @@ export function NamespacePage() {
   const ASC = 'ascending';
   const DESC = 'descending';
 
-  const fields = ['name', 'display_name', 'type', 'status', 'updated_at'];
+  const fields = ['name', 'displayName', 'type', 'status', 'updatedAt'];
 
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   var { namespace } = useParams();
 
   const [state, setState] = useState({
-    namespace: namespace,
+    namespace: namespace ? namespace : '',
     nodes: [],
   });
   const [retrieved, setRetrieved] = useState(false);
@@ -35,39 +35,28 @@ export function NamespacePage() {
   const [filters, setFilters] = useState({
     tags: [],
     node_type: '',
-    edited_by: currentUser?.username,
+    edited_by: '', // currentUser?.username,
   });
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
 
   const [sortConfig, setSortConfig] = useState({
-    key: 'updated_at',
+    key: 'updatedAt',
     direction: DESC,
   });
+
+  const [cursor, setCursor] = useState(null);
+  const [prevCursor, setPrevCursor] = useState(true);
+  const [nextCursor, setNextCursor] = useState(true);
+
   const sortedNodes = React.useMemo(() => {
     let sortableData = [...Object.values(state.nodes)];
-    if (filters.node_type !== '' && filters.node_type !== null) {
-      sortableData = sortableData.filter(
-        node => node.type === filters.node_type,
-      );
-    }
-    if (filters.tags) {
-      sortableData = sortableData.filter(node => {
-        const nodeTags = node.tags.map(tag => tag.name);
-        return filters.tags.every(item => nodeTags.includes(item));
-      });
-    }
-    if (filters.edited_by) {
-      sortableData = sortableData.filter(node => {
-        return node.edited_by.includes(filters.edited_by);
-      });
-    }
     if (sortConfig !== null) {
       sortableData.sort((a, b) => {
-        if (a[sortConfig.key] < b[sortConfig.key]) {
+        if (a[sortConfig.key] < b[sortConfig.key] || a.current[sortConfig.key] < b.current[sortConfig.key]) {
           return sortConfig.direction === ASC ? -1 : 1;
         }
-        if (a[sortConfig.key] > b[sortConfig.key]) {
+        if (a[sortConfig.key] > b[sortConfig.key] || a.current[sortConfig.key] > b.current[sortConfig.key]) {
           return sortConfig.direction === ASC ? 1 : -1;
         }
         return 0;
@@ -125,6 +114,8 @@ export function NamespacePage() {
       const hierarchy = createNamespaceHierarchy(namespaces);
       setNamespaceHierarchy(hierarchy);
       const currentUser = await djClient.whoami();
+      // currentUser = {username: 'yshang@netflix.com'};
+      // setFilters({...filters, edited_by: currentUser?.username});
       setCurrentUser(currentUser);
     };
     fetchData().catch(console.error);
@@ -132,21 +123,38 @@ export function NamespacePage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      if (namespace === undefined && namespaceHierarchy !== undefined) {
-        namespace = namespaceHierarchy[0].namespace;
-      }
-      const nodes = await djClient.namespace(namespace);
-      const foundNodes = await Promise.all(nodes);
+      setRetrieved(false);
+      console.log('cursor', cursor);
+      const nodes = await djClient.listNodesForLanding(
+        namespace,
+        filters.node_type ? [filters.node_type.toUpperCase()] : [],
+        filters.tags, filters.edited_by, cursor, 50);
       setState({
         namespace: namespace,
-        nodes: foundNodes,
+        nodes: nodes.data ? nodes.data.findNodesPaginated.edges.map(n => n.node) : [],
       });
+      if (nodes.data) {
+        setPrevCursor(nodes.data ? nodes.data.findNodesPaginated.pageInfo.startCursor : '');
+        // setPrevCursor(nodes.data ? nodes.data.findNodesPaginated.pageMeta.prevCursor : '');
+        setNextCursor(nodes.data ? nodes.data.findNodesPaginated.pageInfo.endCursor : '');
+      }
       setRetrieved(true);
     };
     fetchData().catch(console.error);
-  }, [djClient, namespace, namespaceHierarchy]);
+  }, [djClient, namespace, namespaceHierarchy, filters, cursor]);
+  const loadNext = () => {
+    if (nextCursor) {
+      setCursor(nextCursor); // Trigger the effect to load more nodes
+    }
+  };
+  const loadPrev = () => {
+    // if (prevCursor) {
+      setCursor(prevCursor); // Trigger the effect to load more nodes
+    // }
+  };
 
   const nodesList = retrieved ? (
+    sortedNodes.length > 0 ? (
     sortedNodes.map(node => (
       <tr>
         <td>
@@ -157,16 +165,16 @@ export function NamespacePage() {
             className="rounded-pill badge bg-secondary-soft"
             style={{ marginLeft: '0.5rem' }}
           >
-            {node.version}
+            {node.currentVersion}
           </span>
         </td>
         <td>
           <a href={'/nodes/' + node.name} className="link-table">
-            {node.type !== 'source' ? node.display_name : ''}
+            {node.type !== 'source' ? node.current.displayName : ''}
           </a>
         </td>
         <td>
-          <span className={'node_type__' + node.type + ' badge node_type'}>
+          <span className={'node_type__' + node.type.toLowerCase() + ' badge node_type'}>
             {node.type}
           </span>
         </td>
@@ -175,7 +183,7 @@ export function NamespacePage() {
         </td>
         <td>
           <span className="status">
-            {new Date(node.updated_at).toLocaleString('en-us')}
+            {new Date(node.current.updatedAt).toLocaleString('en-us')}
           </span>
         </td>
         <td>
@@ -183,6 +191,11 @@ export function NamespacePage() {
         </td>
       </tr>
     ))
+  ) : (
+    <span style={{ display: 'block', marginTop: '2rem', marginLeft: '2rem', fontSize: '16px' }}>
+      There are no nodes in <a href={`/namespaces/${namespace}`}>{namespace}</a> with the above filters!
+    </span>
+  )
   ) : (
     <span style={{ display: 'block', marginTop: '2rem' }}>
       <LoadingIcon />
@@ -275,7 +288,7 @@ export function NamespacePage() {
                           onClick={() => requestSort(field)}
                           className={'sortable ' + getClassNamesFor(field)}
                         >
-                          {field.replace('_', ' ')}
+                          {field.replace(/([a-z](?=[A-Z]))/g, '$1 ')}
                         </button>
                       </th>
                     );
@@ -284,8 +297,14 @@ export function NamespacePage() {
                 </tr>
               </thead>
               <tbody>{nodesList}</tbody>
+              <tfoot>
+                <a onClick={loadPrev} class="previous round">&#8249; Previous</a>
+                <a onClick={loadNext} class="next round">Next</a>
+              </tfoot>
             </table>
           </div>
+          {/* {nextCursor && <button onClick={loadMore}>Load More</button>} */}
+
         </div>
       </div>
     </div>
