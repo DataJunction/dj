@@ -15,7 +15,7 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum
 from typing_extensions import TypedDict
 
-from datajunction_server.api.graphql.utils import Cursor
+from datajunction_server.api.graphql.scalars import Cursor
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJError
 from datajunction_server.models.base import labelize
