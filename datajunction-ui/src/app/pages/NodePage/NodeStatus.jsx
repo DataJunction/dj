@@ -81,7 +81,7 @@ export default function NodeStatus({ node, revalidate = true }) {
     <>
       {revalidate && validation?.errors?.length > 0 ? (
         displayValidation
-      ) : validation?.status === 'valid' || node?.status === 'valid' ? (
+      ) : validation?.status === 'valid' || node?.status === 'valid' || node?.current?.status === 'VALID' ? (
         <span
           className="status__valid status"
           style={{ alignContent: 'center' }}
