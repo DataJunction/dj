@@ -126,6 +126,7 @@ class Query:  # pylint: disable=R0903
         """
         Find nodes based on the search parameters.
         """
+        limit = limit or 100
         nodes_list = await find_nodes_by(
             info,
             names,
@@ -134,16 +135,16 @@ class Query:  # pylint: disable=R0903
             tags,
             edited_by,
             namespace,
-            (limit or 100) + 1,
+            limit + 1,
             before,
             after,
         )
-        first_item = nodes_list[0] if nodes_list else None
-        last_item = nodes_list[-1] if nodes_list else None
+        first_item = nodes_list[0] if nodes_list and (after or before) else None
+        last_item = nodes_list[limit] if len(nodes_list) > limit else None
         return Connection.from_list(
             first_item=first_item,
             last_item=last_item,
-            items=nodes_list[1:-1],
+            items=nodes_list[0:limit] if last_item else nodes_list,
             encode_cursor=lambda dj_node: NodeCursor(
                 created_at=dj_node.created_at,
                 id=dj_node.id,
