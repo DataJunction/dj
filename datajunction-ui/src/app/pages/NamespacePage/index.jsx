@@ -135,7 +135,6 @@ export function NamespacePage() {
       });
       if (nodes.data) {
         setPrevCursor(nodes.data ? nodes.data.findNodesPaginated.pageInfo.startCursor : '');
-        // setPrevCursor(nodes.data ? nodes.data.findNodesPaginated.pageMeta.prevCursor : '');
         setNextCursor(nodes.data ? nodes.data.findNodesPaginated.pageInfo.endCursor : '');
       }
       setRetrieved(true);
@@ -148,9 +147,7 @@ export function NamespacePage() {
     }
   };
   const loadPrev = () => {
-    // if (prevCursor) {
-      setCursor(prevCursor); // Trigger the effect to load more nodes
-    // }
+    setCursor(prevCursor); // Trigger the effect to load more nodes
   };
 
   const nodesList = retrieved ? (
