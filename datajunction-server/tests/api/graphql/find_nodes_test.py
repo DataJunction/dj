@@ -3,6 +3,8 @@ Tests for the engine API.
 """
 
 # pylint: disable=line-too-long
+from unittest import mock
+
 import pytest
 from httpx import AsyncClient
 
@@ -34,7 +36,7 @@ async def test_find_by_node_type(
     assert data["data"]["findNodes"] == [
         {
             "currentVersion": "v1.0",
-            "name": "default.regional_level_agg",
+            "name": "default.repair_orders_fact",
             "tags": [],
             "type": "TRANSFORM",
         },
@@ -46,7 +48,7 @@ async def test_find_by_node_type(
         },
         {
             "currentVersion": "v1.0",
-            "name": "default.repair_orders_fact",
+            "name": "default.regional_level_agg",
             "tags": [],
             "type": "TRANSFORM",
         },
@@ -69,6 +71,114 @@ async def test_find_by_node_type(
     assert response.status_code == 200
     data = response.json()
     assert data == {"data": {"findNodes": []}}
+
+
+@pytest.mark.asyncio
+async def test_find_by_node_type_paginated(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding nodes by node type with pagination
+    """
+    query = """
+    {
+      findNodesPaginated(nodeTypes: [TRANSFORM], limit: 2) {
+        edges {
+          node {
+            name
+            type
+            tags {
+                name
+            }
+            currentVersion
+          }
+        }
+        pageInfo {
+          startCursor
+          endCursor
+          hasNextPage
+          hasPrevPage
+        }
+      }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodesPaginated"] == {
+        "edges": [
+            {
+                "node": {
+                    "currentVersion": "v1.0",
+                    "name": "default.repair_orders_fact",
+                    "tags": [],
+                    "type": "TRANSFORM",
+                },
+            },
+            {
+                "node": {
+                    "currentVersion": "v1.0",
+                    "name": "default.national_level_agg",
+                    "tags": [],
+                    "type": "TRANSFORM",
+                },
+            },
+        ],
+        "pageInfo": {
+            "endCursor": mock.ANY,
+            "hasNextPage": True,
+            "hasPrevPage": False,
+            "startCursor": None,
+        },
+    }
+    after = data["data"]["findNodesPaginated"]["pageInfo"]["endCursor"]
+    query = """
+    query ListNodes($after: String) {
+      findNodesPaginated(nodeTypes: [TRANSFORM], limit: 2, after: $after) {
+        edges {
+          node {
+            name
+            type
+            tags {
+                name
+            }
+            currentVersion
+          }
+        }
+        pageInfo {
+          startCursor
+          endCursor
+          hasNextPage
+          hasPrevPage
+        }
+      }
+    }
+    """
+    response = await module__client_with_roads.post(
+        "/graphql",
+        json={"query": query, "variables": {"after": after}},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodesPaginated"] == {
+        "edges": [
+            {
+                "node": {
+                    "currentVersion": "v1.0",
+                    "name": "default.regional_level_agg",
+                    "tags": [],
+                    "type": "TRANSFORM",
+                },
+            },
+        ],
+        "pageInfo": {
+            "endCursor": None,
+            "hasNextPage": False,
+            "hasPrevPage": True,
+            "startCursor": mock.ANY,
+        },
+    }
 
 
 @pytest.mark.asyncio
