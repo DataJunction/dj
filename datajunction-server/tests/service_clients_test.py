@@ -420,6 +420,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
                 "spark_conf": {},
                 "upstream_tables": ["default.hard_hats"],
                 "columns": [],
+                "lookback_window": "1 DAY",
             },
             headers=ANY,
         )
@@ -544,6 +545,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             json={
                 "name": "default",
                 "job": "SparkSqlMaterializationJob",
+                "lookback_window": "1 DAY",
                 "strategy": "full",
                 "node_name": "default.hard_hat",
                 "node_version": "v1",
