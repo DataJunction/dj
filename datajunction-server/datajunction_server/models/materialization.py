@@ -91,6 +91,7 @@ class GenericMaterializationInput(BaseModel):
     spark_conf: Optional[Dict] = None
     partitions: Optional[List[Dict]] = None
     columns: List[ColumnMetadata]
+    lookback_window: Optional[str] = "1 DAY"
 
 
 class DruidMaterializationInput(GenericMaterializationInput):

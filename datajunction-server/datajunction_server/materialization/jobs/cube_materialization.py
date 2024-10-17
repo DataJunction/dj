@@ -92,6 +92,7 @@ class DruidMaterializationJob(MaterializationJob):
                 partitions=temporal_partition + categorical_partitions,
                 job=materialization.job,
                 strategy=materialization.strategy,
+                lookback_window=cube_config.lookback_window,
             ),
             request_headers=request_headers,
         )
