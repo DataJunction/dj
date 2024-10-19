@@ -6,7 +6,7 @@ import datetime
 import json
 from base64 import b64decode, b64encode
 from dataclasses import dataclass
-from typing import Callable, Generic, Iterable, TypeVar, Union
+from typing import Callable, Generic, Iterable, List, Optional, TypeVar, Union
 
 import strawberry
 from strawberry import field
@@ -115,22 +115,30 @@ class Connection(Generic[GenericItemNode]):  # pylint: disable=too-few-public-me
     @classmethod
     def from_list(
         cls,
-        first_item: GenericItem | None,
-        last_item: GenericItem | None,
-        items: Iterable[GenericItem],
+        items: List[GenericItem],
+        before: Optional[str],
+        after: Optional[str],
+        limit: int,
         encode_cursor: Callable[[GenericItem], Cursor],
     ) -> "Connection":
         """
         Construct a Connection from a list of items.
         """
-        start_cursor = encode_cursor(first_item).encode() if first_item else None
-        end_cursor = encode_cursor(last_item).encode() if last_item else None
+        has_next_page = len(items) > limit or (
+            before is not None and items[0] is not None
+        )
+        has_prev_page = (before is not None and len(items) > limit) or (
+            after is not None and items[0] is not None
+        )
+        start_cursor = encode_cursor(items[0]).encode() if items else None
+        end_cursor = encode_cursor(items[-1]).encode() if items else None
+
         return Connection(  # type: ignore
             page_info=PageInfo(  # type: ignore
-                has_prev_page=first_item is not None,
+                has_prev_page=has_prev_page,
                 start_cursor=start_cursor,
-                has_next_page=last_item is not None,
+                has_next_page=has_next_page,
                 end_cursor=end_cursor,
             ),
-            edges=[Edge(node=item) for item in items],  # type: ignore
+            edges=[Edge(node=item) for item in items[:limit]],  # type: ignore
         )
