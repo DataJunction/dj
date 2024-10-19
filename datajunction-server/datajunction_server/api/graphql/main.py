@@ -139,12 +139,11 @@ class Query:  # pylint: disable=R0903
             before,
             after,
         )
-        first_item = nodes_list[0] if nodes_list and (after or before) else None
-        last_item = nodes_list[limit] if len(nodes_list) > limit else None
         return Connection.from_list(
-            first_item=first_item,
-            last_item=last_item,
-            items=nodes_list[0:limit] if last_item else nodes_list,
+            items=nodes_list,
+            before=before,
+            after=after,
+            limit=limit,
             encode_cursor=lambda dj_node: NodeCursor(
                 created_at=dj_node.created_at,
                 id=dj_node.id,
