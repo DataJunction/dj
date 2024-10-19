@@ -474,7 +474,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
             ).order_by(Node.created_at.asc(), Node.id.asc())
 
         limit = limit or 100
-        if limit != -1:
+        if limit > 0:
             statement = statement.limit(limit)
         result = await session.execute(statement.options(*options))
         nodes = result.unique().scalars().all()
