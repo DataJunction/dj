@@ -426,7 +426,7 @@ describe('DataJunctionAPI', () => {
     const nmspce = 'sampleNamespace';
     fetch.mockResponseOnce(JSON.stringify({}));
     await DataJunctionAPI.namespace(nmspce);
-    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/namespaces/${nmspce}/?with_edited_by=true`, {
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/namespaces/${nmspce}?edited_by=undefined&with_edited_by=true`, {
       credentials: 'include',
     });
   });

@@ -20,7 +20,7 @@ export default function UserSelect({ onChange, currentUser }) {
 
   return (
     <span className="menu-link" style={{ marginLeft: '30px', width: '400px' }} data-testid="select-user">
-      {retrieved ? (
+      {retrieved && currentUser ? (
         <Select
           name="edited_by"
           isClearable

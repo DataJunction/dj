@@ -1050,6 +1050,32 @@ pre {
   white-space: break-spaces;
 }
 
+.pagination {
+  background-color: #fff !important;
+  color: #74b7c3;
+  border: 1px solid #74b7c3;
+  text-transform: none;
+  vertical-align: middle;
+  padding-right: 1rem;
+  padding-left: 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  margin-left: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+  font-size: 1rem;
+  border-radius: 0.2rem;
+  word-wrap: break-word;
+  white-space: break-spaces;
+  text-decoration: none;
+}
+.pagination:hover {
+  background-color: #b6dae0 !important;
+  color: #436e76;
+  text-transform: none;
+  text-decoration: none;
+  cursor: pointer;
+}
+
 .edit_button {
   background: none;
   color: inherit;
