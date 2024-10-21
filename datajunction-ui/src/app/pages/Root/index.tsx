@@ -12,12 +12,12 @@ type DocsSites = {
 
 // Default docs sites if REACT_APP_DOCS_SITES is not defined
 const defaultDocsSites: DocsSites = {
-  "Open-Source": "https://www.datajunction.io/"
+  'Open-Source': 'https://www.datajunction.io/',
 };
 
 // Parse the JSON map from the environment variable or use the default
 const docsSites: DocsSites = process.env.REACT_APP_DOCS_SITES
-  ? JSON.parse(process.env.REACT_APP_DOCS_SITES as string) as DocsSites
+  ? (JSON.parse(process.env.REACT_APP_DOCS_SITES as string) as DocsSites)
   : defaultDocsSites;
 
 export function Root() {
@@ -32,7 +32,10 @@ export function Root() {
     <>
       <Helmet>
         <title>DataJunction</title>
-        <meta name="description" content="DataJunction Metrics Platform Webapp" />
+        <meta
+          name="description"
+          content="DataJunction Metrics Platform Webapp"
+        />
       </Helmet>
       <div className="container d-flex align-items-center justify-content-between">
         <div className="header">
@@ -76,10 +79,18 @@ export function Root() {
                     >
                       Docs
                     </a>
-                    <ul className="dropdown-menu" aria-labelledby="docsDropdown">
+                    <ul
+                      className="dropdown-menu"
+                      aria-labelledby="docsDropdown"
+                    >
                       {Object.entries(docsSites).map(([key, value]) => (
                         <li key={key}>
-                          <a className="dropdown-item" href={value} target="_blank" rel="noreferrer">
+                          <a
+                            className="dropdown-item"
+                            href={value}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
                             {key}
                           </a>
                         </li>
