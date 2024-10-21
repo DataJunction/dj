@@ -35,7 +35,7 @@ export function NamespacePage() {
   const [filters, setFilters] = useState({
     tags: [],
     node_type: '',
-    edited_by: '', // currentUser?.username,
+    edited_by: currentUser?.username || '',
   });
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
@@ -45,9 +45,13 @@ export function NamespacePage() {
     direction: DESC,
   });
 
-  const [cursor, setCursor] = useState(null);
+  const [before, setBefore] = useState(null);
+  const [after, setAfter] = useState(null);
   const [prevCursor, setPrevCursor] = useState(true);
   const [nextCursor, setNextCursor] = useState(true);
+
+  const [hasNextPage, setHasNextPage] = useState(true);
+  const [hasPrevPage, setHasPrevPage] = useState(true);
 
   const sortedNodes = React.useMemo(() => {
     let sortableData = [...Object.values(state.nodes)];
@@ -114,8 +118,7 @@ export function NamespacePage() {
       const hierarchy = createNamespaceHierarchy(namespaces);
       setNamespaceHierarchy(hierarchy);
       const currentUser = await djClient.whoami();
-      // currentUser = {username: 'yshang@netflix.com'};
-      // setFilters({...filters, edited_by: currentUser?.username});
+      setFilters({...filters, edited_by: currentUser?.username});
       setCurrentUser(currentUser);
     };
     fetchData().catch(console.error);
@@ -124,11 +127,11 @@ export function NamespacePage() {
   useEffect(() => {
     const fetchData = async () => {
       setRetrieved(false);
-      console.log('cursor', cursor);
+      console.log('cursor', before, filters.edited_by);
       const nodes = await djClient.listNodesForLanding(
         namespace,
         filters.node_type ? [filters.node_type.toUpperCase()] : [],
-        filters.tags, filters.edited_by, cursor, 50);
+        filters.tags, filters.edited_by, before, after, 50);
       setState({
         namespace: namespace,
         nodes: nodes.data ? nodes.data.findNodesPaginated.edges.map(n => n.node) : [],
@@ -136,24 +139,30 @@ export function NamespacePage() {
       if (nodes.data) {
         setPrevCursor(nodes.data ? nodes.data.findNodesPaginated.pageInfo.startCursor : '');
         setNextCursor(nodes.data ? nodes.data.findNodesPaginated.pageInfo.endCursor : '');
+        setHasPrevPage(nodes.data ? nodes.data.findNodesPaginated.pageInfo.hasPrevPage : false);
+        setHasNextPage(nodes.data ? nodes.data.findNodesPaginated.pageInfo.hasNextPage : false);
       }
       setRetrieved(true);
     };
     fetchData().catch(console.error);
-  }, [djClient, namespace, namespaceHierarchy, filters, cursor]);
+  }, [djClient, filters, before, after]);
   const loadNext = () => {
     if (nextCursor) {
-      setCursor(nextCursor); // Trigger the effect to load more nodes
+      setAfter(nextCursor);
+      setBefore(null);
     }
   };
   const loadPrev = () => {
-    setCursor(prevCursor); // Trigger the effect to load more nodes
+    if (prevCursor) {
+      setAfter(null);
+      setBefore(prevCursor);
+    }
   };
 
   const nodesList = retrieved ? (
     sortedNodes.length > 0 ? (
     sortedNodes.map(node => (
-      <tr>
+      <tr key={node.name}>
         <td>
           <a href={'/nodes/' + node.name} className="link-table">
             {node.name}
@@ -189,14 +198,22 @@ export function NamespacePage() {
       </tr>
     ))
   ) : (
-    <span style={{ display: 'block', marginTop: '2rem', marginLeft: '2rem', fontSize: '16px' }}>
-      There are no nodes in <a href={`/namespaces/${namespace}`}>{namespace}</a> with the above filters!
-    </span>
+    <tr>
+      <td>
+        <span style={{ display: 'block', marginTop: '2rem', marginLeft: '2rem', fontSize: '16px' }}>
+          There are no nodes in <a href={`/namespaces/${namespace}`}>{namespace}</a> with the above filters!
+        </span>
+      </td>
+    </tr>
   )
   ) : (
-    <span style={{ display: 'block', marginTop: '2rem' }}>
-      <LoadingIcon />
-    </span>
+    <tr>
+      <td>
+        <span style={{ display: 'block', marginTop: '2rem' }}>
+          <LoadingIcon />
+        </span>
+      </td>
+    </tr>
   );
 
   return (
@@ -204,7 +221,7 @@ export function NamespacePage() {
       <div className="card">
         <div className="card-header">
           <h2>Explore</h2>
-          <div class="menu" style={{ margin: '0 0 20px 0' }}>
+          <div className="menu" style={{ margin: '0 0 20px 0' }}>
             <div
               className="menu-link"
               style={{
@@ -270,6 +287,7 @@ export function NamespacePage() {
                       item={child}
                       current={state.namespace}
                       defaultExpand={true}
+                      key={child.namespace}
                     />
                   ))
                 : null}
@@ -279,7 +297,7 @@ export function NamespacePage() {
                 <tr>
                   {fields.map(field => {
                     return (
-                      <th>
+                      <th key={field}>
                         <button
                           type="button"
                           onClick={() => requestSort(field)}
@@ -295,13 +313,15 @@ export function NamespacePage() {
               </thead>
               <tbody>{nodesList}</tbody>
               <tfoot>
-                <a onClick={loadPrev} class="previous round">&#8249; Previous</a>
-                <a onClick={loadNext} class="next round">Next</a>
+                <tr>
+                  <td>
+                    {retrieved && hasPrevPage ? <a onClick={loadPrev} className="previous round pagination">← Previous</a> : ''}
+                    {retrieved && hasNextPage ? <a onClick={loadNext} className="next round pagination">Next →</a> : ''}
+                  </td>
+                </tr>
               </tfoot>
             </table>
           </div>
-          {/* {nextCursor && <button onClick={loadMore}>Load More</button>} */}
-
         </div>
       </div>
     </div>
