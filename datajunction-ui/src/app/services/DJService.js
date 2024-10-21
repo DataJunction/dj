@@ -8,22 +8,32 @@ const DJ_GQL = process.env.REACT_APP_DJ_GQL
   ? process.env.REACT_APP_DJ_GQL
   : 'http://localhost:8000/graphql';
 
-
 export const DataJunctionAPI = {
-  listNodesForLanding: async function (namespace, nodeTypes, tags, editedBy, cursor, limit) {
+  listNodesForLanding: async function (
+    namespace,
+    nodeTypes,
+    tags,
+    editedBy,
+    before,
+    after,
+    limit,
+  ) {
     const query = `
-      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $after: String, $limit: Int) {
+      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $before: String, $after: String, $limit: Int) {
         findNodesPaginated(
           namespace: $namespace
           nodeTypes: $nodeTypes
           tags: $tags
           editedBy: $editedBy
           limit: $limit
+          before: $before
           after: $after
         ) {
           pageInfo {
             hasNextPage
             endCursor
+            hasPrevPage
+            startCursor
           }
           edges {
             node {
@@ -63,10 +73,11 @@ export const DataJunctionAPI = {
             nodeTypes: nodeTypes,
             tags: tags,
             editedBy: editedBy,
-            after: cursor,
+            before: before,
+            after: after,
             limit: limit,
           },
-        })
+        }),
       })
     ).json();
   },
@@ -414,9 +425,12 @@ export const DataJunctionAPI = {
 
   namespace: async function (nmspce, editedBy) {
     return await (
-      await fetch(`${DJ_URL}/namespaces/${nmspce}?edited_by=${editedBy}&with_edited_by=true`, {
-        credentials: 'include',
-      })
+      await fetch(
+        `${DJ_URL}/namespaces/${nmspce}?edited_by=${editedBy}&with_edited_by=true`,
+        {
+          credentials: 'include',
+        },
+      )
     ).json();
   },
 
