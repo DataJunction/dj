@@ -10,8 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.models.node import AvailabilityStateBase, PartitionAvailability
+from datajunction_server.models.node import (
+    AvailabilityStateBase,
+    NodeCursor,
+    PartitionAvailability,
+)
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.typing import UTCDatetime
 
 
 def test_node_relationship(session: AsyncSession) -> None:
@@ -289,3 +294,28 @@ def test_merging_availability_complex_with_partitions() -> None:
         ],
         "url": None,
     }
+
+
+def test_node_cursors() -> None:
+    """
+    Test encoding and decoding node cursors
+    """
+    created_at = UTCDatetime(
+        year=2024,
+        month=1,
+        day=1,
+        hour=12,
+        minute=30,
+        second=33,
+    )
+
+    cursor = NodeCursor(created_at=created_at, id=1010)
+
+    encoded_cursor = (
+        "eyJjcmVhdGVkX2F0IjogIjIwMjQtMDEtMDFUMTI6MzA6MzMiLCAiaWQiOiAxMDEwfQ=="
+    )
+    assert cursor.encode() == encoded_cursor
+
+    decoded_cursor = NodeCursor.decode(encoded_cursor)
+    assert decoded_cursor.created_at == cursor.created_at  # pylint: disable=no-member
+    assert decoded_cursor.id == cursor.id  # pylint: disable=no-member
