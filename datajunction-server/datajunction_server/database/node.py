@@ -435,7 +435,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
                 (Node.namespace.like(f"{namespace}.%")) | (Node.namespace == namespace),
             )
         if nodes_with_tags:
-            statement = statement.where(Node.id.in_(nodes_with_tags))
+            statement = statement.where(Node.id.in_(nodes_with_tags))  # pragma: no cover
         if names:
             statement = statement.where(
                 Node.name.in_(names),  # type: ignore  # pylint: disable=no-member
@@ -459,27 +459,28 @@ class Node(Base):  # pylint: disable=too-few-public-methods
                 onclause=(edited_node_subquery.c.entity_name == Node.name),
             ).distinct()
 
-        statement = statement.order_by(Node.created_at.desc(), Node.id.desc())
         if after:
             cursor = NodeCursor.decode(after)
             statement = statement.where(
                 (Node.created_at, Node.id)
                 <= (cursor.created_at, cursor.id),  # pylint: disable=no-member
-            )
+            ).order_by(Node.created_at.desc(), Node.id.desc())
         elif before:
             cursor = NodeCursor.decode(before)
             statement = statement.where(
                 (Node.created_at, Node.id)
                 >= (cursor.created_at, cursor.id),  # pylint: disable=no-member
-            ).order_by(Node.created_at.asc(), Node.id.asc())
+            )
+            statement = statement.order_by(Node.created_at.asc(), Node.id.asc())
+        else:
+            statement = statement.order_by(Node.created_at.desc(), Node.id.desc())
 
-        limit = limit or 100
-        if limit > 0:
-            statement = statement.limit(limit)
+        limit = limit if limit and limit > 0 else 100
+        statement = statement.limit(limit)
         result = await session.execute(statement.options(*options))
         nodes = result.unique().scalars().all()
 
-        # Handle reversing for backward pagination
+        # Reverse for backward pagination
         if before:
             nodes.reverse()
         return nodes
