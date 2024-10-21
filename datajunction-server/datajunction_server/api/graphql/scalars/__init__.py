@@ -6,7 +6,7 @@ import datetime
 import json
 from base64 import b64decode, b64encode
 from dataclasses import dataclass
-from typing import Callable, Generic, Iterable, List, Optional, TypeVar, Union
+from typing import Callable, Generic, List, Optional, TypeVar, Union
 
 import strawberry
 from strawberry import field
@@ -34,7 +34,7 @@ class DateTimeJSONEncoder(json.JSONEncoder):
         """
         if isinstance(obj, (datetime.datetime, datetime.date, datetime.time)):
             return obj.isoformat()
-        return super().default(obj)
+        return super().default(obj)  # pragma: no cover
 
 
 class DateTimeJSONDecoder(json.JSONDecoder):
@@ -54,8 +54,8 @@ class DateTimeJSONDecoder(json.JSONDecoder):
             if isinstance(v, str):
                 try:
                     source[k] = datetime.datetime.fromisoformat(str(v))
-                except ValueError:
-                    pass
+                except ValueError:  # pragma: no cover
+                    pass  # pragma: no cover
         return source
 
 
@@ -132,7 +132,6 @@ class Connection(Generic[GenericItemNode]):  # pylint: disable=too-few-public-me
         )
         start_cursor = encode_cursor(items[0]).encode() if items else None
         end_cursor = encode_cursor(items[-1]).encode() if items else None
-
         return Connection(  # type: ignore
             page_info=PageInfo(  # type: ignore
                 has_prev_page=has_prev_page,

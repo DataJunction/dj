@@ -213,7 +213,7 @@ async def test_find_by_node_type_paginated(
             {
                 "node": {
                     "currentVersion": "v1.0",
-                    "name": "default.regional_level_agg",
+                    "name": "default.repair_orders_fact",
                     "tags": [],
                     "type": "TRANSFORM",
                 },
@@ -757,8 +757,8 @@ async def test_find_node_with_revisions(
     assert response.status_code == 200
     data = response.json()
     results = data["data"]["findNodesPaginated"]
-    results["edges"][2]["node"]["revisions"][0]["dimensionLinks"] = sorted(
-        results["edges"][2]["node"]["revisions"][0]["dimensionLinks"],
+    results["edges"][0]["node"]["revisions"][0]["dimensionLinks"] = sorted(
+        results["edges"][0]["node"]["revisions"][0]["dimensionLinks"],
         key=lambda x: x["dimension"]["name"],
     )
     assert results["edges"] == [
@@ -772,10 +772,10 @@ async def test_find_node_with_revisions(
                         "dimensionLinks": [
                             {
                                 "dimension": {
-                                    "name": "default.municipality_dim",
+                                    "name": "default.dispatcher",
                                 },
-                                "joinSql": "default.repair_orders_fact.municipality_id = "
-                                "default.municipality_dim.municipality_id",
+                                "joinSql": "default.repair_orders_fact.dispatcher_id = "
+                                "default.dispatcher.dispatcher_id",
                             },
                             {
                                 "dimension": {
@@ -790,10 +790,10 @@ async def test_find_node_with_revisions(
                             },
                             {
                                 "dimension": {
-                                    "name": "default.dispatcher",
+                                    "name": "default.municipality_dim",
                                 },
-                                "joinSql": "default.repair_orders_fact.dispatcher_id = "
-                                "default.dispatcher.dispatcher_id",
+                                "joinSql": "default.repair_orders_fact.municipality_id = "
+                                "default.municipality_dim.municipality_id",
                             },
                         ],
                     },
