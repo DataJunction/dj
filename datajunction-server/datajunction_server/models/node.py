@@ -966,7 +966,7 @@ class NodeIndegreeOutput(BaseModel):
 class NodeCursor(Cursor):
     """Cursor that represents a node in a paginated list."""
 
-    created_at: int | str
+    created_at: UTCDatetime
     id: int
 
     @classmethod
