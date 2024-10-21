@@ -126,7 +126,8 @@ class Query:  # pylint: disable=R0903
         """
         Find nodes based on the search parameters.
         """
-        limit = limit or 100
+        if not limit or limit < 0:
+            limit = 100
         nodes_list = await find_nodes_by(
             info,
             names,
