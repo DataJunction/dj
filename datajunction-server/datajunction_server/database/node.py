@@ -435,7 +435,9 @@ class Node(Base):  # pylint: disable=too-few-public-methods
                 (Node.namespace.like(f"{namespace}.%")) | (Node.namespace == namespace),
             )
         if nodes_with_tags:
-            statement = statement.where(Node.id.in_(nodes_with_tags))  # pragma: no cover
+            statement = statement.where(
+                Node.id.in_(nodes_with_tags),
+            )  # pragma: no cover
         if names:
             statement = statement.where(
                 Node.name.in_(names),  # type: ignore  # pylint: disable=no-member
