@@ -1069,4 +1069,20 @@ describe('DataJunctionAPI', () => {
       },
     );
   });
+
+  it('calls listNodesForLanding correctly', () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+
+    DataJunctionAPI.listNodesForLanding('', ['source'], [], '', null, null, 100);
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/graphql`,
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+  });
 });
