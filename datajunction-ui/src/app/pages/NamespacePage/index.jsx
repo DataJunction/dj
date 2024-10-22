@@ -35,7 +35,7 @@ export function NamespacePage() {
   const [filters, setFilters] = useState({
     tags: [],
     node_type: '',
-    edited_by: currentUser?.username || '',
+    edited_by: '',
   });
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
@@ -118,7 +118,7 @@ export function NamespacePage() {
       const hierarchy = createNamespaceHierarchy(namespaces);
       setNamespaceHierarchy(hierarchy);
       const currentUser = await djClient.whoami();
-      setFilters({...filters, edited_by: currentUser?.username});
+      // setFilters({...filters, edited_by: currentUser?.username});
       setCurrentUser(currentUser);
     };
     fetchData().catch(console.error);
