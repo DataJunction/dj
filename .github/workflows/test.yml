@@ -127,6 +127,10 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - name: Install Dependencies
         run: yarn install
+      - name: Run Lint
+        run: yarn lint --fix
+      - name: Run Prettier
+        run: yarn prettier . --write
       - name: Run Unit Tests
         run: yarn test --runInBand --ci --coverage
       - name: Build Project
