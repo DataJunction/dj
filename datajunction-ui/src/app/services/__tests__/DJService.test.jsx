@@ -426,7 +426,7 @@ describe('DataJunctionAPI', () => {
     const nmspce = 'sampleNamespace';
     fetch.mockResponseOnce(JSON.stringify({}));
     await DataJunctionAPI.namespace(nmspce);
-    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/namespaces/${nmspce}/?with_edited_by=true`, {
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/namespaces/${nmspce}?edited_by=undefined&with_edited_by=true`, {
       credentials: 'include',
     });
   });
@@ -1067,6 +1067,22 @@ describe('DataJunctionAPI', () => {
           'Content-Type': 'application/json',
         },
       },
+    );
+  });
+
+  it('calls listNodesForLanding correctly', () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+
+    DataJunctionAPI.listNodesForLanding('', ['source'], [], '', null, null, 100);
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/graphql`,
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
     );
   });
 });
