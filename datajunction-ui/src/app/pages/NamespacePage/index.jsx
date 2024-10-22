@@ -132,6 +132,8 @@ export function NamespacePage() {
         namespace,
         filters.node_type ? [filters.node_type.toUpperCase()] : [],
         filters.tags, filters.edited_by, before, after, 50);
+      console.log('nodes', nodes);
+
       setState({
         namespace: namespace,
         nodes: nodes.data ? nodes.data.findNodesPaginated.edges.map(n => n.node) : [],
