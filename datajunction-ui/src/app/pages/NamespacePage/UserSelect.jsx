@@ -19,7 +19,11 @@ export default function UserSelect({ onChange, currentUser }) {
   }, [djClient]);
 
   return (
-    <span className="menu-link" style={{ marginLeft: '30px', width: '400px' }} data-testid="select-user">
+    <span
+      className="menu-link"
+      style={{ marginLeft: '30px', width: '400px' }}
+      data-testid="select-user"
+    >
       {retrieved ? (
         <Select
           name="edited_by"
