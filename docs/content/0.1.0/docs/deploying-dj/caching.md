@@ -44,7 +44,7 @@ class CachelibCache(Cache):
 ### Custom Caching Implementation
 
 You can implement a custom cache by using FastAPI's dependency injection and injecting a `get_cache` dependency.
-The custom cache must implement the `CacheInterface`, which includes the `get` and `set` methods.
+The custom cache must implement the `CacheInterface`, which includes the `get`, `set` and `delete` methods.
 
 Here's the `CacheInterface` definition:
 
@@ -70,7 +70,8 @@ class CacheInterface(ABC):
 
 #### Implementing a Custom Cache
 
-To implement a custom cache, create a class that extends `CacheInterface` and override the `get` and `set` methods. Then, use FastAPI's dependency injection to inject your custom cache.
+To implement a custom cache, create a class that extends `CacheInterface` and override the `get`, `set`, and `delete`
+methods. Then, use FastAPI's dependency injection to inject your custom cache.
 
 Here's an example of a custom cache implementation:
 
@@ -112,13 +113,3 @@ returning an instance of `NoOpCache` which simply wraps the base `Cache` impleme
 It is recommended that custom cache implementations also respect this header to ensure consistency. "Turning off the
 cache" when a `no-cache` header is detected is as simple as making sure the dependency injected function returns the
 `NoOpCache` instance that can be imported from `datajunction_server.internal.caching.noop_cache`.
-
-Here's the open-source `get_cache` dependency for reference:
-
-```py
-def get_cache(request: Request) -> Optional[CacheInterface]:
-    """Dependency for retrieving a cachelib-based cache implementation"""
-    cache_control = request.headers.get("Cache-Control", "")
-    skip_cache = "no-cache" in cache_control
-    return noop_cache if skip_cache else cachelib_cache
-```
