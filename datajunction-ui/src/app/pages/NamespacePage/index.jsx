@@ -141,6 +141,7 @@ export function NamespacePage() {
       if (nodes.data) {
         setPrevCursor(nodes.data ? nodes.data.findNodesPaginated.pageInfo.startCursor : '');
         setNextCursor(nodes.data ? nodes.data.findNodesPaginated.pageInfo.endCursor : '');
+        console.log('setting hasPrevPage, ', nodes.data.findNodesPaginated.pageInfo.hasPrevPage);
         setHasPrevPage(nodes.data ? nodes.data.findNodesPaginated.pageInfo.hasPrevPage : false);
         setHasNextPage(nodes.data ? nodes.data.findNodesPaginated.pageInfo.hasNextPage : false);
       }
