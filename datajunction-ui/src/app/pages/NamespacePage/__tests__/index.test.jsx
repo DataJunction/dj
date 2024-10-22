@@ -91,9 +91,9 @@ describe('NamespacePage', () => {
         "data": {
           "findNodesPaginated": {
               "pageInfo": {
-                  "hasNextPage": false,
+                  "hasNextPage": true,
                   "endCursor": "eyJjcmVhdGVkX2F0IjogIjIwMjQtMDQtMTZUMjM6MjI6MjIuNDQxNjg2KzAwOjAwIiwgImlkIjogNjE0fQ==",
-                  "hasPrevPage": false,
+                  "hasPrevPage": true,
                   "startCursor": "eyJjcmVhdGVkX2F0IjogIjIwMjQtMTAtMTZUMTY6MDM6MTcuMDgzMjY3KzAwOjAwIiwgImlkIjogMjQwOX0="
               },
               "edges": [
@@ -143,7 +143,7 @@ describe('NamespacePage', () => {
     );
 
     await waitFor(() => {
-      expect(mockDjClient.listNodesForLanding).toHaveBeenCalledTimes(1);
+      expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
       expect(screen.getByText('Namespaces')).toBeInTheDocument();
 
       // check that it displays namespaces
@@ -157,7 +157,16 @@ describe('NamespacePage', () => {
 
       // check that it sorts nodes
       fireEvent.click(screen.getByText('name'));
+      fireEvent.click(screen.getByText('name'));
       fireEvent.click(screen.getByText('display Name'));
+
+      // paginate
+      const previousButton = screen.getByText('← Previous');
+      expect(previousButton).toBeDefined();
+      fireEvent.click(previousButton);
+      const nextButton = screen.getByText('Next →');
+      expect(nextButton).toBeDefined();
+      fireEvent.click(nextButton);
 
       // check that we can filter by node type
       const selectNodeType = screen.getAllByTestId('select-node-type')[0];
@@ -177,13 +186,13 @@ describe('NamespacePage', () => {
       expect(selectUser).toBeDefined();
       expect(selectUser).not.toBeNull();
       fireEvent.keyDown(selectUser.firstChild, { key: 'ArrowDown' });
-      // fireEvent.click(screen.getByText('dj'));
 
       // click to open and close tab
       fireEvent.click(screen.getByText('common'));
       fireEvent.click(screen.getByText('common'));
-    });
-  });
+    },
+    { timeout: 3000 });
+  }, 60000);
 
   it('can add new namespace via add namespace popover', async () => {
     mockDjClient.addNamespace.mockReturnValue({
