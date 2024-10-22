@@ -797,7 +797,7 @@ SELECT
   COALESCE(
     default_DOT_repair_orders_fact_metrics.default_DOT_num_repair_orders,
     default_DOT_repair_order_details_metrics.default_DOT_num_repair_orders
-  ) AS default_DOT_num_repair_orders,
+  ) default_DOT_num_repair_orders,
   COALESCE(
     default_DOT_repair_orders_fact_metrics.default_DOT_avg_repair_price,
     default_DOT_repair_order_details_metrics.default_DOT_avg_repair_price
