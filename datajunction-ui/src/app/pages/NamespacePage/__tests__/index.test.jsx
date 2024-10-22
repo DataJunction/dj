@@ -149,7 +149,7 @@ describe('NamespacePage', () => {
     );
 
     await waitFor(() => {
-      expect(mockDjClient.listNodesForLanding).toHaveBeenCalledTimes(2);
+      expect(mockDjClient.listNodesForLanding).toHaveBeenCalledTimes(1);
       expect(screen.getByText('Namespaces')).toBeInTheDocument();
 
       // check that it displays namespaces
