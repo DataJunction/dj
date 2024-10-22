@@ -895,9 +895,12 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
                                 _type=proj.type,  # type: ignore
                                 semantic_entity=proj.semantic_entity,  # type: ignore
                                 semantic_type=proj.semantic_type,  # type: ignore
-                            ) for join_cte in metric_ctes
+                            )
+                            for join_cte in metric_ctes
                         ],
-                    ).set_alias(proj.alias)
+                    ).set_alias(
+                        proj.alias,  # type: ignore
+                    )
                     for proj in initial_cte.select.projection
                 ],
                 from_=ast.From(
@@ -956,6 +959,7 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
         self.validate_access()
         if self.errors and not self._ignore_errors:
             raise DJQueryBuildException(errors=self.errors)  # pragma: no cover
+        print("self.final_ast", self.final_ast)
         return self.final_ast
 
     def validate_access(self):

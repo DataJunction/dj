@@ -775,7 +775,7 @@ SELECT
     default_DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_city
   ) default_DOT_hard_hat_DOT_city,
   COALESCE(
-    default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_state, 
+    default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_state,
     default_DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_state
   ) default_DOT_hard_hat_DOT_state,
   COALESCE(
