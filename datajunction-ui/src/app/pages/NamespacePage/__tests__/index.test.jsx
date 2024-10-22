@@ -8,6 +8,7 @@ import userEvent from '@testing-library/user-event';
 const mockDjClient = {
   namespaces: jest.fn(),
   namespace: jest.fn(),
+  listNodesForLanding: jest.fn(),
   addNamespace: jest.fn(),
   whoami: jest.fn(),
   users: jest.fn(),
@@ -91,6 +92,41 @@ describe('NamespacePage', () => {
         edited_by: ['dj'],
       },
     ]);
+    mockDjClient.listNodesForLanding.mockResolvedValue(
+      {
+        "data": {
+          "findNodesPaginated": {
+              "pageInfo": {
+                  "hasNextPage": false,
+                  "endCursor": "eyJjcmVhdGVkX2F0IjogIjIwMjQtMDQtMTZUMjM6MjI6MjIuNDQxNjg2KzAwOjAwIiwgImlkIjogNjE0fQ==",
+                  "hasPrevPage": false,
+                  "startCursor": "eyJjcmVhdGVkX2F0IjogIjIwMjQtMTAtMTZUMTY6MDM6MTcuMDgzMjY3KzAwOjAwIiwgImlkIjogMjQwOX0="
+              },
+              "edges": [
+                  {
+                      "node": {
+                          "name": "default.test_node",
+                          "type": "DIMENSION",
+                          "currentVersion": "v4.0",
+                          "tags": [],
+                          "editedBy": [
+                              "dj",
+                          ],
+                          "current": {
+                              "displayName": "Test Node",
+                              "status": "VALID",
+                              "updatedAt": "2024-10-18T15:15:33.532949+00:00"
+                          },
+                          "createdBy": {
+                              "username": "dj"
+                          }
+                      }
+                  },
+              ]
+          }
+        }
+      }
+    );
   });
 
   afterEach(() => {
@@ -113,7 +149,7 @@ describe('NamespacePage', () => {
     );
 
     await waitFor(() => {
-      expect(mockDjClient.namespaces).toHaveBeenCalledTimes(1);
+      expect(mockDjClient.listNodesForLanding).toHaveBeenCalledTimes(2);
       expect(screen.getByText('Namespaces')).toBeInTheDocument();
 
       // check that it displays namespaces
@@ -123,11 +159,11 @@ describe('NamespacePage', () => {
       expect(screen.getByText('vegetables')).toBeInTheDocument();
 
       // check that it renders nodes
-      // expect(screen.getByText('Test Node')).toBeInTheDocument();
+      expect(screen.getByText('Test Node')).toBeInTheDocument();
 
       // check that it sorts nodes
       fireEvent.click(screen.getByText('name'));
-      fireEvent.click(screen.getByText('display name'));
+      fireEvent.click(screen.getByText('display Name'));
 
       // check that we can filter by node type
       const selectNodeType = screen.getAllByTestId('select-node-type')[0];
@@ -153,10 +189,6 @@ describe('NamespacePage', () => {
       fireEvent.click(screen.getByText('common'));
       fireEvent.click(screen.getByText('common'));
     });
-  });
-
-  afterEach(() => {
-    jest.clearAllMocks();
   });
 
   it('can add new namespace via add namespace popover', async () => {
