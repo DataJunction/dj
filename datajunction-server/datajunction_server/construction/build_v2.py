@@ -959,7 +959,6 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
         self.validate_access()
         if self.errors and not self._ignore_errors:
             raise DJQueryBuildException(errors=self.errors)  # pragma: no cover
-        print("self.final_ast", self.final_ast)
         return self.final_ast
 
     def validate_access(self):
