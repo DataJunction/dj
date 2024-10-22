@@ -37,9 +37,15 @@ describe('NamespacePage', () => {
 
   beforeEach(() => {
     fetch.resetMocks();
-    mockDjClient.whoami.mockResolvedValue({username: 'dj'});
-    mockDjClient.users.mockResolvedValue([{username: 'dj'}, {username: 'user1'}]);
-    mockDjClient.listTags.mockResolvedValue([{name: 'tag1'}, {name: 'tag2'}]);
+    mockDjClient.whoami.mockResolvedValue({ username: 'dj' });
+    mockDjClient.users.mockResolvedValue([
+      { username: 'dj' },
+      { username: 'user1' },
+    ]);
+    mockDjClient.listTags.mockResolvedValue([
+      { name: 'tag1' },
+      { name: 'tag2' },
+    ]);
     mockDjClient.namespaces.mockResolvedValue([
       {
         namespace: 'common.one',
@@ -81,7 +87,7 @@ describe('NamespacePage', () => {
         type: 'transform',
         mode: 'active',
         updated_at: new Date(),
-        tags: [{name: 'tag1'}],
+        tags: [{ name: 'tag1' }],
         edited_by: ['dj'],
       },
     ]);
