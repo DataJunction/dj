@@ -375,6 +375,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             client.data(
                 metrics=["default.avg_repair_price"],
                 dimensions=["default.hard_hat.state"],
+                filters=["default.hard_hat.state = 'AL'"],
             )
         assert "No data for query!" in str(exc_info)
 

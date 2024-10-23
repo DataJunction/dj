@@ -324,6 +324,7 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         # Use the user-defined temporal partition if it exists
         user_defined_temporal_partition = None
         user_defined_temporal_partition = user_defined_temporal_partitions[0]
+        print("self.columns", user_defined_temporal_partition.name, self.columns)
         timestamp_column = [
             col.name
             for col in self.columns  # type: ignore

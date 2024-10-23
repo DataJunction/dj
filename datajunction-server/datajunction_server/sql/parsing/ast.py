@@ -563,6 +563,25 @@ class Alias(Aliasable, Generic[AliasedType]):
         """
         return [self]
 
+    # @property
+    # def semantic_entity(self) -> Optional[str]:
+    #     """
+    #     Returns a list of self if aliased or named else an empty list
+    #     """
+    #     if self.semantic_entity
+    #     if hasattr(self.child, 'semantic_entity'):
+    #         return self.child.semantic_entity
+    #     return None
+
+    # @property
+    # def semantic_type(self) -> Optional[SemanticType]:
+    #     """
+    #     Returns a list of self if aliased or named else an empty list
+    #     """
+    #     if hasattr(self.child, 'semantic_type'):
+    #         return self.child.semantic_type
+    #     return None
+
 
 TExpression = TypeVar("TExpression", bound="Expression")  # pylint: disable=C0103
 
