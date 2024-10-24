@@ -702,6 +702,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
                     "url": "http://some.catalog.com/default.accounting.pmts",
+                    "links": {},
                 },
                 "pre": {},
                 "user": "dj",
@@ -726,6 +727,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "categorical_partitions": [],
             "temporal_partitions": [],
             "url": "http://some.catalog.com/default.accounting.pmts",
+            "links": {},
         }
 
     @pytest.mark.asyncio
@@ -839,6 +841,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
                     "url": None,
+                    "links": {},
                 },
                 "pre": {
                     "catalog": "default",
@@ -851,6 +854,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
                     "url": None,
+                    "links": {},
                 },
                 "user": "dj",
             },
@@ -873,6 +877,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
                     "url": None,
+                    "links": {},
                 },
                 "pre": {
                     "catalog": "default",
@@ -885,6 +890,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
                     "url": None,
+                    "links": {},
                 },
                 "user": "dj",
             },
@@ -907,6 +913,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
                     "url": None,
+                    "links": {},
                 },
                 "pre": {},
                 "user": "dj",
@@ -931,6 +938,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "categorical_partitions": [],
             "temporal_partitions": [],
             "url": None,
+            "links": {},
         }
 
     @pytest.mark.asyncio
@@ -1070,6 +1078,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "categorical_partitions": [],
             "temporal_partitions": ["payment_id"],
             "url": None,
+            "links": {},
         }
 
     @pytest.fixture
@@ -1141,6 +1150,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "table": "local_hard_hats",
             "valid_through_ts": 20230101,
             "url": None,
+            "links": {},
         }
 
     @pytest.mark.asyncio
@@ -1187,6 +1197,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "table": "local_hard_hats",
             "valid_through_ts": 20230101,
             "url": None,
+            "links": {},
         }
 
     @pytest.mark.asyncio
@@ -1540,6 +1551,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "schema_": "accounting",
             "partitions": [],
             "url": None,
+            "links": {},
         }
 
     @pytest.mark.asyncio
@@ -1612,6 +1624,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "categorical_partitions": [],
             "temporal_partitions": [],
             "url": None,
+            "links": {},
         }
 
     @pytest.mark.asyncio
@@ -1657,6 +1670,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "categorical_partitions": [],
             "temporal_partitions": [],
             "url": None,
+            "links": {},
         }
 
     @pytest.mark.asyncio
