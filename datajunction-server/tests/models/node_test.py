@@ -168,6 +168,7 @@ def test_merging_availability_simple_no_partitions() -> None:
         "temporal_partitions": [],
         "partitions": [],
         "url": None,
+        "links": {},
     }
 
 
@@ -208,6 +209,7 @@ def test_merging_availability_complex_no_partitions() -> None:
         "temporal_partitions": [],
         "partitions": [],
         "url": None,
+        "links": {},
     }
 
 
@@ -288,4 +290,5 @@ def test_merging_availability_complex_with_partitions() -> None:
             },
         ],
         "url": None,
+        "links": {},
     }

@@ -3,7 +3,7 @@
 
 from datetime import datetime, timezone
 from functools import partial
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import sqlalchemy as sa
 from sqlalchemy import JSON, DateTime, ForeignKey
@@ -31,6 +31,7 @@ class AvailabilityState(Base):  # pylint: disable=too-few-public-methods
     table: Mapped[str]
     valid_through_ts: Mapped[int] = mapped_column(sa.BigInteger())
     url: Mapped[Optional[str]]
+    links: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default=dict)
 
     # An ordered list of categorical partitions like ["country", "group_id"]
     # or ["region_id", "age_group"]
