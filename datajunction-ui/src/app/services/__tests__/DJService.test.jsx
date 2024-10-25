@@ -426,9 +426,12 @@ describe('DataJunctionAPI', () => {
     const nmspce = 'sampleNamespace';
     fetch.mockResponseOnce(JSON.stringify({}));
     await DataJunctionAPI.namespace(nmspce);
-    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/namespaces/${nmspce}/?with_edited_by=true`, {
-      credentials: 'include',
-    });
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/namespaces/${nmspce}/?with_edited_by=true`,
+      {
+        credentials: 'include',
+      },
+    );
   });
 
   it('calls sql correctly', async () => {
@@ -489,9 +492,9 @@ describe('DataJunctionAPI', () => {
     const sampleNode = {
       name: 'sampleNode',
       columns: [
-        { name: 'column1', dimension: { name: 'dimension1' }, },
+        { name: 'column1', dimension: { name: 'dimension1' } },
         { name: 'column2', dimension: null },
-        { name: 'column3', dimension: { name: 'dimension2' }, },
+        { name: 'column3', dimension: { name: 'dimension2' } },
       ],
     };
 
