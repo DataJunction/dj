@@ -25,7 +25,7 @@ export default function NotebookDownload({ node }) {
     <>
       <div
         className="badge download_notebook"
-        style={{cursor: 'pointer', backgroundColor: '#ffefd0'}}
+        style={{ cursor: 'pointer', backgroundColor: '#ffefd0' }}
         tabIndex="0"
         height="45px"
         onClick={downloadFile}
