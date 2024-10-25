@@ -134,6 +134,7 @@ async def add_availability_state(
         ],
         categorical_partitions=data.categorical_partitions,
         temporal_partitions=data.temporal_partitions,
+        links=data.links,
     )
     if node_revision.availability and not node_revision.availability.partitions:
         node_revision.availability.partitions = []

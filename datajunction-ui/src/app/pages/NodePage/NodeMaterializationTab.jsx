@@ -256,6 +256,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
                   <th className="text-start">Output Dataset</th>
                   <th>Valid Through</th>
                   <th>Partitions</th>
+                  <th>Links</th>
                 </tr>
               </thead>
               <tbody>
@@ -298,6 +299,21 @@ export default function NodeMaterializationTab({ node, djClient }) {
                         {node.availability.max_temporal_partition}
                       </span>
                     </span>
+                  </td>
+                  <td>
+                    {node.availability.links !== null ? (
+                      Object.entries(node.availability.links).map(
+                        ([key, value]) => (
+                          <div key={key}>
+                            <a href={value} target="_blank" rel="noreferrer">
+                              {key}
+                            </a>
+                          </div>
+                        ),
+                      )
+                    ) : (
+                      <></>
+                    )}
                   </td>
                 </tr>
               </tbody>
