@@ -125,10 +125,10 @@ class Connection(Generic[GenericItemNode]):  # pylint: disable=too-few-public-me
         Construct a Connection from a list of items.
         """
         has_next_page = len(items) > limit or (
-            before is not None and items[0] is not None
+            before is not None and len(items) > 0 and items[0] is not None
         )
         has_prev_page = (before is not None and len(items) > limit) or (
-            after is not None and items[0] is not None
+            after is not None and len(items) > 0 and items[0] is not None
         )
         start_cursor = encode_cursor(items[0]).encode() if items else None
         end_cursor = encode_cursor(items[-1]).encode() if items else None
