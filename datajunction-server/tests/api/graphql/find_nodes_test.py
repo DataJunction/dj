@@ -3,6 +3,8 @@ Tests for the engine API.
 """
 
 # pylint: disable=line-too-long
+from unittest import mock
+
 import pytest
 from httpx import AsyncClient
 
@@ -34,7 +36,7 @@ async def test_find_by_node_type(
     assert data["data"]["findNodes"] == [
         {
             "currentVersion": "v1.0",
-            "name": "default.regional_level_agg",
+            "name": "default.repair_orders_fact",
             "tags": [],
             "type": "TRANSFORM",
         },
@@ -46,7 +48,7 @@ async def test_find_by_node_type(
         },
         {
             "currentVersion": "v1.0",
-            "name": "default.repair_orders_fact",
+            "name": "default.regional_level_agg",
             "tags": [],
             "type": "TRANSFORM",
         },
@@ -69,6 +71,169 @@ async def test_find_by_node_type(
     assert response.status_code == 200
     data = response.json()
     assert data == {"data": {"findNodes": []}}
+
+
+@pytest.mark.asyncio
+async def test_find_by_node_type_paginated(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding nodes by node type with pagination
+    """
+    query = """
+    {
+      findNodesPaginated(nodeTypes: [TRANSFORM], limit: 2) {
+        edges {
+          node {
+            name
+            type
+            tags {
+                name
+            }
+            currentVersion
+          }
+        }
+        pageInfo {
+          startCursor
+          endCursor
+          hasNextPage
+          hasPrevPage
+        }
+      }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodesPaginated"] == {
+        "edges": [
+            {
+                "node": {
+                    "currentVersion": "v1.0",
+                    "name": "default.repair_orders_fact",
+                    "tags": [],
+                    "type": "TRANSFORM",
+                },
+            },
+            {
+                "node": {
+                    "currentVersion": "v1.0",
+                    "name": "default.national_level_agg",
+                    "tags": [],
+                    "type": "TRANSFORM",
+                },
+            },
+        ],
+        "pageInfo": {
+            "endCursor": mock.ANY,
+            "hasNextPage": True,
+            "hasPrevPage": False,
+            "startCursor": mock.ANY,
+        },
+    }
+    after = data["data"]["findNodesPaginated"]["pageInfo"]["endCursor"]
+    query = """
+    query ListNodes($after: String) {
+      findNodesPaginated(nodeTypes: [TRANSFORM], limit: 2, after: $after) {
+        edges {
+          node {
+            name
+            type
+            tags {
+                name
+            }
+            currentVersion
+          }
+        }
+        pageInfo {
+          startCursor
+          endCursor
+          hasNextPage
+          hasPrevPage
+        }
+      }
+    }
+    """
+    response = await module__client_with_roads.post(
+        "/graphql",
+        json={"query": query, "variables": {"after": after}},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodesPaginated"] == {
+        "edges": [
+            {
+                "node": {
+                    "currentVersion": "v1.0",
+                    "name": "default.regional_level_agg",
+                    "tags": [],
+                    "type": "TRANSFORM",
+                },
+            },
+        ],
+        "pageInfo": {
+            "endCursor": mock.ANY,
+            "hasNextPage": False,
+            "hasPrevPage": True,
+            "startCursor": mock.ANY,
+        },
+    }
+    before = data["data"]["findNodesPaginated"]["pageInfo"]["startCursor"]
+    query = """
+    query ListNodes($before: String) {
+      findNodesPaginated(nodeTypes: [TRANSFORM], limit: 2, before: $before) {
+        edges {
+          node {
+            name
+            type
+            tags {
+                name
+            }
+            currentVersion
+          }
+        }
+        pageInfo {
+          startCursor
+          endCursor
+          hasNextPage
+          hasPrevPage
+        }
+      }
+    }
+    """
+    response = await module__client_with_roads.post(
+        "/graphql",
+        json={"query": query, "variables": {"before": before}},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodesPaginated"] == {
+        "edges": [
+            {
+                "node": {
+                    "currentVersion": "v1.0",
+                    "name": "default.repair_orders_fact",
+                    "tags": [],
+                    "type": "TRANSFORM",
+                },
+            },
+            {
+                "node": {
+                    "currentVersion": "v1.0",
+                    "name": "default.national_level_agg",
+                    "tags": [],
+                    "type": "TRANSFORM",
+                },
+            },
+        ],
+        "pageInfo": {
+            "endCursor": mock.ANY,
+            "hasNextPage": True,
+            "hasPrevPage": True,
+            "startCursor": mock.ANY,
+        },
+    }
 
 
 @pytest.mark.asyncio
@@ -560,7 +725,9 @@ async def test_find_node_with_revisions(
 
     query = """
     {
-        findNodes(nodeTypes: [TRANSFORM]) {
+      findNodesPaginated(nodeTypes: [TRANSFORM], namespace: "default", editedBy: "dj", limit: -1) {
+        edges {
+          node {
             name
             type
             revisions {
@@ -581,93 +748,107 @@ async def test_find_node_with_revisions(
                 oauthProvider
                 username
             }
+          }
         }
+      }
     }
     """
     response = await module__client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
-    results = data["data"]["findNodes"]
-    results[2]["revisions"][0]["dimensionLinks"] = sorted(
-        results[2]["revisions"][0]["dimensionLinks"],
+    results = data["data"]["findNodesPaginated"]
+    results["edges"][0]["node"]["revisions"][0]["dimensionLinks"] = sorted(
+        results["edges"][0]["node"]["revisions"][0]["dimensionLinks"],
         key=lambda x: x["dimension"]["name"],
     )
-    assert results == [
+    assert results["edges"] == [
         {
-            "name": "default.regional_level_agg",
-            "type": "TRANSFORM",
-            "revisions": [
-                {"displayName": "Default: Regional Level Agg", "dimensionLinks": []},
-            ],
-            "currentVersion": "v1.0",
-            "createdBy": {
-                "email": None,
-                "id": 1,
-                "isAdmin": False,
-                "name": None,
-                "oauthProvider": "BASIC",
-                "username": "dj",
-            },
-        },
-        {
-            "name": "default.national_level_agg",
-            "type": "TRANSFORM",
-            "revisions": [
-                {"displayName": "Default: National Level Agg", "dimensionLinks": []},
-            ],
-            "currentVersion": "v1.0",
-            "createdBy": {
-                "email": None,
-                "id": 1,
-                "isAdmin": False,
-                "name": None,
-                "oauthProvider": "BASIC",
-                "username": "dj",
-            },
-        },
-        {
-            "name": "default.repair_orders_fact",
-            "type": "TRANSFORM",
-            "revisions": [
-                {
-                    "displayName": "Repair Orders Fact",
-                    "dimensionLinks": [
-                        {
-                            "dimension": {
-                                "name": "default.dispatcher",
+            "node": {
+                "name": "default.repair_orders_fact",
+                "type": "TRANSFORM",
+                "revisions": [
+                    {
+                        "displayName": "Repair Orders Fact",
+                        "dimensionLinks": [
+                            {
+                                "dimension": {
+                                    "name": "default.dispatcher",
+                                },
+                                "joinSql": "default.repair_orders_fact.dispatcher_id = "
+                                "default.dispatcher.dispatcher_id",
                             },
-                            "joinSql": "default.repair_orders_fact.dispatcher_id = "
-                            "default.dispatcher.dispatcher_id",
-                        },
-                        {
-                            "dimension": {
-                                "name": "default.hard_hat",
+                            {
+                                "dimension": {
+                                    "name": "default.hard_hat",
+                                },
+                                "joinSql": "default.repair_orders_fact.hard_hat_id = "
+                                "default.hard_hat.hard_hat_id",
                             },
-                            "joinSql": "default.repair_orders_fact.hard_hat_id = "
-                            "default.hard_hat.hard_hat_id",
-                        },
-                        {
-                            "dimension": {"name": "default.hard_hat_to_delete"},
-                            "joinSql": "default.repair_orders_fact.hard_hat_id = default.hard_hat_to_delete.hard_hat_id",
-                        },
-                        {
-                            "dimension": {
-                                "name": "default.municipality_dim",
+                            {
+                                "dimension": {"name": "default.hard_hat_to_delete"},
+                                "joinSql": "default.repair_orders_fact.hard_hat_id = default.hard_hat_to_delete.hard_hat_id",
                             },
-                            "joinSql": "default.repair_orders_fact.municipality_id = "
-                            "default.municipality_dim.municipality_id",
-                        },
-                    ],
+                            {
+                                "dimension": {
+                                    "name": "default.municipality_dim",
+                                },
+                                "joinSql": "default.repair_orders_fact.municipality_id = "
+                                "default.municipality_dim.municipality_id",
+                            },
+                        ],
+                    },
+                ],
+                "currentVersion": "v1.0",
+                "createdBy": {
+                    "email": None,
+                    "id": 1,
+                    "isAdmin": False,
+                    "name": None,
+                    "oauthProvider": "BASIC",
+                    "username": "dj",
                 },
-            ],
-            "currentVersion": "v1.0",
-            "createdBy": {
-                "email": None,
-                "id": 1,
-                "isAdmin": False,
-                "name": None,
-                "oauthProvider": "BASIC",
-                "username": "dj",
+            },
+        },
+        {
+            "node": {
+                "name": "default.national_level_agg",
+                "type": "TRANSFORM",
+                "revisions": [
+                    {
+                        "displayName": "Default: National Level Agg",
+                        "dimensionLinks": [],
+                    },
+                ],
+                "currentVersion": "v1.0",
+                "createdBy": {
+                    "email": None,
+                    "id": 1,
+                    "isAdmin": False,
+                    "name": None,
+                    "oauthProvider": "BASIC",
+                    "username": "dj",
+                },
+            },
+        },
+        {
+            "node": {
+                "name": "default.regional_level_agg",
+                "type": "TRANSFORM",
+                "revisions": [
+                    {
+                        "displayName": "Default: Regional Level Agg",
+                        "dimensionLinks": [],
+                    },
+                ],
+                "currentVersion": "v1.0",
+                "createdBy": {
+                    "email": None,
+                    "id": 1,
+                    "isAdmin": False,
+                    "name": None,
+                    "oauthProvider": "BASIC",
+                    "username": "dj",
+                },
             },
         },
     ]

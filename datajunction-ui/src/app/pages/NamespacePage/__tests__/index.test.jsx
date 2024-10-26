@@ -8,6 +8,7 @@ import userEvent from '@testing-library/user-event';
 const mockDjClient = {
   namespaces: jest.fn(),
   namespace: jest.fn(),
+  listNodesForLanding: jest.fn(),
   addNamespace: jest.fn(),
   whoami: jest.fn(),
   users: jest.fn(),
@@ -91,6 +92,39 @@ describe('NamespacePage', () => {
         edited_by: ['dj'],
       },
     ]);
+    mockDjClient.listNodesForLanding.mockResolvedValue({
+      data: {
+        findNodesPaginated: {
+          pageInfo: {
+            hasNextPage: true,
+            endCursor:
+              'eyJjcmVhdGVkX2F0IjogIjIwMjQtMDQtMTZUMjM6MjI6MjIuNDQxNjg2KzAwOjAwIiwgImlkIjogNjE0fQ==',
+            hasPrevPage: true,
+            startCursor:
+              'eyJjcmVhdGVkX2F0IjogIjIwMjQtMTAtMTZUMTY6MDM6MTcuMDgzMjY3KzAwOjAwIiwgImlkIjogMjQwOX0=',
+          },
+          edges: [
+            {
+              node: {
+                name: 'default.test_node',
+                type: 'DIMENSION',
+                currentVersion: 'v4.0',
+                tags: [],
+                editedBy: ['dj'],
+                current: {
+                  displayName: 'Test Node',
+                  status: 'VALID',
+                  updatedAt: '2024-10-18T15:15:33.532949+00:00',
+                },
+                createdBy: {
+                  username: 'dj',
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
   });
 
   afterEach(() => {
@@ -112,52 +146,59 @@ describe('NamespacePage', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => {
-      expect(mockDjClient.namespaces).toHaveBeenCalledTimes(1);
-      expect(screen.getByText('Namespaces')).toBeInTheDocument();
+    await waitFor(
+      () => {
+        expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
+        expect(screen.getByText('Namespaces')).toBeInTheDocument();
 
-      // check that it displays namespaces
-      expect(screen.getByText('common')).toBeInTheDocument();
-      expect(screen.getByText('one')).toBeInTheDocument();
-      expect(screen.getByText('fruits')).toBeInTheDocument();
-      expect(screen.getByText('vegetables')).toBeInTheDocument();
+        // check that it displays namespaces
+        expect(screen.getByText('common')).toBeInTheDocument();
+        expect(screen.getByText('one')).toBeInTheDocument();
+        expect(screen.getByText('fruits')).toBeInTheDocument();
+        expect(screen.getByText('vegetables')).toBeInTheDocument();
 
-      // check that it renders nodes
-      expect(screen.getByText('Test Node')).toBeInTheDocument();
+        // check that it renders nodes
+        expect(screen.getByText('Test Node')).toBeInTheDocument();
 
-      // check that it sorts nodes
-      fireEvent.click(screen.getByText('name'));
-      fireEvent.click(screen.getByText('display name'));
+        // check that it sorts nodes
+        fireEvent.click(screen.getByText('name'));
+        fireEvent.click(screen.getByText('name'));
+        fireEvent.click(screen.getByText('display Name'));
 
-      // check that we can filter by node type
-      const selectNodeType = screen.getAllByTestId('select-node-type')[0];
-      expect(selectNodeType).toBeDefined();
-      expect(selectNodeType).not.toBeNull();
-      fireEvent.keyDown(selectNodeType.firstChild, { key: 'ArrowDown' });
-      fireEvent.click(screen.getByText('Source'));
+        // paginate
+        const previousButton = screen.getByText('← Previous');
+        expect(previousButton).toBeDefined();
+        fireEvent.click(previousButton);
+        const nextButton = screen.getByText('Next →');
+        expect(nextButton).toBeDefined();
+        fireEvent.click(nextButton);
 
-      // check that we can filter by tag
-      const selectTag = screen.getAllByTestId('select-tag')[0];
-      expect(selectTag).toBeDefined();
-      expect(selectTag).not.toBeNull();
-      fireEvent.keyDown(selectTag.firstChild, { key: 'ArrowDown' });
+        // check that we can filter by node type
+        const selectNodeType = screen.getAllByTestId('select-node-type')[0];
+        expect(selectNodeType).toBeDefined();
+        expect(selectNodeType).not.toBeNull();
+        fireEvent.keyDown(selectNodeType.firstChild, { key: 'ArrowDown' });
+        fireEvent.click(screen.getByText('Source'));
 
-      // check that we can filter by user
-      const selectUser = screen.getAllByTestId('select-user')[0];
-      expect(selectUser).toBeDefined();
-      expect(selectUser).not.toBeNull();
-      fireEvent.keyDown(selectUser.firstChild, { key: 'ArrowDown' });
-      // fireEvent.click(screen.getByText('dj'));
+        // check that we can filter by tag
+        const selectTag = screen.getAllByTestId('select-tag')[0];
+        expect(selectTag).toBeDefined();
+        expect(selectTag).not.toBeNull();
+        fireEvent.keyDown(selectTag.firstChild, { key: 'ArrowDown' });
 
-      // click to open and close tab
-      fireEvent.click(screen.getByText('common'));
-      fireEvent.click(screen.getByText('common'));
-    });
-  });
+        // check that we can filter by user
+        const selectUser = screen.getAllByTestId('select-user')[0];
+        expect(selectUser).toBeDefined();
+        expect(selectUser).not.toBeNull();
+        fireEvent.keyDown(selectUser.firstChild, { key: 'ArrowDown' });
 
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
+        // click to open and close tab
+        fireEvent.click(screen.getByText('common'));
+        fireEvent.click(screen.getByText('common'));
+      },
+      { timeout: 3000 },
+    );
+  }, 60000);
 
   it('can add new namespace via add namespace popover', async () => {
     mockDjClient.addNamespace.mockReturnValue({

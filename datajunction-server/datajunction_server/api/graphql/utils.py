@@ -2,6 +2,8 @@
 import re
 from typing import Any, Dict
 
+CURSOR_SEPARATOR = "-"
+
 
 def convert_camel_case(name):
     """
@@ -31,8 +33,8 @@ def extract_fields(query_fields) -> Dict[str, Any]:
     """
     fields = {}
 
-    for field in query_fields.selected_fields:
-        for selection in field.selections:
+    for query_field in query_fields.selected_fields:
+        for selection in query_field.selections:
             field_name = convert_camel_case(selection.name)
             if selection.selections:
                 subfield = extract_subfields(selection)

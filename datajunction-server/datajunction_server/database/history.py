@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import Any, Dict, Optional
 
-from sqlalchemy import JSON, BigInteger, DateTime, Enum, Integer, String
+from sqlalchemy import JSON, BigInteger, DateTime, Enum, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from datajunction_server.database.base import Base
@@ -53,6 +53,10 @@ class History(Base):  # pylint: disable=too-few-public-methods
     """
 
     __tablename__ = "history"
+    __table_args__ = (
+        Index("ix_history_entity_name", "entity_name", postgresql_using="btree"),
+        Index("ix_history_user", "user", postgresql_using="btree"),
+    )
 
     id: Mapped[int] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"),

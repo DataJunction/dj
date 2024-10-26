@@ -12,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -38,6 +39,7 @@ from datajunction_server.models.base import labelize
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     BuildCriteria,
+    NodeCursor,
     NodeMode,
     NodeStatus,
 )
@@ -165,6 +167,13 @@ class Node(Base):  # pylint: disable=too-few-public-methods
     __tablename__ = "node"
     __table_args__ = (
         UniqueConstraint("name", "namespace", name="unique_node_namespace_name"),
+        Index("cursor_index", "created_at", "id", postgresql_using="btree"),
+        Index(
+            "namespace_index",
+            "namespace",
+            postgresql_using="btree",
+            postgresql_ops={"identifier": "varchar_pattern_ops"},
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -390,13 +399,18 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         return result.unique().scalars().all()
 
     @classmethod
-    async def find_by(  # pylint: disable=keyword-arg-before-vararg
+    async def find_by(  # pylint: disable=keyword-arg-before-vararg,too-many-locals
         cls,
         session: AsyncSession,
         names: Optional[List[str]] = None,
         fragment: Optional[str] = None,
         node_types: Optional[List[NodeType]] = None,
         tags: Optional[List[str]] = None,
+        edited_by: Optional[str] = None,
+        namespace: Optional[str] = None,
+        limit: Optional[int] = 100,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
         *options: ExecutableOption,  # pylint: disable=keyword-arg-before-vararg
     ) -> List["Node"]:
         """
@@ -416,10 +430,14 @@ class Node(Base):  # pylint: disable=too-few-public-methods
                 return []
 
         statement = select(Node).where(is_(Node.deactivated_at, None))
-        if nodes_with_tags:
-            statement = statement.where(  # pragma: no cover
-                Node.id.in_(nodes_with_tags),
+        if namespace:
+            statement = statement.where(
+                (Node.namespace.like(f"{namespace}.%")) | (Node.namespace == namespace),
             )
+        if nodes_with_tags:
+            statement = statement.where(
+                Node.id.in_(nodes_with_tags),
+            )  # pragma: no cover
         if names:
             statement = statement.where(
                 Node.name.in_(names),  # type: ignore  # pylint: disable=no-member
@@ -430,8 +448,44 @@ class Node(Base):  # pylint: disable=too-few-public-methods
             )
         if node_types:
             statement = statement.where(Node.type.in_(node_types))
+        if edited_by:
+            edited_node_subquery = (
+                select(History.entity_name)
+                .where((History.user == edited_by))
+                .distinct()
+                .subquery()
+            )
+
+            statement = statement.join(
+                edited_node_subquery,
+                onclause=(edited_node_subquery.c.entity_name == Node.name),
+            ).distinct()
+
+        if after:
+            cursor = NodeCursor.decode(after)
+            statement = statement.where(
+                (Node.created_at, Node.id)
+                <= (cursor.created_at, cursor.id),  # pylint: disable=no-member
+            ).order_by(Node.created_at.desc(), Node.id.desc())
+        elif before:
+            cursor = NodeCursor.decode(before)
+            statement = statement.where(
+                (Node.created_at, Node.id)
+                >= (cursor.created_at, cursor.id),  # pylint: disable=no-member
+            )
+            statement = statement.order_by(Node.created_at.asc(), Node.id.asc())
+        else:
+            statement = statement.order_by(Node.created_at.desc(), Node.id.desc())
+
+        limit = limit if limit and limit > 0 else 100
+        statement = statement.limit(limit)
         result = await session.execute(statement.options(*options))
-        return result.unique().scalars().all()
+        nodes = result.unique().scalars().all()
+
+        # Reverse for backward pagination
+        if before:
+            nodes.reverse()
+        return nodes
 
 
 class NodeRevision(
