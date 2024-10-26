@@ -6,7 +6,7 @@ const DJ_URL = process.env.REACT_APP_DJ_URL
 
 const DJ_GQL = process.env.REACT_APP_DJ_GQL
   ? process.env.REACT_APP_DJ_GQL
-  : 'http://localhost:8000/graphql';
+  : process.env.REACT_APP_DJ_URL + '/graphql';
 
 export const DataJunctionAPI = {
   listNodesForLanding: async function (
