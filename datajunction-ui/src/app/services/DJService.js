@@ -4,7 +4,84 @@ const DJ_URL = process.env.REACT_APP_DJ_URL
   ? process.env.REACT_APP_DJ_URL
   : 'http://localhost:8000';
 
+const DJ_GQL = process.env.REACT_APP_DJ_GQL
+  ? process.env.REACT_APP_DJ_GQL
+  : process.env.REACT_APP_DJ_URL + '/graphql';
+
 export const DataJunctionAPI = {
+  listNodesForLanding: async function (
+    namespace,
+    nodeTypes,
+    tags,
+    editedBy,
+    before,
+    after,
+    limit,
+  ) {
+    const query = `
+      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $before: String, $after: String, $limit: Int) {
+        findNodesPaginated(
+          namespace: $namespace
+          nodeTypes: $nodeTypes
+          tags: $tags
+          editedBy: $editedBy
+          limit: $limit
+          before: $before
+          after: $after
+        ) {
+          pageInfo {
+            hasNextPage
+            endCursor
+            hasPrevPage
+            startCursor
+          }
+          edges {
+            node {
+              name
+              type
+              currentVersion
+              tags {
+                name
+                tagType
+              }
+              editedBy
+              current {
+                displayName
+                status
+                updatedAt
+              }
+              createdBy {
+                username
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    return await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: {
+            namespace: namespace,
+            nodeTypes: nodeTypes,
+            tags: tags,
+            editedBy: editedBy,
+            before: before,
+            after: after,
+            limit: limit,
+          },
+        }),
+      })
+    ).json();
+  },
+
   whoami: async function () {
     return await (
       await fetch(`${DJ_URL}/whoami/`, { credentials: 'include' })
@@ -346,11 +423,14 @@ export const DataJunctionAPI = {
     ).json();
   },
 
-  namespace: async function (nmspce) {
+  namespace: async function (nmspce, editedBy) {
     return await (
-      await fetch(`${DJ_URL}/namespaces/${nmspce}/?with_edited_by=true`, {
-        credentials: 'include',
-      })
+      await fetch(
+        `${DJ_URL}/namespaces/${nmspce}?edited_by=${editedBy}&with_edited_by=true`,
+        {
+          credentials: 'include',
+        },
+      )
     ).json();
   },
 

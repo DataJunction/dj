@@ -1,5 +1,4 @@
 """Node-related scalars."""
-
 import datetime
 from typing import List, Optional
 
@@ -189,4 +188,4 @@ class Node:  # pylint: disable=too-few-public-methods
         """
         The users who edited this node
         """
-        return list({entry.user for entry in root.history})
+        return root.edited_by

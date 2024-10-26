@@ -20,6 +20,11 @@ async def find_nodes_by(
     fragment: Optional[str] = None,
     node_types: Optional[List[NodeType]] = None,
     tags: Optional[List[str]] = None,
+    edited_by: Optional[str] = None,
+    namespace: Optional[str] = None,
+    limit: Optional[int] = 100,
+    before: Optional[str] = None,
+    after: Optional[str] = None,
 ) -> List[DBNode]:
     """
     Finds nodes based on the search parameters. This function also tries to optimize
@@ -27,13 +32,24 @@ async def find_nodes_by(
     """
     session = info.context["session"]  # type: ignore
     fields = extract_fields(info)
-    options = load_node_options(fields)
+    options = load_node_options(
+        fields["nodes"]
+        if "nodes" in fields
+        else fields["edges"]["node"]
+        if "edges" in fields
+        else fields,
+    )
     return await DBNode.find_by(
         session,
         names,
         fragment,
         node_types,
         tags,
+        edited_by,
+        namespace,
+        limit,
+        before,
+        after,
         *options,
     )
 

@@ -10,7 +10,7 @@ const Explorer = ({ item = [], current }) => {
   useEffect(() => {
     setItems(item);
     setHighlight(current);
-    if (current === undefined || current?.startsWith(item.path)) {
+    if (current !== undefined && current?.startsWith(item.path)) {
       setExpand(true);
     } else setExpand(false);
   }, [current, item]);
@@ -43,8 +43,12 @@ const Explorer = ({ item = [], current }) => {
                 marginLeft: '1rem',
                 borderLeft: '1px solid rgb(218 233 255)',
               }}
+              key={index}
             >
-              <div className={`${expand ? '' : 'inactive'}`}>
+              <div
+                className={`${expand ? '' : 'inactive'}`}
+                key={`nested-${index}`}
+              >
                 <Explorer item={item} current={highlight} />
               </div>
             </div>
