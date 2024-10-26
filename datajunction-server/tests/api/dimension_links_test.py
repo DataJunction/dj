@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """
 Dimension linking related tests.
 
@@ -961,3 +962,73 @@ FROM default_DOT_events"""
     """
     assert str(parse(response_data[0]["sql"])) == str(parse(expected_sql))
     assert response_data[0]["errors"] == []
+
+
+@pytest.mark.asyncio
+async def test_dimension_link_cross_join(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Testing linking complex dimension with CROSS JOIN as the join type.
+    """
+    response = await dimensions_link_client.post(
+        "/nodes/dimension",
+        json={
+            "description": "Areas",
+            "query": """
+            SELECT tab.area, 1 AS area_rep FROM VALUES ('A'), ('B'), ('C') AS tab(area)
+            """,
+            "mode": "published",
+            "name": "default.areas",
+            "primary_key": ["area"],
+        },
+    )
+    assert response.status_code == 201
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.areas",
+            "join_type": "cross",
+            "join_on": "",
+            "join_cardinality": "many_to_one",
+        },
+    )
+    assert response.status_code == 201
+    response = await dimensions_link_client.get("/nodes/default.events/dimensions")
+    assert [dim["name"] for dim in response.json()] == [
+        "default.areas.area",
+        "default.areas.area_rep",
+    ]
+
+    response = await dimensions_link_client.get(
+        "/sql/default.events?dimensions=default.areas.area&dimensions=default.areas.area_rep",
+    )
+    expected = """WITH
+    default_DOT_events AS (
+      SELECT
+        default_DOT_events_table.user_id,
+        default_DOT_events_table.event_start_date,
+        default_DOT_events_table.event_end_date,
+        default_DOT_events_table.elapsed_secs,
+        default_DOT_events_table.user_registration_country
+      FROM examples.events AS default_DOT_events_table
+    ),
+    default_DOT_areas AS (
+      SELECT
+        tab.area,
+      1 AS area_rep
+      FROM VALUES ('A'),
+      ('B'),
+      ('C') AS tab(area)
+    )
+    SELECT
+      default_DOT_events.user_id default_DOT_events_DOT_user_id,
+      default_DOT_events.event_start_date default_DOT_events_DOT_event_start_date,
+      default_DOT_events.event_end_date default_DOT_events_DOT_event_end_date,
+      default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+      default_DOT_events.user_registration_country default_DOT_events_DOT_user_registration_country,
+      default_DOT_areas.area default_DOT_areas_DOT_area,
+      default_DOT_areas.area_rep default_DOT_areas_DOT_area_rep
+    FROM default_DOT_events CROSS JOIN default_DOT_areas
+    """
+    assert str(parse(response.json()["sql"])) == str(parse(expected))
