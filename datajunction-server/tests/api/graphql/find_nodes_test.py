@@ -883,3 +883,42 @@ async def test_find_nodes_with_created_edited_by(
             "editedBy": ["dj"],
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_empty_list(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding nodes with pagination when there are none
+    """
+
+    query = """
+    {
+        findNodesPaginated(names: ["default.repair_orders_fact111"], before: "eyJjcmVhdGVkX2F0IjogIjIwMjQtMTAtMjZUMTQ6Mzc6MjkuNzI4MzE3KzAwOjAwIiwgImlkIjogMjV9") {
+          edges {
+            node {
+              name
+            }
+          }
+          pageInfo {
+            startCursor
+            endCursor
+            hasNextPage
+            hasPrevPage
+          }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodesPaginated"] == {
+        "edges": [],
+        "pageInfo": {
+            "startCursor": None,
+            "endCursor": None,
+            "hasNextPage": False,
+            "hasPrevPage": False,
+        },
+    }
