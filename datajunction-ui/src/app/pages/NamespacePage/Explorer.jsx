@@ -45,7 +45,10 @@ const Explorer = ({ item = [], current }) => {
               }}
               key={index}
             >
-              <div className={`${expand ? '' : 'inactive'}`} key={`nested-${index}`}>
+              <div
+                className={`${expand ? '' : 'inactive'}`}
+                key={`nested-${index}`}
+              >
                 <Explorer item={item} current={highlight} />
               </div>
             </div>
