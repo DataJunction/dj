@@ -1,9 +1,9 @@
-"""
-Add indexes on history and node tables
+"""Add indexes on history and node tables
 
-Revision ID: f953dc7ec5a5
-Revises: f3c9b40deb6f
-Create Date: 2024-10-05 17:07:17.320467+00:00
+Revision ID: 70904373eab3
+Revises: 4d6ab789e456
+Create Date: 2024-10-26 03:40:04.657089+00:00
+
 """
 # pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
 
@@ -13,8 +13,8 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "f953dc7ec5a5"
-down_revision = "f3c9b40deb6f"
+revision = "70904373eab3"
+down_revision = "4d6ab789e456"
 branch_labels = None
 depends_on = None
 
