@@ -774,10 +774,8 @@ SELECT
     default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_first_name,
     default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_first_name
   ) default_DOT_hard_hat_DOT_first_name,
-  COALESCE(
-    default_DOT_hard_hat_metrics.default_DOT_avg_length_of_employment,
-    default_DOT_repair_orders_fact_metrics.default_DOT_avg_length_of_employment
-  ) default_DOT_avg_length_of_employment,
+  default_DOT_hard_hat_metrics.default_DOT_avg_length_of_employment 
+    default_DOT_avg_length_of_employment,
   default_DOT_repair_orders_fact_metrics.default_DOT_total_repair_cost
 FROM default_DOT_hard_hat_metrics FULL JOIN default_DOT_repair_orders_fact_metrics ON default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_first_name = default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_first_name AND default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_last_name = default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_last_name
 ORDER BY

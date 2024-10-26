@@ -888,19 +888,7 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
             select=ast.Select(
                 projection=[
                     (
-                        ast.Function(
-                            ast.Name("COALESCE"),
-                            args=[
-                                ast.Column(
-                                    name=ast.Name(
-                                        proj.alias,  # type: ignore
-                                        namespace=join_cte.alias,  # type: ignore
-                                    ),
-                                    _type=proj.type,  # type: ignore
-                                )
-                                for join_cte in metric_ctes
-                            ],
-                        )
+                        handle_coalesce(proj, metric_ctes)
                         .set_alias(proj.alias)  # type: ignore
                         .set_semantic_entity(proj.semantic_entity)  # type: ignore
                         .set_semantic_type(proj.semantic_type)  # type: ignore
@@ -1665,3 +1653,29 @@ def get_table_for_node(
             _dj_node=node,
         )
     return table
+
+
+def handle_coalesce(
+    proj: Union[ast.Aliasable, ast.Expression],
+    metric_ctes: List[ast.Query]
+) -> Union[ast.Function, ast.Column]:
+    """
+    Generate COALESCE for dimensions, where columns are available from
+    multiple CTEs, but otherwise use the CTE that has the column.
+    """
+    # Collect relevant columns from metric_ctes that match proj's alias
+    matching_columns = [
+        ast.Column(
+            name=ast.Name(proj.alias, namespace=join_cte.alias),  # type: ignore
+            _type=proj.type  # type: ignore
+        )
+        for join_cte in metric_ctes
+        if proj.alias in {col.alias for col in join_cte.select.projection}
+    ]
+
+    # Return a COALESCE function if multiple columns are matched, otherwise the single column
+    return (
+        ast.Function(ast.Name("COALESCE"), args=matching_columns)
+        if len(matching_columns) > 1
+        else matching_columns[0]
+    )
