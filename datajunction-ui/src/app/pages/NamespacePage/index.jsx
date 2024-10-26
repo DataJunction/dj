@@ -57,10 +57,16 @@ export function NamespacePage() {
     let sortableData = [...Object.values(state.nodes)];
     if (sortConfig !== null) {
       sortableData.sort((a, b) => {
-        if (a[sortConfig.key] < b[sortConfig.key] || a.current[sortConfig.key] < b.current[sortConfig.key]) {
+        if (
+          a[sortConfig.key] < b[sortConfig.key] ||
+          a.current[sortConfig.key] < b.current[sortConfig.key]
+        ) {
           return sortConfig.direction === ASC ? -1 : 1;
         }
-        if (a[sortConfig.key] > b[sortConfig.key] || a.current[sortConfig.key] > b.current[sortConfig.key]) {
+        if (
+          a[sortConfig.key] > b[sortConfig.key] ||
+          a.current[sortConfig.key] > b.current[sortConfig.key]
+        ) {
           return sortConfig.direction === ASC ? 1 : -1;
         }
         return 0;
@@ -131,19 +137,41 @@ export function NamespacePage() {
       const nodes = await djClient.listNodesForLanding(
         namespace,
         filters.node_type ? [filters.node_type.toUpperCase()] : [],
-        filters.tags, filters.edited_by, before, after, 50);
+        filters.tags,
+        filters.edited_by,
+        before,
+        after,
+        50,
+      );
       console.log('nodes', nodes);
 
       setState({
         namespace: namespace,
-        nodes: nodes.data ? nodes.data.findNodesPaginated.edges.map(n => n.node) : [],
+        nodes: nodes.data
+          ? nodes.data.findNodesPaginated.edges.map(n => n.node)
+          : [],
       });
       if (nodes.data) {
-        setPrevCursor(nodes.data ? nodes.data.findNodesPaginated.pageInfo.startCursor : '');
-        setNextCursor(nodes.data ? nodes.data.findNodesPaginated.pageInfo.endCursor : '');
-        console.log('setting hasPrevPage, ', nodes.data.findNodesPaginated.pageInfo.hasPrevPage);
-        setHasPrevPage(nodes.data ? nodes.data.findNodesPaginated.pageInfo.hasPrevPage : false);
-        setHasNextPage(nodes.data ? nodes.data.findNodesPaginated.pageInfo.hasNextPage : false);
+        setPrevCursor(
+          nodes.data ? nodes.data.findNodesPaginated.pageInfo.startCursor : '',
+        );
+        setNextCursor(
+          nodes.data ? nodes.data.findNodesPaginated.pageInfo.endCursor : '',
+        );
+        console.log(
+          'setting hasPrevPage, ',
+          nodes.data.findNodesPaginated.pageInfo.hasPrevPage,
+        );
+        setHasPrevPage(
+          nodes.data
+            ? nodes.data.findNodesPaginated.pageInfo.hasPrevPage
+            : false,
+        );
+        setHasNextPage(
+          nodes.data
+            ? nodes.data.findNodesPaginated.pageInfo.hasNextPage
+            : false,
+        );
       }
       setRetrieved(true);
     };
@@ -164,51 +192,64 @@ export function NamespacePage() {
 
   const nodesList = retrieved ? (
     sortedNodes.length > 0 ? (
-    sortedNodes.map(node => (
-      <tr key={node.name}>
+      sortedNodes.map(node => (
+        <tr key={node.name}>
+          <td>
+            <a href={'/nodes/' + node.name} className="link-table">
+              {node.name}
+            </a>
+            <span
+              className="rounded-pill badge bg-secondary-soft"
+              style={{ marginLeft: '0.5rem' }}
+            >
+              {node.currentVersion}
+            </span>
+          </td>
+          <td>
+            <a href={'/nodes/' + node.name} className="link-table">
+              {node.type !== 'source' ? node.current.displayName : ''}
+            </a>
+          </td>
+          <td>
+            <span
+              className={
+                'node_type__' + node.type.toLowerCase() + ' badge node_type'
+              }
+            >
+              {node.type}
+            </span>
+          </td>
+          <td>
+            <NodeStatus node={node} revalidate={false} />
+          </td>
+          <td>
+            <span className="status">
+              {new Date(node.current.updatedAt).toLocaleString('en-us')}
+            </span>
+          </td>
+          <td>
+            <NodeListActions nodeName={node?.name} />
+          </td>
+        </tr>
+      ))
+    ) : (
+      <tr>
         <td>
-          <a href={'/nodes/' + node.name} className="link-table">
-            {node.name}
-          </a>
           <span
-            className="rounded-pill badge bg-secondary-soft"
-            style={{ marginLeft: '0.5rem' }}
+            style={{
+              display: 'block',
+              marginTop: '2rem',
+              marginLeft: '2rem',
+              fontSize: '16px',
+            }}
           >
-            {node.currentVersion}
+            There are no nodes in{' '}
+            <a href={`/namespaces/${namespace}`}>{namespace}</a> with the above
+            filters!
           </span>
-        </td>
-        <td>
-          <a href={'/nodes/' + node.name} className="link-table">
-            {node.type !== 'source' ? node.current.displayName : ''}
-          </a>
-        </td>
-        <td>
-          <span className={'node_type__' + node.type.toLowerCase() + ' badge node_type'}>
-            {node.type}
-          </span>
-        </td>
-        <td>
-          <NodeStatus node={node} revalidate={false} />
-        </td>
-        <td>
-          <span className="status">
-            {new Date(node.current.updatedAt).toLocaleString('en-us')}
-          </span>
-        </td>
-        <td>
-          <NodeListActions nodeName={node?.name} />
         </td>
       </tr>
-    ))
-  ) : (
-    <tr>
-      <td>
-        <span style={{ display: 'block', marginTop: '2rem', marginLeft: '2rem', fontSize: '16px' }}>
-          There are no nodes in <a href={`/namespaces/${namespace}`}>{namespace}</a> with the above filters!
-        </span>
-      </td>
-    </tr>
-  )
+    )
   ) : (
     <tr>
       <td>
@@ -318,8 +359,23 @@ export function NamespacePage() {
               <tfoot>
                 <tr>
                   <td>
-                    {retrieved && hasPrevPage ? <a onClick={loadPrev} className="previous round pagination">← Previous</a> : ''}
-                    {retrieved && hasNextPage ? <a onClick={loadNext} className="next round pagination">Next →</a> : ''}
+                    {retrieved && hasPrevPage ? (
+                      <a
+                        onClick={loadPrev}
+                        className="previous round pagination"
+                      >
+                        ← Previous
+                      </a>
+                    ) : (
+                      ''
+                    )}
+                    {retrieved && hasNextPage ? (
+                      <a onClick={loadNext} className="next round pagination">
+                        Next →
+                      </a>
+                    ) : (
+                      ''
+                    )}
                   </td>
                 </tr>
               </tfoot>
