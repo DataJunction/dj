@@ -313,7 +313,7 @@ export function AddEditNodePage() {
 
   return (
     <div className="mid">
-      <NamespaceHeader namespace="" />
+      <NamespaceHeader namespace={initialNamespace ? initialNamespace : name ? name.substring(0, name.lastIndexOf('.')) : ''} />
       <div className="card">
         <div className="card-header">
           {pageTitle}
