@@ -138,7 +138,9 @@ describe('AddEditNodePage', () => {
       ).toMatchSnapshot();
 
       // The namespace should be set to the one provided in params
-      screen.getAllByText('default').forEach(element => expect(element).toBeInTheDocument());
+      screen
+        .getAllByText('default')
+        .forEach(element => expect(element).toBeInTheDocument());
     });
   });
 
