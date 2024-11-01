@@ -182,6 +182,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
         existing_materialization.schedule = new_materialization.schedule
         new_materialization.node_revision = None  # type: ignore
         new_materialization = existing_materialization
+        new_materialization.deactivated_at = None
     else:
         unchanged_existing_materializations = [
             config
