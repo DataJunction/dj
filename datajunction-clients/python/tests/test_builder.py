@@ -220,13 +220,12 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert repair_order_dim.primary_key == ["repair_order_id"]
         assert repair_order_dim.description == "Repair order dimension"
         assert repair_order_dim.tags == []
-        assert repair_order_dim.primary_key == ["repair_order_id"]
         assert repair_order_dim.current_version == "v1.0"
         assert repair_order_dim.columns[0] == Column(
             name="repair_order_id",
             type="int",
             display_name="Repair Order Id",
-            attributes=[ColumnAttribute(name=None, namespace=None)],
+            attributes=[ColumnAttribute(name="primary_key", namespace="system")],
             dimension=None,
         )
 
@@ -236,17 +235,16 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         thin = client.transform("default.repair_orders_thin")
         assert thin.name == "default.repair_orders_thin"
         assert "FROM default.repair_orders" in thin.query
-        assert thin.type == "dimension"
-        assert thin.primary_key == ["repair_order_id"]
-        assert thin.description == "Repair order dimension"
+        assert thin.type == "transform"
+        assert thin.primary_key == []
+        assert thin.description == "3 columns from default.repair_orders"
         assert thin.tags == []
-        assert thin.primary_key == ["repair_order_id"]
         assert thin.current_version == "v1.0"
         assert thin.columns[0] == Column(
             name="repair_order_id",
             type="int",
             display_name="Repair Order Id",
-            attributes=[ColumnAttribute(name=None, namespace=None)],
+            attributes=[],
             dimension=None,
         )
 
@@ -268,10 +266,35 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "SELECT count(repair_order_id) FROM default.repair_orders"
         )
         assert num_repair_orders.type == "metric"
+        assert num_repair_orders.required_dimensions is None
+        assert num_repair_orders.description == "Number of repair orders"
+        assert num_repair_orders.tags == []
+        assert num_repair_orders.metric_metadata is None
+        assert num_repair_orders.current_version == "v1.0"
+        assert num_repair_orders.columns[0] == Column(
+            name="default_DOT_num_repair_orders",
+            type="bigint",
+            display_name="Default: Num Repair Orders",
+            attributes=[],
+            dimension=None,
+        )
 
         # cubes
         result = client.namespace("default").cubes()
         assert result == ["default.cube_two"]
+        cube_two = client.cube("default.cube_two")
+        assert cube_two.type == "cube"
+        assert cube_two.metrics == ["default.num_repair_orders"]
+        assert cube_two.dimensions == ["default.municipality_dim.local_region"]
+        assert cube_two.filters is None
+        assert cube_two.columns[0] == Column(
+            name="repair_order_id",
+            type="int",
+            display_name="Repair Order Id",
+            attributes=[],
+            dimension=None,
+        )
+
         with pytest.raises(DJClientException) as exc_info:
             client.cube("a_cube")
         assert "Cube `a_cube` does not exist" in str(exc_info)
