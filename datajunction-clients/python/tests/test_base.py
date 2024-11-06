@@ -6,12 +6,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional
 
-from datajunction._internal import DJClient
 from datajunction._base import SerializableMixin
+from datajunction._internal import DJClient
 
 
 @dataclass
 class DataClassSimple(SerializableMixin):
+    """Simple dataclass"""
+
     name: str
     version: str
     other: Optional[int]
@@ -20,6 +22,8 @@ class DataClassSimple(SerializableMixin):
 
 @dataclass
 class DataClassNested(SerializableMixin):
+    """Nested dataclass"""
+
     name: str
     dj_client: Optional[DJClient]
     dc_list: List[DataClassSimple]
@@ -28,7 +32,9 @@ class DataClassNested(SerializableMixin):
     dc_str_list: List[str]
 
 
-class OtherClass(SerializableMixin):
+class OtherClass(SerializableMixin):  # pylint: disable=too-few-public-methods
+    """Non-dataclass test case"""
+
     def __init__(self, name: str, version: Optional[str]):
         self.name = name
         self.version = version
@@ -38,7 +44,11 @@ class TestSerializableMixin:
     """
     Tests for the SerializableMixin base class
     """
+
     def test_non_dataclass(self):
+        """
+        Test the mixin with non-dataclasses
+        """
         other_class = OtherClass.from_dict(
             dj_client=None,
             data={"name": "Name", "version": "v1"},
@@ -67,7 +77,7 @@ class TestSerializableMixin:
 
     def test_serialize_nested(self):
         """
-        Serialize simple dataclass
+        Serialize nested dataclass
         """
         now = datetime.now()
         dj_client = DJClient()
@@ -82,7 +92,12 @@ class TestSerializableMixin:
                 "dc_list_optional": [
                     {"name": "N1", "version": "v1", "other": 123, "created": now},
                 ],
-                "dc_optional": {"name": "N1", "version": "v1", "other": 123, "created": now},
+                "dc_optional": {
+                    "name": "N1",
+                    "version": "v1",
+                    "other": 123,
+                    "created": now,
+                },
                 "dc_str_list": ["a", "b", "c"],
             },
         )
