@@ -3,14 +3,14 @@ import enum
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from datajunction._base import DeserializableMixin
+from datajunction._base import SerializableMixin
 
 if TYPE_CHECKING:  # pragma: no cover
     from datajunction.client import DJClient
 
 
 @dataclass
-class Engine(DeserializableMixin):
+class Engine(SerializableMixin):
     """
     Represents an engine
     """
@@ -49,7 +49,7 @@ class MetricUnit(str, enum.Enum):
 
 
 @dataclass
-class MetricMetadata(DeserializableMixin):
+class MetricMetadata(SerializableMixin):
     """
     Metric metadata output
     """
@@ -79,7 +79,7 @@ class MaterializationStrategy(str, enum.Enum):
 
 
 @dataclass
-class Materialization(DeserializableMixin):
+class Materialization(SerializableMixin):
     """
     A node's materialization config
     """
@@ -132,7 +132,7 @@ class NodeType(str, enum.Enum):
 
 
 @dataclass
-class ColumnAttribute(DeserializableMixin):
+class ColumnAttribute(SerializableMixin):
     """
     Represents a column attribute
     """
@@ -154,7 +154,7 @@ class ColumnAttribute(DeserializableMixin):
 
 
 @dataclass
-class Column(DeserializableMixin):
+class Column(SerializableMixin):
     """
     Represents a column
     """
@@ -167,7 +167,7 @@ class Column(DeserializableMixin):
 
 
 @dataclass
-class UpdateNode(DeserializableMixin):  # pylint: disable=too-many-instance-attributes
+class UpdateNode(SerializableMixin):  # pylint: disable=too-many-instance-attributes
     """
     Fields for updating a node
     """
@@ -197,7 +197,7 @@ class UpdateNode(DeserializableMixin):  # pylint: disable=too-many-instance-attr
 
 
 @dataclass
-class UpdateTag(DeserializableMixin):
+class UpdateTag(SerializableMixin):
     """
     Model for a tag update
     """
@@ -228,7 +228,7 @@ class QueryState(str, enum.Enum):
 
 
 @dataclass
-class AvailabilityState(DeserializableMixin):
+class AvailabilityState(SerializableMixin):
     """
     Represents the availability state for a node.
     """
