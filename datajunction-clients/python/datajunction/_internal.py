@@ -23,6 +23,7 @@ import requests
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 
 from datajunction import models
+from datajunction._base import SerializableMixin
 from datajunction.exceptions import (
     DJClientException,
     DJTagAlreadyExists,
@@ -647,7 +648,7 @@ class DJClient:
 
 
 @dataclass
-class ClientEntity:
+class ClientEntity(SerializableMixin):
     """
     Any entity that uses the DJ client.
     """
