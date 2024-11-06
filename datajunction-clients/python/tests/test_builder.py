@@ -501,6 +501,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ],
             tags=[foo_tag],
             mode=NodeMode.PUBLISHED,
+            update_if_exists=True,
         )
         assert account_type_table.name == "default.account_type_table"
         assert [tag["name"] for tag in account_type_table.tags] == ["foo"]
