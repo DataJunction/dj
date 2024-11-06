@@ -1,4 +1,4 @@
-"""Base mixins for client dataclasses."""
+"""Base client dataclasses."""
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any, Dict, Type, TypeVar, Union, get_args, get_origin
 
@@ -9,9 +9,9 @@ if TYPE_CHECKING:  # pragma: no cover
 T = TypeVar("T")
 
 
-class DeserializableMixin:  # pylint: disable=too-few-public-methods
+class SerializableMixin:  # pylint: disable=too-few-public-methods
     """
-    Mixin for deserializing dictionaries to dataclasses
+    Mixin for serializing dictionaries to dataclasses
     """
 
     @classmethod
@@ -32,7 +32,7 @@ class DeserializableMixin:  # pylint: disable=too-few-public-methods
 
             # For optional field types, look at the inner type
             if get_origin(field_type) is Union and type(None) in get_args(field_type):
-                field_type = next(
+                field_type = next(  # pragma: no cover
                     t for t in get_args(field_type) if t is not type(None)  # noqa: E721
                 )
 
