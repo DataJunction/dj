@@ -1,3 +1,4 @@
+"""Base mixins for client dataclasses."""
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any, Dict, Type, TypeVar, Union, get_args, get_origin
 
@@ -8,13 +9,18 @@ if TYPE_CHECKING:  # pragma: no cover
 T = TypeVar("T")
 
 
-class DeserializableMixin:
+class DeserializableMixin:  # pylint: disable=too-few-public-methods
+    """
+    Mixin for deserializing dictionaries to dataclasses
+    """
+
     @classmethod
     def from_dict(cls: Type[T], dj_client: "DJClient", data: Dict[str, Any]) -> T:
         """
         Create an instance of the given dataclass `cls` from a dictionary `data`.
         This will handle nested dataclasses and optional types.
         """
+        print("from_dict", cls, data)
         if not is_dataclass(cls):
             return cls(**data)
 
@@ -28,20 +34,25 @@ class DeserializableMixin:
             # For optional field types, look at the inner type
             if get_origin(field_type) is Union and type(None) in get_args(field_type):
                 field_type = next(
-                    t for t in get_args(field_type) if t is not type(None)
+                    t for t in get_args(field_type) if t is not type(None)  # noqa: E721
                 )
 
             if get_origin(field_type) is list:
                 list_inner_type = get_args(field_type)[0]
                 if is_dataclass(list_inner_type) and isinstance(field_value, list):
                     field_values[field.name] = [
-                        list_inner_type.from_dict(dj_client, item)
+                        list_inner_type.from_dict(dj_client=dj_client, data=item)
                         if isinstance(item, dict)
                         else item
                         for item in field_value
                     ]
+                else:
+                    field_values[field.name] = field_value  # type: ignore
             elif is_dataclass(field_type) and isinstance(field_value, dict):
-                field_values[field.name] = field_type.from_dict(dj_client, field_value)
+                field_values[field.name] = field_type.from_dict(
+                    dj_client=dj_client,
+                    data=field_value,
+                )
             else:
                 field_values[field.name] = field_value  # type: ignore
         if is_dataclass(cls) and "dj_client" in cls.__dataclass_fields__.keys():  # type: ignore

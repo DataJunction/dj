@@ -1,9 +1,12 @@
 """Models used by the DJ client."""
 import enum
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from datajunction._base import DeserializableMixin
+
+if TYPE_CHECKING:  # pragma: no cover
+    from datajunction.client import DJClient
 
 
 @dataclass
@@ -136,6 +139,18 @@ class ColumnAttribute(DeserializableMixin):
 
     name: str
     namespace: Optional[str] = "system"
+
+    @classmethod
+    def from_dict(
+        cls,
+        dj_client: "DJClient",
+        data: Dict[str, Any],
+    ) -> "ColumnAttribute":
+        """
+        Create an instance of the given dataclass `cls` from a dictionary `data`.
+        This will handle nested dataclasses and optional types.
+        """
+        return ColumnAttribute(**data["attribute_type"])
 
 
 @dataclass
