@@ -388,32 +388,6 @@ class Source(Node):
         dict_["table"] = self.table
         return dict_
 
-    # @classmethod
-    # def from_dict(cls, dj_client: "DJClient", data: Dict[str, Any]) -> "Source":
-    #     """
-    #     Create a new source node from a dictionary
-    #     """
-    #     ClientEntity.from_dict(data)
-    #     return cls(
-    #         dj_client=dj_client,
-    #         name=data["name"],
-    #         description=data.get("description"),
-    #         mode=data.get("mode"),
-    #         status=data.get("status"),
-    #         display_name=data.get("display_name"),
-    #         availability=data.get("availability"),
-    #         tags=data.get("tags"),
-    #         primary_key=data.get("primary_key"),
-    #         materializations=data.get("materializations"),
-    #         version=data.get("version"),
-    #         deactivated_at=data.get("deactivated_at"),
-    #         current_version=data.get("current_version"),
-    #         catalog=data.get("catalog"),
-    #         schema_=data.get("schema_"),
-    #         table=data.get("table"),
-    #         columns=data.get("columns"),
-    #     )
-
     def __post_init__(self):
         """
         When `catalog` is a dictionary, parse out the catalog's
@@ -603,32 +577,6 @@ class Cube(Node):  # pylint: disable=abstract-method
         dict_["dimensions"] = self.dimensions
         dict_["filters"] = self.filters
         return dict_
-
-    # @classmethod
-    # def from_dict(cls, dj_client: "DJClient", data: Dict[str, Any]) -> "Cube":
-    #     """
-    #     Create a new cube node from a dictionary
-    #     """
-    #     return cls(
-    #         dj_client=dj_client,
-    #         name=data["name"],
-    #         description=data.get("description"),
-    #         mode=data.get("mode"),
-    #         status=data.get("status"),
-    #         display_name=data.get("display_name"),
-    #         availability=data.get("availability"),
-    #         tags=data.get("tags"),
-    #         primary_key=data.get("primary_key"),
-    #         materializations=data.get("materializations"),
-    #         version=data.get("version"),
-    #         deactivated_at=data.get("deactivated_at"),
-    #         current_version=data.get("current_version"),
-    #         query=data.get("query"),
-    #         metrics=data.get("metrics"),
-    #         dimensions=data.get("dimensions"),
-    #         filters=data.get("filters"),
-    #         columns=data.get("columns"),
-    #     )
 
     def _update(self):  # pragma: no cover
         update_node = models.UpdateNode(
