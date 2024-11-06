@@ -3,9 +3,11 @@ import enum
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+from datajunction._base import DeserializableMixin
+
 
 @dataclass
-class Engine:
+class Engine(DeserializableMixin):
     """
     Represents an engine
     """
@@ -44,7 +46,7 @@ class MetricUnit(str, enum.Enum):
 
 
 @dataclass
-class MetricMetadata:
+class MetricMetadata(DeserializableMixin):
     """
     Metric metadata output
     """
@@ -74,7 +76,7 @@ class MaterializationStrategy(str, enum.Enum):
 
 
 @dataclass
-class Materialization:
+class Materialization(DeserializableMixin):
     """
     A node's materialization config
     """
@@ -127,7 +129,7 @@ class NodeType(str, enum.Enum):
 
 
 @dataclass
-class ColumnAttribute:
+class ColumnAttribute(DeserializableMixin):
     """
     Represents a column attribute
     """
@@ -137,7 +139,7 @@ class ColumnAttribute:
 
 
 @dataclass
-class Column:
+class Column(DeserializableMixin):
     """
     Represents a column
     """
@@ -150,7 +152,7 @@ class Column:
 
 
 @dataclass
-class UpdateNode:  # pylint: disable=too-many-instance-attributes
+class UpdateNode(DeserializableMixin):  # pylint: disable=too-many-instance-attributes
     """
     Fields for updating a node
     """
@@ -180,7 +182,7 @@ class UpdateNode:  # pylint: disable=too-many-instance-attributes
 
 
 @dataclass
-class UpdateTag:
+class UpdateTag(DeserializableMixin):
     """
     Model for a tag update
     """
@@ -211,7 +213,7 @@ class QueryState(str, enum.Enum):
 
 
 @dataclass
-class AvailabilityState:
+class AvailabilityState(DeserializableMixin):
     """
     Represents the availability state for a node.
     """
