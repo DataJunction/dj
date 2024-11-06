@@ -20,7 +20,6 @@ class DeserializableMixin:  # pylint: disable=too-few-public-methods
         Create an instance of the given dataclass `cls` from a dictionary `data`.
         This will handle nested dataclasses and optional types.
         """
-        print("from_dict", cls, data)
         if not is_dataclass(cls):
             return cls(**data)
 
