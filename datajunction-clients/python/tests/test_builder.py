@@ -288,9 +288,9 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert cube_two.dimensions == ["default.municipality_dim.local_region"]
         assert cube_two.filters is None
         assert cube_two.columns[0] == Column(
-            name="repair_order_id",
-            type="int",
-            display_name="Repair Order Id",
+            name="default.num_repair_orders",
+            type="bigint",
+            display_name="Default: Num Repair Orders",
             attributes=[],
             dimension=None,
         )
