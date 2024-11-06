@@ -1,11 +1,16 @@
 """Models used by the DJ client."""
 import enum
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from datajunction._base import SerializableMixin
+
+if TYPE_CHECKING:  # pragma: no cover
+    from datajunction.client import DJClient
 
 
 @dataclass
-class Engine:
+class Engine(SerializableMixin):
     """
     Represents an engine
     """
@@ -44,7 +49,7 @@ class MetricUnit(str, enum.Enum):
 
 
 @dataclass
-class MetricMetadata:
+class MetricMetadata(SerializableMixin):
     """
     Metric metadata output
     """
@@ -74,7 +79,7 @@ class MaterializationStrategy(str, enum.Enum):
 
 
 @dataclass
-class Materialization:
+class Materialization(SerializableMixin):
     """
     A node's materialization config
     """
@@ -127,7 +132,7 @@ class NodeType(str, enum.Enum):
 
 
 @dataclass
-class ColumnAttribute:
+class ColumnAttribute(SerializableMixin):
     """
     Represents a column attribute
     """
@@ -135,9 +140,21 @@ class ColumnAttribute:
     name: str
     namespace: Optional[str] = "system"
 
+    @classmethod
+    def from_dict(
+        cls,
+        dj_client: "DJClient",
+        data: Dict[str, Any],
+    ) -> "ColumnAttribute":
+        """
+        Create an instance of the given dataclass `cls` from a dictionary `data`.
+        This will handle nested dataclasses and optional types.
+        """
+        return ColumnAttribute(**data["attribute_type"])
+
 
 @dataclass
-class Column:
+class Column(SerializableMixin):
     """
     Represents a column
     """
@@ -150,7 +167,7 @@ class Column:
 
 
 @dataclass
-class UpdateNode:  # pylint: disable=too-many-instance-attributes
+class UpdateNode(SerializableMixin):  # pylint: disable=too-many-instance-attributes
     """
     Fields for updating a node
     """
@@ -180,7 +197,7 @@ class UpdateNode:  # pylint: disable=too-many-instance-attributes
 
 
 @dataclass
-class UpdateTag:
+class UpdateTag(SerializableMixin):
     """
     Model for a tag update
     """
@@ -211,7 +228,7 @@ class QueryState(str, enum.Enum):
 
 
 @dataclass
-class AvailabilityState:
+class AvailabilityState(SerializableMixin):
     """
     Represents the availability state for a node.
     """
