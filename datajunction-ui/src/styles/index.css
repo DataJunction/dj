@@ -1050,6 +1050,32 @@ pre {
   white-space: break-spaces;
 }
 
+.pagination {
+  background-color: #fff !important;
+  color: #74b7c3;
+  border: 1px solid #74b7c3;
+  text-transform: none;
+  vertical-align: middle;
+  padding-right: 1rem;
+  padding-left: 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  margin-left: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+  font-size: 1rem;
+  border-radius: 0.2rem;
+  word-wrap: break-word;
+  white-space: break-spaces;
+  text-decoration: none;
+}
+.pagination:hover {
+  background-color: #b6dae0 !important;
+  color: #436e76;
+  text-transform: none;
+  text-decoration: none;
+  cursor: pointer;
+}
+
 .edit_button {
   background: none;
   color: inherit;
@@ -1258,67 +1284,67 @@ pre {
 
 .backfills {
   margin-left: -4rem;
-  --spacing : 1.5rem;
-  --radius  : 10px;
+  --spacing: 1.5rem;
+  --radius: 10px;
 }
 
-.backfills li{
-  display      : block;
-  position     : relative;
-  padding-left : calc(2 * var(--spacing) - var(--radius) - 2px);
+.backfills li {
+  display: block;
+  position: relative;
+  padding-left: calc(2 * var(--spacing) - var(--radius) - 2px);
 }
 
-.backfills ul{
-  margin-left  : calc(var(--radius) - var(--spacing));
-  padding-left : 2rem;
+.backfills ul {
+  margin-left: calc(var(--radius) - var(--spacing));
+  padding-left: 2rem;
 }
 
-.backfills ul li{
-  border-left : 2px solid #ddd;
+.backfills ul li {
+  border-left: 2px solid #ddd;
 }
 
-.backfills ul li:last-child{
-  border-color : transparent;
+.backfills ul li:last-child {
+  border-color: transparent;
 }
 
-.backfills ul li::before{
-  content      : '';
-  display      : block;
-  position     : absolute;
-  top          : calc(var(--spacing) / -2);
-  left         : -2px;
-  width        : calc(var(--spacing) + 2px);
-  height       : calc(var(--spacing) + 1px);
-  border       : solid #ddd;
-  border-width : 0 0 2px 2px;
+.backfills ul li::before {
+  content: '';
+  display: block;
+  position: absolute;
+  top: calc(var(--spacing) / -2);
+  left: -2px;
+  width: calc(var(--spacing) + 2px);
+  height: calc(var(--spacing) + 1px);
+  border: solid #ddd;
+  border-width: 0 0 2px 2px;
 }
 
-.backfills summary{
-  display : block;
-  cursor  : pointer;
+.backfills summary {
+  display: block;
+  cursor: pointer;
   margin-bottom: 10px;
 }
 
 .backfills summary::marker,
-.backfills summary::-webkit-details-marker{
-  display : none;
+.backfills summary::-webkit-details-marker {
+  display: none;
 }
 
-.backfills summary:focus{
-  outline : none;
+.backfills summary:focus {
+  outline: none;
 }
 
-.backfills summary:focus-visible{
-  outline : 1px dotted #000;
+.backfills summary:focus-visible {
+  outline: 1px dotted #000;
 }
 
-.backfills summary::before{
-  z-index    : 1;
+.backfills summary::before {
+  z-index: 1;
   /*background : #696 url('expand-collapse.svg') 0 0;*/
 }
 
-.backfills details[open] > summary::before{
-  background-position : calc(-2 * var(--radius)) 0;
+.backfills details[open] > summary::before {
+  background-position: calc(-2 * var(--radius)) 0;
 }
 
 .backfills_header {
@@ -1345,32 +1371,32 @@ pre {
   border-radius: 2px;
   border-style: none;
   padding: 0.4rem;
-  font-family: Lato, "sans-serif";
+  font-family: Lato, 'sans-serif';
   font-size: 110%;
   border-right: 16px solid transparent;
   margin-left: 0.4rem;
 }
 
 .backfills summary::marker,
-.backfills summary::-webkit-details-marker{
-  display : none;
+.backfills summary::-webkit-details-marker {
+  display: none;
 }
 
-.backfills summary:focus{
-  outline : none;
+.backfills summary:focus {
+  outline: none;
 }
 
-.backfills summary:focus-visible{
-  outline : 1px dotted #000;
+.backfills summary:focus-visible {
+  outline: 1px dotted #000;
 }
 
-.backfills summary::before{
-  z-index    : 1;
+.backfills summary::before {
+  z-index: 1;
   /*background : #696 url('expand-collapse.svg') 0 0;*/
 }
 
-.backfills details[open] > summary::before{
-  background-position : calc(-2 * var(--radius)) 0;
+.backfills details[open] > summary::before {
+  background-position: calc(-2 * var(--radius)) 0;
 }
 
 .backfills_header {
@@ -1419,8 +1445,8 @@ table {
   position: absolute;
   z-index: 1;
 
-    top: -5px;
-    left: 125%;
+  top: -5px;
+  left: 125%;
   /*bottom: 125%;*/
   /*left: 50%;*/
   margin-left: -60px;
@@ -1429,7 +1455,7 @@ table {
 }
 
 .tooltip .tooltiptext::after {
-  content: "";
+  content: '';
   position: absolute;
   top: 100%;
   left: 50%;
@@ -1450,13 +1476,19 @@ table {
   grid-template-rows: 250px 1fr;
   gap: 20px;
   grid-template-areas:
-    "left righttop"
-    "left rightbottom";
+    'left righttop'
+    'left rightbottom';
   margin-top: 1rem;
 }
-.left { grid-area: left; }
-.righttop { grid-area: righttop; }
-.rightbottom { grid-area: rightbottom; }
+.left {
+  grid-area: left;
+}
+.righttop {
+  grid-area: righttop;
+}
+.rightbottom {
+  grid-area: rightbottom;
+}
 
 .queryrunner-query pre {
   border-radius: 0;

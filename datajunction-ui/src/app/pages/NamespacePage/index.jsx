@@ -20,13 +20,13 @@ export function NamespacePage() {
   const ASC = 'ascending';
   const DESC = 'descending';
 
-  const fields = ['name', 'display_name', 'type', 'status', 'updated_at'];
+  const fields = ['name', 'displayName', 'type', 'status', 'updatedAt'];
 
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   var { namespace } = useParams();
 
   const [state, setState] = useState({
-    namespace: namespace,
+    namespace: namespace ? namespace : '',
     nodes: [],
   });
   const [retrieved, setRetrieved] = useState(false);
@@ -35,39 +35,38 @@ export function NamespacePage() {
   const [filters, setFilters] = useState({
     tags: [],
     node_type: '',
-    edited_by: currentUser?.username,
+    edited_by: '',
   });
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
 
   const [sortConfig, setSortConfig] = useState({
-    key: 'updated_at',
+    key: 'updatedAt',
     direction: DESC,
   });
+
+  const [before, setBefore] = useState(null);
+  const [after, setAfter] = useState(null);
+  const [prevCursor, setPrevCursor] = useState(true);
+  const [nextCursor, setNextCursor] = useState(true);
+
+  const [hasNextPage, setHasNextPage] = useState(true);
+  const [hasPrevPage, setHasPrevPage] = useState(true);
+
   const sortedNodes = React.useMemo(() => {
     let sortableData = [...Object.values(state.nodes)];
-    if (filters.node_type !== '' && filters.node_type !== null) {
-      sortableData = sortableData.filter(
-        node => node.type === filters.node_type,
-      );
-    }
-    if (filters.tags) {
-      sortableData = sortableData.filter(node => {
-        const nodeTags = node.tags.map(tag => tag.name);
-        return filters.tags.every(item => nodeTags.includes(item));
-      });
-    }
-    if (filters.edited_by) {
-      sortableData = sortableData.filter(node => {
-        return node.edited_by.includes(filters.edited_by);
-      });
-    }
     if (sortConfig !== null) {
       sortableData.sort((a, b) => {
-        if (a[sortConfig.key] < b[sortConfig.key]) {
+        if (
+          a[sortConfig.key] < b[sortConfig.key] ||
+          a.current[sortConfig.key] < b.current[sortConfig.key]
+        ) {
           return sortConfig.direction === ASC ? -1 : 1;
         }
-        if (a[sortConfig.key] > b[sortConfig.key]) {
+        if (
+          a[sortConfig.key] > b[sortConfig.key] ||
+          a.current[sortConfig.key] > b.current[sortConfig.key]
+        ) {
           return sortConfig.direction === ASC ? 1 : -1;
         }
         return 0;
@@ -125,6 +124,7 @@ export function NamespacePage() {
       const hierarchy = createNamespaceHierarchy(namespaces);
       setNamespaceHierarchy(hierarchy);
       const currentUser = await djClient.whoami();
+      // setFilters({...filters, edited_by: currentUser?.username});
       setCurrentUser(currentUser);
     };
     fetchData().catch(console.error);
@@ -132,61 +132,132 @@ export function NamespacePage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      if (namespace === undefined && namespaceHierarchy !== undefined) {
-        namespace = namespaceHierarchy[0].namespace;
-      }
-      const nodes = await djClient.namespace(namespace);
-      const foundNodes = await Promise.all(nodes);
+      setRetrieved(false);
+      console.log('cursor', before, filters.edited_by);
+      const nodes = await djClient.listNodesForLanding(
+        namespace,
+        filters.node_type ? [filters.node_type.toUpperCase()] : [],
+        filters.tags,
+        filters.edited_by,
+        before,
+        after,
+        50,
+      );
+      console.log('nodes', nodes);
+
       setState({
         namespace: namespace,
-        nodes: foundNodes,
+        nodes: nodes.data
+          ? nodes.data.findNodesPaginated.edges.map(n => n.node)
+          : [],
       });
+      if (nodes.data) {
+        setPrevCursor(
+          nodes.data ? nodes.data.findNodesPaginated.pageInfo.startCursor : '',
+        );
+        setNextCursor(
+          nodes.data ? nodes.data.findNodesPaginated.pageInfo.endCursor : '',
+        );
+        console.log(
+          'setting hasPrevPage, ',
+          nodes.data.findNodesPaginated.pageInfo.hasPrevPage,
+        );
+        setHasPrevPage(
+          nodes.data
+            ? nodes.data.findNodesPaginated.pageInfo.hasPrevPage
+            : false,
+        );
+        setHasNextPage(
+          nodes.data
+            ? nodes.data.findNodesPaginated.pageInfo.hasNextPage
+            : false,
+        );
+      }
       setRetrieved(true);
     };
     fetchData().catch(console.error);
-  }, [djClient, namespace, namespaceHierarchy]);
+  }, [djClient, filters, before, after]);
+  const loadNext = () => {
+    if (nextCursor) {
+      setAfter(nextCursor);
+      setBefore(null);
+    }
+  };
+  const loadPrev = () => {
+    if (prevCursor) {
+      setAfter(null);
+      setBefore(prevCursor);
+    }
+  };
 
   const nodesList = retrieved ? (
-    sortedNodes.map(node => (
+    sortedNodes.length > 0 ? (
+      sortedNodes.map(node => (
+        <tr key={node.name}>
+          <td>
+            <a href={'/nodes/' + node.name} className="link-table">
+              {node.name}
+            </a>
+            <span
+              className="rounded-pill badge bg-secondary-soft"
+              style={{ marginLeft: '0.5rem' }}
+            >
+              {node.currentVersion}
+            </span>
+          </td>
+          <td>
+            <a href={'/nodes/' + node.name} className="link-table">
+              {node.type !== 'source' ? node.current.displayName : ''}
+            </a>
+          </td>
+          <td>
+            <span
+              className={
+                'node_type__' + node.type.toLowerCase() + ' badge node_type'
+              }
+            >
+              {node.type}
+            </span>
+          </td>
+          <td>
+            <NodeStatus node={node} revalidate={false} />
+          </td>
+          <td>
+            <span className="status">
+              {new Date(node.current.updatedAt).toLocaleString('en-us')}
+            </span>
+          </td>
+          <td>
+            <NodeListActions nodeName={node?.name} />
+          </td>
+        </tr>
+      ))
+    ) : (
       <tr>
         <td>
-          <a href={'/nodes/' + node.name} className="link-table">
-            {node.name}
-          </a>
           <span
-            className="rounded-pill badge bg-secondary-soft"
-            style={{ marginLeft: '0.5rem' }}
+            style={{
+              display: 'block',
+              marginTop: '2rem',
+              marginLeft: '2rem',
+              fontSize: '16px',
+            }}
           >
-            {node.version}
+            There are no nodes in{' '}
+            <a href={`/namespaces/${namespace}`}>{namespace}</a> with the above
+            filters!
           </span>
-        </td>
-        <td>
-          <a href={'/nodes/' + node.name} className="link-table">
-            {node.type !== 'source' ? node.display_name : ''}
-          </a>
-        </td>
-        <td>
-          <span className={'node_type__' + node.type + ' badge node_type'}>
-            {node.type}
-          </span>
-        </td>
-        <td>
-          <NodeStatus node={node} revalidate={false} />
-        </td>
-        <td>
-          <span className="status">
-            {new Date(node.updated_at).toLocaleString('en-us')}
-          </span>
-        </td>
-        <td>
-          <NodeListActions nodeName={node?.name} />
         </td>
       </tr>
-    ))
+    )
   ) : (
-    <span style={{ display: 'block', marginTop: '2rem' }}>
-      <LoadingIcon />
-    </span>
+    <tr>
+      <td>
+        <span style={{ display: 'block', marginTop: '2rem' }}>
+          <LoadingIcon />
+        </span>
+      </td>
+    </tr>
   );
 
   return (
@@ -194,7 +265,7 @@ export function NamespacePage() {
       <div className="card">
         <div className="card-header">
           <h2>Explore</h2>
-          <div class="menu" style={{ margin: '0 0 20px 0' }}>
+          <div className="menu" style={{ margin: '0 0 20px 0' }}>
             <div
               className="menu-link"
               style={{
@@ -260,6 +331,7 @@ export function NamespacePage() {
                       item={child}
                       current={state.namespace}
                       defaultExpand={true}
+                      key={child.namespace}
                     />
                   ))
                 : null}
@@ -269,13 +341,13 @@ export function NamespacePage() {
                 <tr>
                   {fields.map(field => {
                     return (
-                      <th>
+                      <th key={field}>
                         <button
                           type="button"
                           onClick={() => requestSort(field)}
                           className={'sortable ' + getClassNamesFor(field)}
                         >
-                          {field.replace('_', ' ')}
+                          {field.replace(/([a-z](?=[A-Z]))/g, '$1 ')}
                         </button>
                       </th>
                     );
@@ -284,6 +356,29 @@ export function NamespacePage() {
                 </tr>
               </thead>
               <tbody>{nodesList}</tbody>
+              <tfoot>
+                <tr>
+                  <td>
+                    {retrieved && hasPrevPage ? (
+                      <a
+                        onClick={loadPrev}
+                        className="previous round pagination"
+                      >
+                        ← Previous
+                      </a>
+                    ) : (
+                      ''
+                    )}
+                    {retrieved && hasNextPage ? (
+                      <a onClick={loadNext} className="next round pagination">
+                        Next →
+                      </a>
+                    ) : (
+                      ''
+                    )}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>

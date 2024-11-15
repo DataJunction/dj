@@ -20,7 +20,11 @@ export default function TagSelect({ onChange }) {
   }, [djClient]);
 
   return (
-    <span className="menu-link" style={{ marginLeft: '30px', width: '350px' }} data-testid="select-tag">
+    <span
+      className="menu-link"
+      style={{ marginLeft: '30px', width: '350px' }}
+      data-testid="select-tag"
+    >
       <Select
         name="tags"
         isClearable
