@@ -68,10 +68,13 @@ def custom_notify(message: Message):
     # Implement the logic to send notifications, e.g., via email or a messaging service
     ...
 
-def get_notifier(request: Request) -> callable:
+def get_custom_notifier(request: Request) -> callable:
     """Dependency for retrieving a custom notifier implementation"""
     # You can even add logic to choose between different notifiers based on request headers or other criteria
     return custom_notify
+
+# Override the built-in get_notifier with your custom one
+app.dependency_overrides[get_notifier] = get_custom_notifier
 ```
 
 ### Example Usage
