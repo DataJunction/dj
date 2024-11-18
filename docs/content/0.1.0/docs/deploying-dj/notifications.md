@@ -3,67 +3,55 @@ weight: 60
 title: Notifications
 ---
 
-In DataJunction, notifications play a vital role in keeping users informed about various activity, such as changes in
-the availability state of nodes. This section discusses how notifications are managed within DataJunction and how you
-can implement a custom notification solution using FastAPI's dependency injection.
+In DataJunction, notifications are crucial for keeping users informed about various activities, such as changes in the
+state of nodes. This document outlines how notifications are managed within DataJunction and how you can implement a
+custom notification solution using FastAPI's dependency injection.
 
-### How Notifications are Used
+## How Notifications are Used
 
 DataJunction uses notifications to alert users about significant events, such as updates to nodes or changes in their
-availability state. By handling notifications within the OSS project, DataJunction provides an opinionated take on where
-and when notifications should be sent.
+state. By handling notifications within the OSS project, DataJunction provides an opinionated take on where and when
+notifications should be sent.
 
-### Default Notification Implementation
+## Default Notification Implementation
 
-Out of the box, DataJunction includes a simple placeholder dependency that simply logs notifications.
+Out of the box, DataJunction includes a simple placeholder dependency that logs notifications. This implementation is
+designed to be straightforward and easily replaceable with a custom solution.
 
-Here's a brief look at this placeholder notification implementation:
+### Placeholder Notification Implementation
 
-```py
+Here's a brief look at the placeholder notification implementation:
+
+```python
 import logging
-from dataclasses import dataclass
-from typing import Dict, Optional
+from datajunction_server.database.history import History
 
 _logger = logging.getLogger(__name__)
 
-@dataclass
-class Message:
-    """A message for use in a notification"""
-
-    recipients: list[str]
-    subject: str
-    body: str
-    metadata: Optional[Dict[str, str]] = None
-
 def get_notifier():
-    """Returns a method for processing notifications"""
-
-    def notify(message: Message):
-        """Notify the recipients"""
-        _logger.debug("Sending notification to %s", message.recipients)
-        _logger.debug("Subject: %s", message.subject)
-        _logger.debug("Body: %s", message.body)
-        _logger.debug("Metadata: %s", message.metadata)
-
+    """Returns a method for sending notifications for an event"""
+    def notify(event: History):
+        """Send a notification for an event"""
+        _logger.debug(f"Sending notification for event %s", event)
     return notify
 ```
 
-### Custom Notification Implementation
+## Custom Notification Implementation
 
 You can implement a custom notification system by using FastAPI's dependency injection and injecting a `get_notifier`
-dependency. The custom notifier must handle the `notify` method, which processes the notification messages.
+dependency. The custom notifier must handle the `notify` method, which processes the notification events.
 
-#### Implementing a Custom Notifier
+### Implementing a Custom Notifier
 
-To implement a custom notifier, create a function that processes notification messages and use FastAPI's dependency
+To implement a custom notifier, create a function that processes notification events and use FastAPI's dependency
 injection to inject your custom notifier.
 
 Here's an example of a custom notifier implementation:
 
-```py
+```python
 from fastapi import Request
 
-def custom_notify(message: Message):
+def custom_notify(event: History):
     """Custom logic to send notifications"""
     # Implement the logic to send notifications, e.g., via email or a messaging service
     ...
@@ -77,19 +65,19 @@ def get_custom_notifier(request: Request) -> callable:
 app.dependency_overrides[get_notifier] = get_custom_notifier
 ```
 
-### Example Usage
+## Example Usage
 
 Here's how the `get_notifier` dependency is used within the application to send a notification:
 
-```py
+```python
 notify = Depends(get_notifier())
-notify(
-    Message(
-        recipients=["dj@datajunction.io"],
-        subject="A new availability state has been published",
-        body="A new availability state has been published for node foo",
-    )
+event = History(
+    id=1,
+    entity_name="bar",
+    entity_type=EntityType.NODE,
+    activity_type=ActivityType.CREATE,
 )
+notify(event)
 ```
 
 By customizing the `get_notifier` dependency, you can tailor the notification system to suit your specific needs, such
