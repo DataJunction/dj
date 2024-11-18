@@ -1,29 +1,16 @@
 """Dependency for notifications"""
 import logging
-from dataclasses import dataclass
-from typing import Dict, Optional
+
+from datajunction_server.database.history import History
 
 _logger = logging.getLogger(__name__)
 
 
-@dataclass
-class Message:
-    """A message for use in a notification"""
-
-    recipients: list[str]
-    subject: str
-    body: str
-    metadata: Optional[Dict[str, str]] = None
-
-
 def get_notifier():
-    """Returns a method for processing notifications"""
+    """Returns a method for sending notifications for an event"""
 
-    def notify(message: Message):
-        """Notify the recipients"""
-        _logger.debug("Sending notification to %s", message.recipients)
-        _logger.debug("Subject: %s", message.subject)
-        _logger.debug("Body: %s", message.body)
-        _logger.debug("Metadata: %s", message.metadata)
+    def notify(event: History):
+        """Send a notification for an event"""
+        _logger.debug("Sending notification for event %s", event)
 
     return notify
