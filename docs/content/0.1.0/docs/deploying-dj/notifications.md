@@ -15,7 +15,7 @@ and when notifications should be sent.
 
 ### Default Notification Implementation
 
-Out of the box, DataJunction includes a simple placeholder dependecny that simply logs notifications.
+Out of the box, DataJunction includes a simple placeholder dependency that simply logs notifications.
 
 Here's a brief look at this placeholder notification implementation:
 
