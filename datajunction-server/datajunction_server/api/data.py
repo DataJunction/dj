@@ -3,7 +3,7 @@
 Data related APIs.
 """
 from http import HTTPStatus
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from fastapi import BackgroundTasks, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -15,6 +15,7 @@ from datajunction_server.api.helpers import (
     build_sql_for_multiple_metrics,
     query_event_stream,
 )
+from datajunction_server.api.notification import get_notifier
 from datajunction_server.api.sql import get_node_sql
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import ActivityType, EntityType, History
@@ -57,6 +58,7 @@ async def add_availability_state(
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
     ),
+    notify: Callable = Depends(get_notifier),
 ) -> JSONResponse:
     """
     Add an availability state to a node.
@@ -139,19 +141,19 @@ async def add_availability_state(
     if node_revision.availability and not node_revision.availability.partitions:
         node_revision.availability.partitions = []
     session.add(node_revision)
-    session.add(
-        History(
-            entity_type=EntityType.AVAILABILITY,
-            node=node.name,  # type: ignore
-            activity_type=ActivityType.CREATE,
-            pre=AvailabilityStateBase.from_orm(old_availability).dict()
-            if old_availability
-            else {},
-            post=AvailabilityStateBase.from_orm(node_revision.availability).dict(),
-            user=current_user.username,
-        ),
+    event = History(
+        entity_type=EntityType.AVAILABILITY,
+        node=node.name,  # type: ignore
+        activity_type=ActivityType.CREATE,
+        pre=AvailabilityStateBase.from_orm(old_availability).dict()
+        if old_availability
+        else {},
+        post=AvailabilityStateBase.from_orm(node_revision.availability).dict(),
+        user=current_user.username,
     )
+    session.add(event)
     await session.commit()
+    notify(event)
     return JSONResponse(
         status_code=200,
         content={"message": "Availability state successfully posted"},
