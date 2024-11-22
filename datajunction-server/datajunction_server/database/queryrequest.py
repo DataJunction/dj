@@ -282,7 +282,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
     ) -> Dict[str, List[str]]:
         """
         Prepare for searching in saved query requests by appending version numbers to all nodes
-        being worked with, from the nodes we're retrieving the queries of to the
+        being worked with.
         """
         nodes_objs = [
             await Node.get_by_name(
