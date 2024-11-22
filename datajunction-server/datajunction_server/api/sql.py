@@ -4,6 +4,7 @@ SQL related APIs.
 """
 import logging
 from collections import OrderedDict
+from http import HTTPStatus
 from typing import List, Optional, Tuple, cast
 
 from fastapi import BackgroundTasks, Depends, Query
@@ -18,6 +19,7 @@ from datajunction_server.api.helpers import (
 from datajunction_server.database import Engine, Node
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.internal.engines import get_engine
@@ -377,6 +379,20 @@ async def get_sql_for_metrics(  # pylint: disable=too-many-locals
         user=current_user,
         base_verb=access.ResourceRequestVerb.READ,
     )
+
+    # make sure all metrics exist and have correct node type
+    nodes = [
+        await Node.get_by_name(session, node, raise_if_not_exists=True)
+        for node in metrics
+    ]
+    non_metric_nodes = [node for node in nodes if node and node.type != NodeType.METRIC]
+
+    if non_metric_nodes:
+        raise DJInvalidInputException(
+            message="All nodes must be of metric type, but some are not: "
+            f"{', '.join([f'{n.name} ({n.type})' for n in non_metric_nodes])} .",
+            http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+        )
 
     if query_request := await QueryRequest.get_query_request(
         session,

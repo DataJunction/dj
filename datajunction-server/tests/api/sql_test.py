@@ -2897,6 +2897,22 @@ async def test_get_sql_for_metrics_failures(module__client_with_examples: AsyncC
     )
     assert response.status_code == 200
 
+    # Getting sql for metric with non-metric node
+    response = await module__client_with_examples.get(
+        "/sql/",
+        params={
+            "metrics": ["default.repair_orders"],
+            "dimensions": [],
+            "filters": [],
+        },
+    )
+    assert response.status_code == 422
+    assert response.json() == {
+        "message": "All nodes must be of metric type, but some are not: default.repair_orders (source) .",
+        "errors": [],
+        "warnings": [],
+    }
+
 
 @pytest.mark.asyncio
 async def test_get_sql_for_metrics_no_access(module__client_with_examples: AsyncClient):
