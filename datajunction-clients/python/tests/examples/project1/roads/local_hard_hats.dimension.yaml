@@ -22,7 +22,7 @@ query: |
 primary_key:
   - hard_hat_id
 dimension_links:
-  state_id:
-    dimension: ${prefix}roads.us_state
-    column: state_abbr
+  - type: join
+    node_column: state_id
+    dimension_node: ${prefix}roads.us_state
 display_name: Local Hard Hats

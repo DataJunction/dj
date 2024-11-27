@@ -18,13 +18,16 @@ query: |
 primary_key:
   - hard_hat_id
 dimension_links:
-  state:
-    dimension: ${prefix}roads.us_state
-    column: state_abbr
-  birth_date:
-    dimension: ${prefix}roads.date_dim
-    column: dateint
-  hire_date:
-    dimension: ${prefix}roads.date_dim
-    column: dateint
+  - type: join
+    node_column: state
+    dimension_node: ${prefix}roads.us_state
+    # join_on: ${prefix}roads.us_state.state_abbr = ${prefix}roads.hard_hat.state
+  - type: join
+    node_column: birth_date
+    dimension_node: ${prefix}roads.date_dim
+    # join_on: ${prefix}roads.date_dim.dateint = ${prefix}roads.hard_hat.birth_date
+  - type: join
+    node_column: hire_date
+    dimension_node: ${prefix}roads.date_dim
+    # join_on: ${prefix}roads.date_dim.dateint = ${prefix}roads.hard_hat.hire_date
 display_name: Hard Hat
