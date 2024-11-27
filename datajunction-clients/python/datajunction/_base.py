@@ -45,7 +45,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
         dj_client: Optional["DJClient"],
     ):
         """
-        Handle serialization of lists
+        Handle serialization of lists of both primitive and dataclass object types
         """
         if not isinstance(field_value, list):
             return field_value  # Not a list, return as-is
@@ -57,18 +57,19 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
             else [list_inner_type]
         )
 
-        for candidate in type_candidates:
-            try:
-                return [
-                    candidate.from_dict(dj_client, item)
-                    if isinstance(item, dict)
-                    else item
-                    for item in field_value
-                ]
-            except TypeError:
-                continue
+        def serialize_item(item):
+            for candidate in type_candidates:
+                try:
+                    return (
+                        candidate.from_dict(dj_client, item)
+                        if isinstance(item, dict)
+                        else item
+                    )
+                except TypeError:  # Ignore and try the next candidate
+                    pass
+            return item  # pragma: no cover
 
-        return field_value  # Default to the original value if no candidates worked
+        return [serialize_item(item) for item in field_value]
 
     @classmethod
     def from_dict(
@@ -92,7 +93,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
             field_type = field.type
             origin = get_origin(field_type)
             if origin in (Union, UnionType):
-                field_type = next(
+                field_type = next(  # pragma: no cover
                     typ for typ in get_args(field_type) if typ is not type(None)  # noqa
                 )
 

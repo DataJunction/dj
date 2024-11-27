@@ -57,6 +57,21 @@ class MetricMetadata(SerializableMixin):
     direction: Optional[MetricDirection]
     unit: Optional[MetricUnit]
 
+    @classmethod
+    def from_dict(
+        cls,
+        dj_client: Optional["DJClient"],
+        data: Dict[str, Any],
+    ) -> "MetricMetadata":
+        """
+        Create an instance of the given dataclass `cls` from a dictionary `data`.
+        This will handle nested dataclasses and optional types.
+        """
+        return cls(
+            direction=MetricDirection(data["direction"].lower()),
+            unit=MetricUnit(data["unit"]["name"].lower()),
+        )
+
 
 class MaterializationJobType(str, enum.Enum):
     """

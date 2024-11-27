@@ -1,3 +1,5 @@
 description: Average repair price
 query: SELECT avg(price) FROM ${prefix}roads.repair_order_details
 display_name: Avg Repair Price
+direction: higher_is_better
+unit: dollar

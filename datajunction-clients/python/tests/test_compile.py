@@ -11,7 +11,7 @@ import pytest
 from datajunction import DJBuilder
 from datajunction.compile import CompiledProject, Project, find_project_root
 from datajunction.exceptions import DJClientException, DJDeploymentFailure
-from datajunction.models import NodeMode
+from datajunction.models import MetricDirection, MetricUnit, NodeMode
 
 
 def test_compiled_project_deploy_namespaces():
@@ -273,6 +273,7 @@ def test_compile_deploying_a_project(
     compiled_project = project.compile()
     compiled_project.deploy(client=builder_client)  # Deploying will validate as well
 
+    # Check complex join dimension links
     hard_hat = builder_client._session.get(  # pylint: disable=protected-access
         "/nodes/projects.project1.roads.hard_hat",
     ).json()
@@ -282,16 +283,33 @@ def test_compile_deploying_a_project(
         "projects.project1.roads.date_dim",
     ]
 
+    # Check reference dimension links
     local_hard_hats = builder_client._session.get(  # pylint: disable=protected-access
         "/nodes/projects.project1.roads.local_hard_hats",
     ).json()
     assert [
         link["dimension"]["name"] for link in local_hard_hats["dimension_links"]
-    ] == [
-        "projects.project1.roads.us_state",
-        "projects.project1.roads.date_dim",
-        "projects.project1.roads.date_dim",
-    ]
+    ] == ["projects.project1.roads.us_state"]
+    assert [
+        col["dimension"]["name"]
+        for col in local_hard_hats["columns"]
+        if col["name"] == "birth_date"
+    ] == ["projects.project1.roads.date_dim"]
+
+    # Check metric metadata and required dimensions
+    avg_repair_price = builder_client.metric("projects.project1.roads.avg_repair_price")
+    assert avg_repair_price.metric_metadata is not None
+    assert avg_repair_price.metric_metadata.unit == MetricUnit.DOLLAR
+    assert (
+        avg_repair_price.metric_metadata.direction == MetricDirection.HIGHER_IS_BETTER
+    )
+    avg_length = builder_client.metric(
+        "projects.project1.roads.avg_length_of_employment",
+    )
+    assert avg_length.required_dimensions == ["hard_hat_id"]
+    assert avg_length.metric_metadata is not None
+    assert avg_length.metric_metadata.unit == MetricUnit.SECOND
+    assert avg_length.metric_metadata.direction == MetricDirection.HIGHER_IS_BETTER
 
 
 def test_compile_redeploying_a_project(

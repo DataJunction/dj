@@ -20,7 +20,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import yaml
 from rich import box
@@ -29,7 +29,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.table import Table
 
-from datajunction import DJBuilder
+from datajunction import DJBuilder, DJClient
 from datajunction._base import SerializableMixin
 from datajunction.exceptions import (
     DJClientException,
@@ -142,6 +142,20 @@ class DimensionJoinLinkYAML(
     join_on: Optional[str] = None
     role: Optional[str] = None
 
+    @classmethod
+    def from_dict(
+        cls,
+        dj_client: Optional[DJClient],
+        data: Dict[str, Any],
+    ) -> "DimensionJoinLinkYAML":
+        """
+        Create an instance of the given dataclass `cls` from a dictionary `data`.
+        This will handle nested dataclasses and optional types.
+        """
+        if LinkType(data["type"].lower()) != LinkType.JOIN:
+            raise TypeError("Wrong dimension link type: " + data["type"])
+        return super().from_dict(dj_client, data)
+
 
 @dataclass
 class DimensionReferenceLinkYAML(
@@ -158,6 +172,22 @@ class DimensionReferenceLinkYAML(
     dimension: str
     type: LinkType = LinkType.REFERENCE
     role: Optional[str] = None
+
+    @classmethod
+    def from_dict(
+        cls,
+        dj_client: Optional[DJClient],
+        data: Dict[str, Any],
+    ) -> "DimensionReferenceLinkYAML":
+        """
+        Create an instance of the given dataclass `cls` from a dictionary `data`.
+        This will handle nested dataclasses and optional types.
+        """
+        if LinkType(data["type"].lower()) != LinkType.REFERENCE:
+            raise TypeError(
+                "Wrong dimension link type: " + data["type"],
+            )  # pragma: no cover
+        return super().from_dict(dj_client, data)
 
 
 @dataclass
@@ -194,7 +224,7 @@ class LinkableNodeYAML(NodeYAML):
             prefixed_name = f"{prefix}.{name}"
             node = node_init(prefixed_name)
             for link in self.dimension_links:
-                print("Processing link", link)
+                print("LiNK!!", link)
                 prefixed_dimension = render_prefixes(
                     link.dimension_node
                     if isinstance(link, DimensionJoinLinkYAML)
@@ -216,7 +246,7 @@ class LinkableNodeYAML(NodeYAML):
                             prefixed_dimension,
                         )
                 else:
-                    split_dim = prefixed_dimension.rsplit(".")
+                    split_dim = prefixed_dimension.rsplit(".", 1)
                     node.add_reference_dimension_link(
                         node_column=link.node_column,
                         dimension_node=split_dim[0],
@@ -386,16 +416,6 @@ class DimensionYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attr
 
 
 @dataclass
-class MetricMetadataYAML:
-    """
-    YAML representation of metric metadata
-    """
-
-    direction: Optional[MetricDirection]
-    unit: Optional[MetricUnit]
-
-
-@dataclass
 class MetricYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     """
     YAML representation of a metric node
@@ -421,6 +441,9 @@ class MetricYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
             display_name=self.display_name,
             query=self.query,
             description=self.description,
+            required_dimensions=self.required_dimensions,
+            direction=self.direction,
+            unit=self.unit,
             tags=self.tags,
             mode=self.mode,
             update_if_exists=True,
