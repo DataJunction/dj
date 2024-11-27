@@ -273,6 +273,26 @@ def test_compile_deploying_a_project(
     compiled_project = project.compile()
     compiled_project.deploy(client=builder_client)  # Deploying will validate as well
 
+    hard_hat = builder_client._session.get(  # pylint: disable=protected-access
+        "/nodes/projects.project1.roads.hard_hat",
+    ).json()
+    assert [link["dimension"]["name"] for link in hard_hat["dimension_links"]] == [
+        "projects.project1.roads.us_state",
+        "projects.project1.roads.date_dim",
+        "projects.project1.roads.date_dim",
+    ]
+
+    local_hard_hats = builder_client._session.get(  # pylint: disable=protected-access
+        "/nodes/projects.project1.roads.local_hard_hats",
+    ).json()
+    assert [
+        link["dimension"]["name"] for link in local_hard_hats["dimension_links"]
+    ] == [
+        "projects.project1.roads.us_state",
+        "projects.project1.roads.date_dim",
+        "projects.project1.roads.date_dim",
+    ]
+
 
 def test_compile_redeploying_a_project(
     change_to_project_dir: Callable,

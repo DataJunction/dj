@@ -142,12 +142,6 @@ class DimensionJoinLinkYAML(
     join_on: Optional[str] = None
     role: Optional[str] = None
 
-    def __str__(self):
-        role_str = f" with role {self.role}" if self.role else ""
-        return (
-            f"{self.node_column} {self.type} linked to {self.dimension_node}" + role_str
-        )
-
 
 @dataclass
 class DimensionReferenceLinkYAML(
@@ -164,10 +158,6 @@ class DimensionReferenceLinkYAML(
     dimension: str
     type: LinkType = LinkType.REFERENCE
     role: Optional[str] = None
-
-    def __str__(self):
-        role_str = f" with role {self.role}" if self.role else ""
-        return f"{self.node_column} {self.type} linked to {self.dimension}" + role_str
 
 
 @dataclass
@@ -204,6 +194,7 @@ class LinkableNodeYAML(NodeYAML):
             prefixed_name = f"{prefix}.{name}"
             node = node_init(prefixed_name)
             for link in self.dimension_links:
+                print("Processing link", link)
                 prefixed_dimension = render_prefixes(
                     link.dimension_node
                     if isinstance(link, DimensionJoinLinkYAML)
@@ -212,10 +203,11 @@ class LinkableNodeYAML(NodeYAML):
                 )
                 if isinstance(link, DimensionJoinLinkYAML):
                     if link.join_on:
+                        prefixed_join_on = render_prefixes(link.join_on, prefix)
                         node.link_complex_dimension(
                             dimension_node=prefixed_dimension,
                             join_type=link.join_type or JoinType.LEFT,
-                            join_on=link.join_on,
+                            join_on=prefixed_join_on,
                             role=link.role,
                         )
                     else:
