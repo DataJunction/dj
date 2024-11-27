@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """
 Compile a metrics repository.
 
@@ -17,8 +18,9 @@ import string
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
+from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union, cast
 
 import yaml
 from rich import box
@@ -28,12 +30,13 @@ from rich.live import Live
 from rich.table import Table
 
 from datajunction import DJBuilder
+from datajunction._base import SerializableMixin
 from datajunction.exceptions import (
     DJClientException,
     DJDeploymentFailure,
     DJNamespaceAlreadyExists,
 )
-from datajunction.models import Column, NodeMode, NodeType
+from datajunction.models import Column, MetricDirection, MetricUnit, NodeMode, NodeType
 from datajunction.tags import Tag
 
 _logger = logging.getLogger(__name__)
@@ -99,8 +102,76 @@ class TagYAML:
     tag_metadata: Optional[Dict] = None
 
 
+class JoinType(str, Enum):
+    """
+    Join type
+    """
+
+    LEFT = "left"
+    RIGHT = "right"
+    INNER = "inner"
+    FULL = "full"
+    CROSS = "cross"
+
+
+class LinkType(str, Enum):
+    """
+    There are two types of dimensions links supported: join links or reference links
+    """
+
+    JOIN = "join"
+    REFERENCE = "reference"
+
+
 @dataclass
-class NodeYAML:
+class DimensionJoinLinkYAML(
+    SerializableMixin,
+):  # pylint: disable=too-many-instance-attributes
+    """
+    YAML representation of a dimension join link
+
+    If a custom `join_on` clause is not specified, DJ will automatically set
+    this clause to be on the selected column and the dimension node's primary key
+    """
+
+    node_column: str
+    dimension_node: str
+    type: LinkType = LinkType.JOIN
+
+    join_type: JoinType = JoinType.LEFT
+    join_on: Optional[str] = None
+    role: Optional[str] = None
+
+    def __str__(self):
+        role_str = f" with role {self.role}" if self.role else ""
+        return (
+            f"{self.node_column} {self.type} linked to {self.dimension_node}" + role_str
+        )
+
+
+@dataclass
+class DimensionReferenceLinkYAML(
+    SerializableMixin,
+):  # pylint: disable=too-many-instance-attributes
+    """
+    YAML representation of a dimension reference link
+
+    The `dimension` input should be a fully qualified dimension attribute name,
+    e.g., "<dimension_node>.<column>"
+    """
+
+    node_column: str
+    dimension: str
+    type: LinkType = LinkType.REFERENCE
+    role: Optional[str] = None
+
+    def __str__(self):
+        role_str = f" with role {self.role}" if self.role else ""
+        return f"{self.node_column} {self.type} linked to {self.dimension}" + role_str
+
+
+@dataclass
+class NodeYAML(SerializableMixin):
     """
     YAML represention of a node
     """
@@ -109,7 +180,69 @@ class NodeYAML:
 
 
 @dataclass
-class SourceYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
+class LinkableNodeYAML(NodeYAML):
+    """
+    YAML represention of a node type that can be linked to dimension nodes:
+    source, transform, dimension
+    """
+
+    dimension_links: list[
+        DimensionJoinLinkYAML | DimensionReferenceLinkYAML
+    ] | None = None
+
+    def _deploy_dimension_links(
+        self,
+        name: str,
+        node_init,
+        prefix: str,
+        table: Table,
+    ):
+        """
+        Deploy any links from columns on this node to columns on dimension nodes
+        """
+        if self.dimension_links:
+            prefixed_name = f"{prefix}.{name}"
+            node = node_init(prefixed_name)
+            for link in self.dimension_links:
+                prefixed_dimension = render_prefixes(
+                    link.dimension_node
+                    if isinstance(link, DimensionJoinLinkYAML)
+                    else link.dimension,
+                    prefix,
+                )
+                if isinstance(link, DimensionJoinLinkYAML):
+                    if link.join_on:
+                        node.link_complex_dimension(
+                            dimension_node=prefixed_dimension,
+                            join_type=link.join_type or JoinType.LEFT,
+                            join_on=link.join_on,
+                            role=link.role,
+                        )
+                    else:
+                        node.link_dimension(
+                            link.node_column,
+                            prefixed_dimension,
+                        )
+                else:
+                    split_dim = prefixed_dimension.rsplit(".")
+                    node.add_reference_dimension_link(
+                        node_column=link.node_column,
+                        dimension_node=split_dim[0],
+                        dimension_column=split_dim[1],
+                        role=link.role,
+                    )
+
+                message = f"[green]Dimension {link.type} link created between " + (
+                    f"{prefixed_name} and {cast(DimensionJoinLinkYAML, link).dimension_node}."
+                    if link.type == LinkType.JOIN
+                    else f"{link.node_column} and "
+                    "{cast(DimensionReferenceLinkYAML, link).dimension}."
+                )
+                table.add_row(*[prefixed_name, "[b]link", message])
+
+
+@dataclass
+class SourceYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attributes
     """
     YAML representation of a source node
     """
@@ -122,7 +255,6 @@ class SourceYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     primary_key: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     mode: NodeMode = NodeMode.PUBLISHED
-    dimension_links: Optional[dict] = None
     query: Optional[str] = None
     deploy_order: int = 1
 
@@ -170,31 +302,11 @@ class SourceYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
         """
         Deploy any links from columns on this node to columns on dimension nodes
         """
-        if self.dimension_links:
-            prefixed_name = f"{prefix}.{name}"
-            node = client.source(prefixed_name)
-            for column, dimension_column in self.dimension_links.items():
-                prefixed_dimension = render_prefixes(
-                    dimension_column["dimension"],
-                    prefix,
-                )
-                node.link_dimension(
-                    column,
-                    prefixed_dimension,
-                )
-                table.add_row(
-                    *[
-                        prefixed_name,
-                        "[b]link",
-                        (
-                            f"[green]Column {column} linked to dimension {prefixed_dimension}"
-                        ),
-                    ]
-                )
+        return self._deploy_dimension_links(name, client.source, prefix, table)
 
 
 @dataclass
-class TransformYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
+class TransformYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attributes
     """
     YAML representation of a transform node
     """
@@ -206,7 +318,6 @@ class TransformYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     primary_key: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     mode: NodeMode = NodeMode.PUBLISHED
-    dimension_links: Optional[dict] = None
     deploy_order: int = 2
 
     def deploy(self, name: str, prefix: str, client: DJBuilder):
@@ -235,32 +346,11 @@ class TransformYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
         """
         Deploy any links from columns on this node to columns on dimension nodes
         """
-        if self.dimension_links:
-            prefixed_name = f"{prefix}.{name}"
-            node = client.transform(prefixed_name)
-            for column, dimension_column in self.dimension_links.items():
-                prefixed_dimension = render_prefixes(
-                    dimension_column["dimension"],
-                    prefix,
-                )
-                node.link_dimension(
-                    column,
-                    prefixed_dimension,
-                )
-                table.add_row(
-                    *[
-                        prefixed_name,
-                        "[b]link",
-                        (
-                            f"[green]Column {column} linked to column {dimension_column} "
-                            f"on dimension {prefixed_dimension}"
-                        ),
-                    ]
-                )
+        return self._deploy_dimension_links(name, client.transform, prefix, table)
 
 
 @dataclass
-class DimensionYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
+class DimensionYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attributes
     """
     YAML representation of a dimension node
     """
@@ -272,7 +362,6 @@ class DimensionYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     primary_key: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     mode: NodeMode = NodeMode.PUBLISHED
-    dimension_links: Optional[dict] = None
     deploy_order: int = 3
 
     def deploy(self, name: str, prefix: str, client: DJBuilder):
@@ -301,32 +390,21 @@ class DimensionYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
         """
         Deploy any links from columns on this node to columns on dimension nodes
         """
-        if self.dimension_links:
-            prefixed_name = f"{prefix}.{name}"
-            node = client.dimension(prefixed_name)
-            for column, dimension_column in self.dimension_links.items():
-                prefixed_dimension = render_prefixes(
-                    dimension_column["dimension"],
-                    prefix,
-                )
-                node.link_dimension(
-                    column,
-                    prefixed_dimension,
-                )
-                table.add_row(
-                    *[
-                        prefixed_name,
-                        "[b]link",
-                        (
-                            f"[green]Column {column} linked to column {dimension_column} "
-                            f"on dimension {prefixed_dimension}"
-                        ),
-                    ]
-                )
+        return self._deploy_dimension_links(name, client.dimension, prefix, table)
 
 
 @dataclass
-class MetricYAML(NodeYAML):
+class MetricMetadataYAML:
+    """
+    YAML representation of metric metadata
+    """
+
+    direction: Optional[MetricDirection]
+    unit: Optional[MetricUnit]
+
+
+@dataclass
+class MetricYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     """
     YAML representation of a metric node
     """
@@ -336,6 +414,9 @@ class MetricYAML(NodeYAML):
     display_name: Optional[str] = None
     description: Optional[str] = None
     tags: Optional[List[str]] = None
+    required_dimensions: list[str] | None = None
+    direction: MetricDirection | None = None
+    unit: MetricUnit | None = None
     mode: NodeMode = NodeMode.PUBLISHED
     deploy_order: int = 4
 
@@ -925,7 +1006,7 @@ async def load_data(
         )
     with open(path, encoding="utf-8") as f_yaml:
         yaml_dict = yaml.safe_load(f_yaml)
-        definition = yaml_cls(**yaml_dict)
+        definition = yaml_cls.from_dict(None, yaml_dict)
 
         return NodeConfig(
             name=get_name_from_path(repository=repository, path=path),

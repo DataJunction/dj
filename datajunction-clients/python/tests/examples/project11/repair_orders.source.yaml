@@ -16,6 +16,6 @@ columns:
   - name: dispatcher_id
     type: int
 dimension_links:
-  repair_order_id:
-    dimension: ${prefix}roads.repair_order
-    column: repair_order_id
+  - type: join
+    node_column: repair_order_id
+    dimension_node: ${prefix}roads.repair_order

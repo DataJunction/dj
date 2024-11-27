@@ -143,7 +143,7 @@ class ColumnAttribute(SerializableMixin):
     @classmethod
     def from_dict(
         cls,
-        dj_client: "DJClient",
+        dj_client: Optional["DJClient"],
         data: Dict[str, Any],
     ) -> "ColumnAttribute":
         """
