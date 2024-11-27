@@ -32,7 +32,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
         dj_client: Optional["DJClient"],
     ):
         """
-        Handle nested dataclass deserialization.
+        Handle nested field serialization
         """
         if is_dataclass(field_type) and isinstance(field_value, dict):
             return field_type.from_dict(dj_client, field_value)
@@ -45,7 +45,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
         dj_client: Optional["DJClient"],
     ):
         """
-        Handle lists of dataclasses.
+        Handle serialization of lists
         """
         if not isinstance(field_value, list):
             return field_value  # Not a list, return as-is
