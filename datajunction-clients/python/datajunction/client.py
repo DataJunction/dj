@@ -417,6 +417,8 @@ class DJClient(_internal.DJClient):
             node_name,
             type_=models.NodeType.METRIC.value,
         )
+        metric_dict = self.get_metric(node_name)
+        node_dict["required_dimensions"] = metric_dict["required_dimensions"]
         node = Metric.from_dict(dj_client=self, data=node_dict)
         node.primary_key = self._primary_key_from_columns(node_dict["columns"])
         return node

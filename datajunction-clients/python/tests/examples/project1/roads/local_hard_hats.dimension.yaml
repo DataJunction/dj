@@ -27,10 +27,10 @@ dimension_links:
     dimension_node: ${prefix}roads.us_state
   - type: reference
     node_column: birth_date
-    dimension_node: ${prefix}roads.date_dim
+    dimension: ${prefix}roads.date_dim.dateint
     role: birth_date
   - type: reference
     node_column: hire_date
-    dimension_node: ${prefix}roads.date_dim
+    dimension: ${prefix}roads.date_dim.dateint
     role: hire_date
 display_name: Local Hard Hats

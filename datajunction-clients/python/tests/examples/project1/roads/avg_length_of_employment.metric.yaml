@@ -4,3 +4,7 @@ display_name: Avg Length of Employment
 tags:
   - tag_in_project
   - system-tag
+direction: higher_is_better
+unit: second
+required_dimensions:
+  - hard_hat_id
