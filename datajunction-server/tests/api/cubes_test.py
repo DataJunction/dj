@@ -1200,6 +1200,81 @@ async def test_druid_cube_agg_materialization(
 
 
 @pytest.mark.asyncio
+async def test_materialized_cube_sql(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Test generating SQL for a materialized cube with two cases:
+    (1) the materialized table's catalog is compatible with the desired engine.
+    (2) the materialized table's catalog is not compatible with the desired engine.
+    """
+    await make_a_test_cube(
+        client_with_repairs_cube,
+        "default.mini_repairs_cube",
+        with_materialization=True,
+    )
+    await client_with_repairs_cube.post(
+        "/data/default.mini_repairs_cube/availability/",
+        json={
+            "catalog": "draft",
+            "schema_": "roads",
+            "table": "mini_repairs_cube",
+            "valid_through_ts": 1010129120,
+        },
+    )
+    # Ask for SQL with metrics, dimensions, filters, order by, and limit
+    response = await client_with_repairs_cube.get(
+        "/sql/",
+        params={
+            "metrics": ["default.avg_repair_price", "default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.state", "default.dispatcher.company_name"],
+            "limit": 100,
+        },
+    )
+    results = response.json()
+    assert "default_DOT_hard_hat AS (" in results["sql"]
+
+    response = await client_with_repairs_cube.post(
+        "/data/default.mini_repairs_cube/availability/",
+        json={
+            "catalog": "default",
+            "schema_": "roads",
+            "table": "mini_repairs_cube",
+            "valid_through_ts": 1010129120,
+        },
+    )
+    assert response.status_code == 200
+
+    response = await client_with_repairs_cube.get(
+        "/sql/",
+        params={
+            "metrics": ["default.avg_repair_price", "default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.state", "default.dispatcher.company_name"],
+            "limit": 100,
+        },
+    )
+    response = await client_with_repairs_cube.get(
+        "/sql/",
+        params={
+            "metrics": ["default.avg_repair_price", "default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.state", "default.dispatcher.company_name"],
+            "limit": 100,
+        },
+    )
+    results = response.json()
+    expected_sql = """
+    SELECT
+      SUM(default_DOT_avg_repair_price),
+      SUM(default_DOT_num_repair_orders),
+      default_DOT_hard_hat_DOT_state,
+      default_DOT_dispatcher_DOT_company_name
+    FROM mini_repairs_cube
+    GROUP BY  default_DOT_hard_hat_DOT_state, default_DOT_dispatcher_DOT_company_name
+    LIMIT 100"""
+    assert str(parse(results["sql"])) == str(parse(expected_sql))
+
+
+@pytest.mark.asyncio
 async def test_cube_sql_generation_with_availability(
     client_with_repairs_cube: AsyncClient,
 ):
