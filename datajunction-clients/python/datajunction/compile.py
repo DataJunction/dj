@@ -224,7 +224,6 @@ class LinkableNodeYAML(NodeYAML):
             prefixed_name = f"{prefix}.{name}"
             node = node_init(prefixed_name)
             for link in self.dimension_links:
-                print("LiNK!!", link)
                 prefixed_dimension = render_prefixes(
                     link.dimension_node
                     if isinstance(link, DimensionJoinLinkYAML)
