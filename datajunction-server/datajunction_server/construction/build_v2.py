@@ -877,7 +877,6 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
         Builds SQL for multiple metrics with the requested set of dimensions,
         filter expressions, order by, and limit clauses.
         """
-        print("self.metric_nodes", self.metric_nodes)
         measures_queries = await self.build_measures_queries()
 
         # Join together the transforms on the shared dimensions and select all
@@ -1021,7 +1020,6 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
         """
         if self._access_control:
             self._access_control.add_request_by_node(metric_node)  # type: ignore
-        print("metric_node", metric_node)
         metric_query_builder = await QueryBuilder.create(self.session, metric_node)
         if self._ignore_errors:
             metric_query_builder = (  # pragma: no cover
@@ -1033,7 +1031,6 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
             .build()
         )
         self.errors.extend(metric_query_builder.errors)
-        print("metric_query", metric_query)
         metric_query.ctes[-1].select.projection[0].set_semantic_entity(  # type: ignore
             f"{metric_node.name}.{amenable_name(metric_node.name)}",
         )
