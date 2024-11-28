@@ -134,10 +134,10 @@ class DimensionJoinLinkYAML(
     this clause to be on the selected column and the dimension node's primary key
     """
 
-    node_column: str
     dimension_node: str
     type: LinkType = LinkType.JOIN
 
+    node_column: Optional[str] = None
     join_type: JoinType = JoinType.LEFT
     join_on: Optional[str] = None
     role: Optional[str] = None
@@ -462,7 +462,6 @@ class CubeYAML(NodeYAML):  # pylint: disable=too-many-instance-attributes
     filters: Optional[List[str]] = None
     description: Optional[str] = None
     mode: NodeMode = NodeMode.PUBLISHED
-    query: Optional[str] = None
     tags: Optional[List[str]] = None
     deploy_order: int = 5
 
@@ -793,8 +792,8 @@ class CompiledProject(Project):
                     node_config.definition,
                     (TransformYAML, DimensionYAML, MetricYAML),
                 ):
-                    rendered_node_config.definition.query = render_prefixes(
-                        rendered_node_config.definition.query or "",
+                    rendered_node_config.definition.query = render_prefixes(  # type: ignore
+                        rendered_node_config.definition.query or "",  # type: ignore
                         prefix,
                     )
                 # pre-fix the tags
