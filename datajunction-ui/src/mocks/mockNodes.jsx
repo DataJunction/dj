@@ -422,11 +422,11 @@ export const mocks = {
       post: { status: 'invalid' },
       details: {
         materialization: 'druid_metrics_cube__incremental_time__xyz',
-        partition: {
+        partition: [{
           column_name: 'xyz.abc',
           values: null,
           range: ['20240201', '20240301'],
-        },
+        }],
       },
       created_at: '2023-08-21T16:48:56.950482+00:00',
     },
