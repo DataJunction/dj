@@ -20,7 +20,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import yaml
 from rich import box
@@ -254,10 +254,9 @@ class LinkableNodeYAML(NodeYAML):
                     )
 
                 message = f"[green]Dimension {link.type} link created between " + (
-                    f"{prefixed_name} and {cast(DimensionJoinLinkYAML, link).dimension_node}."
+                    f"{prefixed_name} and {prefixed_dimension}."
                     if link.type == LinkType.JOIN
-                    else f"{link.node_column} and "
-                    "{cast(DimensionReferenceLinkYAML, link).dimension}."
+                    else f"{link.node_column} and {prefixed_dimension}"
                 )
                 table.add_row(*[prefixed_name, "[b]link", message])
 
