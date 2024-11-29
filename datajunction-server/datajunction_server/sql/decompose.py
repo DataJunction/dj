@@ -1,4 +1,6 @@
+"""Used for extracting measures form metric definitions."""
 from pydantic import BaseModel
+
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
@@ -14,6 +16,11 @@ class Measure(BaseModel):
 
 
 class MeasureExtractor:
+    """
+    Extracts aggregatable measures from a metric definition and generates SQL
+    derived from those measures.
+    """
+
     def __init__(self):
         """Register handlers for aggregation functions"""
         self.handlers = {
@@ -32,44 +39,49 @@ class MeasureExtractor:
         query_ast = parse(metric_query)
         measures = []
 
-        for func in query_ast.find_all(ast.Function):
+        for idx, func in enumerate(query_ast.find_all(ast.Function)):
             handler = self.handlers.get(func.function())
             if handler:
-                func_measures = handler(func)
+                func_measures = handler(func, idx)
                 if func_measures:
-                    self._update_ast(func, func_measures)
+                    self.update_ast(func, func_measures)
                 measures.extend(func_measures)
 
         return measures, query_ast
 
-    def _generic_additive_agg(self, func) -> list[Measure]:
+    def _generic_additive_agg(self, func, idx) -> list[Measure]:
         arg = func.args[0]
-        measure_name = "_".join([str(col) for col in arg.find_all(ast.Column)])
+        measure_name = "_".join(
+            [str(col) for col in arg.find_all(ast.Column)] + [func.name.name.lower()],
+        )
         return [
             Measure(
-                name=measure_name,
-                expression=str(arg),
+                name=f"{measure_name}_{idx}",
+                expression=f"{func.quantifier} {arg}" if func.quantifier else str(arg),
                 aggregation=func.name.name,
             ),
         ]
 
-    def _avg(self, func) -> list[Measure]:
+    def _avg(self, func, idx) -> list[Measure]:
         arg = func.args[0]
-        measure_name = "_".join([str(col) for col in arg.find_all(ast.Column)])
+        measure_name = "_".join(
+            [str(col) for col in arg.find_all(ast.Column)]
+            + [dj_functions.Sum.__name__.lower()],
+        )
         return [
             Measure(
-                name=measure_name,
+                name=f"{measure_name}_{idx}",
                 expression=str(arg),
-                aggregation=dj_functions.Sum,
+                aggregation=dj_functions.Sum.__name__.upper(),
             ),
             Measure(
                 name="count",
                 expression="1",
-                aggregation=dj_functions.Count,
+                aggregation=dj_functions.Count.__name__.upper(),
             ),
         ]
 
-    def _update_ast(self, func, measures: list[Measure]):
+    def update_ast(self, func, measures: list[Measure]):
         """
         Updates the query AST based on the measures derived from the function.
         """
@@ -88,7 +100,7 @@ class MeasureExtractor:
                     ),
                 ),
             )
-        elif func.function() == dj_functions.Count:
+        elif func.function() == dj_functions.Count and func.quantifier != "DISTINCT":
             func.name.name = "SUM"
             func.args = [ast.Column(ast.Name(measure.name)) for measure in measures]
         else:
