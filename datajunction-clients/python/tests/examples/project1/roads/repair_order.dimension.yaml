@@ -9,13 +9,13 @@ query: |
 primary_key:
   - repair_order_id
 dimension_links:
-  dispatcher_id:
-    dimension: ${prefix}roads.dispatcher
-    column: dispatcher_id
-  hard_hat_id:
-    dimension: ${prefix}roads.hard_hat
-    column: hard_hat_id
-  municipality_id:
-    dimension: ${prefix}roads.municipality_dim
-    column: municipality_id
+  - type: join
+    node_column: dispatcher_id
+    dimension_node: ${prefix}roads.dispatcher
+  - type: join
+    node_column: hard_hat_id
+    dimension_node: ${prefix}roads.hard_hat
+  - type: join
+    node_column: municipality_id
+    dimension_node: ${prefix}roads.municipality_dim
 display_name: Repair Order Dim
