@@ -138,14 +138,13 @@ async def test_build_sql_for_multiple_metrics(
     Test building SQL for multiple metrics
     """
     mock_build_materialized_cube_node.return_value = MagicMock()
-    mock_get_catalog_by_name.return_value = MagicMock(
-        engines=[MagicMock(), MagicMock()],
-    )
+    mock_engines = [MagicMock(name="eng1"), MagicMock(name="eng2")]
+    mock_get_catalog_by_name.return_value = MagicMock(engines=mock_engines)
     mock_find_existing_cube.return_value = MagicMock(
         availability=MagicMock(catalog="cata-foo"),
     )
     mock_get_by_name.return_value = MagicMock(
-        current=MagicMock(catalog=MagicMock(engines=["eng1", "eng2"])),
+        current=MagicMock(catalog=MagicMock(name="cata-foo", engines=mock_engines)),
     )
     mock_metric_columns = [MagicMock(name="col1"), MagicMock(name="col2")]
     mock_metric_nodes = ["mnode1", "mnode2"]

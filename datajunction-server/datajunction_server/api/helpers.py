@@ -646,9 +646,12 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
         dimension_columns,
         materialized=True,
     )
+    materialized_cube_catalog = None
     if cube:
-        catalog = await get_catalog_by_name(session, cube.availability.catalog)  # type: ignore
-        available_engines = catalog.engines + available_engines
+        materialized_cube_catalog = await get_catalog_by_name(
+            session,
+            cube.availability.catalog,  # type: ignore
+        )
 
     # Check if selected engine is available
     engine = (
@@ -662,17 +665,22 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
             f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
         )
 
+    # Do not use the materialized cube if the chosen engine is not available for
+    # the materialized cube's catalog
+    if (
+        cube
+        and materialized_cube_catalog
+        and engine.name not in [eng.name for eng in materialized_cube_catalog.engines]
+    ):
+        cube = None
+
     validate_orderby(orderby, metrics, dimensions)
 
-    if cube and cube.materializations and cube.availability and use_materialized:
+    if cube and cube.availability and use_materialized and materialized_cube_catalog:
         if access_control:  # pragma: no cover
             access_control.add_request_by_node(cube)
             access_control.state = access.AccessControlState.INDIRECT
             access_control.raise_if_invalid_requests()
-        materialized_cube_catalog = await get_catalog_by_name(
-            session,
-            cube.availability.catalog,
-        )
         query_ast = build_materialized_cube_node(  # pylint: disable=E1121
             metric_columns,
             dimension_columns,

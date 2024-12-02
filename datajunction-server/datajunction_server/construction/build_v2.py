@@ -1031,7 +1031,6 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
             .build()
         )
         self.errors.extend(metric_query_builder.errors)
-
         metric_query.ctes[-1].select.projection[0].set_semantic_entity(  # type: ignore
             f"{metric_node.name}.{amenable_name(metric_node.name)}",
         )
