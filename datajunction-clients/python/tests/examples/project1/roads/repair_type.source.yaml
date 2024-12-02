@@ -8,7 +8,7 @@ columns:
   - name: contractor_id
     type: int
 dimension_links:
-  contractor_id:
-    dimension: ${prefix}roads.contractor
-    column: contractor_id
+  - type: join
+    node_column: contractor_id
+    dimension_node: ${prefix}roads.contractor
 display_name: default.roads.repair_type

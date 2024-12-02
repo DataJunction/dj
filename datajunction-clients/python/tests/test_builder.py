@@ -266,7 +266,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "SELECT count(repair_order_id) FROM default.repair_orders"
         )
         assert num_repair_orders.type == "metric"
-        assert num_repair_orders.required_dimensions is None
+        assert num_repair_orders.required_dimensions == []
         assert num_repair_orders.description == "Number of repair orders"
         assert num_repair_orders.tags == []
         assert num_repair_orders.metric_metadata is None

@@ -47,6 +47,6 @@ query: |
       EXTRACT(MONTH FROM ro.order_date),
       EXTRACT(DAY FROM ro.order_date)
 dimension_links:
-  state_name:
-    dimension: ${prefix}roads.us_state
-    column: state_abbr
+  - type: join
+    node_column: state_name
+    dimension_node: ${prefix}roads.us_state
