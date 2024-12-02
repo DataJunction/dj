@@ -1,8 +1,28 @@
 """Used for extracting measures form metric definitions."""
 from pydantic import BaseModel
 
+from datajunction_server.enum import StrEnum
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
+
+
+class Aggregability(StrEnum):
+    """
+    Type of allowed aggregation for a given measure.
+    """
+
+    FULL = "full"
+    LIMITED = "limited"
+    NONE = "none"
+
+
+class AggregationRule(BaseModel):
+    """
+    Measures are components used to build metrics (e.g., sales_amount, revenue, user_count).
+    """
+
+    type: Aggregability = Aggregability.NONE
+    level: list[str] | None = None
 
 
 class Measure(BaseModel):
@@ -13,6 +33,7 @@ class Measure(BaseModel):
     name: str
     expression: str  # A SQL expression for defining the measure
     aggregation: str
+    rule: AggregationRule
 
 
 class MeasureExtractor:
@@ -58,7 +79,12 @@ class MeasureExtractor:
             Measure(
                 name=f"{measure_name}_{idx}",
                 expression=f"{func.quantifier} {arg}" if func.quantifier else str(arg),
-                aggregation=func.name.name,
+                aggregation=func.name.name.upper(),
+                rule=AggregationRule(
+                    type=Aggregability.FULL
+                    if func.quantifier != "DISTINCT"
+                    else Aggregability.LIMITED,
+                ),
             ),
         ]
 
@@ -73,11 +99,21 @@ class MeasureExtractor:
                 name=f"{measure_name}_{idx}",
                 expression=str(arg),
                 aggregation=dj_functions.Sum.__name__.upper(),
+                rule=AggregationRule(
+                    type=Aggregability.FULL
+                    if func.quantifier != "DISTINCT"
+                    else Aggregability.LIMITED,
+                ),
             ),
             Measure(
                 name="count",
                 expression="1",
                 aggregation=dj_functions.Count.__name__.upper(),
+                rule=AggregationRule(
+                    type=Aggregability.FULL
+                    if func.quantifier != "DISTINCT"
+                    else Aggregability.LIMITED,
+                ),
             ),
         ]
 
