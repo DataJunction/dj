@@ -18,7 +18,19 @@ class Aggregability(StrEnum):
 
 class AggregationRule(BaseModel):
     """
-    Measures are components used to build metrics (e.g., sales_amount, revenue, user_count).
+    The aggregation rule for the measure. If the Aggregability type is LIMITED, the `level` should
+    be specified to highlight the level at which the measure needs to be aggregated in order to
+    support the specified aggregation function.
+
+    For example, consider a metric like COUNT(DISTINCT user_id). It can be decomposed into a
+    single measure with LIMITED aggregability, i.e., it is only aggregatable if the measure is
+    calculated at the `user_id` level:
+    - name: num_users
+      expression: DISTINCT user_id
+      aggregation: COUNT
+      rule:
+        type: LIMITED
+        level: ["user_id"]
     """
 
     type: Aggregability = Aggregability.NONE
@@ -27,7 +39,9 @@ class AggregationRule(BaseModel):
 
 class Measure(BaseModel):
     """
-    Measures are components used to build metrics (e.g., sales_amount, revenue, user_count).
+    Measures are aggregated facts (e.g. SUM(view_secs)). They can be optionally combined
+    to build derived metrics, e.g. SUM(clicks) / SUM(view_secs). Combining is optional because
+    a stand-alone measure can itself be a metric.
     """
 
     name: str
@@ -45,10 +59,10 @@ class MeasureExtractor:
     def __init__(self):
         """Register handlers for aggregation functions"""
         self.handlers = {
-            dj_functions.Sum: self._generic_additive_agg,
-            dj_functions.Count: self._generic_additive_agg,
-            dj_functions.Max: self._generic_additive_agg,
-            dj_functions.Min: self._generic_additive_agg,
+            dj_functions.Sum: self._simple_associative_agg,
+            dj_functions.Count: self._simple_associative_agg,
+            dj_functions.Max: self._simple_associative_agg,
+            dj_functions.Min: self._simple_associative_agg,
             dj_functions.Avg: self._avg,
         }
 
@@ -70,7 +84,11 @@ class MeasureExtractor:
 
         return measures, query_ast
 
-    def _generic_additive_agg(self, func, idx) -> list[Measure]:
+    def _simple_associative_agg(self, func, idx) -> list[Measure]:
+        """
+        Handles measures decomposition for a single-argument associative aggregation function.
+        Examples: SUM, MAX, MIN, COUNT
+        """
         arg = func.args[0]
         measure_name = "_".join(
             [str(col) for col in arg.find_all(ast.Column)] + [func.name.name.lower()],
@@ -89,6 +107,10 @@ class MeasureExtractor:
         ]
 
     def _avg(self, func, idx) -> list[Measure]:
+        """
+        Handles measures decomposition for AVG (it requires both the SUM and COUNT
+        of the selected measure).
+        """
         arg = func.args[0]
         measure_name = "_".join(
             [str(col) for col in arg.find_all(ast.Column)]
