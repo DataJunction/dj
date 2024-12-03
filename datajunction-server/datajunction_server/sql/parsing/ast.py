@@ -1679,6 +1679,19 @@ class Over(Expression):
         return f"OVER ({consolidated_by}{window_frame})"
 
 
+# pylint: disable=C0103
+class SetQuantifier(DJEnum):
+    """
+    The accepted set quantifiers
+    """
+
+    All = "ALL"
+    Distinct = "DISTINCT"
+
+    def __str__(self):
+        return self.value
+
+
 @dataclass(eq=False)
 class Function(Named, Operation):
     """
@@ -1686,7 +1699,7 @@ class Function(Named, Operation):
     """
 
     args: List[Expression] = field(default_factory=list)
-    quantifier: str = ""
+    quantifier: SetQuantifier | None = None
     over: Optional[Over] = None
     args_compiled: bool = False
 

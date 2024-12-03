@@ -65,7 +65,7 @@ class MeasureExtractor:
             if handler:
                 func_measures = handler(func, idx)
                 if func_measures:
-                    self.update_ast(func, func_measures)
+                    MeasureExtractor.update_ast(func, func_measures)
                 measures.extend(func_measures)
 
         return measures, query_ast
@@ -82,7 +82,7 @@ class MeasureExtractor:
                 aggregation=func.name.name.upper(),
                 rule=AggregationRule(
                     type=Aggregability.FULL
-                    if func.quantifier != "DISTINCT"
+                    if func.quantifier != ast.SetQuantifier.Distinct
                     else Aggregability.LIMITED,
                 ),
             ),
@@ -101,7 +101,7 @@ class MeasureExtractor:
                 aggregation=dj_functions.Sum.__name__.upper(),
                 rule=AggregationRule(
                     type=Aggregability.FULL
-                    if func.quantifier != "DISTINCT"
+                    if func.quantifier != ast.SetQuantifier.Distinct
                     else Aggregability.LIMITED,
                 ),
             ),
@@ -111,13 +111,14 @@ class MeasureExtractor:
                 aggregation=dj_functions.Count.__name__.upper(),
                 rule=AggregationRule(
                     type=Aggregability.FULL
-                    if func.quantifier != "DISTINCT"
+                    if func.quantifier != ast.SetQuantifier.Distinct
                     else Aggregability.LIMITED,
                 ),
             ),
         ]
 
-    def update_ast(self, func, measures: list[Measure]):
+    @staticmethod
+    def update_ast(func, measures: list[Measure]):
         """
         Updates the query AST based on the measures derived from the function.
         """
@@ -136,7 +137,10 @@ class MeasureExtractor:
                     ),
                 ),
             )
-        elif func.function() == dj_functions.Count and func.quantifier != "DISTINCT":
+        elif (
+            func.function() == dj_functions.Count
+            and func.quantifier != ast.SetQuantifier.Distinct
+        ):
             func.name.name = "SUM"
             func.args = [ast.Column(ast.Name(measure.name)) for measure in measures]
         else:
