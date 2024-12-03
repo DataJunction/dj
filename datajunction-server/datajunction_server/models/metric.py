@@ -13,6 +13,7 @@ from datajunction_server.models.node import (
     MetricMetadataOutput,
 )
 from datajunction_server.models.query import ColumnMetadata
+from datajunction_server.sql.decompose import Measure, extractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.transpilation import get_transpilation_plugin
 from datajunction_server.typing import UTCDatetime
@@ -43,6 +44,9 @@ class Metric(BaseModel):
 
     incompatible_druid_functions: List[str]
 
+    measures: List[Measure]
+    derived_sql: str
+
     @classmethod
     def parse_node(cls, node: Node, dims: List[DimensionAttributeOutput]) -> "Metric":
         """
@@ -55,6 +59,7 @@ class Metric(BaseModel):
             for func in functions
             if Dialect.DRUID not in func.dialects
         ]
+        measures, derived_sql = extractor.extract_measures(node.current.query)
         return cls(
             id=node.id,
             name=node.name,
@@ -70,6 +75,8 @@ class Metric(BaseModel):
             metric_metadata=node.current.metric_metadata,
             required_dimensions=[dim.name for dim in node.current.required_dimensions],
             incompatible_druid_functions=incompatible_druid_functions,
+            measures=measures,
+            derived_sql=str(derived_sql).strip(),
         )
 
 
