@@ -36,20 +36,25 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - uses: dorny/paths-filter@v2
+      - uses: dorny/paths-filter@v3
         id: filter
         with:
+          predicate-quantifier: 'every'
           filters: |
             client:
               - 'datajunction-clients/python/**'
               # run Python unit tests also when server is updated (because server changes can break the client)
               - 'datajunction-server/**'
+              - '!**/__about__.py'
             server:
               - 'datajunction-server/**'
+              - '!**/__about__.py'
             djqs:
               - 'datajunction-query/**'
+              - '!**/__about__.py'
             djrs:
               - 'datajunction-reflection/**'
+              - '!**/__about__.py'
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
