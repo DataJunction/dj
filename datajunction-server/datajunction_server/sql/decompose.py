@@ -75,10 +75,10 @@ class MeasureExtractor:
         measures = []
 
         for idx, func in enumerate(query_ast.find_all(ast.Function)):
-            handler = self.handlers.get(func.function())
+            dj_function = func.function()
+            handler = self.handlers.get(dj_function)
             if handler:
-                func_measures = handler(func, idx)
-                if func_measures:
+                if (func_measures := handler(func, idx)) and dj_function.is_aggregation:
                     MeasureExtractor.update_ast(func, func_measures)
                 measures.extend(func_measures)
 
