@@ -30,7 +30,7 @@ from datajunction_server.models.sql import GeneratedSQL
 from datajunction_server.naming import amenable_name, from_amenable_name
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
-from datajunction_server.utils import SEPARATOR
+from datajunction_server.utils import SEPARATOR, refresh_if_needed
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +189,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
                 or from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
                 in dimensions_without_roles
             ]
-        await session.refresh(parent_node.current, ["columns"])
+        await refresh_if_needed(session, parent_node.current, ["columns"])
         parent_ast = rename_columns(parent_ast, parent_node.current)
 
         # Sort the selected columns into dimension vs measure columns and
@@ -280,7 +280,11 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         """
         Create a QueryBuilder instance for the node revision.
         """
-        await session.refresh(node_revision, ["required_dimensions", "dimension_links"])
+        await refresh_if_needed(
+            session,
+            node_revision,
+            ["required_dimensions", "dimension_links"],
+        )
         instance = cls(session, node_revision, use_materialized=use_materialized)
         return instance
 
@@ -429,7 +433,11 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         7. Add all requested dimensions to the final select.
         8. Add order by and limit to the final select (TODO)
         """
-        await self.session.refresh(self.node_revision, ["availability", "columns"])
+        await refresh_if_needed(
+            self.session,
+            self.node_revision,
+            ["availability", "columns"],
+        )
         node_ast = (
             await compile_node_ast(self.session, self.node_revision)
             if not self.physical_table
@@ -686,7 +694,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             dim_node = dimension_attr.node_name
             if dim_node == self.node_revision.name:
                 continue
-            await self.add_request_by_node_name(dim_node)
+            # await self.add_request_by_node_name(dim_node)
             if dim_node not in dimension_node_joins:
                 join_path = await dimension_join_path(
                     self.session,
@@ -784,8 +792,8 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
         Create a QueryBuilder instance for the node revision.
         """
         for node in metric_nodes:
-            await session.refresh(node, ["current"])
-            await session.refresh(node.current, ["required_dimensions"])
+            await refresh_if_needed(session, node, ["current"])
+            await refresh_if_needed(session, node.current, ["required_dimensions"])
 
         instance = cls(session, metric_nodes, use_materialized=use_materialized)
         return instance
@@ -969,7 +977,7 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
         common_parents = group_metrics_by_parent(self.metric_nodes)
         measures_queries = {}
         for parent_node, metrics in common_parents.items():  # type: ignore
-            await self.session.refresh(parent_node, ["current"])
+            await refresh_if_needed(self.session, parent_node, ["current"])
             query_builder = await QueryBuilder.create(self.session, parent_node.current)
             if self._ignore_errors:
                 query_builder = query_builder.ignore_errors()
@@ -999,7 +1007,7 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
                 metric_proj = await self.build_metric_agg(metric_node, parent_node)
                 parent_ast.select.projection.extend(metric_proj)
 
-            await self.session.refresh(parent_node.current, ["columns"])
+            await refresh_if_needed(self.session, parent_node.current, ["columns"])
 
             # Generate semantic types for each
             for expr in parent_ast.select.projection:
@@ -1190,7 +1198,7 @@ async def dimension_join_path(
 
     # If it's not a local dimension, traverse the node's dimensions graph
     # This queue tracks the dimension link being processed and the path to that link
-    await session.refresh(node, ["dimension_links"])
+    await refresh_if_needed(session, node, ["dimension_links"])
 
     # Start with first layer of linked dims
     processing_queue = collections.deque(
@@ -1198,11 +1206,16 @@ async def dimension_join_path(
     )
     while processing_queue:
         current_link, join_path = processing_queue.popleft()
-        await session.refresh(current_link, ["dimension"])
+        await refresh_if_needed(session, current_link, ["dimension"])
         if current_link.dimension.name == dimension_attr.node_name:
             return join_path
-        await session.refresh(current_link.dimension, ["current"])
-        await session.refresh(current_link.dimension.current, ["dimension_links"])
+
+        await refresh_if_needed(session, current_link.dimension, ["current"])
+        await refresh_if_needed(
+            session,
+            current_link.dimension.current,
+            ["dimension_links"],
+        )
         processing_queue.extend(
             [
                 (link, join_path + [link])
@@ -1223,8 +1236,12 @@ async def build_dimension_node_query(
     """
     Builds a dimension node query with the requested filters
     """
-    await session.refresh(link.dimension, ["current"])
-    await session.refresh(link.dimension.current, ["availability", "columns"])
+    await refresh_if_needed(session, link.dimension, ["current"])
+    await refresh_if_needed(
+        session,
+        link.dimension.current,
+        ["availability", "columns"],
+    )
     physical_table = get_table_for_node(
         link.dimension.current,
         build_criteria=build_criteria,
@@ -1354,8 +1371,8 @@ async def needs_dimension_join(
     """
     if len(join_path) == 1:
         link = join_path[0]
-        await session.refresh(link.dimension, ["current"])
-        await session.refresh(link.dimension.current, ["columns"])
+        await refresh_if_needed(session, link.dimension, ["current"])
+        await refresh_if_needed(session, link.dimension.current, ["columns"])
         if dimension_attribute in link.foreign_keys_reversed:
             return False
     return True
@@ -1430,7 +1447,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
     This function will apply any filters that can be pushed down to each referenced node's AST
     (filters are only applied if they don't require dimension node joins).
     """
-    await session.refresh(node, ["dimension_links"])
+    await refresh_if_needed(session, node, ["dimension_links"])
     context = CompileContext(session=session, exception=DJException())
     await query.compile(context)
     query.bake_ctes()  # pylint: disable=W0212
@@ -1441,7 +1458,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
 
     node_to_tables_mapping = get_dj_node_references_from_select(query.select)
     for referenced_node, reference_expressions in node_to_tables_mapping.items():
-        await session.refresh(referenced_node, ["dimension_links"])
+        await refresh_if_needed(session, referenced_node, ["dimension_links"])
 
         for ref_expr in reference_expressions:
 
