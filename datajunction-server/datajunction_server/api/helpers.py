@@ -59,7 +59,7 @@ from datajunction_server.naming import LOOKUP_CHARS
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.typing import END_JOB_STATES
-from datajunction_server.utils import SEPARATOR
+from datajunction_server.utils import SEPARATOR, refresh_if_needed
 
 _logger = logging.getLogger(__name__)
 
@@ -143,7 +143,7 @@ async def get_column(
     Get a column from a node revision
     """
     requested_column = None
-    await session.refresh(node, ["columns"])
+    await refresh_if_needed(session, node, ["columns"])
     for node_column in node.columns:
         if node_column.name == column_name:
             requested_column = node_column
@@ -737,7 +737,7 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
     ]
     upstream_tables = [tbl for tbl in query_ast.find_all(ast.Table) if tbl.dj_node]
     for tbl in upstream_tables:
-        await session.refresh(tbl.dj_node, ["availability"])
+        await refresh_if_needed(session, tbl.dj_node, ["availability"])
     return (
         TranslatedSQL(
             sql=str(query_ast),
