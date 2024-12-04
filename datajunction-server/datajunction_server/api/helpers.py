@@ -143,7 +143,7 @@ async def get_column(
     Get a column from a node revision
     """
     requested_column = None
-    await refresh_if_needed(session, node, ["columns"])
+    await session.refresh(node, ["columns"])
     for node_column in node.columns:
         if node_column.name == column_name:
             requested_column = node_column
