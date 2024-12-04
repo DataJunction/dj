@@ -29,7 +29,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.sql import GeneratedSQL
 from datajunction_server.naming import amenable_name, from_amenable_name
 from datajunction_server.sql.parsing.ast import CompileContext
-from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
+from datajunction_server.sql.parsing.backends.antlr4 import ast, cached_parse, parse
 from datajunction_server.utils import SEPARATOR, refresh_if_needed
 
 logger = logging.getLogger(__name__)
@@ -471,7 +471,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         """
         Build the ORDER BY clause from the provided order expressions
         """
-        temp_orderbys = parse(
+        temp_orderbys = cached_parse(
             f"SELECT 1 ORDER BY {','.join(self._orderby)}",
         ).select.organization.order
         valid_sort_items = [
@@ -1079,7 +1079,7 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
         """
         Creates an order by ast from the requested order bys
         """
-        temp_orderbys = parse(  # type: ignore
+        temp_orderbys = cached_parse(  # type: ignore
             f"SELECT 1 ORDER BY {','.join(self._orderby)}",
         ).select.organization.order
         valid_sort_items = [
@@ -1308,7 +1308,7 @@ async def compile_node_ast(session, node_revision: NodeRevision) -> ast.Query:
     """
     Parses the node's query into an AST and compiles it.
     """
-    node_ast = parse(node_revision.query)
+    node_ast = cached_parse(node_revision.query)
     ctx = CompileContext(session, DJException())
     await node_ast.compile(ctx)
     return node_ast

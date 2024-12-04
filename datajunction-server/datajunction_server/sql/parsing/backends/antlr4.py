@@ -184,14 +184,21 @@ def parse_rule(sql: str, rule: str) -> Union[ast.Node, "ColumnType"]:
 @lru_cache(maxsize=128)
 def _cached_parse(sql: Optional[str]) -> ast.Query:
     """
-    Parse a string sql query into a DJ ast Query and cache it.
+    Parse a string sql query into a DJ query AST and cache it.
+    """
+    return parse(sql)
+
+
+def parse(sql: Optional[str]) -> ast.Query:
+    """
+    Parse a string sql query into a DJ ast Query
     """
     if not sql:
         raise DJParseException("Empty query provided!")
     return cast(ast.Query, parse_rule(sql, "singleStatement"))
 
 
-def parse(sql: Optional[str]) -> ast.Query:
+def cached_parse(sql: Optional[str]) -> ast.Query:
     """
     Parse a string sql query into a DJ ast Query
     """
