@@ -1,4 +1,5 @@
 """Dimension links table."""
+from functools import cached_property
 from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Integer
@@ -115,13 +116,14 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
         from datajunction_server.sql.parsing.backends.antlr4 import ast
 
         # Find equality comparions (i.e., fact.order_id = dim.order_id)
+        join_asts = self.joins()
         equality_comparisons = (
             [
                 expr
-                for expr in self.joins()[0].criteria.on.find_all(ast.BinaryOp)  # type: ignore
+                for expr in join_asts[0].criteria.on.find_all(ast.BinaryOp)  # type: ignore
                 if expr.op == ast.BinaryOpKind.Eq
             ]
-            if self.joins()[0].criteria
+            if join_asts[0].criteria
             else []
         )
         mapping = {}
@@ -159,7 +161,7 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
             for fk in self.foreign_keys.keys()
         }
 
-    @hybrid_property
+    @cached_property
     def foreign_keys_reversed(self):
         """
         Returns a mapping from the primary key column(s) on the dimension node to the

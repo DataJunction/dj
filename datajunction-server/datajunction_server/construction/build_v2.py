@@ -1125,27 +1125,20 @@ def get_column_from_canonical_dimension(
         column_name = dimension_attr.column_name
 
     # Dimension requested has reference link on node
-    for column in node.columns:
-        if (
-            column.dimension
-            and column.dimension.name == dimension_attr.node_name
-            and column.dimension_column == dimension_attr.column_name
-        ):
-            column_name = column.name
+    dimension_columns = {
+        (col.dimension.name, col.dimension_column): col.name
+        for col in node.columns
+        if col.dimension
+    }
+    key = (dimension_attr.node_name, dimension_attr.column_name)
+    if key in dimension_columns:
+        return dimension_columns[key]
 
     # Dimension referenced was foreign key of dimension link
-    link = next(
-        (
-            link
-            for link in node.dimension_links
-            if dimension_attr.name in link.foreign_keys_reversed
-        ),
-        None,
-    )
-    if link:
-        column_name = FullColumnName(
-            link.foreign_keys_reversed[dimension_attr.name],
-        ).column_name
+    for link in node.dimension_links:
+        foreign_key_column = link.foreign_keys_reversed.get(dimension_attr.name)
+        if foreign_key_column:
+            return FullColumnName(foreign_key_column).column_name
     return column_name
 
 
