@@ -694,7 +694,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             dim_node = dimension_attr.node_name
             if dim_node == self.node_revision.name:
                 continue
-            # await self.add_request_by_node_name(dim_node)
+            await self.add_request_by_node_name(dim_node)
             if dim_node not in dimension_node_joins:
                 join_path = await dimension_join_path(
                     self.session,
