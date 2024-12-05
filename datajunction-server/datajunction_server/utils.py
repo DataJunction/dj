@@ -16,6 +16,7 @@ from fastapi import Depends
 from rich.logging import RichHandler
 from sqlalchemy import AsyncAdaptedQueuePool
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -159,6 +160,22 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         raise exc  # pragma: no cover
     finally:
         await session.close()
+
+
+async def refresh_if_needed(session: AsyncSession, obj, attributes: list[str]):
+    """
+    Conditionally refresh a list of attributes for a SQLAlchemy ORM object.
+    """
+    attributes_to_refresh = []
+
+    for attr_name in attributes:
+        try:
+            getattr(obj, attr_name)
+        except MissingGreenlet:
+            attributes_to_refresh.append(attr_name)
+
+    if attributes_to_refresh:
+        await session.refresh(obj, attributes_to_refresh)
 
 
 def get_query_service_client() -> Optional[QueryServiceClient]:

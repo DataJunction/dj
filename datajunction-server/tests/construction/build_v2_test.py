@@ -635,8 +635,8 @@ async def test_build_source_node(
       event_id,
       user_id,
       device_id,
-      latency,
       country_code,
+      latency,
       utc_date
     FROM test.events
     """,
@@ -667,8 +667,8 @@ async def test_build_source_node_with_direct_filter(
       event_id,
       user_id,
       device_id,
-      latency,
       country_code,
+      latency,
       utc_date
     FROM test.events
     """,
@@ -685,16 +685,16 @@ async def test_build_source_node_with_direct_filter(
         source_DOT_events.event_id,
         source_DOT_events.user_id,
         source_DOT_events.device_id,
-        source_DOT_events.latency,
         source_DOT_events.country_code,
+        source_DOT_events.latency,
         source_DOT_events.utc_date
       FROM (
         SELECT
           event_id,
           user_id,
           device_id,
-          latency,
           country_code,
+          latency,
           utc_date
         FROM test.events
         WHERE  utc_date = 20210101
@@ -705,8 +705,8 @@ async def test_build_source_node_with_direct_filter(
       source_DOT_events.event_id,
       source_DOT_events.user_id,
       source_DOT_events.device_id,
-      source_DOT_events.latency,
       source_DOT_events.country_code,
+      source_DOT_events.latency,
       source_DOT_events.utc_date
     FROM source_DOT_events
     """
@@ -741,16 +741,16 @@ async def test_build_source_with_pushdown_filters(
         source_DOT_events.event_id,
         source_DOT_events.user_id,
         source_DOT_events.device_id,
-        source_DOT_events.latency,
         source_DOT_events.country_code,
+        source_DOT_events.latency,
         source_DOT_events.utc_date
       FROM (
         SELECT
           event_id,
           user_id,
           device_id,
-          latency,
           country_code,
+          latency,
           utc_date
         FROM test.events
         WHERE  device_id = 111 AND device_id = 222
@@ -762,8 +762,8 @@ async def test_build_source_with_pushdown_filters(
       source_DOT_events.event_id,
       source_DOT_events.user_id,
       source_DOT_events.device_id shared_DOT_devices_DOT_device_id,
-      source_DOT_events.latency,
       source_DOT_events.country_code,
+      source_DOT_events.latency,
       source_DOT_events.utc_date
     FROM source_DOT_events
     """
@@ -799,16 +799,16 @@ async def test_build_source_with_join_filters(
       SELECT  source_DOT_events.event_id,
         source_DOT_events.user_id,
         source_DOT_events.device_id,
-        source_DOT_events.latency,
         source_DOT_events.country_code,
+        source_DOT_events.latency,
         source_DOT_events.utc_date
       FROM (
         SELECT
           event_id,
           user_id,
           device_id,
-          latency,
           country_code,
+          latency,
           utc_date
         FROM test.events
         WHERE  device_id = 111
@@ -828,8 +828,8 @@ async def test_build_source_with_join_filters(
     SELECT  source_DOT_events.event_id,
         source_DOT_events.user_id,
         source_DOT_events.device_id,
-        source_DOT_events.latency,
         source_DOT_events.country_code,
+        source_DOT_events.latency,
         source_DOT_events.utc_date,
         shared_DOT_devices.device_name shared_DOT_devices_DOT_device_name,
         shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
