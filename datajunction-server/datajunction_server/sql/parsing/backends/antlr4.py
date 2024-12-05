@@ -1,7 +1,9 @@
 # pylint: skip-file
 # mypy: ignore-errors
+import copy
 import inspect
 import logging
+from functools import lru_cache
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union, cast
 
 import antlr4
@@ -179,6 +181,14 @@ def parse_rule(sql: str, rule: str) -> Union[ast.Node, "ColumnType"]:
     return ast_tree
 
 
+@lru_cache(maxsize=128)
+def _cached_parse(sql: Optional[str]) -> ast.Query:
+    """
+    Parse a string sql query into a DJ query AST and cache it.
+    """
+    return parse(sql)
+
+
 def parse(sql: Optional[str]) -> ast.Query:
     """
     Parse a string sql query into a DJ ast Query
@@ -186,6 +196,13 @@ def parse(sql: Optional[str]) -> ast.Query:
     if not sql:
         raise DJParseException("Empty query provided!")
     return cast(ast.Query, parse_rule(sql, "singleStatement"))
+
+
+def cached_parse(sql: Optional[str]) -> ast.Query:
+    """
+    Parse a string sql query into a DJ ast Query
+    """
+    return copy.deepcopy(_cached_parse(sql))
 
 
 TERMINAL_NODE = antlr4.tree.Tree.TerminalNodeImpl
