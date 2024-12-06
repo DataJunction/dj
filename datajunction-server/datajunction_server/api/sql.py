@@ -51,6 +51,7 @@ async def get_measures_sql_for_cube_v2(
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
     orderby: List[str] = Query([]),
+    preagg: bool = False,
     *,
     include_all_columns: bool = Query(
         False,
@@ -98,6 +99,7 @@ async def get_measures_sql_for_cube_v2(
         include_all_columns=include_all_columns,
         sql_transpilation_library=settings.sql_transpilation_library,
         use_materialized=use_materialized,
+        preagg=preagg,
     )
     return measures_query
 

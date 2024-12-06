@@ -3,6 +3,7 @@
 import collections
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, DefaultDict, Dict, List, Optional, Tuple, Union, cast
@@ -28,8 +29,10 @@ from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.sql import GeneratedSQL
 from datajunction_server.naming import amenable_name, from_amenable_name
+from datajunction_server.sql.decompose import Measure, extractor
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, cached_parse, parse
+from datajunction_server.sql.parsing.types import IntegerType
 from datajunction_server.utils import SEPARATOR, refresh_if_needed
 
 logger = logging.getLogger(__name__)
@@ -89,6 +92,23 @@ class DimensionJoin:
     node_query: Optional[ast.Query] = None
 
 
+def async_profile(func):
+    from functools import wraps
+
+    @wraps(func)
+    async def wrapper(*args, **kwds):
+        from line_profiler import LineProfiler
+
+        prof = LineProfiler()
+        try:
+            return await prof(func)(*args, **kwds)
+        finally:
+            prof.print_stats()
+
+    return wrapper
+
+
+@async_profile
 async def get_measures_query(  # pylint: disable=too-many-locals
     session: AsyncSession,
     metrics: List[str],
@@ -103,6 +123,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     include_all_columns: bool = False,
     sql_transpilation_library: Optional[str] = None,
     use_materialized: bool = True,
+    preagg: bool = False,
 ) -> List[GeneratedSQL]:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.
@@ -153,12 +174,16 @@ async def get_measures_query(  # pylint: disable=too-many-locals
         metric_nodes,
     )
 
+    m2m = {}
+    for metric in metric_nodes:
+        m2m[metric.name] = extractor.extract_measures(metric.current.query)
+
     column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
     matcher = re.compile(column_name_regex)
     dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
 
     measures_queries = []
-    for parent_node, _ in common_parents.items():  # type: ignore
+    for parent_node, children in common_parents.items():  # type: ignore
         measure_columns, dimensional_columns = [], []
         query_builder = await QueryBuilder.create(
             session,
@@ -190,7 +215,8 @@ async def get_measures_query(  # pylint: disable=too-many-locals
                 in dimensions_without_roles
             ]
         await refresh_if_needed(session, parent_node.current, ["columns"])
-        parent_ast = rename_columns(parent_ast, parent_node.current)
+        # if not preagg:
+        # parent_ast = rename_columns(parent_ast, parent_node.current)
 
         # Sort the selected columns into dimension vs measure columns and
         # generate identifiers for them
@@ -204,21 +230,73 @@ async def get_measures_query(  # pylint: disable=too-many-locals
                 expr.set_semantic_type(SemanticType.MEASURE)  # type: ignore
         await parent_ast.compile(context)
 
+        _ctes = parent_ast.ctes
+        parent_ast.ctes = []
+        parent_node_cte = parent_ast.to_cte(ast.Name(amenable_name(parent_node.name)))
+        final_query = ast.Query(
+            ctes=_ctes + [parent_node_cte],
+            select=ast.Select(
+                projection=[
+                    ast.Column(
+                        col.alias_or_name,
+                        _type=col.type,
+                        semantic_entity=col.semantic_entity,
+                        semantic_type=col.semantic_type,
+                    )
+                    for col in parent_ast.select.projection
+                    if col.semantic_type == SemanticType.DIMENSION
+                ],
+                from_=ast.From(
+                    relations=[
+                        ast.Relation(
+                            primary=ast.Table(
+                                ast.Name(amenable_name(parent_node.name)),
+                            ),
+                        ),
+                    ],
+                ),
+                group_by=[ast.Column(dim.alias_or_name) for dim in dimensional_columns],
+            ),
+        )
+
+        added_measures = set()
+        for metric in children:
+            for measure in m2m[metric.name][0]:
+                if measure.name in added_measures:
+                    continue
+                added_measures.add(measure.name)
+                temp_select = cached_parse(
+                    f"SELECT {measure.aggregation}({measure.expression}) AS {measure.name}",
+                ).select
+                for col in temp_select.find_all(ast.Column):
+                    if col.alias_or_name.name in parent_ast.select.column_mapping:
+                        col.add_type(
+                            parent_ast.select.column_mapping.get(
+                                col.alias_or_name.name,
+                            ).type,
+                        )
+                for proj in temp_select.projection:
+                    proj.set_semantic_entity(metric.name + SEPARATOR + measure.name)
+                    proj.set_semantic_type(SemanticType.MEASURE)
+                final_query.select.projection.extend(temp_select.projection)
+
+        print("final_query", final_query)
+
         # Build translated SQL object
         columns_metadata = [
             assemble_column_metadata(  # pragma: no cover
                 cast(ast.Column, col),
             )
-            for col in parent_ast.select.projection
+            for col in final_query.select.projection
         ]
-        dependencies, _ = await parent_ast.extract_dependencies(
+        dependencies, _ = await final_query.extract_dependencies(
             CompileContext(session, DJException()),
         )
         measures_queries.append(
             GeneratedSQL(
                 node=parent_node.current,
                 sql_transpilation_library=sql_transpilation_library,
-                sql=str(parent_ast),
+                sql=str(final_query),
                 columns=columns_metadata,
                 dialect=build_criteria.dialect,
                 upstream_tables=[
@@ -251,6 +329,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         self.use_materialized = use_materialized
 
         self._filters: List[str] = []
+        self._measures: list[Measure] = []
         self._required_dimensions: List[str] = [
             required.name for required in self.node_revision.required_dimensions
         ]
@@ -308,6 +387,11 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         """Add filters to the query builder."""
         for filter_ in filters or []:
             self.filter_by(filter_)
+        return self
+
+    def add_measures(self, measures: Optional[List[Measure]] = None):
+        """Add measures to the query builder."""
+        self._measures.extend(measures)
         return self
 
     def add_dimension(self, dimension: str):
@@ -443,8 +527,12 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             if not self.physical_table
             else self.create_query_from_physical_table(self.physical_table)
         )
-
-        if self.physical_table and not self._filters and not self.dimensions:
+        if (
+            self.physical_table
+            and not self._filters
+            and not self.dimensions
+            and not self._measures
+        ):
             self.final_ast = node_ast
         else:
             node_alias, node_ast = await self.build_current_node_ast(node_ast)
