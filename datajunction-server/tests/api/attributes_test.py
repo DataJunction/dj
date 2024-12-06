@@ -1,6 +1,7 @@
 """
 Tests for the attributes API.
 """
+
 from unittest.mock import ANY
 
 import pytest
@@ -97,5 +98,15 @@ async def test_list_system_attributes(
             "allowed_node_types": ["source", "transform"],
             "name": "dimension",
             "description": "Points to a dimension attribute column",
+        },
+        "hidden": {
+            "namespace": "system",
+            "uniqueness_scope": [],
+            "allowed_node_types": ["dimension"],
+            "name": "hidden",
+            "description": (
+                "Points to a dimension column that's not useful "
+                "for end users and should be hidden"
+            ),
         },
     }
