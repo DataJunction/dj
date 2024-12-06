@@ -123,7 +123,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     include_all_columns: bool = False,
     sql_transpilation_library: Optional[str] = None,
     use_materialized: bool = True,
-    preagg: bool = False,
+    preaggregate: bool = False,
 ) -> List[GeneratedSQL]:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.
@@ -215,8 +215,8 @@ async def get_measures_query(  # pylint: disable=too-many-locals
                 in dimensions_without_roles
             ]
         await refresh_if_needed(session, parent_node.current, ["columns"])
-        # if not preagg:
-        # parent_ast = rename_columns(parent_ast, parent_node.current)
+        if not preaggregate:
+            parent_ast = rename_columns(parent_ast, parent_node.current)
 
         # Sort the selected columns into dimension vs measure columns and
         # generate identifiers for them
@@ -230,57 +230,10 @@ async def get_measures_query(  # pylint: disable=too-many-locals
                 expr.set_semantic_type(SemanticType.MEASURE)  # type: ignore
         await parent_ast.compile(context)
 
-        _ctes = parent_ast.ctes
-        parent_ast.ctes = []
-        parent_node_cte = parent_ast.to_cte(ast.Name(amenable_name(parent_node.name)))
-        final_query = ast.Query(
-            ctes=_ctes + [parent_node_cte],
-            select=ast.Select(
-                projection=[
-                    ast.Column(
-                        col.alias_or_name,
-                        _type=col.type,
-                        semantic_entity=col.semantic_entity,
-                        semantic_type=col.semantic_type,
-                    )
-                    for col in parent_ast.select.projection
-                    if col.semantic_type == SemanticType.DIMENSION
-                ],
-                from_=ast.From(
-                    relations=[
-                        ast.Relation(
-                            primary=ast.Table(
-                                ast.Name(amenable_name(parent_node.name)),
-                            ),
-                        ),
-                    ],
-                ),
-                group_by=[ast.Column(dim.alias_or_name) for dim in dimensional_columns],
-            ),
-        )
-
-        added_measures = set()
-        for metric in children:
-            for measure in m2m[metric.name][0]:
-                if measure.name in added_measures:
-                    continue
-                added_measures.add(measure.name)
-                temp_select = cached_parse(
-                    f"SELECT {measure.aggregation}({measure.expression}) AS {measure.name}",
-                ).select
-                for col in temp_select.find_all(ast.Column):
-                    if col.alias_or_name.name in parent_ast.select.column_mapping:
-                        col.add_type(
-                            parent_ast.select.column_mapping.get(
-                                col.alias_or_name.name,
-                            ).type,
-                        )
-                for proj in temp_select.projection:
-                    proj.set_semantic_entity(metric.name + SEPARATOR + measure.name)
-                    proj.set_semantic_type(SemanticType.MEASURE)
-                final_query.select.projection.extend(temp_select.projection)
-
-        print("final_query", final_query)
+        if preaggregate:
+            final_query = build_preaggregate_query(parent_ast, parent_node, dimensional_columns, children, m2m)
+        else:
+            final_query = parent_ast
 
         # Build translated SQL object
         columns_metadata = [
@@ -308,6 +261,61 @@ async def get_measures_query(  # pylint: disable=too-many-locals
             ),
         )
     return measures_queries
+
+
+def build_preaggregate_query(parent_ast: ast.Query, parent_node: Node, dimensional_columns: list[ast.Column], children: list[NodeRevision], m2m):
+    _ctes = parent_ast.ctes
+    parent_ast.ctes = []
+    parent_node_cte = parent_ast.to_cte(ast.Name(amenable_name(parent_node.name)))
+    final_query = ast.Query(
+        ctes=_ctes + [parent_node_cte],
+        select=ast.Select(
+            projection=[
+                ast.Column(
+                    col.alias_or_name,
+                    _type=col.type,
+                    semantic_entity=col.semantic_entity,
+                    semantic_type=col.semantic_type,
+                )
+                for col in parent_ast.select.projection
+                if col.semantic_type == SemanticType.DIMENSION
+            ],
+            from_=ast.From(
+                relations=[
+                    ast.Relation(
+                        primary=ast.Table(
+                            ast.Name(amenable_name(parent_node.name)),
+                        ),
+                    ),
+                ],
+            ),
+            group_by=[ast.Column(dim.alias_or_name) for dim in dimensional_columns],
+        ),
+    )
+
+    added_measures = set()
+    for metric in children:
+        for measure in m2m[metric.name][0]:
+            if measure.name in added_measures:
+                continue
+            added_measures.add(measure.name)
+            temp_select = cached_parse(
+                f"SELECT {measure.aggregation}({measure.expression}) AS {measure.name}",
+            ).select
+            for col in temp_select.find_all(ast.Column):
+                if col.alias_or_name.name in parent_ast.select.column_mapping:
+                    col.add_type(
+                        parent_ast.select.column_mapping.get(
+                            col.alias_or_name.name,
+                        ).type,
+                    )
+            for proj in temp_select.projection:
+                proj.set_semantic_entity(metric.name + SEPARATOR + measure.name)
+                proj.set_semantic_type(SemanticType.MEASURE)
+            final_query.select.projection.extend(temp_select.projection)
+    return final_query
+    # print("final_query", final_query)
+
 
 
 class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-public-methods
