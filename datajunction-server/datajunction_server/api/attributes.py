@@ -85,6 +85,16 @@ async def default_attribute_types(session: AsyncSession = Depends(get_session)):
             uniqueness_scope=[],
             allowed_node_types=[NodeType.SOURCE, NodeType.TRANSFORM],
         ),
+        AttributeType(
+            namespace=RESERVED_ATTRIBUTE_NAMESPACE,
+            name="hidden",
+            description=(
+                "Points to a dimension column that's not useful "
+                "for end users and should be hidden"
+            ),
+            uniqueness_scope=[],
+            allowed_node_types=[NodeType.DIMENSION],
+        ),
     ]
     default_attribute_type_names = {type_.name: type_ for type_ in defaults}
 
