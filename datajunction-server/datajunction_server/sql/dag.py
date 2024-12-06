@@ -485,6 +485,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
                 is_primary_key=(
                     attribute_types is not None and "primary_key" in attribute_types
                 ),
+                is_hidden=(attribute_types is not None and "hidden" in attribute_types),
                 type=str(column_type),
                 path=[
                     (path.replace("[", "").replace("]", "")[:-1])
