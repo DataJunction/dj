@@ -26,12 +26,12 @@ class Unit:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.experimental.pydantic.type(model=AggregationRule_, all_fields=True)
-class AggregationRule:
+class AggregationRule:  # pylint: disable=missing-class-docstring,too-few-public-methods
     ...
 
 
 @strawberry.experimental.pydantic.type(model=Measure_, all_fields=True)
-class Measure:
+class Measure:  # pylint: disable=missing-class-docstring,too-few-public-methods
     ...
 
 
