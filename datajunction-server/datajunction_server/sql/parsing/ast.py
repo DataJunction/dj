@@ -846,6 +846,16 @@ class Column(Aliasable, Named, Expression):
             column_namespace = self.namespace[0].name
         return column_namespace, column_name, subscript_name
 
+    @classmethod
+    def from_existing(cls, col: "Column"):
+        """Build a column from an existing one"""
+        return Column(
+            col.alias_or_name,
+            _type=col.type,
+            semantic_entity=col.semantic_entity,
+            semantic_type=col.semantic_type,
+        )
+
     async def find_table_sources(
         self,
         ctx: CompileContext,
@@ -2417,6 +2427,21 @@ class From(Node):
         parts += ",\n".join([str(r) for r in self.relations])
 
         return "".join(parts)
+
+    @classmethod
+    def Table(cls, table_name: str):
+        """
+        Create a FROM clause sourcing from this table name
+        """
+        return From(
+            relations=[
+                Relation(
+                    primary=Table(
+                        Name(table_name),
+                    ),
+                ),
+            ],
+        )
 
 
 @dataclass(eq=False)
