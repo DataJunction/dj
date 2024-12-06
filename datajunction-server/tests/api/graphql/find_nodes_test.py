@@ -593,6 +593,17 @@ async def test_find_metric(
                 requiredDimensions {
                     name
                 }
+                extractedMeasures {
+                    measures {
+                        name
+                        expression
+                        aggregation
+                        rule {
+                            type
+                        }
+                    }
+                    derivedSql
+                }
             }
         }
     }
@@ -614,6 +625,49 @@ async def test_find_metric(
                     },
                 ],
                 "requiredDimensions": [],
+                "extractedMeasures": {
+                    "measures": [
+                        {
+                            "aggregation": "SUM",
+                            "expression": "rm.completed_repairs",
+                            "name": "rm.completed_repairs_sum_0",
+                            "rule": {
+                                "type": "FULL",
+                            },
+                        },
+                        {
+                            "aggregation": "SUM",
+                            "expression": "rm.total_repairs_dispatched",
+                            "name": "rm.total_repairs_dispatched_sum_1",
+                            "rule": {
+                                "type": "FULL",
+                            },
+                        },
+                        {
+                            "aggregation": "SUM",
+                            "expression": "rm.total_amount_in_region",
+                            "name": "rm.total_amount_in_region_sum_2",
+                            "rule": {
+                                "type": "FULL",
+                            },
+                        },
+                        {
+                            "aggregation": "SUM",
+                            "expression": "na.total_amount_nationwide",
+                            "name": "na.total_amount_nationwide_sum_3",
+                            "rule": {
+                                "type": "FULL",
+                            },
+                        },
+                    ],
+                    "derivedSql": "SELECT  (SUM(rm.completed_repairs_sum_0) * 1.0 / "
+                    "SUM(rm.total_repairs_dispatched_sum_1)) * "
+                    "(SUM(rm.total_amount_in_region_sum_2) * 1.0 / "
+                    "SUM(na.total_amount_nationwide_sum_3)) * 100 \n"
+                    " FROM default.regional_level_agg rm CROSS JOIN "
+                    "default.national_level_agg na\n"
+                    "\n",
+                },
             },
             "name": "default.regional_repair_efficiency",
             "type": "METRIC",
