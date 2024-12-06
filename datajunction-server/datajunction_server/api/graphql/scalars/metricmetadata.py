@@ -6,6 +6,8 @@ import strawberry
 
 from datajunction_server.models.node import MetricDirection as MetricDirection_
 from datajunction_server.sql.decompose import Aggregability as Aggregability_
+from datajunction_server.sql.decompose import AggregationRule as AggregationRule_
+from datajunction_server.sql.decompose import Measure as Measure_
 
 MetricDirection = strawberry.enum(MetricDirection_)
 Aggregability = strawberry.enum(Aggregability_)
@@ -23,26 +25,14 @@ class Unit:  # pylint: disable=too-few-public-methods
     abbreviation: Optional[str]
 
 
-@strawberry.type
+@strawberry.experimental.pydantic.type(model=AggregationRule_, all_fields=True)
 class AggregationRule:
-    """
-    The aggregation rule for the measure.
-    """
-
-    type: Aggregability = Aggregability.NONE  # type: ignore
-    level: list[str] | None = None
+    ...
 
 
-@strawberry.type
-class Measure:  # pylint: disable=too-few-public-methods
-    """
-    Measure output
-    """
-
-    name: str
-    expression: str  # A SQL expression for defining the measure
-    aggregation: str
-    rule: AggregationRule
+@strawberry.experimental.pydantic.type(model=Measure_, all_fields=True)
+class Measure:
+    ...
 
 
 @strawberry.type
