@@ -5,7 +5,6 @@ from typing import List, Optional
 import strawberry
 from strawberry.scalars import JSON
 
-from datajunction_server.sql.decompose import extractor
 from datajunction_server.api.graphql.scalars import BigInt
 from datajunction_server.api.graphql.scalars.availabilitystate import AvailabilityState
 from datajunction_server.api.graphql.scalars.catalog_engine import Catalog
@@ -13,7 +12,11 @@ from datajunction_server.api.graphql.scalars.column import Column, NodeName, Par
 from datajunction_server.api.graphql.scalars.materialization import (
     MaterializationConfig,
 )
-from datajunction_server.api.graphql.scalars.metricmetadata import ExtractedMeasures, Measure, MetricMetadata
+from datajunction_server.api.graphql.scalars.metricmetadata import (
+    ExtractedMeasures,
+    Measure,
+    MetricMetadata,
+)
 from datajunction_server.api.graphql.scalars.user import User
 from datajunction_server.database.dimensionlink import (
     JoinCardinality as JoinCardinality_,
@@ -24,6 +27,7 @@ from datajunction_server.database.node import NodeRevision as DBNodeRevision
 from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
+from datajunction_server.sql.decompose import extractor
 
 NodeType = strawberry.enum(NodeType_)
 NodeStatus = strawberry.enum(NodeStatus_)
@@ -118,7 +122,6 @@ class NodeRevision:
     metric_metadata: Optional[MetricMetadata] = None
     required_dimensions: Optional[List[Column]] = None
 
-    # Only metrics will have these fields
     @strawberry.field
     def extracted_measures(self, root: "DBNodeRevision") -> ExtractedMeasures | None:
         """
@@ -127,7 +130,7 @@ class NodeRevision:
         if root.type != NodeType.METRIC:
             return None
         measures, derived_sql = extractor.extract_measures(root.query)
-        return ExtractedMeasures(measures=measures, derived_sql=derived_sql)
+        return ExtractedMeasures(measures=measures, derived_sql=derived_sql)  # type: ignore
 
     # Only cubes will have these fields
     @strawberry.field
