@@ -959,7 +959,7 @@ class Column(Aliasable, Named, Expression):
                 not namespace
                 or current_table.alias_or_name.identifier(False) == namespace
             ):
-                if current_table.add_ref_column(self, ctx):
+                if await current_table.add_ref_column(self, ctx):
                     found.append(current_table)
                     return found
 
