@@ -14,7 +14,6 @@ from datajunction_server.api.graphql.scalars.materialization import (
 )
 from datajunction_server.api.graphql.scalars.metricmetadata import (
     ExtractedMeasures,
-    Measure,
     MetricMetadata,
 )
 from datajunction_server.api.graphql.scalars.user import User
