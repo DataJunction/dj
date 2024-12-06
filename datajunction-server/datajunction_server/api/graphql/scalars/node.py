@@ -5,6 +5,7 @@ from typing import List, Optional
 import strawberry
 from strawberry.scalars import JSON
 
+from datajunction_server.sql.decompose import extractor
 from datajunction_server.api.graphql.scalars import BigInt
 from datajunction_server.api.graphql.scalars.availabilitystate import AvailabilityState
 from datajunction_server.api.graphql.scalars.catalog_engine import Catalog
@@ -12,7 +13,7 @@ from datajunction_server.api.graphql.scalars.column import Column, NodeName, Par
 from datajunction_server.api.graphql.scalars.materialization import (
     MaterializationConfig,
 )
-from datajunction_server.api.graphql.scalars.metricmetadata import MetricMetadata
+from datajunction_server.api.graphql.scalars.metricmetadata import ExtractedMeasures, Measure, MetricMetadata
 from datajunction_server.api.graphql.scalars.user import User
 from datajunction_server.database.dimensionlink import (
     JoinCardinality as JoinCardinality_,
@@ -109,13 +110,24 @@ class NodeRevision:
     availability: Optional[AvailabilityState] = None
     materializations: Optional[List[MaterializationConfig]] = None
 
-    # Only source nodes will have this
+    # Only source nodes will have these fields
     schema_: Optional[str]
     table: Optional[str]
 
-    # Only metrics will have this field
+    # Only metrics will have these fields
     metric_metadata: Optional[MetricMetadata] = None
     required_dimensions: Optional[List[Column]] = None
+
+    # Only metrics will have these fields
+    @strawberry.field
+    def extracted_measures(self, root: "DBNodeRevision") -> ExtractedMeasures | None:
+        """
+        A list of measures for a metric node
+        """
+        if root.type != NodeType.METRIC:
+            return None
+        measures, derived_sql = extractor.extract_measures(root.query)
+        return ExtractedMeasures(measures=measures, derived_sql=derived_sql)
 
     # Only cubes will have these fields
     @strawberry.field
