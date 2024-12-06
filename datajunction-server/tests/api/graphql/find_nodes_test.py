@@ -537,6 +537,11 @@ async def test_find_transform(
                 cubeDimensions {
                     name
                 }
+                extractedMeasures {
+                    measures {
+                        name
+                    }
+                }
             }
         }
     }
@@ -560,6 +565,7 @@ async def test_find_transform(
                         "name": "default.repair_order_details",
                     },
                 ],
+                "extractedMeasures": None,
             },
             "name": "default.repair_orders_fact",
             "type": "TRANSFORM",
