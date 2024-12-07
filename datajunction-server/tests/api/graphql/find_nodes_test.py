@@ -608,7 +608,8 @@ async def test_find_metric(
                             type
                         }
                     }
-                    derivedSql
+                    derivedQuery
+                    derivedExpression
                 }
             }
         }
@@ -666,13 +667,17 @@ async def test_find_metric(
                             },
                         },
                     ],
-                    "derivedSql": "SELECT  (SUM(rm.completed_repairs_sum_0) * 1.0 / "
+                    "derivedQuery": "SELECT  (SUM(rm.completed_repairs_sum_0) * 1.0 / "
                     "SUM(rm.total_repairs_dispatched_sum_1)) * "
                     "(SUM(rm.total_amount_in_region_sum_2) * 1.0 / "
                     "SUM(na.total_amount_nationwide_sum_3)) * 100 \n"
                     " FROM default.regional_level_agg rm CROSS JOIN "
                     "default.national_level_agg na\n"
                     "\n",
+                    "derivedExpression": "(SUM(rm.completed_repairs_sum_0) * 1.0 / "
+                    "SUM(rm.total_repairs_dispatched_sum_1)) * "
+                    "(SUM(rm.total_amount_in_region_sum_2) * 1.0 / "
+                    "SUM(na.total_amount_nationwide_sum_3)) * 100",
                 },
             },
             "name": "default.regional_repair_efficiency",

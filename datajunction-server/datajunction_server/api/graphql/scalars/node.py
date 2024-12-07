@@ -128,8 +128,12 @@ class NodeRevision:
         """
         if root.type != NodeType.METRIC:
             return None
-        measures, derived_sql = extractor.extract_measures(root.query)
-        return ExtractedMeasures(measures=measures, derived_sql=derived_sql)  # type: ignore
+        measures, derived_ast = extractor.extract_measures(root.query)
+        return ExtractedMeasures(  # type: ignore
+            measures=measures,
+            derived_query=str(derived_ast),
+            derived_expression=str(derived_ast.select.projection[0]),
+        )
 
     # Only cubes will have these fields
     @strawberry.field

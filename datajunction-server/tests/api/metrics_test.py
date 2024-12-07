@@ -410,6 +410,33 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
     )
     data = response.json()
     assert data["incompatible_druid_functions"] == ["IF"]
+    assert data["measures"] == [
+        {
+            "aggregation": "SUM",
+            "expression": "if(discount > 0.0, 1, 0)",
+            "name": "discount_sum_0",
+            "rule": {
+                "level": None,
+                "type": "full",
+            },
+        },
+        {
+            "aggregation": "COUNT",
+            "expression": "*",
+            "name": "count_1",
+            "rule": {
+                "level": None,
+                "type": "full",
+            },
+        },
+    ]
+    assert data["derived_query"] == (
+        "SELECT  CAST(sum(discount_sum_0) AS DOUBLE) / SUM(count_1) AS "
+        "default_DOT_discounted_orders_rate \n FROM default.repair_orders_fact"
+    )
+    assert data["derived_expression"] == (
+        "CAST(sum(discount_sum_0) AS DOUBLE) / SUM(count_1) AS default_DOT_discounted_orders_rate"
+    )
 
 
 @pytest.mark.asyncio
