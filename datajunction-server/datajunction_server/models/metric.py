@@ -45,7 +45,8 @@ class Metric(BaseModel):
     incompatible_druid_functions: List[str]
 
     measures: List[Measure]
-    derived_sql: str
+    derived_query: str
+    derived_expression: str
 
     @classmethod
     def parse_node(cls, node: Node, dims: List[DimensionAttributeOutput]) -> "Metric":
@@ -76,7 +77,8 @@ class Metric(BaseModel):
             required_dimensions=[dim.name for dim in node.current.required_dimensions],
             incompatible_druid_functions=incompatible_druid_functions,
             measures=measures,
-            derived_sql=str(derived_sql).strip(),
+            derived_query=str(derived_sql).strip(),
+            derived_expression=str(derived_sql.select.projection[0]).strip(),
         )
 
 
