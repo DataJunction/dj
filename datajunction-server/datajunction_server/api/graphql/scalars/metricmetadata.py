@@ -42,7 +42,8 @@ class ExtractedMeasures:  # pylint: disable=too-few-public-methods
     """
 
     measures: list[Measure]
-    derived_sql: str
+    derived_query: str
+    derived_expression: str
 
 
 @strawberry.type
