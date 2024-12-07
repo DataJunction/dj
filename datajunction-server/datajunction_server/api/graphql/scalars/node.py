@@ -12,7 +12,10 @@ from datajunction_server.api.graphql.scalars.column import Column, NodeName, Par
 from datajunction_server.api.graphql.scalars.materialization import (
     MaterializationConfig,
 )
-from datajunction_server.api.graphql.scalars.metricmetadata import MetricMetadata
+from datajunction_server.api.graphql.scalars.metricmetadata import (
+    ExtractedMeasures,
+    MetricMetadata,
+)
 from datajunction_server.api.graphql.scalars.user import User
 from datajunction_server.database.dimensionlink import (
     JoinCardinality as JoinCardinality_,
@@ -23,6 +26,7 @@ from datajunction_server.database.node import NodeRevision as DBNodeRevision
 from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
+from datajunction_server.sql.decompose import extractor
 
 NodeType = strawberry.enum(NodeType_)
 NodeStatus = strawberry.enum(NodeStatus_)
@@ -109,13 +113,27 @@ class NodeRevision:
     availability: Optional[AvailabilityState] = None
     materializations: Optional[List[MaterializationConfig]] = None
 
-    # Only source nodes will have this
+    # Only source nodes will have these fields
     schema_: Optional[str]
     table: Optional[str]
 
-    # Only metrics will have this field
+    # Only metrics will have these fields
     metric_metadata: Optional[MetricMetadata] = None
     required_dimensions: Optional[List[Column]] = None
+
+    @strawberry.field
+    def extracted_measures(self, root: "DBNodeRevision") -> ExtractedMeasures | None:
+        """
+        A list of measures for a metric node
+        """
+        if root.type != NodeType.METRIC:
+            return None
+        measures, derived_ast = extractor.extract_measures(root.query)
+        return ExtractedMeasures(  # type: ignore
+            measures=measures,
+            derived_query=str(derived_ast),
+            derived_expression=str(derived_ast.select.projection[0]),
+        )
 
     # Only cubes will have these fields
     @strawberry.field

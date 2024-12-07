@@ -537,6 +537,11 @@ async def test_find_transform(
                 cubeDimensions {
                     name
                 }
+                extractedMeasures {
+                    measures {
+                        name
+                    }
+                }
             }
         }
     }
@@ -560,6 +565,7 @@ async def test_find_transform(
                         "name": "default.repair_order_details",
                     },
                 ],
+                "extractedMeasures": None,
             },
             "name": "default.repair_orders_fact",
             "type": "TRANSFORM",
@@ -593,6 +599,18 @@ async def test_find_metric(
                 requiredDimensions {
                     name
                 }
+                extractedMeasures {
+                    measures {
+                        name
+                        expression
+                        aggregation
+                        rule {
+                            type
+                        }
+                    }
+                    derivedQuery
+                    derivedExpression
+                }
             }
         }
     }
@@ -614,6 +632,53 @@ async def test_find_metric(
                     },
                 ],
                 "requiredDimensions": [],
+                "extractedMeasures": {
+                    "measures": [
+                        {
+                            "aggregation": "SUM",
+                            "expression": "rm.completed_repairs",
+                            "name": "rm.completed_repairs_sum_0",
+                            "rule": {
+                                "type": "FULL",
+                            },
+                        },
+                        {
+                            "aggregation": "SUM",
+                            "expression": "rm.total_repairs_dispatched",
+                            "name": "rm.total_repairs_dispatched_sum_1",
+                            "rule": {
+                                "type": "FULL",
+                            },
+                        },
+                        {
+                            "aggregation": "SUM",
+                            "expression": "rm.total_amount_in_region",
+                            "name": "rm.total_amount_in_region_sum_2",
+                            "rule": {
+                                "type": "FULL",
+                            },
+                        },
+                        {
+                            "aggregation": "SUM",
+                            "expression": "na.total_amount_nationwide",
+                            "name": "na.total_amount_nationwide_sum_3",
+                            "rule": {
+                                "type": "FULL",
+                            },
+                        },
+                    ],
+                    "derivedQuery": "SELECT  (SUM(rm.completed_repairs_sum_0) * 1.0 / "
+                    "SUM(rm.total_repairs_dispatched_sum_1)) * "
+                    "(SUM(rm.total_amount_in_region_sum_2) * 1.0 / "
+                    "SUM(na.total_amount_nationwide_sum_3)) * 100 \n"
+                    " FROM default.regional_level_agg rm CROSS JOIN "
+                    "default.national_level_agg na\n"
+                    "\n",
+                    "derivedExpression": "(SUM(rm.completed_repairs_sum_0) * 1.0 / "
+                    "SUM(rm.total_repairs_dispatched_sum_1)) * "
+                    "(SUM(rm.total_amount_in_region_sum_2) * 1.0 / "
+                    "SUM(na.total_amount_nationwide_sum_3)) * 100",
+                },
             },
             "name": "default.regional_repair_efficiency",
             "type": "METRIC",
