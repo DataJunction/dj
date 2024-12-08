@@ -90,23 +90,6 @@ class DimensionJoin:
     node_query: Optional[ast.Query] = None
 
 
-def async_profile(func):
-    from functools import wraps
-
-    @wraps(func)
-    async def wrapper(*args, **kwds):
-        from line_profiler import LineProfiler
-
-        prof = LineProfiler()
-        try:
-            return await prof(func)(*args, **kwds)
-        finally:
-            prof.print_stats()
-
-    return wrapper
-
-
-@async_profile
 async def get_measures_query(  # pylint: disable=too-many-locals
     session: AsyncSession,
     metrics: List[str],
@@ -117,7 +100,6 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     engine_version: Optional[str] = None,
     current_user: Optional[User] = None,
     validate_access: access.ValidateAccessFn = None,
-    cast_timestamp_to_ms: bool = False,  # pylint: disable=unused-argument
     include_all_columns: bool = False,
     sql_transpilation_library: Optional[str] = None,
     use_materialized: bool = True,
