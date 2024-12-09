@@ -146,7 +146,6 @@ async def get_measures_query(  # pylint: disable=too-many-locals
         dimensions,
     )
     metrics_sorting_order = {val: idx for idx, val in enumerate(metrics)}
-    print("metrics_sorting_order',", metrics, metrics_sorting_order)
     metric_nodes = sorted(
         metric_nodes,
         key=lambda x: metrics_sorting_order.get(x.name, 0),
@@ -223,7 +222,6 @@ async def get_measures_query(  # pylint: disable=too-many-locals
             if preaggregate
             else parent_ast
         )
-        print("final_query", final_query)
 
         # Build translated SQL object
         columns_metadata = [
@@ -281,7 +279,6 @@ def build_preaggregate_query(
     )
 
     added_measures = set()
-    print("children", [c.name for c in children])
     for metric in children:
         for measure in metrics2measures[metric.name][0]:
             if measure.name in added_measures:
