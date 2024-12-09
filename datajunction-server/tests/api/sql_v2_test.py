@@ -1015,7 +1015,6 @@ async def test_measures_sql_preaggregate(  # pylint: disable=too-many-arguments
     )
     data = response.json()
     translated_sql = data[0]
-    print("translated_sql", translated_sql["sql"])
     assert str(parse(str(sql))) == str(parse(str(translated_sql["sql"])))
     result = duckdb_conn.sql(translated_sql["sql"])
     assert set(result.fetchall()) == set(rows)
