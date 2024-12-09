@@ -1,4 +1,6 @@
 """Used for extracting measures form metric definitions."""
+from functools import lru_cache
+
 from pydantic import BaseModel
 
 from datajunction_server.enum import StrEnum
@@ -56,8 +58,7 @@ class MeasureExtractor:
     derived from those measures.
     """
 
-    def __init__(self):
-        """Register handlers for aggregation functions"""
+    def __init__(self, query_ast: ast.Query):
         self.handlers = {
             dj_functions.Sum: self._simple_associative_agg,
             dj_functions.Count: self._simple_associative_agg,
@@ -66,23 +67,49 @@ class MeasureExtractor:
             dj_functions.Avg: self._avg,
         }
 
-    def extract_measures(self, metric_query: str) -> tuple[list[Measure], ast.Query]:
+        # Outputs from decomposition
+        self._measures: list[Measure] = []
+        self._query_ast = query_ast
+        self._extracted = False
+
+    @classmethod
+    @lru_cache(maxsize=128)
+    def from_query_string(cls, metric_query: str):
+        query_ast = parse(metric_query)
+        return MeasureExtractor(query_ast=query_ast)
+
+    @classmethod
+    def from_query_ast(cls, query_ast: ast.Query):
+        return MeasureExtractor(query_ast=query_ast)
+
+    def extract(self) -> tuple[list[Measure], ast.Query]:
         """
         Decomposes the metric query into its constituent aggregatable measures and
         constructs a SQL query derived from those measures.
         """
-        query_ast = parse(metric_query)
-        measures = []
+        if not self._extracted:
+            # Normalize metric queries with aliases
+            parent_node_alias = self._query_ast.select.from_.relations[  # type: ignore
+                0
+            ].primary.alias
+            if parent_node_alias:
+                for col in self._query_ast.find_all(ast.Column):
+                    if (
+                        col.namespace
+                        and col.namespace[0].name == parent_node_alias.name
+                    ):
+                        col.name = ast.Name(col.name.name)
+                self._query_ast.select.from_.relations[0].primary.set_alias(None)  # type: ignore
 
-        for idx, func in enumerate(query_ast.find_all(ast.Function)):
-            dj_function = func.function()
-            handler = self.handlers.get(dj_function)
-            if handler and dj_function.is_aggregation:
-                if func_measures := handler(func, idx):  # pragma: no cover
-                    MeasureExtractor.update_ast(func, func_measures)
-                measures.extend(func_measures)
-
-        return measures, query_ast
+            for idx, func in enumerate(self._query_ast.find_all(ast.Function)):
+                dj_function = func.function()
+                handler = self.handlers.get(dj_function)
+                if handler and dj_function.is_aggregation:
+                    if func_measures := handler(func, idx):  # pragma: no cover
+                        MeasureExtractor.update_ast(func, func_measures)
+                    self._measures.extend(sorted(func_measures, key=lambda m: m.name))
+            self._extracted = True
+        return self._measures, self._query_ast
 
     def _simple_associative_agg(self, func, idx) -> list[Measure]:
         """
@@ -154,7 +181,7 @@ class MeasureExtractor:
                         args=[ast.Column(ast.Name(measures[0].name))],
                     ),
                     right=ast.Function(
-                        ast.Name("COUNT"),
+                        ast.Name("SUM"),
                         args=[ast.Column(ast.Name(measures[1].name))],
                     ),
                 ),
@@ -167,6 +194,3 @@ class MeasureExtractor:
             func.args = [ast.Column(ast.Name(measure.name)) for measure in measures]
         else:
             func.args = [ast.Column(ast.Name(measure.name)) for measure in measures]
-
-
-extractor = MeasureExtractor()
