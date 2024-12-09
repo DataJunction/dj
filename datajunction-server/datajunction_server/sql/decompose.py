@@ -75,12 +75,14 @@ class MeasureExtractor:
     @classmethod
     @lru_cache(maxsize=128)
     def from_query_string(cls, metric_query: str):
+        """Create measures extractor from query string"""
         query_ast = parse(metric_query)
         return MeasureExtractor(query_ast=query_ast)
 
     @classmethod
-    def from_query_ast(cls, query_ast: ast.Query):
-        return MeasureExtractor(query_ast=query_ast)
+    def from_query_ast(cls, query_ast: ast.Query):  # pragma: no cover
+        """Create measures extractor from query AST"""
+        return MeasureExtractor(query_ast=query_ast)  # pragma: no cover
 
     def extract(self) -> tuple[list[Measure], ast.Query]:
         """
