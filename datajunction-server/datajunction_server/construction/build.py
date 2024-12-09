@@ -22,7 +22,7 @@ from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.naming import LOOKUP_CHARS, amenable_name, from_amenable_name
 from datajunction_server.sql.dag import get_shared_dimensions
-from datajunction_server.sql.decompose import extractor
+from datajunction_server.sql.decompose import Measure, MeasureExtractor
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.types import ColumnType
@@ -341,7 +341,7 @@ def build_materialized_cube_node(
 async def metrics_to_measures(
     session: AsyncSession,
     metric_nodes: List[Node],
-) -> Tuple[DefaultDict[str, Set[str]], DefaultDict[str, Set[str]]]:
+) -> Tuple[DefaultDict[str, Set[str]], dict[str, tuple[list[Measure], ast.Query]]]:
     """
     For the given metric nodes, returns a mapping between the metrics' referenced parent nodes
     and the list of necessary measures to extract from the parent node.
@@ -352,12 +352,11 @@ async def metrics_to_measures(
     }
     """
     ctx = CompileContext(session, DJException())
-    metric_to_measures = collections.defaultdict(set)
+    metric_to_measures: dict[str, tuple[list[Measure], ast.Query]] = {}
     parents_to_measures = collections.defaultdict(set)
     for metric_node in metric_nodes:
-        metric_to_measures[metric_node.name] = extractor.extract_measures(
-            metric_node.current.query,
-        )
+        extractor = MeasureExtractor.from_query_string(metric_node.current.query)
+        metric_to_measures[metric_node.name] = extractor.extract()
         metric_ast = parse(metric_node.current.query)
         await metric_ast.compile(ctx)
         for col in metric_ast.find_all(ast.Column):

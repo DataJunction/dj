@@ -847,8 +847,10 @@ class Column(Aliasable, Named, Expression):
         return column_namespace, column_name, subscript_name
 
     @classmethod
-    def from_existing(cls, col: "Column"):
-        """Build a column from an existing one"""
+    def from_existing(cls, col: Aliasable | Expression):
+        """
+        Build a selectable column from an existing one
+        """
         return Column(
             col.alias_or_name,
             _type=col.type,
