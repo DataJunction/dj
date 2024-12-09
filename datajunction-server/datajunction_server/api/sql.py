@@ -91,7 +91,7 @@ async def get_measures_sql_for_cube_v2(
         get_measures_query,
     )
 
-    metrics = list(OrderedDict.fromkeys(set(metrics)))
+    metrics = list(OrderedDict.fromkeys(metrics))
     measures_query = await get_measures_query(
         session=session,
         metrics=metrics,

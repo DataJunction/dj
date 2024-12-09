@@ -145,6 +145,12 @@ async def get_measures_query(  # pylint: disable=too-many-locals
         metrics,
         dimensions,
     )
+    metrics_sorting_order = {val: idx for idx, val in enumerate(metrics)}
+    print("metrics_sorting_order',", metrics, metrics_sorting_order)
+    metric_nodes = sorted(
+        metric_nodes,
+        key=lambda x: metrics_sorting_order.get(x.name, 0),
+    )
     context = CompileContext(session=session, exception=DJException())
     common_parents = group_metrics_by_parent(metric_nodes)
 
@@ -160,6 +166,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
 
     measures_queries = []
     for parent_node, children in common_parents.items():  # type: ignore
+        children = sorted(children, key=lambda x: metrics_sorting_order.get(x.name, 0))
         measure_columns, dimensional_columns = [], []
         query_builder = await QueryBuilder.create(
             session,
@@ -216,6 +223,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
             if preaggregate
             else parent_ast
         )
+        print("final_query", final_query)
 
         # Build translated SQL object
         columns_metadata = [
@@ -257,21 +265,23 @@ def build_preaggregate_query(
     """
     existing_ctes = parent_ast.ctes
     parent_ast.ctes = []
-    parent_node_cte = parent_ast.to_cte(ast.Name(amenable_name(parent_node.name)))
+    built_parent_ref = parent_node.name + "_built"
+    parent_node_cte = parent_ast.to_cte(ast.Name(amenable_name(built_parent_ref)))
     final_query = ast.Query(
         ctes=existing_ctes + [parent_node_cte],
         select=ast.Select(
             projection=[
                 ast.Column.from_existing(col)
                 for col in parent_ast.select.projection
-                if col.semantic_type == SemanticType.DIMENSION
+                if col.semantic_type == SemanticType.DIMENSION  # type: ignore
             ],
-            from_=ast.From.Table(amenable_name(parent_node.name)),
+            from_=ast.From.Table(amenable_name(built_parent_ref)),
             group_by=[ast.Column(dim.alias_or_name) for dim in dimensional_columns],
         ),
     )
 
     added_measures = set()
+    print("children", [c.name for c in children])
     for metric in children:
         for measure in metrics2measures[metric.name][0]:
             if measure.name in added_measures:
@@ -283,13 +293,13 @@ def build_preaggregate_query(
             for col in temp_select.find_all(ast.Column):
                 if col.alias_or_name.name in parent_ast.select.column_mapping:
                     col.add_type(
-                        parent_ast.select.column_mapping.get(
+                        parent_ast.select.column_mapping.get(  # type: ignore
                             col.alias_or_name.name,
                         ).type,
                     )
             for proj in temp_select.projection:
-                proj.set_semantic_entity(metric.name + SEPARATOR + measure.name)
-                proj.set_semantic_type(SemanticType.MEASURE)
+                proj.set_semantic_entity(metric.name + SEPARATOR + measure.name)  # type: ignore
+                proj.set_semantic_type(SemanticType.MEASURE)  # type: ignore
             final_query.select.projection.extend(temp_select.projection)
     return final_query
 
@@ -375,7 +385,8 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
 
     def add_measures(self, measures: Optional[List[Measure]] = None):
         """Add measures to the query builder."""
-        self._measures.extend(measures)
+        if measures:
+            self._measures.extend(measures)
         return self
 
     def add_dimension(self, dimension: str):
