@@ -210,7 +210,7 @@ class LinkableNodeYAML(NodeYAML):
         DimensionJoinLinkYAML | DimensionReferenceLinkYAML
     ] | None = None
 
-    def _deploy_dimension_links(
+    def _deploy_dimension_links(  # pylint: disable=too-many-locals
         self,
         name: str,
         node_init,
@@ -220,9 +220,11 @@ class LinkableNodeYAML(NodeYAML):
         """
         Deploy any links from columns on this node to columns on dimension nodes
         """
+        prefixed_name = f"{prefix}.{name}"
+        node = node_init(prefixed_name)
+        existing_join_links = {link.dimension.name for link in node.dimension_links}
+        existing_reference_links = {col.name for col in node.columns if col.dimension}
         if self.dimension_links:
-            prefixed_name = f"{prefix}.{name}"
-            node = node_init(prefixed_name)
             for link in self.dimension_links:
                 prefixed_dimension = render_prefixes(
                     link.dimension_node
@@ -231,6 +233,8 @@ class LinkableNodeYAML(NodeYAML):
                     prefix,
                 )
                 if isinstance(link, DimensionJoinLinkYAML):
+                    if prefixed_dimension in existing_join_links:
+                        existing_join_links.remove(prefixed_dimension)
                     if link.join_on:
                         prefixed_join_on = render_prefixes(link.join_on, prefix)
                         node.link_complex_dimension(
@@ -245,6 +249,8 @@ class LinkableNodeYAML(NodeYAML):
                             prefixed_dimension,
                         )
                 else:
+                    if link.node_column in existing_reference_links:
+                        existing_reference_links.remove(link.node_column)
                     split_dim = prefixed_dimension.rsplit(".", 1)
                     node.add_reference_dimension_link(
                         node_column=link.node_column,
@@ -259,6 +265,11 @@ class LinkableNodeYAML(NodeYAML):
                     else f"{link.node_column} and {prefixed_dimension}"
                 )
                 table.add_row(*[prefixed_name, "[b]link", message])
+
+            for dim_node in existing_join_links:
+                node.remove_complex_dimension_link(dim_node)
+            for node_col in existing_reference_links:
+                node.remove_reference_dimension_link(node_col)
 
 
 @dataclass
