@@ -402,44 +402,43 @@ async def get_sql_for_metrics(  # pylint: disable=too-many-locals
             http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
         )
 
-    # if query_request := await QueryRequest.get_query_request(
-    #     session,
-    #     nodes=metrics,
-    #     dimensions=dimensions,
-    #     filters=filters,
-    #     orderby=orderby,
-    #     limit=limit,
-    #     engine_name=engine_name,
-    #     engine_version=engine_version,
-    #     query_type=QueryBuildType.METRICS,
-    # ):
-    #     # Update the node SQL in a background task to keep it up-to-date
-    #     background_tasks.add_task(
-    #         build_and_save_sql_for_metrics,
-    #         session=session,
-    #         metrics=metrics,
-    #         dimensions=dimensions,
-    #         filters=filters,
-    #         orderby=orderby,
-    #         limit=limit,
-    #         engine_name=engine_name,
-    #         engine_version=engine_version,
-    #         access_control=access_control,
-    #         ignore_errors=ignore_errors,
-    #         use_materialized=use_materialized,
-    #     )
-    #     engine = (
-    #         await get_engine(session, engine_name, engine_version)  # type: ignore
-    #         if engine_name
-    #         else None
-    #     )
-    #     return TranslatedSQL(
-    #         sql=query_request.query,
-    #         columns=query_request.columns,
-    #         dialect=engine.dialect if engine else None,
-    #     )
+    if query_request := await QueryRequest.get_query_request(
+        session,
+        nodes=metrics,
+        dimensions=dimensions,
+        filters=filters,
+        orderby=orderby,
+        limit=limit,
+        engine_name=engine_name,
+        engine_version=engine_version,
+        query_type=QueryBuildType.METRICS,
+    ):
+        # Update the node SQL in a background task to keep it up-to-date
+        background_tasks.add_task(
+            build_and_save_sql_for_metrics,
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+            filters=filters,
+            orderby=orderby,
+            limit=limit,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            access_control=access_control,
+            ignore_errors=ignore_errors,
+            use_materialized=use_materialized,
+        )
+        engine = (
+            await get_engine(session, engine_name, engine_version)  # type: ignore
+            if engine_name
+            else None
+        )
+        return TranslatedSQL(
+            sql=query_request.query,
+            columns=query_request.columns,
+            dialect=engine.dialect if engine else None,
+        )
 
-    print("build", metrics)
     return await build_and_save_sql_for_metrics(
         session,
         metrics,
