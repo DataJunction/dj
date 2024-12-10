@@ -1283,7 +1283,6 @@ async def dimension_join_path(
                 col.dimension
                 and f"{col.dimension.name}.{col.dimension_column}" == dimension
             ):
-                print("matched", col.dimension.name, col.dimension_column)
                 return join_path
 
         await refresh_if_needed(
