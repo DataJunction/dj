@@ -636,24 +636,24 @@ async def test_find_metric(
                     "measures": [
                         {
                             "aggregation": "SUM",
-                            "expression": "rm.completed_repairs",
-                            "name": "rm.completed_repairs_sum_0",
+                            "expression": "completed_repairs",
+                            "name": "completed_repairs_sum_0",
                             "rule": {
                                 "type": "FULL",
                             },
                         },
                         {
                             "aggregation": "SUM",
-                            "expression": "rm.total_repairs_dispatched",
-                            "name": "rm.total_repairs_dispatched_sum_1",
+                            "expression": "total_repairs_dispatched",
+                            "name": "total_repairs_dispatched_sum_1",
                             "rule": {
                                 "type": "FULL",
                             },
                         },
                         {
                             "aggregation": "SUM",
-                            "expression": "rm.total_amount_in_region",
-                            "name": "rm.total_amount_in_region_sum_2",
+                            "expression": "total_amount_in_region",
+                            "name": "total_amount_in_region_sum_2",
                             "rule": {
                                 "type": "FULL",
                             },
@@ -667,16 +667,16 @@ async def test_find_metric(
                             },
                         },
                     ],
-                    "derivedQuery": "SELECT  (SUM(rm.completed_repairs_sum_0) * 1.0 / "
-                    "SUM(rm.total_repairs_dispatched_sum_1)) * "
-                    "(SUM(rm.total_amount_in_region_sum_2) * 1.0 / "
+                    "derivedQuery": "SELECT  (SUM(completed_repairs_sum_0) * 1.0 / "
+                    "SUM(total_repairs_dispatched_sum_1)) * "
+                    "(SUM(total_amount_in_region_sum_2) * 1.0 / "
                     "SUM(na.total_amount_nationwide_sum_3)) * 100 \n"
-                    " FROM default.regional_level_agg rm CROSS JOIN "
+                    " FROM default.regional_level_agg CROSS JOIN "
                     "default.national_level_agg na\n"
                     "\n",
-                    "derivedExpression": "(SUM(rm.completed_repairs_sum_0) * 1.0 / "
-                    "SUM(rm.total_repairs_dispatched_sum_1)) * "
-                    "(SUM(rm.total_amount_in_region_sum_2) * 1.0 / "
+                    "derivedExpression": "(SUM(completed_repairs_sum_0) * 1.0 / "
+                    "SUM(total_repairs_dispatched_sum_1)) * "
+                    "(SUM(total_amount_in_region_sum_2) * 1.0 / "
                     "SUM(na.total_amount_nationwide_sum_3)) * 100",
                 },
             },
