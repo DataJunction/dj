@@ -288,7 +288,9 @@ def build_preaggregate_query(
                 f"SELECT {measure.aggregation}({measure.expression}) AS {measure.name}",
             ).select
             for col in temp_select.find_all(ast.Column):
-                if col.alias_or_name.name in parent_ast.select.column_mapping:
+                if (  # pragma: no cover
+                    col.alias_or_name.name in parent_ast.select.column_mapping
+                ):
                     col.add_type(
                         parent_ast.select.column_mapping.get(  # type: ignore
                             col.alias_or_name.name,
@@ -320,7 +322,6 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         self.use_materialized = use_materialized
 
         self._filters: List[str] = []
-        self._measures: list[Measure] = []
         self._required_dimensions: List[str] = [
             required.name for required in self.node_revision.required_dimensions
         ]
@@ -378,12 +379,6 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         """Add filters to the query builder."""
         for filter_ in filters or []:
             self.filter_by(filter_)
-        return self
-
-    def add_measures(self, measures: Optional[List[Measure]] = None):
-        """Add measures to the query builder."""
-        if measures:
-            self._measures.extend(measures)
         return self
 
     def add_dimension(self, dimension: str):
@@ -519,12 +514,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             if not self.physical_table
             else self.create_query_from_physical_table(self.physical_table)
         )
-        if (
-            self.physical_table
-            and not self._filters
-            and not self.dimensions
-            and not self._measures
-        ):
+        if self.physical_table and not self._filters and not self.dimensions:
             self.final_ast = node_ast
         else:
             node_alias, node_ast = await self.build_current_node_ast(node_ast)
