@@ -22,7 +22,6 @@ from datajunction_server.construction.build import (
     build_metric_nodes,
     get_default_criteria,
     rename_columns,
-    validate_shared_dimensions,
 )
 from datajunction_server.construction.dj_query import build_dj_query
 from datajunction_server.database.attributetype import AttributeType

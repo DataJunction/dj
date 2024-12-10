@@ -23,11 +23,7 @@ from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.sql.dag import (
-    get_dimensions,
-    get_shared_dimensions,
-    get_upstream_nodes,
-)
+from datajunction_server.sql.dag import get_upstream_nodes
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.typing import UTCDatetime
