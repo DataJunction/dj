@@ -179,6 +179,7 @@ class Column(SerializableMixin):
     display_name: Optional[str] = None
     attributes: Optional[List[ColumnAttribute]] = None
     dimension: Optional[str] = None
+    dimension_column: Optional[str] = None
 
 
 @dataclass
