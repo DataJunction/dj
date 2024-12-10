@@ -1420,7 +1420,19 @@ def build_dimension_attribute(
             if dimension_attr.name in link.foreign_keys_reversed
             else None
         )
+        reference_links = {
+            col.name: f"{col.dimension.name}.{col.dimension_column}"
+            for col in link.dimension.current.columns
+            if col.dimension
+        }
         for col in node_query.select.projection:
+            if reference_links.get(col.alias_or_name.name) == full_column_name:  # type: ignore
+                return ast.Column(
+                    name=ast.Name(col.alias_or_name.name),  # type: ignore
+                    alias=ast.Name(alias) if alias else None,
+                    _table=node_query,
+                    _type=col.type,  # type: ignore
+                )
             if col.alias_or_name.name == dimension_attr.column_name or (  # type: ignore
                 foreign_key_column_name
                 and col.alias_or_name.identifier() == foreign_key_column_name  # type: ignore

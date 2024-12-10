@@ -2259,6 +2259,16 @@ COMPLEX_DIMENSION_LINK = (
         },
     ),
     (
+        "/nodes/dimension/",
+        {
+            "description": "Date dimension",
+            "query": """SELECT 1 AS dateint""",
+            "mode": "published",
+            "name": "default.date",
+            "primary_key": ["dateint"],
+        },
+    ),
+    (
         "/nodes/metric/",
         {
             "description": "Elapsed Time in Seconds",
