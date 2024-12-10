@@ -22,6 +22,7 @@ from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.naming import LOOKUP_CHARS, amenable_name, from_amenable_name
 from datajunction_server.sql.dag import get_shared_dimensions
+from datajunction_server.sql.decompose import Measure, MeasureExtractor
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.types import ColumnType
@@ -54,7 +55,11 @@ def get_default_criteria(
     )
 
 
-def rename_columns(built_ast: ast.Query, node: NodeRevision):
+def rename_columns(
+    built_ast: ast.Query,
+    node: NodeRevision,
+    preaggregate: bool = False,
+):
     """
     Rename columns in the built ast to fully qualified column names.
     """
@@ -74,7 +79,8 @@ def rename_columns(built_ast: ast.Query, node: NodeRevision):
                 alias_name = node.name + SEPARATOR + expression.alias_or_name.name  # type: ignore
             expression = expression.copy()
             expression.set_semantic_entity(alias_name)  # type: ignore
-            expression.set_alias(ast.Name(amenable_name(alias_name)))
+            if not preaggregate:
+                expression.set_alias(ast.Name(amenable_name(alias_name)))
             projection.append(expression)
         else:
             expression = expression.copy()
@@ -335,7 +341,7 @@ def build_materialized_cube_node(
 async def metrics_to_measures(
     session: AsyncSession,
     metric_nodes: List[Node],
-) -> Tuple[DefaultDict[str, Set[str]], DefaultDict[str, Set[str]]]:
+) -> Tuple[DefaultDict[str, Set[str]], dict[str, tuple[list[Measure], ast.Query]]]:
     """
     For the given metric nodes, returns a mapping between the metrics' referenced parent nodes
     and the list of necessary measures to extract from the parent node.
@@ -346,17 +352,16 @@ async def metrics_to_measures(
     }
     """
     ctx = CompileContext(session, DJException())
-    metric_to_measures = collections.defaultdict(set)
+    metric_to_measures: dict[str, tuple[list[Measure], ast.Query]] = {}
     parents_to_measures = collections.defaultdict(set)
     for metric_node in metric_nodes:
+        extractor = MeasureExtractor.from_query_string(metric_node.current.query)
+        metric_to_measures[metric_node.name] = extractor.extract()
         metric_ast = parse(metric_node.current.query)
         await metric_ast.compile(ctx)
         for col in metric_ast.find_all(ast.Column):
             if col.table:  # pragma: no cover
                 parents_to_measures[col.table.dj_node.name].add(  # type: ignore
-                    col.alias_or_name.name,
-                )
-                metric_to_measures[metric_node.name].add(
                     col.alias_or_name.name,
                 )
     return parents_to_measures, metric_to_measures

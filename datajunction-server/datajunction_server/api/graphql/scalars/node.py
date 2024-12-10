@@ -26,7 +26,7 @@ from datajunction_server.database.node import NodeRevision as DBNodeRevision
 from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
-from datajunction_server.sql.decompose import extractor
+from datajunction_server.sql.decompose import MeasureExtractor
 
 NodeType = strawberry.enum(NodeType_)
 NodeStatus = strawberry.enum(NodeStatus_)
@@ -128,7 +128,8 @@ class NodeRevision:
         """
         if root.type != NodeType.METRIC:
             return None
-        measures, derived_ast = extractor.extract_measures(root.query)
+        extractor = MeasureExtractor.from_query_string(root.query)
+        measures, derived_ast = extractor.extract()
         return ExtractedMeasures(  # type: ignore
             measures=measures,
             derived_query=str(derived_ast),
