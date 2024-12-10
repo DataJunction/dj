@@ -498,11 +498,6 @@ async def validate_cube(  # pylint: disable=too-many-locals
             message=("Metrics and dimensions must be part of a common catalog"),
         )
 
-    # await validate_shared_dimensions(
-    #     session,
-    #     metric_nodes,
-    #     dimension_names,
-    # )
     return metrics, metric_nodes, list(dimension_nodes.values()), dimensions, catalog
 
 
