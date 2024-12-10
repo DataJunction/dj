@@ -189,15 +189,15 @@ def test_average():
 
     expected_measures = [
         Measure(
-            name="sales_amount_sum_0",
-            expression="sales_amount",
-            aggregation="SUM",
-            rule=AggregationRule(type=Aggregability.FULL),
-        ),
-        Measure(
             name="count",
             expression="1",
             aggregation="COUNT",
+            rule=AggregationRule(type=Aggregability.FULL),
+        ),
+        Measure(
+            name="sales_amount_sum_0",
+            expression="sales_amount",
+            aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -602,15 +602,15 @@ def test_metric_query_with_aliases():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         Measure(
-            name="time_to_dispatch_sum_0",
-            expression="CAST(time_to_dispatch AS INT)",
-            aggregation="SUM",
-            rule=AggregationRule(type=Aggregability.FULL, level=None),
-        ),
-        Measure(
             name="count",
             expression="1",
             aggregation="COUNT",
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+        Measure(
+            name="time_to_dispatch_sum_0",
+            expression="CAST(time_to_dispatch AS INT)",
+            aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
     ]
