@@ -971,6 +971,7 @@ async def add_reference_dimension_link(
         ),
     )
     await session.commit()
+    await session.refresh(target_column)
     return JSONResponse(
         status_code=201,
         content={
