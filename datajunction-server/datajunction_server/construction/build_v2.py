@@ -1275,6 +1275,17 @@ async def dimension_join_path(
             return join_path
 
         await refresh_if_needed(session, current_link.dimension, ["current"])
+
+        # Check the reference links on this dimension node
+        await refresh_if_needed(session, current_link.dimension.current, ["columns"])
+        for col in current_link.dimension.current.columns:
+            if (
+                col.dimension
+                and f"{col.dimension.name}.{col.dimension_column}" == dimension
+            ):
+                print("matched", col.dimension.name, col.dimension_column)
+                return join_path
+
         await refresh_if_needed(
             session,
             current_link.dimension.current,
