@@ -514,6 +514,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             if not self.physical_table
             else self.create_query_from_physical_table(self.physical_table)
         )
+
         if self.physical_table and not self._filters and not self.dimensions:
             self.final_ast = node_ast
         else:
