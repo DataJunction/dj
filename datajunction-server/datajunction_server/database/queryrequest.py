@@ -308,25 +308,6 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
                 message="At least one metric is required",
                 http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
             )
-        node_columns = []
-        if len(nodes_objs) == 1:
-            node_columns = [col.name for col in nodes_objs[0].current.columns]  # type: ignore
-        available_dimensions = {
-            dim.name
-            for dim in (
-                await get_dimensions(session, nodes_objs[0])  # type: ignore
-                if len(nodes_objs) == 1
-                else await get_shared_dimensions(session, nodes_objs)  # type: ignore
-            )
-        }.union(set(node_columns))
-        invalid_dimensions = sorted(
-            list(set(dimensions).difference(available_dimensions)),
-        )
-        if dimensions and invalid_dimensions:
-            raise DJInvalidInputException(
-                f"{', '.join(invalid_dimensions)} are not available "
-                f"dimensions on {', '.join(nodes)}",
-            )
 
         dimension_nodes = [
             await Node.get_by_name(session, ".".join(dim.split(".")[:-1]), options=[])
