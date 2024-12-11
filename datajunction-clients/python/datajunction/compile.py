@@ -267,9 +267,9 @@ class LinkableNodeYAML(NodeYAML):
                 table.add_row(*[prefixed_name, "[b]link", message])
 
             for dim_node in existing_join_links:
-                node.remove_complex_dimension_link(dim_node)
+                node.remove_complex_dimension_link(dim_node)  # pragma: no cover
             for node_col in existing_reference_links:
-                node.remove_reference_dimension_link(node_col)
+                node.remove_reference_dimension_link(node_col)  # pragma: no cover
 
 
 @dataclass

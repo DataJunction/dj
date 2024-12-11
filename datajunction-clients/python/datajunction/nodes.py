@@ -65,6 +65,27 @@ class Namespace(ClientEntity):  # pylint: disable=protected-access
 
 
 @dataclass
+class NodeName(SerializableMixin):
+    """Node name"""
+
+    name: str
+
+
+@dataclass
+class DimensionLink(SerializableMixin):
+    """
+    Dimension join links
+    """
+
+    dimension: NodeName
+    join_type: str
+    join_sql: str
+    join_cardinality: str
+    role: str | None
+    foreign_keys: dict[str, str]
+
+
+@dataclass
 class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
     """
     Represents a DJ node object
@@ -85,6 +106,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
     current_version: Optional[str] = None
     columns: Optional[List[models.Column]] = None
     query: Optional[str] = None
+    dimension_links: list[DimensionLink] | None = None
 
     def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
         """
@@ -422,34 +444,12 @@ class Source(Node):
 
 
 @dataclass
-class NodeName(SerializableMixin):
-    """Node name"""
-
-    name: str
-
-
-@dataclass
-class DimensionLink(SerializableMixin):
-    """
-    Dimension join links
-    """
-
-    dimension: NodeName
-    join_type: str
-    join_sql: str
-    join_cardinality: str
-    role: str | None
-    foreign_keys: dict[str, str]
-
-
-@dataclass
 class NodeWithQuery(Node):
     """
     Nodes with query attribute
     """
 
     query: str = ""
-    dimension_links: list[DimensionLink] | None = None
 
     def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
         dict_ = super().to_dict(exclude=exclude)
