@@ -13,7 +13,7 @@ from datajunction_server.models.node import (
     MetricMetadataOutput,
 )
 from datajunction_server.models.query import ColumnMetadata
-from datajunction_server.sql.decompose import Measure, extractor
+from datajunction_server.sql.decompose import Measure, MeasureExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.transpilation import get_transpilation_plugin
 from datajunction_server.typing import UTCDatetime
@@ -60,7 +60,8 @@ class Metric(BaseModel):
             for func in functions
             if Dialect.DRUID not in func.dialects
         ]
-        measures, derived_sql = extractor.extract_measures(node.current.query)
+        extractor = MeasureExtractor.from_query_string(node.current.query)
+        measures, derived_sql = extractor.extract()
         return cls(
             id=node.id,
             name=node.name,
