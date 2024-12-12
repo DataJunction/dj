@@ -636,11 +636,17 @@ class Project:
                     for dimension in node["dimensions"]
                 ]
             if node.get("dimension_links"):
-                for _, dim in node["dimension_links"].items():  # pragma: no cover
-                    dim["dimension"] = inject_prefixes(
-                        dim["dimension"],
-                        namespace,
-                    )  # pragma: no cover
+                for link in node["dimension_links"]:  # pragma: no cover
+                    if "dimension_node" in link:
+                        link["dimension_node"] = inject_prefixes(
+                            link["dimension_node"],
+                            namespace,
+                        )
+                    if "dimension" in link:
+                        link["dimension"] = inject_prefixes(
+                            link["dimension"],
+                            namespace,
+                        )
             with open(
                 node_definition_dir / Path(node.pop("filename")),
                 "w",
