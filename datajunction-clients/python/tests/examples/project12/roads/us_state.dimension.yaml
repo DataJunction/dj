@@ -1,0 +1,10 @@
+description: US state dimension
+query: |
+  SELECT
+    state_id,
+    state_name,
+    state_abbr,
+    state_region
+  FROM ${prefix}roads.us_states s
+primary_key:
+  - state_id

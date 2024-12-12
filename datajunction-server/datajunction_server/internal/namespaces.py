@@ -310,11 +310,7 @@ def _source_project_config(node: Node, namespace_requested: str) -> Dict:
             {"name": column.name, "type": str(column.type)}
             for column in node.current.columns
         ],
-        "dimension_links": {
-            column.name: {"dimension": column.dimension.name}
-            for column in node.current.columns
-            if column.dimension
-        },
+        "dimension_links": _dimension_links_config(node),
     }
 
 
@@ -333,11 +329,7 @@ def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
         "display_name": node.current.display_name,
         "description": node.current.description,
         "query": node.current.query,
-        "dimension_links": {
-            column.name: {"dimension": column.dimension.name}
-            for column in node.current.columns
-            if column.dimension
-        },
+        "dimension_links": _dimension_links_config(node),
     }
 
 
@@ -357,11 +349,7 @@ def _dimension_project_config(node: Node, namespace_requested: str) -> Dict:
         "description": node.current.description,
         "query": node.current.query,
         "primary_key": [pk.name for pk in node.current.primary_key()],
-        "dimension_links": {
-            column.name: {"dimension": column.dimension.name}
-            for column in node.current.columns
-            if column.dimension
-        },
+        "dimension_links": _dimension_links_config(node),
     }
 
 
@@ -412,6 +400,29 @@ async def _cube_project_config(
         "metrics": metrics,
         "dimensions": dimensions,
     }
+
+
+def _dimension_links_config(node: Node):
+    join_links = [
+        {
+            "type": "join",
+            "dimension_node": link.dimension.name,
+            "join_type": link.join_type,
+            "join_on": link.join_sql,
+            **({"role": link.role} if link.role else {}),
+        }
+        for link in node.current.dimension_links
+    ]
+    reference_links = [
+        {
+            "type": "reference",
+            "node_column": column.name,
+            "dimension": column.dimension.name + SEPARATOR + column.dimension_column,
+        }
+        for column in node.current.columns
+        if column.dimension
+    ]
+    return join_links + reference_links
 
 
 async def get_project_config(

@@ -266,10 +266,14 @@ class LinkableNodeYAML(NodeYAML):
                 )
                 table.add_row(*[prefixed_name, "[b]link", message])
 
-            for dim_node in existing_join_links:
-                node.remove_complex_dimension_link(dim_node)  # pragma: no cover
-            for node_col in existing_reference_links:
-                node.remove_reference_dimension_link(node_col)  # pragma: no cover
+        for dim_node in existing_join_links:
+            node.remove_complex_dimension_link(dim_node)
+            message = f"[i][yellow]Dimension join link removed to {dim_node}"
+            table.add_row(*[prefixed_name, "[b]link", message])
+        for node_col in existing_reference_links:
+            node.remove_reference_dimension_link(node_col)  # pragma: no cover
+            message = f"[i][yellow]Dimension reference link removed on {node_col}"
+            table.add_row(*[prefixed_name, "[b]link", message])
 
 
 @dataclass
@@ -632,11 +636,17 @@ class Project:
                     for dimension in node["dimensions"]
                 ]
             if node.get("dimension_links"):
-                for _, dim in node["dimension_links"].items():  # pragma: no cover
-                    dim["dimension"] = inject_prefixes(
-                        dim["dimension"],
-                        namespace,
-                    )  # pragma: no cover
+                for link in node["dimension_links"]:  # pragma: no cover
+                    if "dimension_node" in link:
+                        link["dimension_node"] = inject_prefixes(
+                            link["dimension_node"],
+                            namespace,
+                        )
+                    if "dimension" in link:
+                        link["dimension"] = inject_prefixes(
+                            link["dimension"],
+                            namespace,
+                        )
             with open(
                 node_definition_dir / Path(node.pop("filename")),
                 "w",
