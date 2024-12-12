@@ -629,6 +629,36 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
         "filename": "example_cube.cube.yaml",
         "metrics": ["default.num_repair_orders"],
     }
+    assert node_defs["repair_orders_fact.transform.yaml"]["dimension_links"] == [
+        {
+            "dimension_node": "default.municipality_dim",
+            "join_on": "default.repair_orders_fact.municipality_id = "
+            "default.municipality_dim.municipality_id",
+            "join_type": "inner",
+            "type": "join",
+        },
+        {
+            "dimension_node": "default.hard_hat",
+            "join_on": "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id",
+            "join_type": "inner",
+            "type": "join",
+        },
+        {
+            "dimension_node": "default.hard_hat_to_delete",
+            "join_on": "default.repair_orders_fact.hard_hat_id = "
+            "default.hard_hat_to_delete.hard_hat_id",
+            "join_type": "left",
+            "type": "join",
+        },
+        {
+            "dimension_node": "default.dispatcher",
+            "join_on": "default.repair_orders_fact.dispatcher_id = "
+            "default.dispatcher.dispatcher_id",
+            "join_type": "inner",
+            "type": "join",
+        },
+    ]
+
     assert set(node_defs.keys()) == {
         "avg_length_of_employment.metric.yaml",
         "avg_repair_order_discounts.metric.yaml",
