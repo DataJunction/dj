@@ -1,0 +1,21 @@
+description: Information on companies contracted for repairs
+table: default.roads.contractors
+columns:
+  - name: contractor_id
+    type: int
+  - name: company_name
+    type: string
+  - name: contact_name
+    type: string
+  - name: contact_title
+    type: string
+  - name: address
+    type: string
+  - name: city
+    type: string
+  - name: state
+    type: string
+  - name: postal_code
+    type: string
+  - name: country
+    type: string

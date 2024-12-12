@@ -1,0 +1,5 @@
+description: Companies dimension
+table: default.roads.companies
+columns:
+  - name: name
+    type: str

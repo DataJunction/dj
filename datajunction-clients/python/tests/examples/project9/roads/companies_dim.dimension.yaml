@@ -1,0 +1,7 @@
+description: This is a source for information on companies
+query: |
+  SELECT
+    name
+  FROM ${prefix}roads.companies
+primary_key:
+  - name

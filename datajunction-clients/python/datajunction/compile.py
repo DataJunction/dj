@@ -266,10 +266,14 @@ class LinkableNodeYAML(NodeYAML):
                 )
                 table.add_row(*[prefixed_name, "[b]link", message])
 
-            for dim_node in existing_join_links:
-                node.remove_complex_dimension_link(dim_node)  # pragma: no cover
-            for node_col in existing_reference_links:
-                node.remove_reference_dimension_link(node_col)  # pragma: no cover
+        for dim_node in existing_join_links:
+            node.remove_complex_dimension_link(dim_node)
+            message = f"[i][yellow]Dimension join link removed to {dim_node}"
+            table.add_row(*[prefixed_name, "[b]link", message])
+        for node_col in existing_reference_links:
+            node.remove_reference_dimension_link(node_col)  # pragma: no cover
+            message = f"[i][yellow]Dimension reference link removed on {node_col}"
+            table.add_row(*[prefixed_name, "[b]link", message])
 
 
 @dataclass

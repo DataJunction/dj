@@ -448,6 +448,34 @@ def test_compile_duplicate_tags(
     compiled_project.deploy(client=builder_client)
 
 
+def test_deploy_remove_dimension_links(
+    change_to_project_dir: Callable,
+    builder_client: DJBuilder,
+    module__session_with_examples,
+):
+    """
+    Test deploying nodes with dimension links removed
+    """
+    change_to_project_dir("project9")
+    project = Project.load_current()
+    compiled_project = project.compile()
+    compiled_project.deploy(client=builder_client)
+    response = module__session_with_examples.get(
+        "/nodes/projects.project7.roads.contractor",
+    ).json()
+    assert response["dimension_links"][0]["dimension"] == {
+        "name": "projects.project7.roads.us_state",
+    }
+    change_to_project_dir("project12")
+    project = Project.load_current()
+    compiled_project = project.compile()
+    compiled_project.deploy(client=builder_client)
+    response = module__session_with_examples.get(
+        "/nodes/projects.project7.roads.contractor",
+    ).json()
+    assert response["dimension_links"] == []
+
+
 def test_compile_pull_a_namespaces(builder_client: DJBuilder, tmp_path):
     """
     Test pulling a namespace down into a local YAML project
