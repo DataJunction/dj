@@ -150,7 +150,6 @@ async def build_cube_materialization_config(
             filters=[],
             current_user=current_user,
             validate_access=validate_access,
-            cast_timestamp_to_ms=True,
         )
         for measures_query in measures_queries:
             metrics_expressions = await rewrite_metrics_expressions(
