@@ -1292,7 +1292,9 @@ async def dimension_join_path(
                 )
                 for link in col.dimension.current.dimension_links:
                     if (
-                        link.foreign_keys.get(f"{col.dimension.name}.{col.dimension_column}")
+                        link.foreign_keys.get(
+                            f"{col.dimension.name}.{col.dimension_column}",
+                        )
                         == dimension
                     ):
                         return join_path
