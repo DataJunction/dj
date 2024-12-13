@@ -1280,8 +1280,10 @@ async def dimension_join_path(
         await refresh_if_needed(session, current_link.dimension.current, ["columns"])
         for col in current_link.dimension.current.columns:
             if col.dimension:
+                # Check if it matches the reference link dimension attribute
                 if f"{col.dimension.name}.{col.dimension_column}" == dimension:
                     return join_path
+                # Check if it matches any of the reference link dimension's linked attributes
                 await refresh_if_needed(session, col.dimension, ["current"])
                 await refresh_if_needed(
                     session,
@@ -1290,16 +1292,11 @@ async def dimension_join_path(
                 )
                 for link in col.dimension.current.dimension_links:
                     if (
-                        f"{col.dimension.name}.{col.dimension_column}"
-                        in link.foreign_keys
+                        link.foreign_keys.get(f"{col.dimension.name}.{col.dimension_column}")
+                        == dimension
                     ):
-                        if (
-                            link.foreign_keys[
-                                f"{col.dimension.name}.{col.dimension_column}"
-                            ]
-                            == dimension
-                        ):
-                            return join_path
+                        return join_path
+
         await refresh_if_needed(
             session,
             current_link.dimension.current,
