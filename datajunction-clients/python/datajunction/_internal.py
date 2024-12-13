@@ -181,8 +181,8 @@ class DJClient:
 
     def basic_login(
         self,
-        username: Optional[str],
-        password: Optional[str],
+        username: Optional[str] = None,
+        password: Optional[str] = None,
     ):
         """
         Login with basic authentication.
