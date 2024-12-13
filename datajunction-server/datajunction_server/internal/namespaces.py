@@ -77,6 +77,7 @@ async def get_nodes_in_namespace_detailed(
             joinedload(Node.current).options(
                 *NodeRevision.default_load_options(),
             ),
+            joinedload(Node.tags),
         )
     )
     return (await session.execute(list_nodes_query)).unique().scalars().all()
@@ -311,6 +312,7 @@ def _source_project_config(node: Node, namespace_requested: str) -> Dict:
             for column in node.current.columns
         ],
         "dimension_links": _dimension_links_config(node),
+        "tags": [tag.name for tag in node.tags],
     }
 
 
@@ -330,6 +332,7 @@ def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
         "description": node.current.description,
         "query": node.current.query,
         "dimension_links": _dimension_links_config(node),
+        "tags": [tag.name for tag in node.tags],
     }
 
 
@@ -350,6 +353,7 @@ def _dimension_project_config(node: Node, namespace_requested: str) -> Dict:
         "query": node.current.query,
         "primary_key": [pk.name for pk in node.current.primary_key()],
         "dimension_links": _dimension_links_config(node),
+        "tags": [tag.name for tag in node.tags],
     }
 
 
@@ -368,6 +372,10 @@ def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
         "display_name": node.current.display_name,
         "description": node.current.description,
         "query": node.current.query,
+        "tags": [tag.name for tag in node.tags],
+        "required_dimensions": [dim.name for dim in node.current.required_dimensions],
+        "direction": node.current.metric_metadata.direction.name.lower(),
+        "unit": node.current.metric_metadata.unit.name.lower(),
     }
 
 
@@ -399,6 +407,7 @@ async def _cube_project_config(
         "description": cube_revision.description,
         "metrics": metrics,
         "dimensions": dimensions,
+        "tags": [tag.name for tag in node.tags],
     }
 
 
