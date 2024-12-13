@@ -22,6 +22,7 @@ from datajunction_server.construction.build import (
     build_metric_nodes,
     get_default_criteria,
     rename_columns,
+    validate_shared_dimensions,
 )
 from datajunction_server.construction.dj_query import build_dj_query
 from datajunction_server.database.attributetype import AttributeType
@@ -497,6 +498,11 @@ async def validate_cube(  # pylint: disable=too-many-locals
             message=("Metrics and dimensions must be part of a common catalog"),
         )
 
+    await validate_shared_dimensions(
+        session,
+        metric_nodes,
+        dimension_names,
+    )
     return metrics, metric_nodes, list(dimension_nodes.values()), dimensions, catalog
 
 

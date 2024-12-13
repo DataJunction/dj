@@ -23,7 +23,11 @@ from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.sql.dag import get_upstream_nodes
+from datajunction_server.sql.dag import (
+    get_dimensions,
+    get_shared_dimensions,
+    get_upstream_nodes,
+)
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.typing import UTCDatetime
@@ -303,6 +307,25 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
             raise DJInvalidInputException(
                 message="At least one metric is required",
                 http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+            )
+        node_columns = []
+        if len(nodes_objs) == 1:
+            node_columns = [col.name for col in nodes_objs[0].current.columns]  # type: ignore
+        available_dimensions = {
+            dim.name
+            for dim in (
+                await get_dimensions(session, nodes_objs[0])  # type: ignore
+                if len(nodes_objs) == 1
+                else await get_shared_dimensions(session, nodes_objs)  # type: ignore
+            )
+        }.union(set(node_columns))
+        invalid_dimensions = sorted(
+            list(set(dimensions).difference(available_dimensions)),
+        )
+        if dimensions and invalid_dimensions:
+            raise DJInvalidInputException(
+                f"{', '.join(invalid_dimensions)} are not available "
+                f"dimensions on {', '.join(nodes)}",
             )
 
         dimension_nodes = [
