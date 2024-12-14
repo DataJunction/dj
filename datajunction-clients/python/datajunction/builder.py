@@ -253,7 +253,11 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 "table": table,
                 "display_name": display_name,
                 "description": description,
-                "columns": columns,
+                "columns": [
+                    {"name": column.name, "type": column.type} for column in columns
+                ]
+                if columns
+                else [],
                 "primary_key": primary_key,
                 "tags": tags,
                 "mode": mode,

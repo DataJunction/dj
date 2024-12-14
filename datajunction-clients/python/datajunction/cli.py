@@ -39,9 +39,9 @@ def main():
         help="Path to the directory containing YAML files",
     )
     deploy_parser.add_argument(
-        "dryrun",
-        type=bool,
-        help="Whether to do a dry run (validates without actually deploying)",
+        "--dryrun",
+        action="store_true",
+        help="Perform a dry run (validates without actually deploying)",
     )
 
     pull_parser = subparsers.add_parser(
