@@ -59,7 +59,9 @@ def str_presenter(dumper, data):
         text_list = [line.rstrip() for line in data.splitlines()]
         fixed_data = "\n".join(text_list)
         return dumper.represent_scalar(
-            BaseResolver.DEFAULT_SCALAR_TAG, fixed_data, style="|",
+            BaseResolver.DEFAULT_SCALAR_TAG,
+            fixed_data,
+            style="|",
         )
     return dumper.represent_scalar(BaseResolver.DEFAULT_SCALAR_TAG, data)
 
@@ -232,9 +234,10 @@ class LinkableNodeYAML(NodeYAML):
         DimensionJoinLinkYAML | DimensionReferenceLinkYAML
     ] | None = None
 
-    def _deploy_column_attributes(self, node):
+    def _deploy_column_settings(self, node):
         """
-        Deploy any column attributes from the columns on this node.
+        Deploy any column-level settings (e.g., attributes or display name) for the
+        columns on this node.
         """
         if self.columns:
             for column in self.columns:
@@ -244,6 +247,11 @@ class LinkableNodeYAML(NodeYAML):
                         attributes=[
                             ColumnAttribute(name=attr) for attr in column.attributes
                         ],
+                    )
+                if column.display_name:
+                    node.set_column_display_name(
+                        column_name=column.name,
+                        display_name=column.display_name,
                     )
 
     def _deploy_dimension_links(  # pylint: disable=too-many-locals
@@ -360,7 +368,7 @@ class SourceYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attribu
             mode=self.mode,
             update_if_exists=True,
         )
-        self._deploy_column_attributes(node)
+        self._deploy_column_settings(node)
         return node
 
     def deploy_dimension_links(
@@ -405,7 +413,7 @@ class TransformYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attr
             mode=self.mode,
             update_if_exists=True,
         )
-        self._deploy_column_attributes(node)
+        self._deploy_column_settings(node)
         return node
 
     def deploy_dimension_links(
@@ -450,7 +458,7 @@ class DimensionYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attr
             mode=self.mode,
             update_if_exists=True,
         )
-        self._deploy_column_attributes(node)
+        self._deploy_column_settings(node)
         return node
 
     def deploy_dimension_links(

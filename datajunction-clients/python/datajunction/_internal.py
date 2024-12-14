@@ -557,6 +557,21 @@ class DJClient:
         )
         return response.json()
 
+    def _set_column_display_name(
+        self,
+        node_name,
+        column_name,
+        display_name: str,
+    ):
+        """
+        Sets display name for the column on the node
+        """
+        response = self._session.patch(
+            f"/nodes/{node_name}/columns/{column_name}/",
+            params={"display_name": display_name},
+        )
+        return response.json()
+
     def _find_nodes_with_dimension(
         self,
         node_name,
