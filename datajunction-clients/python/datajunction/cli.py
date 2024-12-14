@@ -25,11 +25,6 @@ def pull(namespace: str, directory: str):
     Project.pull(client=dj_builder, namespace=namespace, target_path=directory)
 
 
-def list_namespace(namespace):
-    """List items in the specified namespace."""
-    print(f"Listing items in namespace: {namespace}")
-
-
 def main():
     """DJ CLI"""
     parser = argparse.ArgumentParser(prog="dj", description="DataJunction CLI")
