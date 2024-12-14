@@ -206,15 +206,39 @@ class NodeYAML(SerializableMixin):
 
 
 @dataclass
+class ColumnYAML(SerializableMixin):
+    """
+    Represents a column
+    """
+
+    name: str
+    type: str
+    display_name: str | None = None
+    attributes: list[str] | None = None
+
+
+@dataclass
 class LinkableNodeYAML(NodeYAML):
     """
     YAML represention of a node type that can be linked to dimension nodes:
     source, transform, dimension
     """
 
+    columns: list[ColumnYAML] | None = None
     dimension_links: list[
         DimensionJoinLinkYAML | DimensionReferenceLinkYAML
     ] | None = None
+
+    def _deploy_column_attributes(self, node):
+        if self.columns:
+            for column in self.columns:
+                if column.attributes:
+                    node.set_column_attributes(
+                        column_name=column.name,
+                        attributes=[
+                            ColumnAttribute(name=attr) for attr in column.attributes
+                        ],
+                    )
 
     def _deploy_dimension_links(  # pylint: disable=too-many-locals
         self,
@@ -283,18 +307,6 @@ class LinkableNodeYAML(NodeYAML):
 
 
 @dataclass
-class ColumnYAML(SerializableMixin):
-    """
-    Represents a column
-    """
-
-    name: str
-    type: str
-    display_name: str | None = None
-    attributes: list[str] | None = None
-
-
-@dataclass
 class SourceYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attributes
     """
     YAML representation of a source node
@@ -303,7 +315,6 @@ class SourceYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attribu
     node_type: Literal[NodeType.SOURCE] = NodeType.SOURCE
     display_name: Optional[str] = None
     table: str = ""
-    columns: list[ColumnYAML] | None = None
     description: Optional[str] = None
     primary_key: Optional[List[str]] = None
     tags: Optional[List[str]] = None
@@ -343,15 +354,7 @@ class SourceYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attribu
             mode=self.mode,
             update_if_exists=True,
         )
-        if self.columns:
-            for column in self.columns:
-                if column.attributes:
-                    node.set_column_attributes(
-                        column_name=column.name,
-                        attributes=[
-                            ColumnAttribute(name=attr) for attr in column.attributes
-                        ],
-                    )
+        self._deploy_column_attributes(node)
         return node
 
     def deploy_dimension_links(
@@ -375,7 +378,6 @@ class TransformYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attr
 
     node_type: Literal[NodeType.TRANSFORM] = NodeType.TRANSFORM
     query: str = ""
-    columns: list[ColumnYAML] | None = None
     display_name: Optional[str] = None
     description: Optional[str] = None
     primary_key: Optional[List[str]] = None
@@ -397,15 +399,7 @@ class TransformYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attr
             mode=self.mode,
             update_if_exists=True,
         )
-        if self.columns:
-            for column in self.columns:
-                if column.attributes:
-                    node.set_column_attributes(
-                        column_name=column.name,
-                        attributes=[
-                            ColumnAttribute(name=attr) for attr in column.attributes
-                        ],
-                    )
+        self._deploy_column_attributes(node)
         return node
 
     def deploy_dimension_links(
@@ -429,7 +423,6 @@ class DimensionYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attr
 
     node_type: Literal[NodeType.DIMENSION] = NodeType.DIMENSION
     query: str = ""
-    columns: list[ColumnYAML] | None = None
     display_name: Optional[str] = None
     description: Optional[str] = None
     primary_key: Optional[List[str]] = None
@@ -451,15 +444,7 @@ class DimensionYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attr
             mode=self.mode,
             update_if_exists=True,
         )
-        if self.columns:
-            for column in self.columns:
-                if column.attributes:
-                    node.set_column_attributes(
-                        column_name=column.name,
-                        attributes=[
-                            ColumnAttribute(name=attr) for attr in column.attributes
-                        ],
-                    )
+        self._deploy_column_attributes(node)
         return node
 
     def deploy_dimension_links(
