@@ -28,6 +28,7 @@ from rich.align import Align
 from rich.console import Console
 from rich.live import Live
 from rich.table import Table
+from yaml.resolver import BaseResolver
 
 from datajunction import DJBuilder, DJClient
 from datajunction._base import SerializableMixin
@@ -57,8 +58,10 @@ def str_presenter(dumper, data):
     if len(data.splitlines()) > 1 or "\n" in data:
         text_list = [line.rstrip() for line in data.splitlines()]
         fixed_data = "\n".join(text_list)
-        return dumper.represent_scalar("tag:yaml.org,2002:str", fixed_data, style="|")
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+        return dumper.represent_scalar(
+            BaseResolver.DEFAULT_SCALAR_TAG, fixed_data, style="|",
+        )
+    return dumper.represent_scalar(BaseResolver.DEFAULT_SCALAR_TAG, data)
 
 
 yaml.add_representer(str, str_presenter)
@@ -723,7 +726,7 @@ def render_prefixes(parameterized_string: str, prefix: str):
     return parameterized_string.replace("${prefix}", f"{prefix}.")
 
 
-def inject_prefixes(unparameterized_string: str, prefix: str):
+def inject_prefixes(unparameterized_string: str, prefix: str) -> str:
     """
     Replaces a namespace in a string with ${prefix}
     """
