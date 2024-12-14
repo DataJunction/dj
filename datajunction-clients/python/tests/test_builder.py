@@ -1101,6 +1101,24 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             },
         ]
 
+    def test_set_column_display_name(self, client):
+        """
+        Verify setting a column's display name
+        """
+        dim = client.source(node_name="default.contractors")
+        response = dim.set_column_display_name(
+            "contact_title",
+            "My Contact's Title",
+        )
+        assert response == {
+            "attributes": [],
+            "dimension": None,
+            "display_name": "My Contact's Title",
+            "name": "contact_title",
+            "type": "string",
+            "partition": None,
+        }
+
     #
     # Tags
     #
