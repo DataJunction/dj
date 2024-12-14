@@ -283,14 +283,15 @@ def _get_dir_and_filename(
     node_name: str,
     node_type: str,
     namespace_requested: str,
-) -> Tuple[str, str]:
+) -> Tuple[str, str, str]:
     """
     Get the directory and filename where a node name would be located
     """
     dot_split = node_name.replace(f"{namespace_requested}.", "").split(".")
     filename = f"{dot_split[-1]}.{node_type}.yaml"
     directory = os.path.sep.join(dot_split[:-1])
-    return filename, directory
+    build_name = f"{directory}.{dot_split[-1]}" if directory else dot_split[-1]
+    return filename, directory, build_name
 
 
 def _non_primary_key_attributes(column: Column):
@@ -333,7 +334,7 @@ def _source_project_config(node: Node, namespace_requested: str) -> Dict:
     """
     Returns a project config definition for a source node
     """
-    filename, directory = _get_dir_and_filename(
+    filename, directory, build_name = _get_dir_and_filename(
         node_name=node.name,
         node_type=node.type,
         namespace_requested=namespace_requested,
@@ -341,6 +342,7 @@ def _source_project_config(node: Node, namespace_requested: str) -> Dict:
     return {
         "filename": filename,
         "directory": directory,
+        "build_name": build_name,
         "display_name": node.current.display_name,
         "description": node.current.description,
         "table": f"{node.current.catalog}.{node.current.schema_}.{node.current.table}",
@@ -363,7 +365,7 @@ def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
     """
     Returns a project config definition for a transform node
     """
-    filename, directory = _get_dir_and_filename(
+    filename, directory, build_name = _get_dir_and_filename(
         node_name=node.name,
         node_type=node.type,
         namespace_requested=namespace_requested,
@@ -371,6 +373,7 @@ def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
     return {
         "filename": filename,
         "directory": directory,
+        "build_name": build_name,
         "display_name": node.current.display_name,
         "description": node.current.description,
         "query": node.current.query,
@@ -393,7 +396,7 @@ def _dimension_project_config(node: Node, namespace_requested: str) -> Dict:
     """
     Returns a project config definition for a dimension node
     """
-    filename, directory = _get_dir_and_filename(
+    filename, directory, build_name = _get_dir_and_filename(
         node_name=node.name,
         node_type=node.type,
         namespace_requested=namespace_requested,
@@ -401,6 +404,7 @@ def _dimension_project_config(node: Node, namespace_requested: str) -> Dict:
     return {
         "filename": filename,
         "directory": directory,
+        "build_name": build_name,
         "display_name": node.current.display_name,
         "description": node.current.description,
         "query": node.current.query,
@@ -423,7 +427,7 @@ def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
     """
     Returns a project config definition for a metric node
     """
-    filename, directory = _get_dir_and_filename(
+    filename, directory, build_name = _get_dir_and_filename(
         node_name=node.name,
         node_type=node.type,
         namespace_requested=namespace_requested,
@@ -431,6 +435,7 @@ def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
     return {
         "filename": filename,
         "directory": directory,
+        "build_name": build_name,
         "display_name": node.current.display_name,
         "description": node.current.description,
         "query": node.current.query,
@@ -457,7 +462,7 @@ async def _cube_project_config(
     """
     Returns a project config definition for a cube node
     """
-    filename, directory = _get_dir_and_filename(
+    filename, directory, build_name = _get_dir_and_filename(
         node_name=node.name,
         node_type=NodeType.CUBE,
         namespace_requested=namespace_requested,
@@ -473,6 +478,7 @@ async def _cube_project_config(
     return {
         "filename": filename,
         "directory": directory,
+        "build_name": build_name,
         "display_name": cube_revision.display_name,
         "description": cube_revision.description,
         "metrics": metrics,
