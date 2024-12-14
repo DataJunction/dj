@@ -1379,7 +1379,7 @@ async def compile_node_ast(session, node_revision: NodeRevision) -> ast.Query:
     """
     Parses the node's query into an AST and compiles it.
     """
-    node_ast = cached_parse(node_revision.query)
+    node_ast = parse(node_revision.query)
     ctx = CompileContext(session, DJException())
     await node_ast.compile(ctx)
     return node_ast
