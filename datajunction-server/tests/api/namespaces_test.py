@@ -620,14 +620,60 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
         "/namespaces/default/export/",
     )
     project_definition = response.json()
+
+    # Check that nodes are topologically sorted
+    sorted_nodes = [entity["build_name"] for entity in project_definition]
+    assert sorted_nodes == [
+        "repair_order_details",
+        "repair_orders",
+        "hard_hats",
+        "us_region",
+        "us_states",
+        "municipality",
+        "contractors",
+        "repair_type",
+        "repair_orders_fact",
+        "hard_hat",
+        "national_level_agg",
+        "regional_level_agg",
+        "municipality_type",
+        "municipality_municipality_type",
+        "dispatchers",
+        "hard_hat_state",
+        "num_repair_orders",
+        "repair_orders_view",
+        "discounted_orders_rate",
+        "avg_length_of_employment",
+        "total_repair_cost",
+        "avg_repair_price",
+        "regional_repair_efficiency",
+        "avg_time_to_dispatch",
+        "municipality_dim",
+        "avg_repair_order_discounts",
+        "dispatcher",
+        "us_state",
+        "local_hard_hats_2",
+        "local_hard_hats_1",
+        "local_hard_hats",
+        "hard_hat_to_delete",
+        "total_repair_order_discounts",
+        "hard_hat_2",
+        "contractor",
+        "repair_order",
+        "example_cube",
+    ]
+
     node_defs = {d["filename"]: d for d in project_definition}
     assert node_defs["example_cube.cube.yaml"] == {
+        "build_name": "example_cube",
+        "columns": [],
         "description": "An example cube so that the export path is tested",
         "dimensions": ["default.hard_hat.city"],
         "directory": "",
         "display_name": "Example Cube",
         "filename": "example_cube.cube.yaml",
         "metrics": ["default.num_repair_orders"],
+        "tags": [],
     }
     assert node_defs["repair_orders_fact.transform.yaml"]["dimension_links"] == [
         {

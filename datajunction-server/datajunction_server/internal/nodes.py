@@ -156,6 +156,7 @@ async def set_node_column_attributes(
     existing_attributes_map = {
         attr.attribute_type.name: attr for attr in existing_attributes
     }
+    await session.refresh(column, ["attributes"])
     column.attributes = []
     for attribute in attributes:
         if attribute.name in existing_attributes_map:

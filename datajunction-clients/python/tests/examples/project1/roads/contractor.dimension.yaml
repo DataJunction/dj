@@ -14,3 +14,6 @@ query: |
 primary_key:
   - contractor_id
 display_name: Contractor
+columns:
+- name: company_name
+  display_name: Contractor Company Name
