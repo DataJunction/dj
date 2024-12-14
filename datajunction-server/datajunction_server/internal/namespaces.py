@@ -293,6 +293,42 @@ def _get_dir_and_filename(
     return filename, directory
 
 
+def _non_primary_key_attributes(column: Column):
+    """
+    Returns all non-PK column attributes for a column
+    """
+    return [
+        attr.attribute_type.name
+        for attr in column.attributes
+        if attr.attribute_type.name not in ("primary_key",)
+    ]
+
+
+def _attributes_config(column: Column):
+    """
+    Returns a project config definition for a partition on a column
+    """
+    non_pk_attributes = _non_primary_key_attributes(column)
+    if non_pk_attributes:
+        return {"attributes": _non_primary_key_attributes(column)}
+    return {}
+
+
+def _partition_config(column: Column):
+    """
+    Returns a project config definition for a partition on a column
+    """
+    if column.partition:
+        return {
+            "partition": {
+                "format": column.partition.format,
+                "granularity": column.partition.granularity,
+                "type_": column.partition.type_,
+            },
+        }
+    return {}
+
+
 def _source_project_config(node: Node, namespace_requested: str) -> Dict:
     """
     Returns a project config definition for a source node
@@ -312,22 +348,8 @@ def _source_project_config(node: Node, namespace_requested: str) -> Dict:
             {
                 "name": column.name,
                 "type": str(column.type),
-                **(
-                    {"attributes": _non_primary_key_attributes(column)}
-                    if _non_primary_key_attributes(column)
-                    else {}
-                ),
-                **(
-                    {
-                        "partition": {
-                            "format": column.partition.format,
-                            "granularity": column.partition.granularity,
-                            "type_": column.partition.type_,
-                        },
-                    }
-                    if column.partition
-                    else {}
-                ),
+                **_attributes_config(column),
+                **_partition_config(column),
             }
             for column in node.current.columns
         ],
@@ -335,17 +357,6 @@ def _source_project_config(node: Node, namespace_requested: str) -> Dict:
         "dimension_links": _dimension_links_config(node),
         "tags": [tag.name for tag in node.tags],
     }
-
-
-def _non_primary_key_attributes(column: Column):
-    """
-    Returns all non-PK column attributes for a column
-    """
-    return [
-        attr.attribute_type.name
-        for attr in column.attributes
-        if attr.attribute_type.name not in ("primary_key",)
-    ]
 
 
 def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
@@ -366,22 +377,8 @@ def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
         "columns": [
             {
                 "name": column.name,
-                **(
-                    {"attributes": _non_primary_key_attributes(column)}
-                    if _non_primary_key_attributes(column)
-                    else {}
-                ),
-                **(
-                    {
-                        "partition": {
-                            "format": column.partition.format,
-                            "granularity": column.partition.granularity,
-                            "type_": column.partition.type_,
-                        },
-                    }
-                    if column.partition
-                    else {}
-                ),
+                **_attributes_config(column),
+                **_partition_config(column),
             }
             for column in node.current.columns
             if _non_primary_key_attributes(column) or column.partition
@@ -410,22 +407,8 @@ def _dimension_project_config(node: Node, namespace_requested: str) -> Dict:
         "columns": [
             {
                 "name": column.name,
-                **(
-                    {"attributes": _non_primary_key_attributes(column)}
-                    if _non_primary_key_attributes(column)
-                    else {}
-                ),
-                **(
-                    {
-                        "partition": {
-                            "format": column.partition.format,
-                            "granularity": column.partition.granularity,
-                            "type_": column.partition.type_,
-                        },
-                    }
-                    if column.partition
-                    else {}
-                ),
+                **_attributes_config(column),
+                **_partition_config(column),
             }
             for column in node.current.columns
             if _non_primary_key_attributes(column) or column.partition
@@ -453,12 +436,16 @@ def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
         "query": node.current.query,
         "tags": [tag.name for tag in node.tags],
         "required_dimensions": [dim.name for dim in node.current.required_dimensions],
-        "direction": node.current.metric_metadata.direction.name.lower()
-        if node.current.metric_metadata
-        else None,
-        "unit": node.current.metric_metadata.unit.name.lower()
-        if node.current.metric_metadata
-        else None,
+        "direction": (
+            node.current.metric_metadata.direction.name.lower()
+            if node.current.metric_metadata
+            else None
+        ),
+        "unit": (
+            node.current.metric_metadata.unit.name.lower()
+            if node.current.metric_metadata
+            else None
+        ),
     }
 
 
@@ -493,17 +480,7 @@ async def _cube_project_config(
         "columns": [
             {
                 "name": column.name,
-                **(
-                    {
-                        "partition": {
-                            "format": column.partition.format,
-                            "granularity": column.partition.granularity,
-                            "type_": column.partition.type_,
-                        },
-                    }
-                    if column.partition
-                    else {}
-                ),
+                **_partition_config(column),
             }
             for column in cube_revision.columns
             if column.partition
