@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, call
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction import DJBuilder
 from datajunction.compile import CompiledProject, Project, find_project_root
@@ -463,9 +464,10 @@ def test_compile_duplicate_tags(
     compiled_project.deploy(client=builder_client)
 
 
-def test_deploy_remove_dimension_links(
+async def test_deploy_remove_dimension_links(
     change_to_project_dir: Callable,
     builder_client: DJBuilder,
+    module__session: AsyncSession,
     module__session_with_examples: TestClient,
 ):
     """
@@ -481,7 +483,7 @@ def test_deploy_remove_dimension_links(
     assert response["dimension_links"][0]["dimension"] == {
         "name": "projects.project7.roads.us_state",
     }
-    compiled_project.deploy(client=builder_client)
+    await module__session.commit()
 
     change_to_project_dir("project12")
     project = Project.load_current()
