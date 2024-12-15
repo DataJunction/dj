@@ -464,6 +464,7 @@ def test_compile_duplicate_tags(
     compiled_project.deploy(client=builder_client)
 
 
+@pytest.mark.asyncio
 async def test_deploy_remove_dimension_links(
     change_to_project_dir: Callable,
     builder_client: DJBuilder,
@@ -477,18 +478,22 @@ async def test_deploy_remove_dimension_links(
     project = Project.load_current()
     compiled_project = project.compile()
     compiled_project.deploy(client=builder_client)
+    await module__session.commit()
     response = module__session_with_examples.get(
         "/nodes/projects.project7.roads.contractor",
     ).json()
     assert response["dimension_links"][0]["dimension"] == {
         "name": "projects.project7.roads.us_state",
     }
+
+    compiled_project.deploy(client=builder_client)
     await module__session.commit()
 
     change_to_project_dir("project12")
     project = Project.load_current()
     compiled_project = project.compile()
     compiled_project.deploy(client=builder_client)
+    await module__session.commit()
     response = module__session_with_examples.get(
         "/nodes/projects.project7.roads.contractor",
     ).json()
