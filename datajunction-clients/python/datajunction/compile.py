@@ -239,20 +239,24 @@ class LinkableNodeYAML(NodeYAML):
         Deploy any column-level settings (e.g., attributes or display name) for the
         columns on this node.
         """
-        if self.columns:
-            for column in self.columns:
-                if column.attributes:
-                    node.set_column_attributes(
-                        column_name=column.name,
-                        attributes=[
-                            ColumnAttribute(name=attr) for attr in column.attributes
-                        ],
-                    )
-                if column.display_name:
-                    node.set_column_display_name(
-                        column_name=column.name,
-                        display_name=column.display_name,
-                    )
+        if not self.columns:
+            return
+
+        for column in self.columns:
+            # Deploy column attributes if present
+            if column.attributes:
+                node.set_column_attributes(
+                    column_name=column.name,
+                    attributes=[
+                        ColumnAttribute(name=attr) for attr in column.attributes
+                    ],
+                )
+            # Deploy display name if present
+            if column.display_name:
+                node.set_column_display_name(
+                    column_name=column.name,
+                    display_name=column.display_name,
+                )
 
     def _deploy_dimension_links(  # pylint: disable=too-many-locals
         self,
