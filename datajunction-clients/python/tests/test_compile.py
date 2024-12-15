@@ -481,6 +481,8 @@ def test_deploy_remove_dimension_links(
     assert response["dimension_links"][0]["dimension"] == {
         "name": "projects.project7.roads.us_state",
     }
+    compiled_project.deploy(client=builder_client)
+
     change_to_project_dir("project12")
     project = Project.load_current()
     compiled_project = project.compile()
