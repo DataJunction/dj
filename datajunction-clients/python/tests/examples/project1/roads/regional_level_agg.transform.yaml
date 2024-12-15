@@ -54,4 +54,4 @@ columns:
 - name: location_hierarchy
   display_name: Location (Hierarchy)
   attributes:
-  - dimension
+    - dimension

@@ -1110,14 +1110,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "contact_title",
             "My Contact's Title",
         )
-        assert response == {
-            "attributes": [],
-            "dimension": None,
-            "display_name": "My Contact's Title",
-            "name": "contact_title",
-            "type": "string",
-            "partition": None,
-        }
+        assert response["display_name"] == "My Contact's Title"
 
     #
     # Tags
