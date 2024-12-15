@@ -611,7 +611,7 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
             "display_name": "Example Cube",
             "description": "An example cube so that the export path is tested",
             "metrics": ["default.num_repair_orders"],
-            "dimensions": ["default.hard_hat.city"],
+            "dimensions": ["default.hard_hat.city", "default.hard_hat.hire_date"],
             "mode": "published",
         },
     )
@@ -629,6 +629,16 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
     )
     assert response.status_code in (200, 201)
 
+    # Mark a column as a partition
+    await client_with_roads.post(
+        "/nodes/default.example_cube/columns/default.hard_hat.hire_date/partition",
+        json={
+            "type_": "temporal",
+            "granularity": "day",
+            "format": "yyyyMMdd",
+        },
+    )
+
     response = await client_with_roads.get(
         "/namespaces/default/export/",
     )
@@ -641,9 +651,18 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
     node_defs = {d["filename"]: d for d in project_definition}
     assert node_defs["example_cube.cube.yaml"] == {
         "build_name": "example_cube",
-        "columns": [],
+        "columns": [
+            {
+                "name": "default.hard_hat.hire_date",
+                "partition": {
+                    "format": "yyyyMMdd",
+                    "granularity": "day",
+                    "type_": "temporal",
+                },
+            },
+        ],
         "description": "An example cube so that the export path is tested",
-        "dimensions": ["default.hard_hat.city"],
+        "dimensions": ["default.hard_hat.hire_date", "default.hard_hat.city"],
         "directory": "",
         "display_name": "Example Cube",
         "filename": "example_cube.cube.yaml",

@@ -26,7 +26,7 @@ from datajunction.nodes import (
 from datajunction.tags import Tag
 
 if TYPE_CHECKING:
-    from datajunction.compile import ColumnYAML
+    from datajunction.compile import ColumnYAML  # pragma: no cover
 
 
 class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
