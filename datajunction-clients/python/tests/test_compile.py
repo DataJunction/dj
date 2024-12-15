@@ -334,7 +334,7 @@ def test_compile_redeploying_a_project(
     """
     Test deploying and then redeploying a project
     """
-    change_to_project_dir("project1")
+    change_to_project_dir("project12")
     project = Project.load_current()
     compiled_project = project.compile()
     compiled_project.deploy(client=builder_client)

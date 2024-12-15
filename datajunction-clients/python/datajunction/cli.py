@@ -1,5 +1,6 @@
 """DataJunction command-line tool"""
 import argparse
+import os
 
 from datajunction import DJBuilder, Project
 
@@ -56,7 +57,8 @@ def main():
 
     args = parser.parse_args()
 
-    dj_builder.basic_login()
+    if os.getenv("DJ_USER"):
+        dj_builder.basic_login()
 
     if args.command == "deploy":
         deploy(args.directory, args.dryrun)
