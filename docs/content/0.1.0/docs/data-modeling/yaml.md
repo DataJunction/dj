@@ -15,28 +15,19 @@ You can anchor your project to a specific namespace in DJ, and use YAML files to
 
 If you've already started developing DJ entities through the UI or a different client, you can export the existing entities to a YAML project to get started quickly. Note that this process only supports exporting a single namespace at a time.
 
-1. **Export**: Use the DJ Python client to export your DJ entities to a YAML project. This snippet will export to a YAML project in your local directory `./example_project`:
-```python
-from datajunction import DJBuilder, Project
-dj = DJBuilder()
-Project.pull(
-    client=dj,
-    namespace="default",
-    target_path="./example_project",
-    ignore_existing_files=True,
-)
-project = Project.load("./example_project")
-compiled_project = project.compile()
+1. **Export**: Use the DJ CLI (installed when you install the DJ Python client) to export your DJ entities to a YAML project. This snippet will export the `default` namespace to a YAML project in the `./example_project` directory:
+```sh
+dj pull default ./example_project
 ```
 
 2. **Validation**: Once you've made changes to the YAML files, you can validate those changes with:
-```
-compiled_project.validate(client=dj)
+```sh
+dj deploy ./example_project --dryrun
 ```
 
 3. **Deployment**: When satisfied, you can deploy the changes like this:
-```
-compiled_project.deploy(client=dj)
+```sh
+dj deploy ./example_project
 ```
 
 ### From Scratch
@@ -62,6 +53,7 @@ build:
 ```
 2. Create YAML files that represent each node. Use file infixes to define node types, like `foo.dimension.yaml` or `foo.transform.yaml`). Here is an example for the `roads.date_dim` node, in file `./roads/
 ```
+display_name: Date
 description: Date dimension
 query: |
   SELECT
@@ -72,7 +64,6 @@ query: |
   FROM ${prefix}roads.date
 primary_key:
   - dateint
-display_name: Date
 ```
 #### Project Metadata Fields
 
@@ -106,9 +97,10 @@ The **node name is derived** from the directory structure and file name. For exa
 ##### Transform / Dimension Node YAML
 | Field | Required? | Description |
 | ---- | ---- | ---- |
-| `query` | Yes | The SQL query for the node |
 | `display_name` | No | The display name of the node |
 | `description` | No | Description of the node |
+| `query` | Yes | The SQL query for the node |
+| `columns` | No | Optional column-level settings (like `attributes` or `partition`) |
 | `tags` | No | A list of tags for this node |
 | `primary_key` | No | A list of columns that make up the primary key of this node |
 | `dimension_links` | No | A list of dimension links, if any. See [details](#dimension-link-yaml). |
@@ -116,9 +108,10 @@ The **node name is derived** from the directory structure and file name. For exa
 ##### Metric Node YAML
 | Field | Required? | Description |
 | ---- | ---- | ---- |
-| `query` | Yes | The SQL query for the node |
 | `display_name` | No | The display name of the node |
 | `description` | No | Description of the node |
+| `query` | Yes | The SQL query for the node |
+| `columns` | No | Optional column-level settings (like `attributes` or `partition`) |
 | `tags` | No | A list of tags for this node |
 | `required_dimensions` | No | A list of required dimensions for this metric |
 | `direction` | No | Direction of this metric (one of `higher_is_better`, `lower_is_better`, or `neutral`) |
@@ -131,6 +124,7 @@ The **node name is derived** from the directory structure and file name. For exa
 | `description` | No | Description of the node |
 | `metrics` | Yes | The metrics in the cube |
 | `dimensions` | Yes | The dimensions in the cube |
+| `columns` | No | Optional column-level settings (like `attributes` or `partition`) |
 | `tags` | No | A list of tags for this node |
 
 ##### Dimension Link YAML
@@ -166,3 +160,41 @@ dimension_links:
 | `node_column` | Yes  | The column on this node that is being linked from |
 | `dimension` | Yes | The dimension attribute being linked to |
 | `role` | No | The role this dimension represents |
+
+##### Columns YAML
+
+The `columns` section can be included if additional column-level settings are needed on the node.
+
+**Attributes**
+
+Column-level attributes like `dimension` can be configured like this:
+
+```
+columns:
+- name: is_clicked
+  attributes:
+  - dimension
+```
+
+**Display Name**
+
+A column can be given a custom display name like this:
+
+```
+columns:
+- name: is_clicked
+  display_name: Clicked?
+```
+
+**Partitions**
+
+Partition columns can be configured like this:
+
+```
+columns:
+- name: utc_date
+  partition:
+    format: yyyyMMdd
+    granularity: day
+    type_: temporal
+```
