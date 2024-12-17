@@ -50,3 +50,8 @@ dimension_links:
   - type: join
     node_column: state_name
     dimension_node: ${prefix}roads.us_state
+columns:
+- name: location_hierarchy
+  display_name: Location (Hierarchy)
+  attributes:
+    - dimension

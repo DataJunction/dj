@@ -181,8 +181,8 @@ class DJClient:
 
     def basic_login(
         self,
-        username: Optional[str],
-        password: Optional[str],
+        username: Optional[str] = None,
+        password: Optional[str] = None,
     ):
         """
         Login with basic authentication.
@@ -554,6 +554,21 @@ class DJClient:
         response = self._session.post(
             f"/nodes/{node_name}/columns/{column_name}/attributes/",
             json=[asdict(attribute) for attribute in attributes],
+        )
+        return response.json()
+
+    def _set_column_display_name(
+        self,
+        node_name,
+        column_name,
+        display_name: str,
+    ):
+        """
+        Sets display name for the column on the node
+        """
+        response = self._session.patch(
+            f"/nodes/{node_name}/columns/{column_name}/",
+            params={"display_name": display_name},
         )
         return response.json()
 

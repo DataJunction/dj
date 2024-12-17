@@ -381,13 +381,27 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
 
     def set_column_attributes(
         self,
-        column_name,
+        column_name: str,
         attributes: List[models.ColumnAttribute],
     ):
         """
         Sets attributes for columns on the node
         """
         return self.dj_client._set_column_attributes(self.name, column_name, attributes)
+
+    def set_column_display_name(
+        self,
+        column_name: str,
+        display_name: str,
+    ):
+        """
+        Sets the display name for a column on the node
+        """
+        return self.dj_client._set_column_display_name(
+            self.name,
+            column_name,
+            display_name,
+        )
 
 
 @dataclass
