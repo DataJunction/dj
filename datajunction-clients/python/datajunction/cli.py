@@ -27,13 +27,15 @@ class DJCLI:
 
     def pull(self, namespace: str, directory: str):
         """
-        Pull nodes from a specific namespace.
+        Export nodes from a specific namespace.
         """
+        print(f"Exporting namespace {namespace} to {directory}...")
         Project.pull(
             client=self.builder_client,
             namespace=namespace,
             target_path=directory,
         )
+        print(f"Finished exporting namespace {namespace} to {directory}.")
 
     def create_parser(self):
         """Creates the CLI arg parser"""
