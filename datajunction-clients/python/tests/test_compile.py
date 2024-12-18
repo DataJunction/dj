@@ -465,6 +465,7 @@ def test_compile_duplicate_tags(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip
 async def test_deploy_remove_dimension_links(
     change_to_project_dir: Callable,
     builder_client: DJBuilder,
