@@ -443,12 +443,12 @@ def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
         "required_dimensions": [dim.name for dim in node.current.required_dimensions],
         "direction": (
             node.current.metric_metadata.direction.name.lower()
-            if node.current.metric_metadata
+            if node.current.metric_metadata and node.current.metric_metadata.direction
             else None
         ),
         "unit": (
             node.current.metric_metadata.unit.name.lower()
-            if node.current.metric_metadata
+            if node.current.metric_metadata and node.current.metric_metadata.unit
             else None
         ),
     }
