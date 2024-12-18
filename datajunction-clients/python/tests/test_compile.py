@@ -486,9 +486,6 @@ async def test_deploy_remove_dimension_links(
         "name": "projects.project7.roads.us_state",
     }
 
-    compiled_project.deploy(client=builder_client)
-    await module__session.commit()
-
     change_to_project_dir("project12")
     project = Project.load_current()
     compiled_project = project.compile()
