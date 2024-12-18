@@ -1,4 +1,5 @@
 """DataJunction command-line tool"""
+
 import argparse
 
 from datajunction import DJBuilder, Project
