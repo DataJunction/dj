@@ -510,7 +510,9 @@ def _dimension_links_config(node: Node):
         {
             "type": "reference",
             "node_column": column.name,
-            "dimension": column.dimension.name + SEPARATOR + column.dimension_column,
+            "dimension": column.dimension.name
+            + SEPARATOR
+            + (column.dimension_column or ""),
         }
         for column in node.current.columns
         if column.dimension
