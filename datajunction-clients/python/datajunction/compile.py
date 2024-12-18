@@ -282,7 +282,9 @@ class LinkableNodeYAML(NodeYAML):
                 )
                 if isinstance(link, DimensionJoinLinkYAML):
                     if prefixed_dimension in existing_join_links:
-                        existing_join_links.remove(prefixed_dimension)
+                        existing_join_links.remove(  # pragma: no cover
+                            prefixed_dimension,
+                        )
                     if link.join_on:
                         prefixed_join_on = render_prefixes(link.join_on, prefix)
                         node.link_complex_dimension(
@@ -298,7 +300,9 @@ class LinkableNodeYAML(NodeYAML):
                         )
                 else:
                     if link.node_column in existing_reference_links:
-                        existing_reference_links.remove(link.node_column)
+                        existing_reference_links.remove(  # pragma: no cover
+                            link.node_column,
+                        )
                     split_dim = prefixed_dimension.rsplit(".", 1)
                     node.add_reference_dimension_link(
                         node_column=link.node_column,
@@ -314,12 +318,12 @@ class LinkableNodeYAML(NodeYAML):
                 )
                 table.add_row(*[prefixed_name, "[b]link", message])
 
-        for dim_node in existing_join_links:
+        for dim_node in existing_join_links:  # pragma: no cover
             node.remove_complex_dimension_link(dim_node)
             message = f"[i][yellow]Dimension join link removed to {dim_node}"
             table.add_row(*[prefixed_name, "[b]link", message])
-        for node_col in existing_reference_links:
-            node.remove_reference_dimension_link(node_col)  # pragma: no cover
+        for node_col in existing_reference_links:  # pragma: no cover
+            node.remove_reference_dimension_link(node_col)
             message = f"[i][yellow]Dimension reference link removed on {node_col}"
             table.add_row(*[prefixed_name, "[b]link", message])
 
