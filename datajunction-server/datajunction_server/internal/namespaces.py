@@ -285,12 +285,16 @@ def _get_dir_and_filename(
     namespace_requested: str,
 ) -> Tuple[str, str, str]:
     """
-    Get the directory and filename where a node name would be located
+    Get the directory, filename, and build name for a node
     """
     dot_split = node_name.replace(f"{namespace_requested}.", "").split(".")
     filename = f"{dot_split[-1]}.{node_type}.yaml"
     directory = os.path.sep.join(dot_split[:-1])
-    build_name = f"{directory}.{dot_split[-1]}" if directory else dot_split[-1]
+    build_name = (
+        f"{SEPARATOR.join(dot_split[:-1])}.{dot_split[-1]}"
+        if directory
+        else dot_split[-1]
+    )
     return filename, directory, build_name
 
 
