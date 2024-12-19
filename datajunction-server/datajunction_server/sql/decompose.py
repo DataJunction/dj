@@ -1,4 +1,5 @@
 """Used for extracting measures form metric definitions."""
+import hashlib
 from functools import lru_cache
 
 from pydantic import BaseModel
@@ -69,6 +70,7 @@ class MeasureExtractor:
 
         # Outputs from decomposition
         self._measures: list[Measure] = []
+        self._measures_tracker: set[str] = set()
         self._query_ast = query_ast
         self._extracted = False
 
@@ -103,17 +105,23 @@ class MeasureExtractor:
                         col.name = ast.Name(col.name.name)
                 self._query_ast.select.from_.relations[0].primary.set_alias(None)  # type: ignore
 
-            for idx, func in enumerate(self._query_ast.find_all(ast.Function)):
+            for func in self._query_ast.find_all(ast.Function):
                 dj_function = func.function()
                 handler = self.handlers.get(dj_function)
                 if handler and dj_function.is_aggregation:
-                    if func_measures := handler(func, idx):  # pragma: no cover
+                    if func_measures := handler(func):  # pragma: no cover
                         MeasureExtractor.update_ast(func, func_measures)
-                    self._measures.extend(sorted(func_measures, key=lambda m: m.name))
+
+                    for measure in sorted(func_measures, key=lambda m: m.name):
+                        if measure.name in self._measures_tracker:
+                            continue
+                        self._measures_tracker.add(measure.name)
+                        self._measures.append(measure)
+
             self._extracted = True
         return self._measures, self._query_ast
 
-    def _simple_associative_agg(self, func, idx) -> list[Measure]:
+    def _simple_associative_agg(self, func) -> list[Measure]:
         """
         Handles measures decomposition for a single-argument associative aggregation function.
         Examples: SUM, MAX, MIN, COUNT
@@ -122,10 +130,13 @@ class MeasureExtractor:
         measure_name = "_".join(
             [str(col) for col in arg.find_all(ast.Column)] + [func.name.name.lower()],
         )
+        expression = f"{func.quantifier} {arg}" if func.quantifier else str(arg)
+        short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
+
         return [
             Measure(
-                name=f"{measure_name}_{idx}",
-                expression=f"{func.quantifier} {arg}" if func.quantifier else str(arg),
+                name=f"{measure_name}_{short_hash}",
+                expression=expression,
                 aggregation=func.name.name.upper(),
                 rule=AggregationRule(
                     type=Aggregability.FULL
@@ -135,7 +146,7 @@ class MeasureExtractor:
             ),
         ]
 
-    def _avg(self, func, idx) -> list[Measure]:
+    def _avg(self, func) -> list[Measure]:
         """
         Handles measures decomposition for AVG (it requires both the SUM and COUNT
         of the selected measure).
@@ -145,10 +156,12 @@ class MeasureExtractor:
             [str(col) for col in arg.find_all(ast.Column)]
             + [dj_functions.Sum.__name__.lower()],
         )
+        expression = str(arg)
+        short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
         return [
             Measure(
-                name=f"{measure_name}_{idx}",
-                expression=str(arg),
+                name=f"{measure_name}_{short_hash}",
+                expression=expression,
                 aggregation=dj_functions.Sum.__name__.upper(),
                 rule=AggregationRule(
                     type=Aggregability.FULL
