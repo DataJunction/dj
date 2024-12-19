@@ -113,10 +113,9 @@ class MeasureExtractor:
                         MeasureExtractor.update_ast(func, func_measures)
 
                     for measure in sorted(func_measures, key=lambda m: m.name):
-                        if measure.name in self._measures_tracker:
-                            continue
-                        self._measures_tracker.add(measure.name)
-                        self._measures.append(measure)
+                        if measure.name not in self._measures_tracker:
+                            self._measures_tracker.add(measure.name)
+                            self._measures.append(measure)
 
             self._extracted = True
         return self._measures, self._query_ast
