@@ -140,7 +140,8 @@ def test_multiple_sums():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT SUM(sales_amount_sum_a1b27bc7) + SUM(fraud_sales_sum_0a5d6799) FROM parent_node",
+            "SELECT SUM(sales_amount_sum_a1b27bc7) + "
+            "SUM(fraud_sales_sum_0a5d6799) FROM parent_node",
         ),
     )
 
@@ -151,7 +152,8 @@ def test_multiple_sums():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT SUM(sales_amount_sum_a1b27bc7) - SUM(fraud_sales_sum_0a5d6799) FROM parent_node",
+            "SELECT SUM(sales_amount_sum_a1b27bc7) - "
+            "SUM(fraud_sales_sum_0a5d6799) FROM parent_node",
         ),
     )
 
@@ -274,7 +276,8 @@ def test_rate():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT 1.0 * SUM(clicks_sum_c9e9e0fc) / NULLIF(SUM(impressions_sum_87e980e6), 0) FROM parent_node",
+            "SELECT 1.0 * SUM(clicks_sum_c9e9e0fc) / "
+            "NULLIF(SUM(impressions_sum_87e980e6), 0) FROM parent_node",
         ),
     )
 
@@ -312,7 +315,8 @@ def test_rate():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT COALESCE(SUM(clicks_sum_c9e9e0fc) / SUM(impressions_sum_87e980e6), 0) FROM parent_node",
+            "SELECT COALESCE(SUM(clicks_sum_c9e9e0fc) / "
+            "SUM(impressions_sum_87e980e6), 0) FROM parent_node",
         ),
     )
 
@@ -473,7 +477,8 @@ def test_count_distinct_rate():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT COUNT( DISTINCT user_id_count_5deb6d4f) / SUM(action_count_418c5509) FROM parent_node",
+            "SELECT COUNT( DISTINCT user_id_count_5deb6d4f) / "
+            "SUM(action_count_418c5509) FROM parent_node",
         ),
     )
 
@@ -614,6 +619,7 @@ def test_metric_query_with_aliases():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT SUM(time_to_dispatch_sum_bf99afd6) / SUM(count) FROM default.repair_orders_fact",
+            "SELECT SUM(time_to_dispatch_sum_bf99afd6) / "
+            "SUM(count) FROM default.repair_orders_fact",
         ),
     )
