@@ -187,6 +187,7 @@
     "html-webpack-plugin": "5.5.1",
     "jest": "^29.5.0",
     "jest-fetch-mock": "3.0.3",
+    "jest-watch-typeahead": "2.2.2",
     "mini-css-extract-plugin": "2.7.6",
     "resize-observer-polyfill": "1.5.1"
   }
