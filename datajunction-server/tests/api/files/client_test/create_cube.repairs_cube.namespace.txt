@@ -1,6 +1,6 @@
 repairs_cube = dj.create_cube(
     name=f"{namespace}.repairs_cube",
-    display_name="Default: Repairs Cube",
+    display_name="Repairs Cube",
     description="""Cube of various metrics related to repairs""",
     dimensions=[
         "default.hard_hat.country",

@@ -1,6 +1,6 @@
 roads_cube = dj.create_cube(
     name=f"{NAMESPACE_MAPPING['default']}.roads_cube",
-    display_name="Default: Roads Cube",
+    display_name="Roads Cube",
     description="""Cube of various metrics related to repairs""",
     dimensions=[
         "default.hard_hat.country",

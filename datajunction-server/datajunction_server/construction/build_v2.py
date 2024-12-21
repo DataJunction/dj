@@ -297,7 +297,7 @@ def build_preaggregate_query(
                         ).type,
                     )
             for proj in temp_select.projection:
-                proj.set_semantic_entity(metric.name + SEPARATOR + measure.name)  # type: ignore
+                proj.set_semantic_entity(parent_node.name + SEPARATOR + measure.name)  # type: ignore
                 proj.set_semantic_type(SemanticType.MEASURE)  # type: ignore
             final_query.select.projection.extend(temp_select.projection)
     return final_query
