@@ -4,7 +4,12 @@ Tests for tags.
 from unittest import mock
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from datajunction_server.database.base import Base
 
 
 class TestTags:
@@ -12,11 +17,22 @@ class TestTags:
     Test tags API endpoints.
     """
 
-    async def create_tag(self, client: AsyncClient):
+    @pytest_asyncio.fixture(autouse=True)
+    async def cleanup_tables(self, module__session: AsyncSession):
+        """
+        Fixture to clean up tables after each test is run
+        """
+        yield  # Testing happens
+        # Teardown: remove any data from database (even data not created by this session)
+        for table in Base.metadata.tables.keys():
+            await module__session.execute(text(f'TRUNCATE TABLE "{table}" CASCADE'))
+        await module__session.commit()
+
+    async def create_tag(self, module__client: AsyncClient):
         """
         Creates a tag.
         """
-        response = await client.post(
+        response = await module__client.post(
             "/tags/",
             json={
                 "name": "sales_report",
@@ -28,11 +44,11 @@ class TestTags:
         )
         return response
 
-    async def create_another_tag(self, client: AsyncClient):
+    async def create_another_tag(self, module__client: AsyncClient):
         """
         Creates another tag
         """
-        response = await client.post(
+        response = await module__client.post(
             "/tags/",
             json={
                 "name": "reports",
@@ -45,11 +61,11 @@ class TestTags:
         return response
 
     @pytest.mark.asyncio
-    async def test_create_and_read_tag(self, client: AsyncClient) -> None:
+    async def test_create_and_read_tag(self, module__client: AsyncClient) -> None:
         """
         Test ``POST /tags`` and ``GET /tags/{name}``
         """
-        response = await self.create_tag(client)
+        response = await self.create_tag(module__client)
         expected_tag_output = {
             "tag_metadata": {},
             "display_name": "Sales Report",
@@ -60,7 +76,7 @@ class TestTags:
         assert response.status_code == 201
         assert response.json() == expected_tag_output
 
-        response = await client.post(
+        response = await module__client.post(
             "/tags/",
             json={
                 "name": "sales_report2",
@@ -78,16 +94,16 @@ class TestTags:
         }
         assert response.json() == expected_tag_output2
 
-        response = await client.get("/tags/sales_report/")
+        response = await module__client.get("/tags/sales_report/")
         assert response.status_code == 200
         assert response.json() == expected_tag_output
 
-        response = await client.get("/tags/sales_report2/")
+        response = await module__client.get("/tags/sales_report2/")
         assert response.status_code == 200
         assert response.json() == expected_tag_output2
 
         # Check history
-        response = await client.get("/history/tag/sales_report/")
+        response = await module__client.get("/history/tag/sales_report/")
         assert response.json() == [
             {
                 "activity_type": "create",
@@ -104,22 +120,22 @@ class TestTags:
         ]
 
         # Creating it again should raise an exception
-        response = await self.create_tag(client)
+        response = await self.create_tag(module__client)
         response_data = response.json()
         assert (
             response_data["message"] == "A tag with name `sales_report` already exists!"
         )
 
     @pytest.mark.asyncio
-    async def test_update_tag(self, client: AsyncClient) -> None:
+    async def test_update_tag(self, module__client: AsyncClient) -> None:
         """
         Tests updating a tag.
         """
-        response = await self.create_tag(client)
+        response = await self.create_tag(module__client)
         assert response.status_code == 201
 
         # Trying updating the tag
-        response = await client.patch(
+        response = await module__client.patch(
             "/tags/sales_report/",
             json={
                 "description": "Helpful sales metrics",
@@ -138,7 +154,7 @@ class TestTags:
         }
 
         # Trying updating the tag
-        response = await client.patch(
+        response = await module__client.patch(
             "/tags/sales_report/",
             json={},
         )
@@ -151,21 +167,21 @@ class TestTags:
         }
 
         # Check history
-        response = await client.get("/history/tag/sales_report/")
+        response = await module__client.get("/history/tag/sales_report/")
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
         ] == [("update", "tag"), ("update", "tag"), ("create", "tag")]
 
     @pytest.mark.asyncio
-    async def test_list_tags(self, client: AsyncClient) -> None:
+    async def test_list_tags(self, module__client: AsyncClient) -> None:
         """
         Test ``GET /tags``
         """
-        response = await self.create_tag(client)
+        response = await self.create_tag(module__client)
         assert response.status_code == 201
 
-        response = await client.get("/tags/")
+        response = await module__client.get("/tags/")
         assert response.status_code == 200
         response_data = response.json()
 
@@ -179,7 +195,7 @@ class TestTags:
             },
         ]
 
-        await client.post(
+        await module__client.post(
             "/tags/",
             json={
                 "name": "impressions_report",
@@ -190,7 +206,7 @@ class TestTags:
             },
         )
 
-        await client.post(
+        await module__client.post(
             "/tags/",
             json={
                 "name": "rotors",
@@ -201,7 +217,7 @@ class TestTags:
             },
         )
 
-        response = await client.get("/tags/?tag_type=group")
+        response = await module__client.get("/tags/?tag_type=group")
         assert response.status_code == 200
         response_data = response.json()
         assert response_data == [
@@ -221,7 +237,7 @@ class TestTags:
             },
         ]
 
-        response = await client.get("/tags/?tag_type=business_area")
+        response = await module__client.get("/tags/?tag_type=business_area")
         assert response.status_code == 200
         response_data = response.json()
         assert response_data == [
@@ -271,7 +287,7 @@ class TestTags:
         assert len(response_data) == 1
         assert response_data == [
             {
-                "display_name": "Default: Items Sold Count",
+                "display_name": "Items Sold Count",
                 "mode": "published",
                 "name": "default.items_sold_count",
                 "description": "Total units sold",
@@ -316,7 +332,7 @@ class TestTags:
         assert len(response_data) == 2
         assert response_data == [
             {
-                "display_name": "Default: Items Sold Count",
+                "display_name": "Items Sold Count",
                 "mode": "published",
                 "name": "default.items_sold_count",
                 "description": "Total units sold",
@@ -328,7 +344,7 @@ class TestTags:
                 "version": "v1.0",
             },
             {
-                "display_name": "Default: Total Profit",
+                "display_name": "Total Profit",
                 "mode": "published",
                 "name": "default.total_profit",
                 "description": "Total profit",
