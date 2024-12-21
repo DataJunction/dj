@@ -882,7 +882,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "name": "foo.bar.dispatcher.company_name",
             "type": "string",
             "node_name": "foo.bar.dispatcher",
-            "node_display_name": "Foo: Bar: Dispatcher",
+            "node_display_name": "Dispatcher",
             "is_primary_key": False,
             "path": [
                 "foo.bar.repair_order_details",
