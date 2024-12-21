@@ -50,7 +50,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     repair_order_details = dj.create_source(
         name=f"{namespace}.repair_order_details",
         description="Details on repair orders",
-        display_name="Default: Repair Order Details",
+        display_name="Repair Order Details",
         schema="roads",
         catalog="warehouse",
         table="repair_order_details",
@@ -66,7 +66,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     # Create dimension
     dj.create_dimension(
         description="Repair order dimension",
-        display_name="Default: Repair Order",
+        display_name="Repair Order",
         name=f"{namespace}.repair_order",
         primary_key=["repair_order_id"],
         query=f"""

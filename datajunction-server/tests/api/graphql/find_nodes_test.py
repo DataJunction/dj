@@ -880,7 +880,7 @@ async def test_find_node_with_revisions(
                 "type": "TRANSFORM",
                 "revisions": [
                     {
-                        "displayName": "Default: National Level Agg",
+                        "displayName": "National Level Agg",
                         "dimensionLinks": [],
                     },
                 ],
@@ -901,7 +901,7 @@ async def test_find_node_with_revisions(
                 "type": "TRANSFORM",
                 "revisions": [
                     {
-                        "displayName": "Default: Regional Level Agg",
+                        "displayName": "Regional Level Agg",
                         "dimensionLinks": [],
                     },
                 ],
