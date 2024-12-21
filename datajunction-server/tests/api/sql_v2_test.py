@@ -572,7 +572,7 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
             )
             SELECT
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_dispatcher_id,
-              SUM(price * discount) AS price_discount_sum_0
+              SUM(price * discount) AS price_discount_sum_017d55a8
             FROM default_DOT_repair_orders_fact_built
             GROUP BY default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_dispatcher_id
             """,
@@ -586,10 +586,10 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
                     "type": "int",
                 },
                 {
-                    "column": "price_discount_sum_0",
-                    "name": "price_discount_sum_0",
-                    "node": "default.total_repair_order_discounts",
-                    "semantic_entity": "default.total_repair_order_discounts.price_discount_sum_0",
+                    "column": "price_discount_sum_017d55a8",
+                    "name": "price_discount_sum_017d55a8",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.price_discount_sum_017d55a8",
                     "semantic_type": "measure",
                     "type": "double",
                 },
@@ -637,7 +637,7 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
             )
             SELECT
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_dispatcher_id,
-              SUM(price * discount) AS price_discount_sum_0,
+              SUM(price * discount) AS price_discount_sum_017d55a8,
               COUNT(1) AS count
             FROM default_DOT_repair_orders_fact_built
             GROUP BY  default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_dispatcher_id
@@ -652,8 +652,8 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
                     "type": "int",
                 },
                 {
-                    "column": "price_discount_sum_0",
-                    "name": "price_discount_sum_0",
+                    "column": "price_discount_sum_017d55a8",
+                    "name": "price_discount_sum_017d55a8",
                     "node": mock.ANY,
                     "semantic_entity": mock.ANY,
                     "semantic_type": "measure",
@@ -662,8 +662,8 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
                 {
                     "column": "count",
                     "name": "count",
-                    "node": "default.avg_repair_order_discounts",
-                    "semantic_entity": "default.avg_repair_order_discounts.count",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.count",
                     "semantic_type": "measure",
                     "type": "bigint",
                 },
@@ -763,8 +763,8 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
               default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_last_name,
               COUNT(1) AS count,
-              SUM(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_sum_0,
-              SUM(total_repair_cost) AS total_repair_cost_sum_0
+              SUM(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_sum_bf99afd6,
+              SUM(total_repair_cost) AS total_repair_cost_sum_9bdaf803
             FROM default_DOT_repair_orders_fact_built
             GROUP BY
               default_DOT_repair_orders_fact_built.default_DOT_us_state_DOT_state_name,
@@ -799,24 +799,24 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
                 {
                     "column": "count",
                     "name": "count",
-                    "node": "default.avg_time_to_dispatch",
-                    "semantic_entity": "default.avg_time_to_dispatch.count",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.count",
                     "semantic_type": "measure",
                     "type": "bigint",
                 },
                 {
-                    "column": "time_to_dispatch_sum_0",
-                    "name": "time_to_dispatch_sum_0",
-                    "node": "default.avg_time_to_dispatch",
-                    "semantic_entity": "default.avg_time_to_dispatch.time_to_dispatch_sum_0",
+                    "column": "time_to_dispatch_sum_bf99afd6",
+                    "name": "time_to_dispatch_sum_bf99afd6",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.time_to_dispatch_sum_bf99afd6",
                     "semantic_type": "measure",
                     "type": "bigint",
                 },
                 {
-                    "column": "total_repair_cost_sum_0",
-                    "name": "total_repair_cost_sum_0",
-                    "node": "default.total_repair_cost",
-                    "semantic_entity": "default.total_repair_cost.total_repair_cost_sum_0",
+                    "column": "total_repair_cost_sum_9bdaf803",
+                    "name": "total_repair_cost_sum_9bdaf803",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.total_repair_cost_sum_9bdaf803",
                     "semantic_type": "measure",
                     "type": "double",
                 },
@@ -892,7 +892,7 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
               default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_last_name,
               COUNT(1) AS count,
-              SUM(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_sum_0
+              SUM(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_sum_bf99afd6
             FROM default_DOT_repair_orders_fact_built
             GROUP BY
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
@@ -972,7 +972,7 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
               default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_last_name,
               COUNT(1) AS count,
-              SUM(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_sum_0
+              SUM(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_sum_bf99afd6
             FROM default_DOT_repair_orders_fact_built
             GROUP BY
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,

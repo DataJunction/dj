@@ -1007,7 +1007,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.age",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "int",
@@ -1016,7 +1016,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.country",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
@@ -1025,7 +1025,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.created_at",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "timestamp",
@@ -1034,7 +1034,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.full_name",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
@@ -1043,7 +1043,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.gender",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
@@ -1052,7 +1052,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": True,
                 "name": "default.us_users.id",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "int",
@@ -1061,7 +1061,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.post_processing_timestamp",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "timestamp",
@@ -1070,7 +1070,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.preferred_language",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
@@ -1079,7 +1079,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.secret_number",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "float",
@@ -1123,7 +1123,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.age",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "int",
@@ -1132,7 +1132,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.country",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
@@ -1141,7 +1141,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.created_at",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "timestamp",
@@ -1150,7 +1150,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.full_name",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
@@ -1159,7 +1159,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.gender",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
@@ -1168,7 +1168,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": True,
                 "name": "default.us_users.id",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "int",
@@ -1177,7 +1177,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.post_processing_timestamp",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "timestamp",
@@ -1186,7 +1186,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.preferred_language",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "string",
@@ -1195,7 +1195,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             {
                 "is_primary_key": False,
                 "name": "default.us_users.secret_number",
-                "node_display_name": "Default: Us Users",
+                "node_display_name": "Us Users",
                 "node_name": "default.us_users",
                 "path": ["default.messages"],
                 "type": "float",
@@ -2327,7 +2327,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
         assert data["name"] == "default.country_agg"
-        assert data["display_name"] == "Default: Country Agg"
+        assert data["display_name"] == "Country Agg"
         assert data["type"] == "transform"
         assert data["description"] == "Distinct users per country"
         assert (
@@ -2361,12 +2361,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "/nodes/default.country_agg/",
             json={
                 "description": "Some new description",
-                "display_name": "Default: Country Aggregation by User",
+                "display_name": "Country Aggregation by User",
             },
         )
         data = response.json()
         assert data["name"] == "default.country_agg"
-        assert data["display_name"] == "Default: Country Aggregation by User"
+        assert data["display_name"] == "Country Aggregation by User"
         assert data["type"] == "transform"
         assert data["version"] == "v1.1"
         assert data["description"] == "Some new description"
@@ -2634,7 +2634,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         assert response.status_code == 201
         assert data["name"] == "default.countries"
-        assert data["display_name"] == "Default: Countries"
+        assert data["display_name"] == "Countries"
         assert data["type"] == "dimension"
         assert data["version"] == "v1.0"
         assert data["description"] == "Country dimension"
@@ -2806,7 +2806,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         assert response.status_code == 201
         assert data["name"] == "default.countries"
-        assert data["display_name"] == "Default: Countries"
+        assert data["display_name"] == "Countries"
         assert data["type"] == "dimension"
         assert data["version"] == "v1.0"
         assert data["description"] == "Country dimension"
@@ -4431,7 +4431,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert response.json() == [
             {
                 "column_name": "default_DOT_num_repair_orders",
-                "display_name": "Default: Num Repair Orders",
+                "display_name": "Num Repair Orders",
                 "lineage": [
                     {
                         "column_name": "repair_order_id",
@@ -4477,7 +4477,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "column_name": "default_DOT_discounted_repair_orders",
                 "node_name": "default.discounted_repair_orders",
                 "node_type": "metric",
-                "display_name": "Default: Discounted Repair Orders",
+                "display_name": "Discounted Repair Orders",
                 "lineage": [
                     {
                         "column_name": "repair_order_id",
@@ -4659,7 +4659,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             {
                 "attributes": [],
                 "dimension": None,
-                "display_name": "Default: Regional Repair Efficiency",
+                "display_name": "Regional Repair Efficiency",
                 "name": "default_DOT_regional_repair_efficiency",
                 "type": "double",
                 "partition": None,
@@ -4675,13 +4675,13 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "column_name": "default_DOT_regional_repair_efficiency",
                 "node_name": "default.regional_repair_efficiency",
                 "node_type": "metric",
-                "display_name": "Default: Regional Repair Efficiency",
+                "display_name": "Regional Repair Efficiency",
                 "lineage": [
                     {
                         "column_name": "total_amount_nationwide",
                         "node_name": "default.national_level_agg",
                         "node_type": "transform",
-                        "display_name": "Default: National Level Agg",
+                        "display_name": "National Level Agg",
                         "lineage": [
                             {
                                 "column_name": "quantity",
@@ -4703,7 +4703,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                         "column_name": "total_amount_in_region",
                         "node_name": "default.regional_level_agg",
                         "node_type": "transform",
-                        "display_name": "Default: Regional Level Agg",
+                        "display_name": "Regional Level Agg",
                         "lineage": [
                             {
                                 "column_name": "quantity",
@@ -4725,7 +4725,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                         "column_name": "total_repairs_dispatched",
                         "node_name": "default.regional_level_agg",
                         "node_type": "transform",
-                        "display_name": "Default: Regional Level Agg",
+                        "display_name": "Regional Level Agg",
                         "lineage": [
                             {
                                 "column_name": "repair_order_id",
@@ -4740,7 +4740,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                         "column_name": "completed_repairs",
                         "node_name": "default.regional_level_agg",
                         "node_type": "transform",
-                        "display_name": "Default: Regional Level Agg",
+                        "display_name": "Regional Level Agg",
                         "lineage": [
                             {
                                 "column_name": "repair_order_id",
@@ -5157,7 +5157,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "filter_only": False,
             "is_primary_key": True,
             "name": "default.regional_level_agg.order_day",
-            "node_display_name": "Default: Regional Level Agg",
+            "node_display_name": "Regional Level Agg",
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "int",
@@ -5166,7 +5166,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "filter_only": False,
             "is_primary_key": True,
             "name": "default.regional_level_agg.order_month",
-            "node_display_name": "Default: Regional Level Agg",
+            "node_display_name": "Regional Level Agg",
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "int",
@@ -5175,7 +5175,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "filter_only": False,
             "is_primary_key": True,
             "name": "default.regional_level_agg.order_year",
-            "node_display_name": "Default: Regional Level Agg",
+            "node_display_name": "Regional Level Agg",
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "int",
@@ -5184,7 +5184,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "filter_only": False,
             "is_primary_key": True,
             "name": "default.regional_level_agg.state_name",
-            "node_display_name": "Default: Regional Level Agg",
+            "node_display_name": "Regional Level Agg",
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "string",
@@ -5193,7 +5193,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "filter_only": False,
             "is_primary_key": True,
             "name": "default.regional_level_agg.us_region_id",
-            "node_display_name": "Default: Regional Level Agg",
+            "node_display_name": "Regional Level Agg",
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "int",
@@ -5202,7 +5202,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "filter_only": True,
             "is_primary_key": True,
             "name": "default.repair_order.repair_order_id",
-            "node_display_name": "Default: Repair Order",
+            "node_display_name": "Repair Order",
             "node_name": "default.repair_order",
             "path": ["default.repair_orders"],
             "type": "int",
@@ -5211,7 +5211,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "filter_only": True,
             "is_primary_key": True,
             "name": "default.dispatcher.dispatcher_id",
-            "node_display_name": "Default: Dispatcher",
+            "node_display_name": "Dispatcher",
             "node_name": "default.dispatcher",
             "path": ["default.repair_orders"],
             "type": "int",
@@ -5220,7 +5220,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "filter_only": True,
             "is_primary_key": True,
             "name": "default.repair_order.repair_order_id",
-            "node_display_name": "Default: Repair Order",
+            "node_display_name": "Repair Order",
             "node_name": "default.repair_order",
             "path": ["default.repair_order_details"],
             "type": "int",
@@ -5229,7 +5229,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "filter_only": True,
             "is_primary_key": True,
             "name": "default.contractor.contractor_id",
-            "node_display_name": "Default: Contractor",
+            "node_display_name": "Contractor",
             "node_name": "default.contractor",
             "path": ["default.repair_type"],
             "type": "int",
@@ -5238,7 +5238,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "filter_only": True,
             "is_primary_key": True,
             "name": "default.us_state.state_short",
-            "node_display_name": "Default: Us State",
+            "node_display_name": "Us State",
             "node_name": "default.us_state",
             "path": [
                 "default.contractors",

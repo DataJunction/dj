@@ -1,6 +1,6 @@
 regional_level_agg = dj.create_transform(
     name=f"{namespace}.regional_level_agg",
-    display_name="Default: Regional Level Agg",
+    display_name="Regional Level Agg",
     description="""Regional-level aggregates""",
     mode="published",
     primary_key=[

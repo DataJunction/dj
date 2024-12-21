@@ -274,7 +274,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert num_repair_orders.columns[0] == Column(
             name="default_DOT_num_repair_orders",
             type="bigint",
-            display_name="Default: Num Repair Orders",
+            display_name="Num Repair Orders",
             attributes=[],
             dimension=None,
         )
@@ -290,7 +290,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert cube_two.columns[0] == Column(
             name="default.num_repair_orders",
             type="bigint",
-            display_name="Default: Num Repair Orders",
+            display_name="Num Repair Orders",
             attributes=[],
             dimension=None,
         )
@@ -400,7 +400,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         account_type_table = client.create_source(
             name="default.account_type_table",
             description="A source table for account type data",
-            display_name="Default: Account Type Table",
+            display_name="Account Type Table",
             catalog="default",
             schema="store",
             table="account_type_table",
@@ -448,7 +448,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         account_type_table = client.create_source(
             name="default.account_type_table",
             description="A source table for account type data",
-            display_name="Default: Account Type Table",
+            display_name="Account Type Table",
             catalog="default",
             schema="store",
             table="account_type_table",
@@ -463,7 +463,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             update_if_exists=True,
         )
         assert account_type_table.name == "default.account_type_table"
-        assert account_type_table.display_name == "Default: Account Type Table"
+        assert account_type_table.display_name == "Account Type Table"
 
         new_node = account_type_table
         new_node.name = "default.account_type_table_new"
@@ -489,7 +489,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         account_type_table = client.create_source(
             name="default.account_type_table",
             description="A source table for account type data",
-            display_name="Default: Account Type Table",
+            display_name="Account Type Table",
             catalog="default",
             schema="store",
             table="account_type_table",
@@ -510,7 +510,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         payment_type_table = client.create_source(
             name="default.payment_type_table",
             description="A source table for payment type data",
-            display_name="Default: Payment Type Table",
+            display_name="Payment Type Table",
             catalog="default",
             schema="store",
             table="payment_type_table",
@@ -529,7 +529,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         revenue = client.create_source(
             name="default.revenue",
             description="Record of payments",
-            display_name="Default: Payment Records",
+            display_name="Payment Records",
             catalog="default",
             schema="accounting",
             table="revenue",
@@ -549,7 +549,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         payment_type_dim = client.create_dimension(
             name="default.payment_type",
             description="Payment type dimension",
-            display_name="Default: Payment Type",
+            display_name="Payment Type",
             query=(
                 "SELECT id, payment_type_name, payment_type_classification "
                 "FROM default.payment_type_table"
@@ -569,7 +569,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         account_type_dim = client.create_dimension(
             name="default.account_type",
             description="Account type dimension",
-            display_name="Default: Account Type",
+            display_name="Account Type",
             query=(
                 "SELECT id, account_type_name, "
                 "account_type_classification FROM "
@@ -585,7 +585,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         # transform nodes
         large_revenue_payments_only = client.create_transform(
             name="default.large_revenue_payments_only",
-            description="Default: Only large revenue payments",
+            description="Only large revenue payments",
             query=(
                 "SELECT payment_id, payment_amount, customer_id, account_type "
                 "FROM default.revenue WHERE payment_amount > 1000000"
@@ -882,7 +882,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "name": "foo.bar.dispatcher.company_name",
             "type": "string",
             "node_name": "foo.bar.dispatcher",
-            "node_display_name": "Foo: Bar: Dispatcher",
+            "node_display_name": "Dispatcher",
             "is_primary_key": False,
             "path": [
                 "foo.bar.repair_order_details",

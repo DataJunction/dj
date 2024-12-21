@@ -226,7 +226,11 @@ async def create_node_revision(
     """
     node_revision = NodeRevision(
         name=data.name,
-        display_name=data.display_name if data.display_name else labelize(data.name),
+        display_name=(
+            data.display_name
+            if data.display_name
+            else labelize(data.name.split(SEPARATOR)[-1])
+        ),
         description=data.description,
         type=node_type,
         status=NodeStatus.VALID,
@@ -354,7 +358,7 @@ async def create_cube_node_revision(  # pylint: disable=too-many-locals
 
     node_revision = NodeRevision(
         name=data.name,
-        display_name=data.display_name or labelize(data.name),
+        display_name=data.display_name or labelize(data.name.split(SEPARATOR)[-1]),
         description=data.description,
         type=NodeType.CUBE,
         query="",
