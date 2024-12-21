@@ -101,7 +101,7 @@ async def test_read_cube(module__client_with_account_revenue: AsyncClient) -> No
     assert data["version"] == "v1.0"
     assert data["type"] == "cube"
     assert data["name"] == "default.number_of_accounts_by_account_type"
-    assert data["display_name"] == "Default: Number Of Accounts By Account Type"
+    assert data["display_name"] == "Number Of Accounts By Account Type"
     assert data["mode"] == "published"
     assert data["tags"] == []
 
@@ -113,7 +113,7 @@ async def test_read_cube(module__client_with_account_revenue: AsyncClient) -> No
     data = response.json()
     assert data["type"] == "cube"
     assert data["name"] == "default.number_of_accounts_by_account_type"
-    assert data["display_name"] == "Default: Number Of Accounts By Account Type"
+    assert data["display_name"] == "Number Of Accounts By Account Type"
     assert data["version"] == "v1.0"
     assert data["description"] == "A cube of number of accounts grouped by account type"
 
@@ -357,7 +357,7 @@ def repairs_cube_elements():
     """
     return [
         {
-            "display_name": "Default: Discounted Orders Rate",
+            "display_name": "Discounted Orders Rate",
             "name": "default_DOT_discounted_orders_rate",
             "node_name": "default.discounted_orders_rate",
             "partition": None,
@@ -413,35 +413,35 @@ def repairs_cube_elements():
             "type": "dimension",
         },
         {
-            "display_name": "Default: Num Repair Orders",
+            "display_name": "Num Repair Orders",
             "name": "default_DOT_num_repair_orders",
             "node_name": "default.num_repair_orders",
             "partition": None,
             "type": "metric",
         },
         {
-            "display_name": "Default: Avg Repair Price",
+            "display_name": "Avg Repair Price",
             "name": "default_DOT_avg_repair_price",
             "node_name": "default.avg_repair_price",
             "partition": None,
             "type": "metric",
         },
         {
-            "display_name": "Default: Total Repair Cost",
+            "display_name": "Total Repair Cost",
             "name": "default_DOT_total_repair_cost",
             "node_name": "default.total_repair_cost",
             "partition": None,
             "type": "metric",
         },
         {
-            "display_name": "Default: Total Repair Order Discounts",
+            "display_name": "Total Repair Order Discounts",
             "name": "default_DOT_total_repair_order_discounts",
             "node_name": "default.total_repair_order_discounts",
             "partition": None,
             "type": "metric",
         },
         {
-            "display_name": "Default: Double Total Repair Cost",
+            "display_name": "Double Total Repair Cost",
             "name": "default_DOT_double_total_repair_cost",
             "node_name": "default.double_total_repair_cost",
             "partition": None,
@@ -565,7 +565,7 @@ async def test_create_cube(
     results = response.json()
 
     assert results["name"] == "default.repairs_cube"
-    assert results["display_name"] == "Default: Repairs Cube"
+    assert results["display_name"] == "Repairs Cube"
     assert results["description"] == "Cube of various metrics related to repairs"
 
     response = await client_with_repairs_cube.get("/cubes/default.repairs_cube")
@@ -1434,7 +1434,7 @@ async def test_changing_node_upstream_from_cube(
     expected_elements = [
         {
             "name": "default_DOT_order_date_count__one",
-            "display_name": "Default: Order Date Count  One",
+            "display_name": "Order Date Count  One",
             "node_name": "default.order_date_count__one",
             "type": "metric",
             "partition": None,
@@ -1486,7 +1486,7 @@ def assert_updated_repairs_cube(data):
             "partition": None,
         },
         {
-            "display_name": "Default: Discounted Orders Rate",
+            "display_name": "Discounted Orders Rate",
             "name": "default_DOT_discounted_orders_rate",
             "node_name": "default.discounted_orders_rate",
             "type": "metric",
@@ -1538,7 +1538,7 @@ async def test_updating_cube(
         [
             {
                 "name": "default.discounted_orders_rate",
-                "display_name": "Default: Discounted Orders Rate",
+                "display_name": "Discounted Orders Rate",
                 "type": "double",
                 "attributes": [],
                 "dimension": None,

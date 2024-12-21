@@ -360,7 +360,7 @@ async def test_export_cube_as_notebook(
         "&include_sources=true&include_dimensions=true",
     )
     notebook = response.json()
-    assert len(notebook["cells"]) == 21
+    assert len(notebook["cells"]) == 20
     assert (
         notebook["cells"][2]["source"]
         == """### Upserting Nodes:
@@ -374,7 +374,7 @@ async def test_export_cube_as_notebook(
 * default.roads_cube"""
     )
     assert (
-        trim_trailing_whitespace(notebook["cells"][20]["source"])
+        trim_trailing_whitespace(notebook["cells"][19]["source"])
         == load_expected_file(
             "notebook.create_cube.txt",
         ).strip()

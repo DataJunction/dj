@@ -1,6 +1,6 @@
 num_repair_orders = dj.create_metric(
     name="default.num_repair_orders",
-    display_name="Default: Num Repair Orders",
+    display_name="Num Repair Orders",
     description="""Number of repair orders""",
     mode="published",
     required_dimensions=[],

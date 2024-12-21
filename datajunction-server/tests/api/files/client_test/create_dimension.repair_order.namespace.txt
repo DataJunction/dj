@@ -1,6 +1,6 @@
 repair_order = dj.create_dimension(
     name=f"{namespace}.repair_order",
-    display_name="Default: Repair Order",
+    display_name="Repair Order",
     description="""Repair order dimension""",
     mode="published",
     primary_key=[

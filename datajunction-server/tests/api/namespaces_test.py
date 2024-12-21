@@ -89,7 +89,7 @@ async def test_list_nodes_by_namespace(
     ][0]
     assert countries_dim == {
         "description": "Country dimension",
-        "display_name": "Basic: Dimension: Countries",
+        "display_name": "Countries",
         "edited_by": [
             "dj",
         ],
