@@ -170,6 +170,12 @@
         "lines": 80,
         "functions": 85
       }
+    },
+    "moduleNameMapper": {
+      "unist-util-visit-parents/do-not-use-color": "<rootDir>/node_modules/unist-util-visit-parents/lib/color.js",
+      "^#minpath$": "<rootDir>/node_modules/vfile/lib/minpath.browser.js",
+      "^#minproc$": "<rootDir>/node_modules/vfile/lib/minproc.browser.js",
+      "^#minurl$": "<rootDir>/node_modules/vfile/lib/minurl.browser.js"
     }
   },
   "resolutions": {
