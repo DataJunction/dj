@@ -11,6 +11,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import DimensionLink, Node, NodeRevision
 from datajunction_server.database.column import Column
+from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import topological_sort
 from datajunction_server.sql.parsing import ast
@@ -110,11 +111,11 @@ async def python_client_code_for_setting_column_attributes(
             attributes=[
                 attr.attribute_type
                 for attr in col.attributes
-                if attr.attribute_type.name != "primary_key"
+                if attr.attribute_type.name != ColumnAttributes.PRIMARY_KEY.value
             ],
         )
         for col in node.current.columns  # type: ignore
-        if col.has_attributes_besides("primary_key")
+        if col.has_attributes_besides(ColumnAttributes.PRIMARY_KEY.value)
     ]
     return "\n\n".join(snippets)
 
@@ -315,7 +316,8 @@ async def export_nodes_notebook_cells(session: AsyncSession, nodes: List[Node]):
 
         # Add cell for setting column attributes if needed
         if any(
-            col.has_attributes_besides("primary_key") for col in node.current.columns
+            col.has_attributes_besides(ColumnAttributes.PRIMARY_KEY.value)
+            for col in node.current.columns
         ):
             cells.append(
                 new_code_cell(
