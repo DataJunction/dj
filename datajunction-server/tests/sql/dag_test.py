@@ -96,6 +96,7 @@ async def test_get_dimensions(session: AsyncSession, current_user: User) -> None
             type="string",
             path=["A.b_id"],
             filter_only=False,
+            is_hidden=False,
         ),
         DimensionAttributeOutput(
             name="B.id",
@@ -105,6 +106,7 @@ async def test_get_dimensions(session: AsyncSession, current_user: User) -> None
             type="int",
             path=["A.b_id"],
             filter_only=False,
+            is_hidden=False,
         ),
     ]
 
