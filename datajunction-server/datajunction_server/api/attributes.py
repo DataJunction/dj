@@ -15,6 +15,7 @@ from datajunction_server.internal.access.authentication.http import SecureAPIRou
 from datajunction_server.models.attribute import (
     RESERVED_ATTRIBUTE_NAMESPACE,
     AttributeTypeBase,
+    ColumnAttributes,
     MutableAttributeTypeFields,
 )
 from datajunction_server.models.node_type import NodeType
@@ -69,7 +70,7 @@ async def default_attribute_types(session: AsyncSession = Depends(get_session)):
     defaults = [
         AttributeType(
             namespace=RESERVED_ATTRIBUTE_NAMESPACE,
-            name="primary_key",
+            name=ColumnAttributes.PRIMARY_KEY.value,
             description="Points to a column which is part of the primary key of the node",
             uniqueness_scope=[],
             allowed_node_types=[
@@ -80,14 +81,14 @@ async def default_attribute_types(session: AsyncSession = Depends(get_session)):
         ),
         AttributeType(
             namespace=RESERVED_ATTRIBUTE_NAMESPACE,
-            name="dimension",
+            name=ColumnAttributes.DIMENSION.value,
             description="Points to a dimension attribute column",
             uniqueness_scope=[],
             allowed_node_types=[NodeType.SOURCE, NodeType.TRANSFORM],
         ),
         AttributeType(
             namespace=RESERVED_ATTRIBUTE_NAMESPACE,
-            name="hidden",
+            name=ColumnAttributes.HIDDEN.value,
             description=(
                 "Points to a dimension column that's not useful "
                 "for end users and should be hidden"

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.base import Base
+from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.base import labelize
 from datajunction_server.models.column import ColumnTypeDecorator
 from datajunction_server.sql.parsing.types import ColumnType
@@ -105,7 +106,7 @@ class Column(Base):  # type: ignore
         """
         Whether the primary key attribute is set on this column.
         """
-        return self.has_attribute("primary_key")
+        return self.has_attribute(ColumnAttributes.PRIMARY_KEY.value)
 
     def has_attribute(self, attribute_name: str) -> bool:
         """
