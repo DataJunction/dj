@@ -13,6 +13,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { FullNameField } from './FullNameField';
 import { MetricQueryField } from './MetricQueryField';
 import { displayMessageAfterSubmit } from '../../../utils/form';
+import { ColumnMetadata } from './ColumnMetadata';
 import { PrimaryKeySelect } from './PrimaryKeySelect';
 import { NodeQueryField } from './NodeQueryField';
 import { MetricMetadataFields } from './MetricMetadataFields';
@@ -311,6 +312,8 @@ export function AddEditNodePage() {
     );
   };
 
+  let [enableExperimentation, setEnableExperimentation] = useState(false);
+
   return (
     <div className="mid">
       <NamespaceHeader
@@ -415,7 +418,23 @@ export function AddEditNodePage() {
                           <RequiredDimensionsSelect />
                         )}
                         {action === Action.Edit ? selectTags : <TagsField />}
-                        <NodeModeField />
+                        {/* <NodeModeField /> */}
+
+                        <div style={{ marginTop: '20px' }}>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={enableExperimentation}
+                              onChange={e => setEnableExperimentation(e.target.checked)}
+                            />
+                          <h4>Enable for Experimentation?</h4>
+                        </label>
+                        <span style={{display: enableExperimentation ? 'block': 'none'}}>
+                        <ColumnMetadata name="analysis_unit" label="Analysis Unit Column" />
+                        <ColumnMetadata name="event_timestamp" label="Event Timestamp Column" />
+                        <ColumnMetadata name="partition_date" label="Partition Date Column" />
+                        </span>
+                        </div>
 
                         <button type="submit" disabled={isSubmitting}>
                           {isSubmitting ? (
