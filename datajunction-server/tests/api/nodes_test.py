@@ -1012,6 +1012,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "int",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1021,6 +1022,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "string",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1030,6 +1032,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "timestamp",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1039,6 +1042,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "string",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1048,6 +1052,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "string",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": True,
@@ -1057,6 +1062,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "int",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1066,6 +1072,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "timestamp",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1075,6 +1082,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "string",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1084,6 +1092,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "float",
                 "filter_only": False,
+                "is_hidden": False,
             },
         ]
 
@@ -1128,6 +1137,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "int",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1137,6 +1147,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "string",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1146,6 +1157,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "timestamp",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1155,6 +1167,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "string",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1164,6 +1177,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "string",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": True,
@@ -1173,6 +1187,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "int",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1182,6 +1197,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "timestamp",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1191,6 +1207,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "string",
                 "filter_only": False,
+                "is_hidden": False,
             },
             {
                 "is_primary_key": False,
@@ -1200,6 +1217,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "path": ["default.messages"],
                 "type": "float",
                 "filter_only": False,
+                "is_hidden": False,
             },
         ]
         # The metric should still be VALID
@@ -3594,6 +3612,47 @@ class TestNodeColumnsAttributes:
         ]
 
     @pytest.mark.asyncio
+    async def test_set_column_hidden(
+        self,
+        client_with_basic: AsyncClient,
+    ):
+        """
+        Test setting columns with the `hidden` attribute.
+        """
+        response = await client_with_basic.post(
+            "/nodes/basic.dimension.users/columns/secret_number/attributes/",
+            json=[{"namespace": "system", "name": "hidden"}],
+        )
+        data = response.json()
+        assert data == [
+            {
+                "name": "secret_number",
+                "type": "float",
+                "display_name": "Secret Number",
+                "attributes": [
+                    {"attribute_type": {"name": "hidden", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "partition": None,
+            },
+        ]
+        response = await client_with_basic.get(
+            "/nodes/basic.dimension.users/dimensions",
+        )
+        column_attributes = {col["name"]: col["is_hidden"] for col in response.json()}
+        assert column_attributes == {
+            "basic.dimension.users.age": False,
+            "basic.dimension.users.country": False,
+            "basic.dimension.users.created_at": False,
+            "basic.dimension.users.full_name": False,
+            "basic.dimension.users.gender": False,
+            "basic.dimension.users.id": False,
+            "basic.dimension.users.post_processing_timestamp": False,
+            "basic.dimension.users.preferred_language": False,
+            "basic.dimension.users.secret_number": True,
+        }
+
+    @pytest.mark.asyncio
     async def test_set_columns_attributes_failed(self, client_with_basic: AsyncClient):
         """
         Test setting column attributes with different failure modes.
@@ -5161,6 +5220,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "int",
+            "is_hidden": False,
         },
         {
             "filter_only": False,
@@ -5170,6 +5230,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "int",
+            "is_hidden": False,
         },
         {
             "filter_only": False,
@@ -5179,6 +5240,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "int",
+            "is_hidden": False,
         },
         {
             "filter_only": False,
@@ -5188,6 +5250,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "string",
+            "is_hidden": False,
         },
         {
             "filter_only": False,
@@ -5197,6 +5260,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.regional_level_agg",
             "path": [],
             "type": "int",
+            "is_hidden": False,
         },
         {
             "filter_only": True,
@@ -5206,6 +5270,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.repair_order",
             "path": ["default.repair_orders"],
             "type": "int",
+            "is_hidden": False,
         },
         {
             "filter_only": True,
@@ -5215,6 +5280,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.dispatcher",
             "path": ["default.repair_orders"],
             "type": "int",
+            "is_hidden": False,
         },
         {
             "filter_only": True,
@@ -5224,6 +5290,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.repair_order",
             "path": ["default.repair_order_details"],
             "type": "int",
+            "is_hidden": False,
         },
         {
             "filter_only": True,
@@ -5233,6 +5300,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
             "node_name": "default.contractor",
             "path": ["default.repair_type"],
             "type": "int",
+            "is_hidden": False,
         },
         {
             "filter_only": True,
@@ -5244,6 +5312,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
                 "default.contractors",
             ],
             "type": "string",
+            "is_hidden": False,
         },
     ]
 

@@ -19,6 +19,7 @@ from datajunction_server.database.node import (
     NodeRevision,
 )
 from datajunction_server.errors import DJDoesNotExistException, DJException
+from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR, get_settings
@@ -483,7 +484,12 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
                 node_name=node_name,
                 node_display_name=node_display_name,
                 is_primary_key=(
-                    attribute_types is not None and "primary_key" in attribute_types
+                    attribute_types is not None
+                    and ColumnAttributes.PRIMARY_KEY.value in attribute_types
+                ),
+                is_hidden=(
+                    attribute_types is not None
+                    and ColumnAttributes.HIDDEN.value in attribute_types
                 ),
                 type=str(column_type),
                 path=[
@@ -506,7 +512,10 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
             if (  # column has dimension attribute
                 join_path == ""
                 and attribute_types is not None
-                and ("dimension" in attribute_types or "primary_key" in attribute_types)
+                and (
+                    ColumnAttributes.DIMENSION.value in attribute_types
+                    or ColumnAttributes.PRIMARY_KEY.value in attribute_types
+                )
             )
             or (  # column is on dimension node
                 join_path != ""
@@ -580,6 +589,11 @@ async def get_filter_only_dimensions(
                         type=str(column_mapping[dim.split(SEPARATOR)[-1]].type),
                         path=[upstream.name],
                         filter_only=True,
+                        is_hidden=(
+                            column_mapping[dim.split(SEPARATOR)[-1]].has_attribute(
+                                ColumnAttributes.HIDDEN.value,
+                            )
+                        ),
                     )
                     for dim in link.foreign_keys.values()
                 ],

@@ -80,12 +80,13 @@ repos:
 #  hooks:
 #  - id: reorder-python-imports
 #    args: [--application-directories=.:src]
-- repo: https://github.com/hadialqattan/pycln
-  rev: v2.1.7 # Possible releases: https://github.com/hadialqattan/pycln/tags
-  hooks:
-  - id: pycln
-    args: [--config=pyproject.toml]
-    exclude: ^templates/
+## Removing this for now due to this bug: https://github.com/hadialqattan/pycln/issues/249
+# - repo: https://github.com/hadialqattan/pycln
+#   rev: v2.4.0 # Possible releases: https://github.com/hadialqattan/pycln/tags
+#   hooks:
+#   - id: pycln
+#     args: [--config=pyproject.toml]
+#     exclude: ^templates/
 - repo: local
   hooks:
   - id: pylint
