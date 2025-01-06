@@ -65,7 +65,10 @@ from datajunction_server.internal.nodes import (
 )
 from datajunction_server.internal.validation import validate_node_data
 from datajunction_server.models import access
-from datajunction_server.models.attribute import AttributeTypeIdentifier
+from datajunction_server.models.attribute import (
+    AttributeTypeIdentifier,
+    ColumnAttributes,
+)
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     JoinType,
@@ -599,7 +602,12 @@ async def create_node(
                     session,
                     node,
                     key_column,
-                    [AttributeTypeIdentifier(name="primary_key", namespace="system")],
+                    [
+                        AttributeTypeIdentifier(
+                            name=ColumnAttributes.PRIMARY_KEY.value,
+                            namespace="system",
+                        ),
+                    ],
                     current_user=current_user,
                 )
     node = await Node.get_by_name(  # type: ignore

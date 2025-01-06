@@ -45,6 +45,7 @@ from datajunction_server.internal.validation import NodeValidator, validate_node
 from datajunction_server.models import access
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
+    ColumnAttributes,
     UniquenessScope,
 )
 from datajunction_server.models.base import labelize
@@ -1248,7 +1249,9 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
         if data is not None and data.primary_key:
             pk_attribute = (
                 await session.execute(
-                    select(AttributeType).where(AttributeType.name == "primary_key"),
+                    select(AttributeType).where(
+                        AttributeType.name == ColumnAttributes.PRIMARY_KEY.value,
+                    ),
                 )
             ).scalar_one()
             if set(data.primary_key) - set(col.name for col in new_revision.columns):
@@ -1261,7 +1264,8 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
                     col.attributes = [
                         attr
                         for attr in col.attributes
-                        if attr.attribute_type.name != "primary_key"
+                        if attr.attribute_type.name
+                        != ColumnAttributes.PRIMARY_KEY.value
                     ]
                 # Add (or keep) the primary key attribute if it is in the updated PK
                 if col.name in data.primary_key and not col.has_primary_key_attribute():

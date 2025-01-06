@@ -4000,6 +4000,7 @@ async def test_filter_on_source_nodes(
             "path": [],
             "type": "int",
             "filter_only": False,
+            "is_hidden": False,
         },
         {
             "is_primary_key": True,
@@ -4009,6 +4010,7 @@ async def test_filter_on_source_nodes(
             "path": ["default.events"],
             "type": "int",
             "filter_only": True,
+            "is_hidden": False,
         },
     ]
 

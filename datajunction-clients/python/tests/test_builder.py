@@ -889,6 +889,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "foo.bar.repair_order",
             ],
             "filter_only": False,
+            "is_hidden": False,
         } in result
 
     def test_create_namespace(self, client):

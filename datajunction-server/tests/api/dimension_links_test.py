@@ -867,6 +867,7 @@ async def test_measures_sql_with_reference_dimension_links(
                 "default.events.user_registration_country",
             ],
             "type": "string",
+            "is_hidden": False,
         },
     ]
 
