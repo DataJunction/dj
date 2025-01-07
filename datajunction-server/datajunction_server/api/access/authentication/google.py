@@ -59,7 +59,9 @@ async def get_access_token(
     cookie. If the user does not already exist, a new user is created.
     """
     if error:
-        raise DJAuthenticationException(f"Ran into an error during Google auth: {error}")
+        raise DJAuthenticationException(
+            f"Ran into an error during Google auth: {error}",
+        )
     hostname = urlparse(settings.url).hostname
     url = str(request.url)
     flow.fetch_token(authorization_response=url)
