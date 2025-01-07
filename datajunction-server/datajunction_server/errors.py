@@ -282,6 +282,14 @@ class DJQueryServiceClientException(DJException):
     http_status_code: int = 500
 
 
+class DJQueryServiceClientEntityNotFound(DJException):
+    """
+    Exception raised when an entity is not found on the query service
+    """
+
+    http_status_code: int = 404
+
+
 class DJActionNotAllowedException(DJException):
     """
     Exception raised when an action is not allowed.

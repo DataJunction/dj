@@ -1694,7 +1694,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
 
-        assert response.status_code == 500
+        assert response.status_code == 422
         assert data == {
             "message": (
                 "Cannot set availability state, source nodes require availability states "
