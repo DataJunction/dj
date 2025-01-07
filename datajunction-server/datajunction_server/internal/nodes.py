@@ -129,7 +129,7 @@ async def validate_and_build_attribute(
 
     # Verify that the attribute type is allowed for this node
     if node.type not in attribute_type.allowed_node_types:
-        raise DJException(
+        raise DJInvalidInputException(
             message=f"Attribute type `{attribute.namespace}.{attribute_type.name}` "
             f"not allowed on node type `{node.type}`!",
         )
@@ -191,7 +191,7 @@ async def set_node_column_attributes(
     for (attribute, _), columns in attributes_columns_map.items():
         if len(columns) > 1 and attribute.uniqueness_scope:
             column.attributes = existing_attributes
-            raise DJException(
+            raise DJInvalidInputException(
                 message=f"The column attribute `{attribute.name}` is scoped to be "
                 f"unique to the `{attribute.uniqueness_scope}` level, but there "
                 "is more than one column tagged with it: "
@@ -1020,7 +1020,7 @@ async def create_node_from_inactive(  # pylint: disable=too-many-arguments
     )
     if previous_inactive_node and previous_inactive_node.deactivated_at:
         if previous_inactive_node.type != new_node_type:
-            raise DJException(  # pragma: no cover
+            raise DJInvalidInputException(  # pragma: no cover
                 message=f"A node with name `{data.name}` of a `{previous_inactive_node.type.value}` "  # pylint: disable=line-too-long
                 "type existed before. If you want to re-create it with a different type, "
                 "you need to remove all traces of the previous node with a hard delete call: "
@@ -1255,7 +1255,7 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
                 )
             ).scalar_one()
             if set(data.primary_key) - set(col.name for col in new_revision.columns):
-                raise DJException(  # pragma: no cover
+                raise DJInvalidInputException(  # pragma: no cover
                     f"Primary key {data.primary_key} does not exist on {new_revision.name}",
                 )
             for col in new_revision.columns:
@@ -1566,7 +1566,7 @@ async def upsert_complex_dimension_link(
 
     # Verify that the columns in the ON clause exist on both nodes
     if ctx.exception.errors:
-        raise DJException(
+        raise DJInvalidInputException(
             message=f"Join query {link_input.join_on} is not valid",
             errors=ctx.exception.errors,
         )
@@ -1833,7 +1833,7 @@ async def activate_node(
         include_inactive=True,
     )
     if not node.deactivated_at:
-        raise DJException(
+        raise DJInvalidInputException(
             http_status_code=HTTPStatus.BAD_REQUEST,
             message=f"Cannot restore `{name}`, node already active.",
         )

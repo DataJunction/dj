@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from datajunction_server.constants import AUTH_COOKIE
-from datajunction_server.errors import DJError, DJException, ErrorCode
+from datajunction_server.errors import DJAuthenticationException, DJError, ErrorCode
 from datajunction_server.internal.access.authentication.basic import get_user
 from datajunction_server.internal.access.authentication.tokens import decode_token
 from datajunction_server.utils import get_session, get_settings
@@ -35,7 +35,7 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
             try:
                 jwt_data = decode_token(jwt)
             except (JWEError, JWTError) as exc:
-                raise DJException(
+                raise DJAuthenticationException(
                     http_status_code=HTTPStatus.UNAUTHORIZED,
                     errors=[
                         DJError(
@@ -54,7 +54,7 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
         scheme, credentials = get_authorization_scheme_param(authorization)
         if not (authorization and scheme and credentials):
             if self.auto_error:
-                raise DJException(
+                raise DJAuthenticationException(
                     http_status_code=HTTPStatus.FORBIDDEN,
                     errors=[
                         DJError(
@@ -66,7 +66,7 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
             return  # pragma: no cover
         if scheme.lower() != "bearer":
             if self.auto_error:
-                raise DJException(
+                raise DJAuthenticationException(
                     http_status_code=HTTPStatus.FORBIDDEN,
                     errors=[
                         DJError(

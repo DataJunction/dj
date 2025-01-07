@@ -304,3 +304,40 @@ class DJQueryBuildError(DJError):
     """
     Query build error
     """
+
+
+class DJAuthorizationException(DJException):
+    """
+    Exception raised when the user is not authorized to perform a particular request
+    """
+
+    http_status_code: int = HTTPStatus.FORBIDDEN
+    message: str = "You do not have permission to perform this action."
+
+
+class DJAuthenticationException(DJException):
+    """
+    Exception raised when the user fails to authenticate.
+    """
+
+    http_status_code: int = HTTPStatus.UNAUTHORIZED
+    message: str = "Authentication failed. Please log in and try again."
+
+
+class DJUninitializedResourceException(DJInternalErrorException):
+    """
+    Raised when a required system resource (e.g., DatabaseSessionManager) is not initialized.
+    """
+
+
+class DJConfigurationException(DJException):
+    """
+    Exception raised when there is a missing or incorrect system configuration
+    that prevents the operation from proceeding.
+    """
+
+
+class DJGraphCycleException(DJException):
+    """
+    Exception raised when a cycle is detected in a graph during topological sorting.
+    """

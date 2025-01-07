@@ -3,7 +3,6 @@ Models for authorization
 """
 from copy import deepcopy
 from enum import Enum
-from http import HTTPStatus
 from typing import TYPE_CHECKING, Callable, Iterable, Optional, Set, Union
 
 from pydantic import BaseModel, Field
@@ -11,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.utils import try_get_dj_node
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.errors import DJError, DJException, ErrorCode
+from datajunction_server.errors import DJAuthorizationException, DJError, ErrorCode
 from datajunction_server.models.user import UserOutput
 
 if TYPE_CHECKING:
@@ -241,8 +240,7 @@ class AccessControlStore(BaseModel):
                 if show_denials
                 else ""
             )
-            raise DJException(
-                http_status_code=HTTPStatus.FORBIDDEN,
+            raise DJAuthorizationException(
                 errors=[
                     DJError(
                         code=ErrorCode.UNAUTHORIZED_ACCESS,
@@ -270,8 +268,7 @@ class AccessControlStore(BaseModel):
         self.validation_results = access_control.requests
 
         if any((result.approved is None for result in self.validation_results)):
-            raise DJException(
-                http_status_code=HTTPStatus.FORBIDDEN,
+            raise DJAuthorizationException(
                 errors=[
                     DJError(
                         code=ErrorCode.INCOMPLETE_AUTHORIZATION,
