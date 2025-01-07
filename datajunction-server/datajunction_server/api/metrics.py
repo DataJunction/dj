@@ -121,7 +121,7 @@ async def get_common_dimensions(
     """
     Return common dimensions for a set of metrics.
     """
-    user_input_errors = []
+    input_errors = []
     statement = (
         select(Node)
         .where(Node.name.in_(metric))  # type: ignore  # pylint: disable=no-member
@@ -130,20 +130,20 @@ async def get_common_dimensions(
     metric_nodes = (await session.execute(statement)).scalars().all()
     for node in metric_nodes:
         if node.type != NodeType.METRIC:
-            user_input_errors.append(
+            input_errors.append(
                 DJError(
                     message=f"Not a metric node: {node.name}",
                     code=ErrorCode.NODE_TYPE_ERROR,
                 ),
             )
     if not metric_nodes:
-        user_input_errors.append(
+        input_errors.append(
             DJError(
                 message=f"Metric nodes not found: {','.join(metric)}",
                 code=ErrorCode.UNKNOWN_NODE,
             ),
         )
 
-    if user_input_errors:
-        raise DJInvalidInputException(errors=user_input_errors)
+    if input_errors:
+        raise DJInvalidInputException(errors=input_errors)
     return await get_shared_dimensions(session, metric_nodes)
