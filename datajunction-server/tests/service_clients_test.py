@@ -144,7 +144,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             status_code=200,
             json=MagicMock(return_value={"columns": []}),
         )
-        with pytest.raises(DJQueryServiceClientException) as exc_info:
+        with pytest.raises(DJDoesNotExistException) as exc_info:
             query_service_client.get_columns_for_table("hive", "test", "pies")
         assert "No columns found" in str(exc_info.value)
 
