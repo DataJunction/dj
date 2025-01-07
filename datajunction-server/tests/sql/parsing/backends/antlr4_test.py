@@ -6,6 +6,7 @@ Tests for custom antlr4 parser
 import pytest
 
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
 @pytest.mark.parametrize(
@@ -119,3 +120,11 @@ def test_antlr4_lambda_function():
     assert "FOO('a', 'b', c -> d) AS e" in str(query)
     query = parse("SELECT FOO('a', 'b', (c, c2, c3) -> d) AS e;")
     assert "FOO('a', 'b', (c, c2, c3) -> d) AS e" in str(query)
+
+
+def test_antlr4_parse_error():
+    """
+    Test LATERAL VIEW EXPLODE queries
+    """
+    with pytest.raises(DJParseException):
+        parse("SELECT ** FROM 1_#**")
