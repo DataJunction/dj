@@ -42,7 +42,6 @@ from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJDoesNotExistException,
     DJError,
-    DJException,
     DJInvalidInputException,
     DJNodeNotFound,
     ErrorCode,
@@ -410,7 +409,7 @@ async def validate_cube(  # pylint: disable=too-many-locals
 
     # Verify that the provided metrics are metric nodes
     if not metrics:
-        raise DJException(
+        raise DJInvalidInputException(
             message=("At least one metric is required"),
             http_status_code=http.client.UNPROCESSABLE_ENTITY,
         )
@@ -423,7 +422,7 @@ async def validate_cube(  # pylint: disable=too-many-locals
             if non_metrics[0].type == NodeType.DIMENSION  # type: ignore
             else ""
         )
-        raise DJException(
+        raise DJInvalidInputException(
             message=message,
             errors=[DJError(code=ErrorCode.NODE_TYPE_ERROR, message=message)],
             http_status_code=http.client.UNPROCESSABLE_ENTITY,
@@ -461,7 +460,7 @@ async def validate_cube(  # pylint: disable=too-many-locals
             f"Please make sure that `{missing_dimension_attributes}` "
             "is a dimensional attribute."
         )
-        raise DJException(  # pragma: no cover
+        raise DJInvalidInputException(  # pragma: no cover
             message,
             errors=[DJError(code=ErrorCode.INVALID_DIMENSION, message=message)],
         )
@@ -545,7 +544,7 @@ def validate_orderby(
         if orderby_element.split(" ")[0] not in metrics + dimension_attributes:
             invalid_orderbys.append(orderby_element)
     if invalid_orderbys:
-        raise DJException(
+        raise DJInvalidInputException(
             message=(
                 f"Columns {invalid_orderbys} in order by clause must also be "
                 "specified in the metrics or dimensions"

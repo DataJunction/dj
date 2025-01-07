@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.attributetype import AttributeType
-from datajunction_server.errors import DJAlreadyExistsException, DJException
+from datajunction_server.errors import DJAlreadyExistsException, DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.attribute import (
     RESERVED_ATTRIBUTE_NAMESPACE,
@@ -50,7 +50,7 @@ async def add_attribute_type(
     Add a new attribute type
     """
     if data.namespace == RESERVED_ATTRIBUTE_NAMESPACE:
-        raise DJException(
+        raise DJInvalidInputException(
             message="Cannot use `system` as the attribute type namespace as it is reserved.",
         )
     attribute_type = await AttributeType.get_by_name(session, data.name)

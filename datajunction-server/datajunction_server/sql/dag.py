@@ -18,7 +18,7 @@ from datajunction_server.database.node import (
     NodeRelationship,
     NodeRevision,
 )
-from datajunction_server.errors import DJDoesNotExistException, DJException
+from datajunction_server.errors import DJDoesNotExistException, DJGraphCycleException
 from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType
@@ -832,7 +832,7 @@ def topological_sort(nodes: List[Node]) -> List[Node]:
 
     # Check for cycles
     if len(sorted_nodes) != len(in_degrees):
-        raise DJException("Graph has at least one cycle")
+        raise DJGraphCycleException("Graph has at least one cycle")
 
     return sorted_nodes[::-1]
 

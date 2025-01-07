@@ -19,7 +19,7 @@ from starlette.responses import RedirectResponse
 
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJAuthenticationException
 from datajunction_server.internal.access.authentication.basic import get_password_hash
 from datajunction_server.internal.access.authentication.google import (
     flow,
@@ -59,10 +59,7 @@ async def get_access_token(
     cookie. If the user does not already exist, a new user is created.
     """
     if error:
-        raise DJException(
-            http_status_code=HTTPStatus.UNAUTHORIZED,
-            message="Ran into an error during Google auth: {error}",
-        )
+        raise DJAuthenticationException("Ran into an error during Google auth: {error}")
     hostname = urlparse(settings.url).hostname
     url = str(request.url)
     flow.fetch_token(authorization_response=url)

@@ -10,7 +10,12 @@ from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
-from datajunction_server.errors import DJError, DJException, ErrorCode
+from datajunction_server.errors import (
+    DJAuthenticationException,
+    DJConfigurationException,
+    DJError,
+    ErrorCode,
+)
 from datajunction_server.internal.access.authentication import github
 from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.utils import Settings, get_settings
@@ -26,7 +31,7 @@ def login() -> RedirectResponse:  # pragma: no cover
     """
     settings = get_settings()
     if not settings.github_oauth_client_id:
-        raise DJException(
+        raise DJConfigurationException(
             http_status_code=HTTPStatus.NOT_IMPLEMENTED,
             errors=[
                 DJError(
@@ -64,8 +69,7 @@ def get_access_token(
         timeout=10,  # seconds
     ).json()
     if "error" in access_data:
-        raise DJException(
-            http_status_code=HTTPStatus.UNAUTHORIZED,
+        raise DJAuthenticationException(
             errors=[
                 DJError(
                     code=ErrorCode.OAUTH_ERROR,
@@ -79,8 +83,7 @@ def get_access_token(
     if "access_token" not in access_data:
         message = "No user access token retrieved from GitHub OAuth API"
         _logger.error(message)
-        raise DJException(
-            http_status_code=HTTPStatus.UNAUTHORIZED,
+        raise DJAuthenticationException(
             errors=[DJError(message=message, code=ErrorCode.OAUTH_ERROR)],
         )
     user = github.get_github_user(access_data["access_token"])
@@ -88,7 +91,7 @@ def get_access_token(
         url=settings.frontend_host,
     )
     if not user:
-        raise DJException(
+        raise DJAuthenticationException(
             http_status_code=HTTPStatus.UNAUTHORIZED,
             errors=DJError(
                 code=ErrorCode.OAUTH_ERROR,

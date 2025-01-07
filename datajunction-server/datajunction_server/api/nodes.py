@@ -35,8 +35,8 @@ from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJActionNotAllowedException,
     DJAlreadyExistsException,
+    DJConfigurationException,
     DJDoesNotExistException,
-    DJException,
     DJInvalidInputException,
     ErrorCode,
 )
@@ -134,7 +134,7 @@ async def validate_node(
     """
 
     if data.type == NodeType.SOURCE:
-        raise DJException(message="Source nodes cannot be validated")
+        raise DJInvalidInputException(message="Source nodes cannot be validated")
 
     node_validator = await validate_node_data(data, session)
     if node_validator.errors:
@@ -704,7 +704,7 @@ async def register_table(
     """
     request_headers = dict(request.headers)
     if not query_service_client:
-        raise DJException(
+        raise DJConfigurationException(
             message="Registering tables or views requires that a query "
             "service is configured for columns inference",
         )
@@ -772,7 +772,7 @@ async def register_view(  # pylint: disable=too-many-locals
     """
     request_headers = dict(request.headers)
     if not query_service_client:
-        raise DJException(
+        raise DJConfigurationException(
             message="Registering tables or views requires that a query "
             "service is configured for columns inference",
         )
@@ -857,7 +857,7 @@ async def link_dimension(
     )
     if dimension_node.type != NodeType.DIMENSION:  # type: ignore  # pragma: no cover
         # pragma: no cover
-        raise DJException(message=f"Node {node.name} is not of type dimension!")  # type: ignore
+        raise DJInvalidInputException(f"Node {node.name} is not of type dimension!")  # type: ignore
     primary_key_columns = dimension_node.current.primary_key()  # type: ignore
     if len(primary_key_columns) > 1:
         raise DJActionNotAllowedException(  # pragma: no cover
@@ -1377,7 +1377,7 @@ async def calculate_node_similarity(
         raise_if_not_exists=True,
     )
     if NodeType.SOURCE in (node1.type, node2.type):  # type: ignore
-        raise DJException(
+        raise DJInvalidInputException(
             message="Cannot determine similarity of source nodes",
             http_status_code=HTTPStatus.CONFLICT,
         )
