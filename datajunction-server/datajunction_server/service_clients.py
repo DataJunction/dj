@@ -217,7 +217,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             else self.requests_session.headers,
         )
         if response.status_code == 404:
-            raise DJQueryServiceClientEntityNotFound(
+            raise DJQueryServiceClientEntityNotFound(  # pragma: no cover
                 message=f"Error response from query service: {response.text}",
             )
         if response.status_code not in (200, 201):
