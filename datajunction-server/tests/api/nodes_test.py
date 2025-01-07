@@ -3667,7 +3667,7 @@ class TestNodeColumnsAttributes:
             ],
         )
         data = response.json()
-        assert response.status_code == 500
+        assert response.status_code == 422
         assert (
             data["message"]
             == "Attribute type `system.dimension` not allowed on node type `dimension`!"

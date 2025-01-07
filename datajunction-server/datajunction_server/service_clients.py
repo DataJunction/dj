@@ -11,6 +11,7 @@ from datajunction_server.database.column import Column
 from datajunction_server.errors import (
     DJDoesNotExistException,
     DJError,
+    DJQueryServiceClientEntityNotFound,
     DJQueryServiceClientException,
     ErrorCode,
 )
@@ -131,7 +132,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             )
         table_columns = response.json()["columns"]
         if not table_columns:
-            raise DJQueryServiceClientException(
+            raise DJDoesNotExistException(
                 message=f"No columns found: {response.text}",
             )
         return [
@@ -215,6 +216,10 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             if request_headers
             else self.requests_session.headers,
         )
+        if response.status_code == 404:
+            raise DJQueryServiceClientEntityNotFound(
+                message=f"Error response from query service: {response.text}",
+            )
         if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
                 message=f"Error response from query service: {response.text}",
