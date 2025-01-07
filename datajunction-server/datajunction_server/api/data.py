@@ -354,7 +354,7 @@ def get_data_for_query(
             request_headers=request_headers,
         )
     except DJQueryServiceClientException as exc:
-        raise DJQueryServiceClientException(
+        raise DJQueryServiceClientException(  # pragma: no cover
             f"DJ Query Service Error: {exc.message}",
         ) from exc
 
