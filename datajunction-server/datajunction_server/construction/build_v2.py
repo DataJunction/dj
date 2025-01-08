@@ -28,7 +28,7 @@ from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.sql import GeneratedSQL
 from datajunction_server.naming import amenable_name, from_amenable_name
-from datajunction_server.sql.decompose import Measure
+from datajunction_server.sql.decompose import Aggregability, Measure
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, cached_parse, parse
 from datajunction_server.utils import SEPARATOR, refresh_if_needed
@@ -103,7 +103,6 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     include_all_columns: bool = False,
     sql_transpilation_library: Optional[str] = None,
     use_materialized: bool = True,
-    preaggregate: bool = False,
 ) -> List[GeneratedSQL]:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.
@@ -166,6 +165,18 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     measures_queries = []
     for parent_node, children in common_parents.items():  # type: ignore
         children = sorted(children, key=lambda x: metrics_sorting_order.get(x.name, 0))
+    
+        # Determine whether to pre-aggregate to the requested dimensions so that subsequent
+        # queries are more efficient by checking the measures on the requested metrics
+        preaggregate = all(
+            len(metrics2measures[metric.name][0]) > 0 and all(
+                measure.rule.type == Aggregability.FULL
+                for measure in metrics2measures[metric.name][0]
+            )
+            for metric in children
+        )
+        print("preaggregation poss?", preaggregate)
+
         measure_columns, dimensional_columns = [], []
         query_builder = await QueryBuilder.create(
             session,
@@ -245,6 +256,10 @@ async def get_measures_query(  # pylint: disable=too-many-locals
                     for dep in dependencies
                     if dep.type == NodeType.SOURCE
                 ],
+                grain=(
+                    [col.name for col in columns_metadata if col.semantic_type == SemanticType.DIMENSION]
+                    if preaggregate else [pk_col.name for pk_col in parent_node.current.primary_key()]
+                ),
                 errors=query_builder.errors,
             ),
         )
