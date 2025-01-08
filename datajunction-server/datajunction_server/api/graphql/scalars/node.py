@@ -4,6 +4,7 @@ from typing import List, Optional
 
 import strawberry
 from strawberry.scalars import JSON
+from strawberry.types import Info
 
 from datajunction_server.api.graphql.scalars import BigInt
 from datajunction_server.api.graphql.scalars.availabilitystate import AvailabilityState
@@ -68,9 +69,35 @@ class DimensionAttribute:  # pylint: disable=too-few-public-methods
     """
 
     name: str
-    attribute: str
-    role: str
-    dimension_node: "NodeRevision"
+    attribute: str | None
+    role: str | None = None
+    properties: list[str]
+    type: str
+
+    _dimension_node: Optional["Node"] = None
+
+    @strawberry.field(description="The dimension node this attribute belongs to")
+    async def dimension_node(self, info: Info) -> "Node":
+        """
+        Lazy load the dimension node when queried.
+        """
+        if self._dimension_node:
+            return self._dimension_node
+
+        dimension_node_name = self.name.rsplit(".", 1)[0]
+
+        # Check if only the 'name' field is requested for dimension_node. Then we can avoid
+        # the DB call and return a minimal object
+        requested_fields = {
+            field.name.value for field in info.field_nodes[0].selection_set.selections
+        }
+        if "name" in requested_fields and len(requested_fields) == 1:
+            return NodeName(name=dimension_node_name)  # type: ignore
+
+        return await DBNode.get_by_name(  # type: ignore
+            info.context["session"],
+            self.name.rsplit(".", 1)[0],
+        )
 
 
 @strawberry.type
@@ -174,7 +201,9 @@ class NodeRevision:
                     ),
                     attribute=element.name,
                     role=dimension_to_roles.get(element.name, ""),
-                    dimension_node=node_revision,
+                    _dimension_node=node_revision,
+                    type=element.type,
+                    properties=element.attribute_names(),
                 )
                 for element, node_revision in root.cube_elements_with_nodes()
                 if node_revision and node_revision.type != NodeType.METRIC

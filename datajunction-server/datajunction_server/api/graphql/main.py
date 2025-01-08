@@ -10,9 +10,10 @@ from datajunction_server.api.graphql.catalogs import CatalogInfo, list_catalogs
 from datajunction_server.api.graphql.engines import EngineInfo, list_engines
 from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
 from datajunction_server.api.graphql.scalars import Connection
-from datajunction_server.api.graphql.scalars.node import Node
+from datajunction_server.api.graphql.scalars.node import DimensionAttribute, Node
 from datajunction_server.models.node import NodeCursor, NodeType
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.sql.dag import get_shared_dimensions
+from datajunction_server.utils import SEPARATOR, get_session, get_settings
 
 
 async def get_context(
@@ -150,6 +151,35 @@ class Query:  # pylint: disable=R0903
                 id=dj_node.id,
             ),
         )
+
+    @strawberry.field(
+        description="Get common dimensions for the list of metrics",
+    )
+    async def common_dimensions(
+        self,
+        names: Annotated[
+            Optional[List[str]],
+            strawberry.argument(
+                description="A list of metrics to find common dimensions for",
+            ),
+        ] = None,
+        *,
+        info: Info,
+    ) -> list[DimensionAttribute]:
+        """
+        Return a list of common dimensions for a set of metrics.
+        """
+        nodes = await find_nodes_by(info, names)
+        dimensions = await get_shared_dimensions(info.context["session"], nodes)
+        return [
+            DimensionAttribute(  # type: ignore
+                name=dim.name,
+                attribute=dim.name.split(SEPARATOR)[-1],
+                properties=dim.attributes,
+                type=dim.type,
+            )
+            for dim in dimensions
+        ]
 
 
 schema = strawberry.Schema(query=Query)
