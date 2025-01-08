@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.errors import DJError, DJException, ErrorCode
+from datajunction_server.errors import DJAlreadyExistsException, DJError, ErrorCode
 from datajunction_server.internal.access.authentication.basic import (
     get_password_hash,
     validate_user_password,
@@ -35,8 +35,7 @@ async def create_a_user(
     """
     user_result = await session.execute(select(User).where(User.username == username))
     if user_result.unique().scalar_one_or_none():
-        raise DJException(
-            http_status_code=HTTPStatus.CONFLICT,
+        raise DJAlreadyExistsException(
             errors=[
                 DJError(
                     code=ErrorCode.ALREADY_EXISTS,

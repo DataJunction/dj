@@ -2,7 +2,6 @@
 """
 Data related APIs.
 """
-from http import HTTPStatus
 from typing import Callable, Dict, List, Optional
 
 from fastapi import BackgroundTasks, Depends, Query, Request
@@ -22,7 +21,6 @@ from datajunction_server.database.history import ActivityType, EntityType, Histo
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
-    DJException,
     DJInvalidInputException,
     DJQueryServiceClientException,
 )
@@ -96,7 +94,7 @@ async def add_availability_state(
             or data.schema_ != node_revision.schema_
             or data.table != node_revision.table
         ):
-            raise DJException(
+            raise DJInvalidInputException(
                 message=(
                     "Cannot set availability state, "
                     "source nodes require availability "
@@ -356,9 +354,8 @@ def get_data_for_query(
             request_headers=request_headers,
         )
     except DJQueryServiceClientException as exc:
-        raise DJException(
-            message=str(exc.message),
-            http_status_code=HTTPStatus.NOT_FOUND,
+        raise DJQueryServiceClientException(  # pragma: no cover
+            f"DJ Query Service Error: {exc.message}",
         ) from exc
 
 
