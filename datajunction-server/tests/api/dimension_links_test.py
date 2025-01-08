@@ -859,7 +859,6 @@ async def test_measures_sql_with_reference_dimension_links(
     assert dimensions_data == [
         {
             "filter_only": False,
-            "is_primary_key": False,
             "name": "default.users.registration_country",
             "node_display_name": "Users",
             "node_name": "default.users",
@@ -867,7 +866,7 @@ async def test_measures_sql_with_reference_dimension_links(
                 "default.events.user_registration_country",
             ],
             "type": "string",
-            "is_hidden": False,
+            "properties": [],
         },
     ]
 

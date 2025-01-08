@@ -92,21 +92,19 @@ async def test_get_dimensions(session: AsyncSession, current_user: User) -> None
             name="B.attribute",
             node_name="B",
             node_display_name="B",
-            is_primary_key=False,
+            properties=[],
             type="string",
             path=["A.b_id"],
             filter_only=False,
-            is_hidden=False,
         ),
         DimensionAttributeOutput(
             name="B.id",
             node_name="B",
             node_display_name="B",
-            is_primary_key=False,
+            properties=[],
             type="int",
             path=["A.b_id"],
             filter_only=False,
-            is_hidden=False,
         ),
     ]
 
