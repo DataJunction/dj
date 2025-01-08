@@ -37,7 +37,7 @@ export const DimensionsSelect = ({ cube }) => {
               value: cubeDim.node_name + '.' + cubeDim.name,
               label:
                 labelize(cubeDim.name) +
-                (cubeDim.is_primary_key ? ' (PK)' : ''),
+                (cubeDim.properties.includes("primary_key") ? ' (PK)' : ''),
             };
           });
         setDefaultDimensions(cubeDimensions);
@@ -118,7 +118,7 @@ export const DimensionsSelect = ({ cube }) => {
         value: dim.name,
         label:
           labelize(dim.name.split('.').slice(-1)[0]) +
-          (dim.is_primary_key ? ' (PK)' : ''),
+          (dim.properties.includes("primary_key") ? ' (PK)' : ''),
       };
     });
     //

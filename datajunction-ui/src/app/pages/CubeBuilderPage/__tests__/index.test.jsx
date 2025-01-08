@@ -106,7 +106,7 @@ const mockCommonDimensions = [
     type: 'timestamp',
     node_name: 'default.date_dim',
     node_display_name: 'Date',
-    is_primary_key: false,
+    properties: [],
     path: [
       'default.repair_order_details.repair_order_id',
       'default.repair_order.hard_hat_id',
@@ -118,7 +118,7 @@ const mockCommonDimensions = [
     type: 'timestamp',
     node_name: 'default.date_dim',
     node_display_name: 'Date',
-    is_primary_key: true,
+    properties: [],
     path: [
       'default.repair_order_details.repair_order_id',
       'default.repair_order.hard_hat_id',
@@ -130,7 +130,7 @@ const mockCommonDimensions = [
     type: 'int',
     node_name: 'default.date_dim',
     node_display_name: 'Date',
-    is_primary_key: false,
+    properties: [],
     path: [
       'default.repair_order_details.repair_order_id',
       'default.repair_order.hard_hat_id',
@@ -142,7 +142,7 @@ const mockCommonDimensions = [
     type: 'int',
     node_name: 'default.date_dim',
     node_display_name: 'Date',
-    is_primary_key: false,
+    properties: [],
     path: [
       'default.repair_order_details.repair_order_id',
       'default.repair_order.hard_hat_id',
@@ -154,7 +154,7 @@ const mockCommonDimensions = [
     type: 'int',
     node_name: 'default.date_dim',
     node_display_name: 'Date',
-    is_primary_key: false,
+    properties: [],
     path: [
       'default.repair_order_details.repair_order_id',
       'default.repair_order.hard_hat_id',
@@ -166,7 +166,7 @@ const mockCommonDimensions = [
     type: 'int',
     node_name: 'default.date_dim',
     node_display_name: 'Date',
-    is_primary_key: false,
+    properties: [],
     path: [
       'default.repair_order_details.repair_order_id',
       'default.repair_order.hard_hat_id',
@@ -178,7 +178,7 @@ const mockCommonDimensions = [
     type: 'int',
     node_name: 'default.date_dim',
     node_display_name: 'Date',
-    is_primary_key: false,
+    properties: [],
     path: [
       'default.repair_order_details.repair_order_id',
       'default.repair_order.hard_hat_id',
@@ -190,7 +190,7 @@ const mockCommonDimensions = [
     type: 'int',
     node_name: 'default.date_dim',
     node_display_name: 'Date',
-    is_primary_key: false,
+    properties: [],
     path: [
       'default.repair_order_details.repair_order_id',
       'default.repair_order.hard_hat_id',
