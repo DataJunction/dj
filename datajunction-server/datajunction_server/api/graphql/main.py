@@ -157,7 +157,7 @@ class Query:  # pylint: disable=R0903
     )
     async def common_dimensions(
         self,
-        names: Annotated[
+        nodes: Annotated[
             Optional[List[str]],
             strawberry.argument(
                 description="A list of metrics to find common dimensions for",
@@ -169,13 +169,13 @@ class Query:  # pylint: disable=R0903
         """
         Return a list of common dimensions for a set of metrics.
         """
-        nodes = await find_nodes_by(info, names)
-        dimensions = await get_shared_dimensions(info.context["session"], nodes)
+        nodes = await find_nodes_by(info, nodes)  # type: ignore
+        dimensions = await get_shared_dimensions(info.context["session"], nodes)  # type: ignore
         return [
             DimensionAttribute(  # type: ignore
                 name=dim.name,
                 attribute=dim.name.split(SEPARATOR)[-1],
-                properties=dim.attributes,
+                properties=dim.properties,
                 type=dim.type,
             )
             for dim in dimensions
