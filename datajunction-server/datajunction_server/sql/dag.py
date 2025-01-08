@@ -573,20 +573,12 @@ async def get_filter_only_dimensions(
                         name=dim,
                         node_name=link.dimension.name,
                         node_display_name=link.dimension.current.display_name,
-                        is_primary_key=(
-                            dim.split(SEPARATOR)[-1]
-                            in {
-                                col.name for col in link.dimension.current.primary_key()
-                            }
-                        ),
                         type=str(column_mapping[dim.split(SEPARATOR)[-1]].type),
                         path=[upstream.name],
                         filter_only=True,
-                        is_hidden=(
-                            column_mapping[dim.split(SEPARATOR)[-1]].has_attribute(
-                                ColumnAttributes.HIDDEN.value,
-                            )
-                        ),
+                        properties=column_mapping[
+                            dim.split(SEPARATOR)[-1]
+                        ].attribute_names(),
                     )
                     for dim in link.foreign_keys.values()
                 ],
