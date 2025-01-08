@@ -883,13 +883,12 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "type": "string",
             "node_name": "foo.bar.dispatcher",
             "node_display_name": "Dispatcher",
-            "is_primary_key": False,
+            "properties": [],
             "path": [
                 "foo.bar.repair_order_details",
                 "foo.bar.repair_order",
             ],
             "filter_only": False,
-            "is_hidden": False,
         } in result
 
     def test_create_namespace(self, client):
