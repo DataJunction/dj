@@ -483,14 +483,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
                 name=f"{node_name}.{column_name}{_extract_roles_from_path(join_path)}",
                 node_name=node_name,
                 node_display_name=node_display_name,
-                is_primary_key=(
-                    attribute_types is not None
-                    and ColumnAttributes.PRIMARY_KEY.value in attribute_types
-                ),
-                is_hidden=(
-                    attribute_types is not None
-                    and ColumnAttributes.HIDDEN.value in attribute_types
-                ),
+                properties=attribute_types.split(",") if attribute_types else [],
                 type=str(column_type),
                 path=[
                     (path.replace("[", "").replace("]", "")[:-1])
