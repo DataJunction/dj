@@ -40,7 +40,7 @@ from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJQueryServiceClientException
+from datajunction_server.errors import DJQueryServiceClientEntityNotFound
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models.access import AccessControl, ValidateAccessFn
 from datajunction_server.models.materialization import MaterializationInfo
@@ -267,7 +267,7 @@ def query_service_client(
         ] = None,
     ) -> Collection[Collection[str]]:
         if query_id == "foo-bar-baz":
-            raise DJQueryServiceClientException("Query foo-bar-baz not found.")
+            raise DJQueryServiceClientEntityNotFound("Query foo-bar-baz not found.")
         for _, response in QUERY_DATA_MAPPINGS.items():
             if response.id == query_id:
                 return response
@@ -960,7 +960,7 @@ def module__query_service_client(
         ] = None,
     ) -> Collection[Collection[str]]:
         if query_id == "foo-bar-baz":
-            raise DJQueryServiceClientException("Query foo-bar-baz not found.")
+            raise DJQueryServiceClientEntityNotFound("Query foo-bar-baz not found.")
         for _, response in QUERY_DATA_MAPPINGS.items():
             if response.id == query_id:
                 return response

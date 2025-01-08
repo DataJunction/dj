@@ -14,7 +14,7 @@ from sqlalchemy.sql.operators import is_
 from datajunction_server.api.nodes import list_nodes
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJError, DJException, ErrorCode
+from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
@@ -121,7 +121,7 @@ async def get_common_dimensions(
     """
     Return common dimensions for a set of metrics.
     """
-    errors = []
+    input_errors = []
     statement = (
         select(Node)
         .where(Node.name.in_(metric))  # type: ignore  # pylint: disable=no-member
@@ -130,20 +130,20 @@ async def get_common_dimensions(
     metric_nodes = (await session.execute(statement)).scalars().all()
     for node in metric_nodes:
         if node.type != NodeType.METRIC:
-            errors.append(
+            input_errors.append(
                 DJError(
                     message=f"Not a metric node: {node.name}",
                     code=ErrorCode.NODE_TYPE_ERROR,
                 ),
             )
     if not metric_nodes:
-        errors.append(
+        input_errors.append(
             DJError(
                 message=f"Metric nodes not found: {','.join(metric)}",
                 code=ErrorCode.UNKNOWN_NODE,
             ),
         )
 
-    if errors:
-        raise DJException(errors=errors)
+    if input_errors:
+        raise DJInvalidInputException(errors=input_errors)
     return await get_shared_dimensions(session, metric_nodes)

@@ -30,7 +30,12 @@ from yarl import URL
 from datajunction_server.config import Settings
 from datajunction_server.database.user import User
 from datajunction_server.enum import StrEnum
-from datajunction_server.errors import DJException
+from datajunction_server.errors import (
+    DJAuthenticationException,
+    DJInternalErrorException,
+    DJInvalidInputException,
+    DJUninitializedResourceException,
+)
 from datajunction_server.service_clients import QueryServiceClient
 
 
@@ -111,7 +116,9 @@ class DatabaseSessionManager:
         Close database session
         """
         if self.engine is None:  # pragma: no cover
-            raise DJException("DatabaseSessionManager is not initialized")
+            raise DJUninitializedResourceException(
+                "DatabaseSessionManager is not initialized",
+            )
         await self.engine.dispose()  # pragma: no cover
 
 
@@ -239,10 +246,7 @@ class Version:
         version_regex = re.compile(r"^v(?P<major>[0-9]+)\.(?P<minor>[0-9]+)")
         matcher = version_regex.search(version_string)
         if not matcher:
-            raise DJException(
-                http_status_code=500,
-                message=f"Unparseable version {version_string}!",
-            )
+            raise DJInternalErrorException(f"Unparseable version {version_string}!")
         results = matcher.groupdict()
         return Version(int(results["major"]), int(results["minor"]))
 
@@ -266,7 +270,7 @@ def get_namespace_from_name(name: str) -> str:
     if "." in name:
         node_namespace, _ = name.rsplit(".", 1)
     else:  # pragma: no cover
-        raise DJException(f"No namespace provided: {name}")
+        raise DJInvalidInputException(f"No namespace provided: {name}")
     return node_namespace
 
 
@@ -275,7 +279,7 @@ async def get_current_user(request: Request) -> "User":
     Returns the current authenticated user
     """
     if not hasattr(request.state, "user"):  # pragma: no cover
-        raise DJException(
+        raise DJAuthenticationException(
             message="Unauthorized, request state has no user",
             http_status_code=HTTPStatus.UNAUTHORIZED,
         )

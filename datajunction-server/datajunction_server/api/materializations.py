@@ -17,7 +17,7 @@ from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.column import Column, ColumnAttribute
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJDoesNotExistException, DJException
+from datajunction_server.errors import DJDoesNotExistException, DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.internal.materializations import (
@@ -97,7 +97,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
     request_headers = dict(request.headers)
     node = await Node.get_by_name(session, node_name)
     if node.type == NodeType.SOURCE:  # type: ignore
-        raise DJException(
+        raise DJInvalidInputException(
             http_status_code=HTTPStatus.BAD_REQUEST,
             message=f"Cannot set materialization config for source node `{node_name}`!",
         )
@@ -109,7 +109,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
 
     if data.strategy == MaterializationStrategy.INCREMENTAL_TIME:
         if not node.current.temporal_partition_columns():  # type: ignore
-            raise DJException(
+            raise DJInvalidInputException(
                 http_status_code=HTTPStatus.BAD_REQUEST,
                 message="Cannot create materialization with strategy "
                 f"`{data.strategy}` without specifying a time partition column!",

@@ -428,5 +428,5 @@ async def test_djsql_stream(
         "/djsql/stream/",
         params={"query": query},
     )
-    assert response.status_code == 500
+    assert response.status_code == 422
     assert response.json()["message"].startswith("Found no dj nodes in query")

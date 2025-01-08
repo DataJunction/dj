@@ -3,7 +3,6 @@ GitHub OAuth helper functions
 """
 import logging
 import secrets
-from http import HTTPStatus
 from urllib.parse import urljoin
 
 import requests
@@ -11,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJAuthenticationException
 from datajunction_server.internal.access.authentication.basic import get_password_hash
 from datajunction_server.models.user import OAuthProvider
 from datajunction_server.utils import get_session, get_settings
@@ -42,9 +41,8 @@ def get_github_user(access_token: str) -> User:  # pragma: no cover
         timeout=10,
     ).json()
     if "message" in user_data and user_data["message"] == "Bad credentials":
-        raise DJException(
-            message="Cannot authorize user via GitHub, bad credentials",
-            http_status_code=HTTPStatus.UNAUTHORIZED,
+        raise DJAuthenticationException(
+            "Cannot authorize user via GitHub, bad credentials",
         )
     session = next(get_session())  # type: ignore  # pylint: disable=no-value-for-parameter
     existing_user = None

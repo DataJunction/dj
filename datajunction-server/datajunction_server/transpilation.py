@@ -3,7 +3,7 @@ import importlib
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from datajunction_server.errors import DJException, DJPluginNotFoundException
+from datajunction_server.errors import DJPluginNotFoundException
 from datajunction_server.models.engine import Dialect
 
 
@@ -31,8 +31,8 @@ class SQLTranspilationPlugin(ABC):
             try:
                 importlib.import_module(self.package_name)
             except ImportError as import_err:
-                raise DJException(
-                    message=f"Not installed: {self.package_name}",
+                raise DJPluginNotFoundException(
+                    message=f"The SQL transpilation package is not installed: {self.package_name}",
                 ) from import_err
 
     @abstractmethod

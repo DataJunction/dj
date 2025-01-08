@@ -700,7 +700,7 @@ async def test_raise_common_dimensions_not_a_metric_node(
         "metric=default.total_repair_order_discounts"
         "&metric=default.payment_type",
     )
-    assert response.status_code == 500
+    assert response.status_code == 422
     assert response.json()["message"] == "Not a metric node: default.payment_type"
 
 
@@ -714,7 +714,7 @@ async def test_raise_common_dimensions_metric_not_found(
     response = await module__client_with_roads.get(
         "/metrics/common/dimensions?metric=default.foo&metric=default.bar",
     )
-    assert response.status_code == 500
+    assert response.status_code == 422
     assert response.json() == {
         "errors": [
             {

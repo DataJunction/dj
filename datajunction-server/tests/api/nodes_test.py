@@ -3667,7 +3667,7 @@ class TestNodeColumnsAttributes:
             ],
         )
         data = response.json()
-        assert response.status_code == 500
+        assert response.status_code == 422
         assert (
             data["message"]
             == "Attribute type `system.dimension` not allowed on node type `dimension`!"
@@ -3939,6 +3939,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             {
                 "code": 201,
                 "message": (
+                    "Error parsing SQL `SUPER invalid SQL query`: "
                     "('Parse error 1:0:', \"mismatched input 'SUPER' expecting "
                     "{'(', 'ADD', 'ALTER', 'ANALYZE', 'CACHE', 'CLEAR', 'COMMENT', "
                     "'COMMIT', 'CREATE', 'DELETE', 'DESC', 'DESCRIBE', 'DFS', 'DROP', "
@@ -4075,7 +4076,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
 
-        assert response.status_code == 500
+        assert response.status_code == 422
         assert data == {
             "message": "Source nodes cannot be validated",
             "errors": [],

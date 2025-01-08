@@ -35,7 +35,13 @@ from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node as DJNodeRef
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.node import NodeRevision as DJNode
-from datajunction_server.errors import DJError, DJErrorException, DJException, ErrorCode
+from datajunction_server.errors import (
+    DJError,
+    DJErrorException,
+    DJException,
+    DJQueryBuildException,
+    ErrorCode,
+)
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType as DJNodeType
@@ -1844,7 +1850,7 @@ class Number(Value):
                 except (ValueError, OverflowError) as exception:
                     cast_exceptions.append(exception)
             if len(cast_exceptions) >= len(numeric_types):
-                raise DJException(message="Not a valid number!")
+                raise DJParseException(message="Not a valid number!")
 
     def __str__(self) -> str:
         return str(self.value)
@@ -2834,7 +2840,9 @@ class Query(TableExpression, UnNamed):
 
         if not self.is_compiled():
             if not context:
-                raise DJException("Context not provided for query compilation!")
+                raise DJQueryBuildException(
+                    "Context not provided for query compilation!",
+                )
             await self.compile(context)
 
         deps: Dict[NodeRevision, List[Table]] = {}

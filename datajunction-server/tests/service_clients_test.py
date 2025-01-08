@@ -11,6 +11,7 @@ from datajunction_server.database.engine import Engine
 from datajunction_server.errors import (
     DJDoesNotExistException,
     DJError,
+    DJQueryServiceClientEntityNotFound,
     DJQueryServiceClientException,
     ErrorCode,
 )
@@ -144,7 +145,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             status_code=200,
             json=MagicMock(return_value={"columns": []}),
         )
-        with pytest.raises(DJQueryServiceClientException) as exc_info:
+        with pytest.raises(DJDoesNotExistException) as exc_info:
             query_service_client.get_columns_for_table("hive", "test", "pies")
         assert "No columns found" in str(exc_info.value)
 
@@ -459,25 +460,40 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         """
         Test handling an error response from the query service client
         """
-        mock_response = MagicMock()
-        mock_response.status_code = 400
-        mock_response.json.return_value = {"message": "Errors", "errors": ["a", "b"]}
+        mock_400_response = MagicMock()
+        mock_400_response.status_code = 400
+        mock_400_response.json.return_value = {
+            "message": "Errors",
+            "errors": ["a", "b"],
+        }
 
-        mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
-            return_value=mock_response,
-        )
-        mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
-            return_value=mock_response,
-        )
+        mock_404_response = MagicMock()
+        mock_404_response.status_code = 404
+        mock_404_response.json.return_value = {
+            "message": "Query not found",
+            "errors": ["a"],
+        }
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
 
-        with pytest.raises(DJQueryServiceClientException) as exc_info:
-            query_service_client.get_query(
-                "ef209eef-c31a-4089-aae6-833259a08e22",
-            )
+        with mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
+            return_value=mock_400_response,
+        ):
+            with pytest.raises(DJQueryServiceClientException) as exc_info:
+                query_service_client.get_query(
+                    "ef209eef-c31a-4089-aae6-833259a08e22",
+                )
+
+        with mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
+            return_value=mock_404_response,
+        ):
+            with pytest.raises(DJQueryServiceClientEntityNotFound) as exc_info:
+                query_service_client.get_query(
+                    "ef209eef-c31a-4089-aae6-833259a08e22",
+                )
+
         assert "Error response from query service" in str(exc_info.value)
         query_create = QueryCreate(
             catalog_name="hive",
@@ -487,10 +503,14 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             async_=False,
         )
 
-        with pytest.raises(DJQueryServiceClientException) as exc_info:
-            query_service_client.submit_query(
-                query_create,
-            )
+        with mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_400_response,
+        ):
+            with pytest.raises(DJQueryServiceClientException) as exc_info:
+                query_service_client.submit_query(
+                    query_create,
+                )
         assert "Error response from query service" in str(exc_info.value)
         assert exc_info.value.errors == [
             DJError(
