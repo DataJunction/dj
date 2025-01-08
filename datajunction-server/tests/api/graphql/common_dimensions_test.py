@@ -4,16 +4,18 @@ Tests for the common dimensions query.
 
 # pylint: disable=line-too-long
 from typing import AsyncGenerator
-from sqlalchemy import event
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest_asyncio.fixture
-async def capture_queries(module__session: AsyncSession) -> AsyncGenerator[list[str], None]:
+async def capture_queries(
+    module__session: AsyncSession,
+) -> AsyncGenerator[list[str], None]:
     """
     Returns a list of strings, where each string represents a SQL statement
     captured during the test.
@@ -21,7 +23,14 @@ async def capture_queries(module__session: AsyncSession) -> AsyncGenerator[list[
     queries = []
     sync_engine = module__session.bind.sync_engine
 
-    def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    def before_cursor_execute(
+        _conn,
+        _cursor,
+        statement,
+        _parameters,
+        _context,
+        _executemany,
+    ):
         queries.append(statement)
 
     # Attach event listener to capture queries
@@ -36,7 +45,7 @@ async def capture_queries(module__session: AsyncSession) -> AsyncGenerator[list[
 @pytest.mark.asyncio
 async def test_get_common_dimensions(
     module__client_with_roads: AsyncClient,
-    capture_queries: AsyncGenerator[list[str], None],
+    capture_queries: AsyncGenerator[list[str], None],  # pylint: disable=redefined-outer-name
 ) -> None:
     """
     Test getting common dimensions for a set of metrics
@@ -62,36 +71,35 @@ async def test_get_common_dimensions(
     data = response.json()
     assert len(data["data"]["commonDimensions"]) == 40
     assert {
-        'attribute': 'company_name',
-        'dimensionNode': {
-            'name': 'default.dispatcher',
+        "attribute": "company_name",
+        "dimensionNode": {
+            "name": "default.dispatcher",
         },
-        'name': 'default.dispatcher.company_name',
-        'properties': [],
-        'role': None,
-        'type': 'string',
+        "name": "default.dispatcher.company_name",
+        "properties": [],
+        "role": None,
+        "type": "string",
     } in data["data"]["commonDimensions"]
 
     assert {
-      'attribute': 'dispatcher_id',
-      'dimensionNode': {
-          'name': 'default.dispatcher',
-      },
-      'name': 'default.dispatcher.dispatcher_id',
-      'properties': [
-          'primary_key',
-      ],
-      'role': None,
-      'type': 'int',
-  } in data["data"]["commonDimensions"]
-
-    assert len(capture_queries) <= 11
+        "attribute": "dispatcher_id",
+        "dimensionNode": {
+            "name": "default.dispatcher",
+        },
+        "name": "default.dispatcher.dispatcher_id",
+        "properties": [
+            "primary_key",
+        ],
+        "role": None,
+        "type": "int",
+    } in data["data"]["commonDimensions"]
+    assert len(capture_queries) <= 11  # type: ignore
 
 
 @pytest.mark.asyncio
 async def test_get_common_dimensions_with_full_dim_node(
     module__client_with_roads: AsyncClient,
-    capture_queries: AsyncGenerator[list[str], None],
+    capture_queries: AsyncGenerator[list[str], None],  # pylint: disable=redefined-outer-name
 ) -> None:
     """
     Test getting common dimensions and requesting a full dimension node for each
@@ -131,41 +139,40 @@ async def test_get_common_dimensions_with_full_dim_node(
     assert len(data["data"]["commonDimensions"]) == 40
 
     assert {
-'attribute': 'state_name',
-'dimensionNode': {
-    'current': {
-        'columns': [
-            {
-                'attributes': [],
-                'name': 'state_id',
-            },
-            {
-                'attributes': [],
-                'name': 'state_name',
-            },
-            {
-                'attributes': [
+        "attribute": "state_name",
+        "dimensionNode": {
+            "current": {
+                "columns": [
                     {
-                        'attributeType': {
-                            'name': 'primary_key',
-                        },
+                        "attributes": [],
+                        "name": "state_id",
+                    },
+                    {
+                        "attributes": [],
+                        "name": "state_name",
+                    },
+                    {
+                        "attributes": [
+                            {
+                                "attributeType": {
+                                    "name": "primary_key",
+                                },
+                            },
+                        ],
+                        "name": "state_short",
+                    },
+                    {
+                        "attributes": [],
+                        "name": "state_region",
                     },
                 ],
-                'name': 'state_short',
             },
-            {
-                'attributes': [],
-                'name': 'state_region',
-            },
-        ],
-    },
-    'name': 'default.us_state',
-    'tags': [],
-},
-'name': 'default.us_state.state_name',
-'properties': [],
-'role': None,
-'type': 'string',
-} in data["data"]["commonDimensions"]
-
-    assert len(capture_queries) > 200
+            "name": "default.us_state",
+            "tags": [],
+        },
+        "name": "default.us_state.state_name",
+        "properties": [],
+        "role": None,
+        "type": "string",
+    } in data["data"]["commonDimensions"]
+    assert len(capture_queries) > 200  # type: ignore
