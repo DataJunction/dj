@@ -6,6 +6,7 @@ from typing import List, Optional
 from sqlalchemy.orm import joinedload, selectinload
 from strawberry.types import Info
 
+from datajunction_server.api.graphql.scalars.node import NodeName
 from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Column, ColumnAttribute
@@ -51,6 +52,33 @@ async def find_nodes_by(
         before,
         after,
         *options,
+    )
+
+
+async def get_node_by_name(
+    info: Info,
+    name: str,
+) -> DBNode | NodeName | None:
+    """
+    Retrieves a node by name. This function also tries to optimize the database
+    query by only retrieving joined-in fields if they were requested.
+    """
+    session = info.context["session"]  # type: ignore
+    fields = extract_fields(info)
+    if "name" in fields and len(fields) == 1:
+        return NodeName(name=name)  # type: ignore
+
+    options = load_node_options(
+        fields["nodes"]
+        if "nodes" in fields
+        else fields["edges"]["node"]
+        if "edges" in fields
+        else fields,
+    )
+    return await DBNode.get_by_name(
+        session,
+        name=name,
+        options=options,
     )
 
 

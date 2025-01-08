@@ -84,20 +84,11 @@ class DimensionAttribute:  # pylint: disable=too-few-public-methods
         if self._dimension_node:
             return self._dimension_node
 
+        # pylint: disable=import-outside-toplevel
+        from datajunction_server.api.graphql.resolvers.nodes import get_node_by_name
+
         dimension_node_name = self.name.rsplit(".", 1)[0]
-
-        # Check if only the 'name' field is requested for dimension_node. Then we can avoid
-        # the DB call and return a minimal object
-        requested_fields = {
-            field.name.value for field in info.field_nodes[0].selection_set.selections
-        }
-        if "name" in requested_fields and len(requested_fields) == 1:
-            return NodeName(name=dimension_node_name)  # type: ignore
-
-        return await DBNode.get_by_name(  # type: ignore
-            info.context["session"],
-            self.name.rsplit(".", 1)[0],
-        )
+        return await get_node_by_name(info=info, name=dimension_node_name)  # type: ignore
 
 
 @strawberry.type
