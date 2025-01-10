@@ -18,6 +18,7 @@ from datajunction_server.api.graphql.scalars.metricmetadata import (
     MetricMetadata,
 )
 from datajunction_server.api.graphql.scalars.user import User
+from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.database.dimensionlink import (
     JoinCardinality as JoinCardinality_,
 )
@@ -88,7 +89,12 @@ class DimensionAttribute:  # pylint: disable=too-few-public-methods
         from datajunction_server.api.graphql.resolvers.nodes import get_node_by_name
 
         dimension_node_name = self.name.rsplit(".", 1)[0]
-        return await get_node_by_name(info=info, name=dimension_node_name)  # type: ignore
+        fields = extract_fields(info)
+        return await get_node_by_name(  # type: ignore
+            session=info.context["session"],
+            fields=fields,
+            name=dimension_node_name,
+        )
 
 
 @strawberry.type

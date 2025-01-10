@@ -135,7 +135,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
         validate_access=validate_access,
         user=current_user,
         base_verb=access.ResourceRequestVerb.READ,
-    )
+    ) if validate_access else None
 
     if not filters:
         filters = []
