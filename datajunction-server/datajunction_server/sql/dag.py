@@ -631,7 +631,7 @@ async def get_shared_dimensions(
         )
     )
     parents = list(set((await session.execute(statement)).scalars().all()))
-    return get_common_dimensions(session, parents)
+    return await get_common_dimensions(session, parents)
 
 
 async def get_common_dimensions(session: AsyncSession, nodes: list[Node]):
