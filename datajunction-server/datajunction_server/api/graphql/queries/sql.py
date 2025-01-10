@@ -4,12 +4,54 @@ from typing import Annotated, Optional, OrderedDict
 import strawberry
 from strawberry.types import Info
 
-from datajunction_server.api.graphql.scalars.sql import (
-    CubeDefinition,
-    EngineSettings,
-    GeneratedSQL,
-)
+from datajunction_server.api.graphql.scalars.sql import GeneratedSQL
 from datajunction_server.construction.build_v2 import get_measures_query
+
+
+@strawberry.input
+class CubeDefinition:  # pylint: disable=too-few-public-methods
+    """
+    The cube definition for the query
+    """
+
+    metrics: Annotated[
+        list[str],
+        strawberry.argument(
+            description="A list of metric node names",
+        ),
+    ] = None  # type: ignore
+    dimensions: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="A list of dimension attribute names",
+        ),
+    ] = None
+    filters: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="A list of filter SQL clauses",
+        ),
+    ] = None
+    orderby: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="A list of order by clauses",
+        ),
+    ] = None
+
+
+@strawberry.input
+class EngineSettings:  # pylint: disable=too-few-public-methods
+    """
+    The engine settings for the query
+    """
+
+    name: str = strawberry.field(
+        description="The name of the engine used by the generated SQL",
+    )
+    version: str | None = strawberry.field(
+        description="The version of the engine used by the generated SQL",
+    )
 
 
 async def measures_sql(
