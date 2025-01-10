@@ -1,8 +1,9 @@
 """
 Node resolvers
 """
-from typing import List, Optional
+from typing import Any, List, Optional
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from strawberry.types import Info
 
@@ -56,15 +57,16 @@ async def find_nodes_by(
 
 
 async def get_node_by_name(
-    info: Info,
+    session: AsyncSession,
+    fields: dict[str, Any] | None,
     name: str,
 ) -> DBNode | NodeName | None:
     """
     Retrieves a node by name. This function also tries to optimize the database
     query by only retrieving joined-in fields if they were requested.
     """
-    session = info.context["session"]  # type: ignore
-    fields = extract_fields(info)
+    if not fields:
+        return None
     if "name" in fields and len(fields) == 1:
         return NodeName(name=name)  # type: ignore
 

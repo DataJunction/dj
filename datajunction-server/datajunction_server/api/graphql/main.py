@@ -1,5 +1,5 @@
 """DJ graphql"""
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Optional, OrderedDict
 
 import strawberry
 from fastapi import Depends
@@ -11,6 +11,8 @@ from datajunction_server.api.graphql.engines import EngineInfo, list_engines
 from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
 from datajunction_server.api.graphql.scalars import Connection
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute, Node
+from datajunction_server.api.graphql.scalars.sql import GeneratedSQL
+from datajunction_server.construction.build_v2 import get_measures_query
 from datajunction_server.models.node import NodeCursor, NodeType
 from datajunction_server.sql.dag import get_common_dimensions
 from datajunction_server.utils import SEPARATOR, get_session, get_settings
@@ -179,6 +181,93 @@ class Query:  # pylint: disable=R0903
                 type=dim.type,
             )
             for dim in dimensions
+        ]
+
+    @strawberry.field(
+        description="Get measures SQL for a set of metrics with dimensions and filters",
+    )
+    async def measures_sql(
+        self,
+        metrics: Annotated[
+            list[str] | None,
+            strawberry.argument(
+                description="A list of metric node names",
+            ),
+        ] = None,
+        dimensions: Annotated[
+            list[str] | None,
+            strawberry.argument(
+                description="A list of dimension attribute names",
+            ),
+        ] = None,
+        filters: Annotated[
+            list[str] | None,
+            strawberry.argument(
+                description="A list of filters names",
+            ),
+        ] = None,
+        orderby: Annotated[
+            list[str] | None,
+            strawberry.argument(
+                description="A list of order by clauses",
+            ),
+        ] = None,
+        engine_name: Annotated[
+            str | None,
+            strawberry.argument(
+                description="The name of the engine used by the generated SQL",
+            ),
+        ] = None,
+        engine_version: Annotated[
+            str | None,
+            strawberry.argument(
+                description="The version of the engine used by the generated SQL",
+            ),
+        ] = None,
+        use_materialized: Annotated[
+            bool,
+            strawberry.argument(
+                description="Whether to use materialized nodes where applicable",
+            ),
+        ] = True,
+        include_all_columns: Annotated[
+            bool,
+            strawberry.argument(
+                description="Whether to include all columns or only those necessary "
+                "for the metrics and dimensions in the cube",
+            ),
+        ] = False,
+        preaggregate: Annotated[
+            bool,
+            strawberry.argument(
+                description="Whether to pre-aggregate to the requested dimensions so that "
+                "subsequent queries are more efficient.",
+            ),
+        ] = False,
+        *,
+        info: Info,
+    ) -> list[GeneratedSQL]:
+        """
+        Return a list of common dimensions for a set of metrics.
+        """
+        session, settings = info.context["session"], info.context["settings"]
+        metrics = list(OrderedDict.fromkeys(metrics))  # type: ignore
+        queries = await get_measures_query(
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,  # type: ignore
+            filters=filters,  # type: ignore
+            orderby=orderby,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            include_all_columns=include_all_columns,
+            sql_transpilation_library=settings.sql_transpilation_library,
+            use_materialized=use_materialized,
+            preaggregate=preaggregate,
+        )
+        return [
+            await GeneratedSQL.from_pydantic(info, measures_query)
+            for measures_query in queries
         ]
 
 
