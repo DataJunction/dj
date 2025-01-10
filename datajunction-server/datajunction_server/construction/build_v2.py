@@ -103,7 +103,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     include_all_columns: bool = False,
     sql_transpilation_library: Optional[str] = None,
     use_materialized: bool = True,
-    preagg_requested: bool = True,
+    preagg_requested: bool = False,
 ) -> List[GeneratedSQL]:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.
