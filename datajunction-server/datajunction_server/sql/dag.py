@@ -609,6 +609,17 @@ async def get_shared_dimensions(
     """
     Return a list of dimensions that are common between the metric nodes.
     """
+    parents = await get_metric_parents(session, metric_nodes)
+    return await get_common_dimensions(session, parents)
+
+
+async def get_metric_parents(
+    session: AsyncSession,
+    metric_nodes: list[Node],
+) -> list[Node]:
+    """
+    Return a list of parent nodes of the metrics
+    """
     find_latest_node_revisions = [
         and_(
             NodeRevision.name == metric_node.name,
@@ -630,14 +641,18 @@ async def get_shared_dimensions(
             ),
         )
     )
-    parents = list(set((await session.execute(statement)).scalars().all()))
-    return await get_common_dimensions(session, parents)
+    return list(set((await session.execute(statement)).scalars().all()))
 
 
 async def get_common_dimensions(session: AsyncSession, nodes: list[Node]):
     """
     Return a list of dimensions that are common between the nodes.
     """
+    metric_nodes = [node for node in nodes if node.type == NodeType.METRIC]
+    other_nodes = [node for node in nodes if node.type != NodeType.METRIC]
+    if metric_nodes:
+        nodes = list(set(other_nodes + await get_metric_parents(session, metric_nodes)))
+
     common = await group_dimensions_by_name(session, nodes[0])
     for node in nodes[1:]:
         node_dimensions = await group_dimensions_by_name(session, node)
