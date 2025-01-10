@@ -95,7 +95,7 @@ describe('<NodeDependenciesTab />', () => {
 
   const mockDimensions = [
     {
-      is_primary_key: false,
+      properties: [],
       name: 'default.dispatcher.company_name',
       node_display_name: 'Default: Dispatcher',
       node_name: 'default.dispatcher',
@@ -103,7 +103,7 @@ describe('<NodeDependenciesTab />', () => {
       type: 'string',
     },
     {
-      is_primary_key: true,
+      properties: ['primary_key'],
       name: 'default.dispatcher.dispatcher_id',
       node_display_name: 'Default: Dispatcher',
       node_name: 'default.dispatcher',
@@ -111,7 +111,7 @@ describe('<NodeDependenciesTab />', () => {
       type: 'int',
     },
     {
-      is_primary_key: false,
+      properties: [],
       name: 'default.hard_hat.city',
       node_display_name: 'Default: Hard Hat',
       node_name: 'default.hard_hat',
@@ -119,7 +119,7 @@ describe('<NodeDependenciesTab />', () => {
       type: 'string',
     },
     {
-      is_primary_key: true,
+      properties: ['primary_key'],
       name: 'default.hard_hat.hard_hat_id',
       node_display_name: 'Default: Hard Hat',
       node_name: 'default.hard_hat',

@@ -575,8 +575,7 @@ class DimensionAttributeOutput(BaseModel):
     name: str
     node_name: Optional[str]
     node_display_name: Optional[str]
-    is_primary_key: bool
-    is_hidden: bool
+    properties: list[str] | None
     type: str
     path: List[str]
     filter_only: bool = False

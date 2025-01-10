@@ -483,14 +483,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
                 name=f"{node_name}.{column_name}{_extract_roles_from_path(join_path)}",
                 node_name=node_name,
                 node_display_name=node_display_name,
-                is_primary_key=(
-                    attribute_types is not None
-                    and ColumnAttributes.PRIMARY_KEY.value in attribute_types
-                ),
-                is_hidden=(
-                    attribute_types is not None
-                    and ColumnAttributes.HIDDEN.value in attribute_types
-                ),
+                properties=attribute_types.split(",") if attribute_types else [],
                 type=str(column_type),
                 path=[
                     (path.replace("[", "").replace("]", "")[:-1])
@@ -580,20 +573,12 @@ async def get_filter_only_dimensions(
                         name=dim,
                         node_name=link.dimension.name,
                         node_display_name=link.dimension.current.display_name,
-                        is_primary_key=(
-                            dim.split(SEPARATOR)[-1]
-                            in {
-                                col.name for col in link.dimension.current.primary_key()
-                            }
-                        ),
                         type=str(column_mapping[dim.split(SEPARATOR)[-1]].type),
                         path=[upstream.name],
                         filter_only=True,
-                        is_hidden=(
-                            column_mapping[dim.split(SEPARATOR)[-1]].has_attribute(
-                                ColumnAttributes.HIDDEN.value,
-                            )
-                        ),
+                        properties=column_mapping[
+                            dim.split(SEPARATOR)[-1]
+                        ].attribute_names(),
                     )
                     for dim in link.foreign_keys.values()
                 ],
@@ -622,7 +607,18 @@ async def get_shared_dimensions(
     metric_nodes: List[Node],
 ) -> List[DimensionAttributeOutput]:
     """
-    Return a list of dimensions that are common between the nodes.
+    Return a list of dimensions that are common between the metric nodes.
+    """
+    parents = await get_metric_parents(session, metric_nodes)
+    return await get_common_dimensions(session, parents)
+
+
+async def get_metric_parents(
+    session: AsyncSession,
+    metric_nodes: list[Node],
+) -> list[Node]:
+    """
+    Return a list of parent nodes of the metrics
     """
     find_latest_node_revisions = [
         and_(
@@ -645,9 +641,20 @@ async def get_shared_dimensions(
             ),
         )
     )
-    parents = list(set((await session.execute(statement)).scalars().all()))
-    common = await group_dimensions_by_name(session, parents[0])
-    for node in parents[1:]:
+    return list(set((await session.execute(statement)).scalars().all()))
+
+
+async def get_common_dimensions(session: AsyncSession, nodes: list[Node]):
+    """
+    Return a list of dimensions that are common between the nodes.
+    """
+    metric_nodes = [node for node in nodes if node.type == NodeType.METRIC]
+    other_nodes = [node for node in nodes if node.type != NodeType.METRIC]
+    if metric_nodes:
+        nodes = list(set(other_nodes + await get_metric_parents(session, metric_nodes)))
+
+    common = await group_dimensions_by_name(session, nodes[0])
+    for node in nodes[1:]:
         node_dimensions = await group_dimensions_by_name(session, node)
 
         # Merge each set of dimensions based on the name and path

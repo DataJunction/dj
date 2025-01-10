@@ -73,7 +73,7 @@ export default function NodeValidateTab({ node, djClient }) {
   const dimensionsList = dimensions.flatMap(grouping => {
     const dimensionsInGroup = grouping[1];
     return dimensionsInGroup
-      .filter(dim => dim.is_primary_key === true)
+      .filter(dim => dim.properties.includes("primary_key") === true)
       .map(dim => {
         return {
           value: dim.name,
@@ -167,7 +167,7 @@ export default function NodeValidateTab({ node, djClient }) {
   const filters = dimensions.map(grouping => {
     const dimensionsInGroup = grouping[1];
     const dimensionGroupOptions = dimensionsInGroup
-      .filter(dim => dim.is_primary_key === true)
+      .filter(dim => dim.properties.includes("primary_key") === true)
       .map(dim => {
         return {
           value: dim.name,
