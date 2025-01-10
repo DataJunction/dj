@@ -1305,7 +1305,7 @@ async def test_measures_sql_preagg_incompatible(  # pylint: disable=too-many-arg
         repair_order_details.repair_type_id,
         repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
         repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
-        repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay 
+        repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
       FROM roads.repair_orders AS repair_orders
       JOIN roads.repair_order_details AS repair_order_details
         ON repair_orders.repair_order_id = repair_order_details.repair_order_id
@@ -1314,22 +1314,22 @@ async def test_measures_sql_preagg_incompatible(  # pylint: disable=too-many-arg
       SELECT
         default_DOT_dispatchers.dispatcher_id,
         default_DOT_dispatchers.company_name,
-        default_DOT_dispatchers.phone 
+        default_DOT_dispatchers.phone
       FROM roads.dispatchers AS default_DOT_dispatchers
     ),
     default_DOT_repair_orders_fact_built AS (
       SELECT
         default_DOT_repair_orders_fact.repair_order_id,
         default_DOT_repair_orders_fact.price,
-        default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name 
+        default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name
       FROM default_DOT_repair_orders_fact LEFT JOIN default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
     )
     SELECT
       default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
       COUNT(1) AS count,
       SUM(price) AS price_sum_78a5eb43,
-      COUNT(repair_order_id) AS repair_order_id_count_0b7dfba0 
-    FROM default_DOT_repair_orders_fact_built 
+      COUNT(repair_order_id) AS repair_order_id_count_0b7dfba0
+    FROM default_DOT_repair_orders_fact_built
     GROUP BY  default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name
     """
     assert str(parse(str(expected_sql))) == str(parse(str(translated_sql["sql"])))
