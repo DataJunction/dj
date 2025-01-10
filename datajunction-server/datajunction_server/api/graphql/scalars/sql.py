@@ -1,5 +1,6 @@
 """SQL-related scalars."""
 from functools import cached_property
+from typing import Annotated
 
 import strawberry
 from strawberry.types import Info
@@ -17,6 +18,52 @@ from datajunction_server.utils import SEPARATOR
 SemanticType = strawberry.enum(SemanticType_)
 Dialect = strawberry.enum(Dialect_)
 QueryBuildType = strawberry.enum(QueryBuildType_)
+
+
+@strawberry.input
+class CubeDefinition:  # pylint: disable=too-few-public-methods
+    """
+    The cube definition for the query
+    """
+
+    metrics: Annotated[
+        list[str],
+        strawberry.argument(
+            description="A list of metric node names",
+        ),
+    ] = None  # type: ignore
+    dimensions: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="A list of dimension attribute names",
+        ),
+    ] = None
+    filters: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="A list of filter SQL clauses",
+        ),
+    ] = None
+    orderby: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="A list of order by clauses",
+        ),
+    ] = None
+
+
+@strawberry.input
+class EngineSettings:  # pylint: disable=too-few-public-methods
+    """
+    The engine settings for the query
+    """
+
+    name: str = strawberry.field(
+        description="The name of the engine used by the generated SQL",
+    )
+    version: str | None = strawberry.field(
+        description="The version of the engine used by the generated SQL",
+    )
 
 
 @strawberry.type
