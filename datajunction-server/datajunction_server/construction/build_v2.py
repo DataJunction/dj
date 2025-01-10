@@ -103,6 +103,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     include_all_columns: bool = False,
     sql_transpilation_library: Optional[str] = None,
     use_materialized: bool = True,
+    preagg_requested: bool = True,
 ) -> List[GeneratedSQL]:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.
@@ -165,17 +166,17 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     measures_queries = []
     for parent_node, children in common_parents.items():  # type: ignore
         children = sorted(children, key=lambda x: metrics_sorting_order.get(x.name, 0))
-    
+
         # Determine whether to pre-aggregate to the requested dimensions so that subsequent
         # queries are more efficient by checking the measures on the requested metrics
-        preaggregate = all(
-            len(metrics2measures[metric.name][0]) > 0 and all(
+        preaggregate = preagg_requested and all(
+            len(metrics2measures[metric.name][0]) > 0
+            and all(
                 measure.rule.type == Aggregability.FULL
                 for measure in metrics2measures[metric.name][0]
             )
             for metric in children
         )
-        print("preaggregation poss?", preaggregate)
 
         measure_columns, dimensional_columns = [], []
         query_builder = await QueryBuilder.create(
@@ -257,8 +258,13 @@ async def get_measures_query(  # pylint: disable=too-many-locals
                     if dep.type == NodeType.SOURCE
                 ],
                 grain=(
-                    [col.name for col in columns_metadata if col.semantic_type == SemanticType.DIMENSION]
-                    if preaggregate else [pk_col.name for pk_col in parent_node.current.primary_key()]
+                    [
+                        col.name
+                        for col in columns_metadata
+                        if col.semantic_type == SemanticType.DIMENSION
+                    ]
+                    if preaggregate
+                    else [pk_col.name for pk_col in parent_node.current.primary_key()]
                 ),
                 errors=query_builder.errors,
             ),
