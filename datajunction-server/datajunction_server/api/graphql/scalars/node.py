@@ -4,6 +4,7 @@ from typing import List, Optional
 
 import strawberry
 from strawberry.scalars import JSON
+from strawberry.types import Info
 
 from datajunction_server.api.graphql.scalars import BigInt
 from datajunction_server.api.graphql.scalars.availabilitystate import AvailabilityState
@@ -68,9 +69,26 @@ class DimensionAttribute:  # pylint: disable=too-few-public-methods
     """
 
     name: str
-    attribute: str
-    role: str
-    dimension_node: "NodeRevision"
+    attribute: str | None
+    role: str | None = None
+    properties: list[str]
+    type: str
+
+    _dimension_node: Optional["Node"] = None
+
+    @strawberry.field(description="The dimension node this attribute belongs to")
+    async def dimension_node(self, info: Info) -> "Node":
+        """
+        Lazy load the dimension node when queried.
+        """
+        if self._dimension_node:
+            return self._dimension_node
+
+        # pylint: disable=import-outside-toplevel
+        from datajunction_server.api.graphql.resolvers.nodes import get_node_by_name
+
+        dimension_node_name = self.name.rsplit(".", 1)[0]
+        return await get_node_by_name(info=info, name=dimension_node_name)  # type: ignore
 
 
 @strawberry.type
@@ -174,7 +192,9 @@ class NodeRevision:
                     ),
                     attribute=element.name,
                     role=dimension_to_roles.get(element.name, ""),
-                    dimension_node=node_revision,
+                    _dimension_node=node_revision,
+                    type=element.type,
+                    properties=element.attribute_names(),
                 )
                 for element, node_revision in root.cube_elements_with_nodes()
                 if node_revision and node_revision.type != NodeType.METRIC
