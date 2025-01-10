@@ -2,7 +2,6 @@
 Tests for the common dimensions query.
 """
 
-# pylint: disable=line-too-long
 from typing import AsyncGenerator
 
 import pytest
