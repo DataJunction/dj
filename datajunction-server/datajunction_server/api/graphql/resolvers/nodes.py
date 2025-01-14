@@ -10,9 +10,12 @@ from strawberry.types import Info
 from datajunction_server.api.graphql.scalars.node import NodeName
 from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.database.node import Column, ColumnAttribute
-from datajunction_server.database.node import Node as DBNode
-from datajunction_server.database.node import NodeRevision as DBNodeRevision
+from datajunction_server.database.node import (
+    Column,
+    ColumnAttribute,
+    Node as DBNode,
+    NodeRevision as DBNodeRevision,
+)
 from datajunction_server.models.node import NodeType
 
 
@@ -66,7 +69,7 @@ async def get_node_by_name(
     query by only retrieving joined-in fields if they were requested.
     """
     if not fields:
-        return None
+        return None  # pragma: no cover
     if "name" in fields and len(fields) == 1:
         return NodeName(name=name)  # type: ignore
 
