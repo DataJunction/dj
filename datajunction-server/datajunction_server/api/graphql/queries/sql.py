@@ -95,7 +95,7 @@ async def measures_sql(
         include_all_columns=include_all_columns,
         sql_transpilation_library=settings.sql_transpilation_library,
         use_materialized=use_materialized,
-        preaggregate=preaggregate,
+        preagg_requested=preaggregate,
     )
     return [
         await GeneratedSQL.from_pydantic(info, measures_query)
