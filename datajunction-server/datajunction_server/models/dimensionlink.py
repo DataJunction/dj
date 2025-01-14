@@ -46,7 +46,7 @@ class JoinLinkInput(BaseModel):
 
     dimension_node: str
     join_type: Optional[JoinType] = JoinType.LEFT
-    join_on: str
+    join_on: Optional[str]
     join_cardinality: Optional[JoinCardinality] = JoinCardinality.MANY_TO_ONE
     role: Optional[str]
 

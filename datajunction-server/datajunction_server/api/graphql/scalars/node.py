@@ -98,18 +98,6 @@ class DimensionAttribute:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class Tag:  # pylint: disable=too-few-public-methods
-    """
-    Tag metadata
-    """
-
-    name: str
-    description: Optional[str]
-    tag_type: str
-    tag_metadata: JSON
-
-
-@strawberry.type
 class NodeRevision:
     """
     The base fields of a node revision, which does not include joined in entities.
@@ -210,6 +198,19 @@ class NodeRevision:
 
 
 @strawberry.type
+class TagLink:  # pylint: disable=too-few-public-methods
+    """
+    A DJ node tag with only flat fields
+    """
+
+    name: str
+    tag_type: str
+    description: str | None
+    display_name: str | None
+    tag_metadata: JSON | None = strawberry.field(default_factory=dict)
+
+
+@strawberry.type
 class Node:  # pylint: disable=too-few-public-methods
     """
     A DJ node
@@ -225,7 +226,7 @@ class Node:  # pylint: disable=too-few-public-methods
     current: NodeRevision
     revisions: List[NodeRevision]
 
-    tags: List[Tag]
+    tags: List[TagLink]
     created_by: User
 
     @strawberry.field
