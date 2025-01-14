@@ -2,7 +2,6 @@
 Tests for the common dimensions query.
 """
 
-# pylint: disable=line-too-long
 from typing import AsyncGenerator
 
 import pytest
@@ -182,3 +181,37 @@ async def test_get_common_dimensions_with_full_dim_node(
         "type": "string",
     } in data["data"]["commonDimensions"]
     assert len(capture_queries) > 200  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_get_common_dimensions_non_metric_nodes(
+    module__client_with_roads: AsyncClient,
+):
+    """
+    Test getting common dimensions and requesting a full dimension node for each
+    """
+
+    query = """
+    {
+      commonDimensions(nodes: ["default.num_repair_orders", "default.repair_order_fact"]) {
+        name
+        type
+        dimensionNode {
+          name
+        }
+      }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["data"]["commonDimensions"]) == 40
+
+    assert {
+        "dimensionNode": {
+            "name": "default.us_state",
+        },
+        "name": "default.us_state.state_name",
+        "type": "string",
+    } in data["data"]["commonDimensions"]
