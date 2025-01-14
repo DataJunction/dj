@@ -10,12 +10,9 @@ from strawberry.types import Info
 from datajunction_server.api.graphql.scalars.node import NodeName
 from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.database.node import (
-    Column,
-    ColumnAttribute,
-    Node as DBNode,
-    NodeRevision as DBNodeRevision,
-)
+from datajunction_server.database.node import Column, ColumnAttribute
+from datajunction_server.database.node import Node as DBNode
+from datajunction_server.database.node import NodeRevision as DBNodeRevision
 from datajunction_server.models.node import NodeType
 
 
