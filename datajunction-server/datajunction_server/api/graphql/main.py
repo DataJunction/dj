@@ -9,10 +9,12 @@ from strawberry.types import Info
 from datajunction_server.api.graphql.catalogs import CatalogInfo, list_catalogs
 from datajunction_server.api.graphql.engines import EngineInfo, list_engines
 from datajunction_server.api.graphql.queries.sql import measures_sql
+from datajunction_server.api.graphql.queries.tags import list_tag_types, list_tags
 from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
 from datajunction_server.api.graphql.scalars import Connection
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute, Node
 from datajunction_server.api.graphql.scalars.sql import GeneratedSQL
+from datajunction_server.api.graphql.scalars.tag import Tag
 from datajunction_server.models.node import NodeCursor, NodeType
 from datajunction_server.sql.dag import get_common_dimensions
 from datajunction_server.utils import SEPARATOR, get_session, get_settings
@@ -42,6 +44,16 @@ class Query:  # pylint: disable=R0903
     )
     measures_sql: List[GeneratedSQL] = strawberry.field(  # noqa: F811
         resolver=measures_sql,
+    )
+    # node sql -> GeneratedSQL(node, sql, columns ...)
+    # metrics sql -> GeneratedSQL(node, sql, columns ...)
+    list_tags: list[Tag] = strawberry.field(  # noqa: F811
+        resolver=list_tags,
+        description="Find DJ node tags based on the search parameters.",
+    )
+    list_tag_types: list[str] = strawberry.field(  # noqa: F811
+        resolver=list_tag_types,
+        description="List all DJ node tag types",
     )
 
     @strawberry.field(description="Find nodes based on the search parameters.")
