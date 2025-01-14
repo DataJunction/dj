@@ -33,6 +33,7 @@ class GeneratedSQL(BaseModel):
     sql: str
     sql_transpilation_library: Optional[str] = None
     columns: Optional[List[ColumnMetadata]] = None  # pragma: no-cover
+    grain: list[str] | None = None
     dialect: Optional[Dialect] = None
     upstream_tables: Optional[List[str]] = None
     errors: Optional[List[DJQueryBuildError]] = None

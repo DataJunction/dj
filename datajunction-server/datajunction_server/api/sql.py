@@ -105,7 +105,7 @@ async def get_measures_sql_for_cube_v2(
         include_all_columns=include_all_columns,
         sql_transpilation_library=settings.sql_transpilation_library,
         use_materialized=use_materialized,
-        preaggregate=preaggregate,
+        preagg_requested=preaggregate,
     )
     return measures_query
 
