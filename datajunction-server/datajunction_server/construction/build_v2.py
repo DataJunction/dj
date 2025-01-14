@@ -131,10 +131,14 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     build_criteria = BuildCriteria(
         dialect=engine.dialect if engine and engine.dialect else Dialect.SPARK,
     )
-    access_control = access.AccessControlStore(
-        validate_access=validate_access,
-        user=current_user,
-        base_verb=access.ResourceRequestVerb.READ,
+    access_control = (
+        access.AccessControlStore(
+            validate_access=validate_access,
+            user=current_user,
+            base_verb=access.ResourceRequestVerb.READ,
+        )
+        if validate_access
+        else None
     )
 
     if not filters:

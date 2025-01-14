@@ -8,9 +8,11 @@ from strawberry.types import Info
 
 from datajunction_server.api.graphql.catalogs import CatalogInfo, list_catalogs
 from datajunction_server.api.graphql.engines import EngineInfo, list_engines
+from datajunction_server.api.graphql.queries.sql import measures_sql
 from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
 from datajunction_server.api.graphql.scalars import Connection
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute, Node
+from datajunction_server.api.graphql.scalars.sql import GeneratedSQL
 from datajunction_server.models.node import NodeCursor, NodeType
 from datajunction_server.sql.dag import get_common_dimensions
 from datajunction_server.utils import SEPARATOR, get_session, get_settings
@@ -37,6 +39,9 @@ class Query:  # pylint: disable=R0903
     )
     list_engines: List[EngineInfo] = strawberry.field(  # noqa: F811
         resolver=list_engines,
+    )
+    measures_sql: List[GeneratedSQL] = strawberry.field(  # noqa: F811
+        resolver=measures_sql,
     )
 
     @strawberry.field(description="Find nodes based on the search parameters.")
