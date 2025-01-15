@@ -198,9 +198,9 @@ class NodeRevision:
 
 
 @strawberry.type
-class TagLink:  # pylint: disable=too-few-public-methods
+class TagBase:  # pylint: disable=too-few-public-methods
     """
-    A DJ node tag with only flat fields
+    A DJ node tag without any referential fields
     """
 
     name: str
@@ -226,7 +226,7 @@ class Node:  # pylint: disable=too-few-public-methods
     current: NodeRevision
     revisions: List[NodeRevision]
 
-    tags: List[TagLink]
+    tags: List[TagBase]
     created_by: User
 
     @strawberry.field

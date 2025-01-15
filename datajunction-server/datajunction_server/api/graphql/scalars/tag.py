@@ -1,13 +1,14 @@
+"""Tag-related scalars."""
 import strawberry
 from strawberry.types import Info
-from datajunction_server.api.graphql.resolvers.tags import get_nodes_by_tag
-from datajunction_server.api.graphql.utils import extract_fields
 
-from datajunction_server.api.graphql.scalars.node import Node, TagLink
+from datajunction_server.api.graphql.resolvers.tags import get_nodes_by_tag
+from datajunction_server.api.graphql.scalars.node import Node, TagBase
+from datajunction_server.api.graphql.utils import extract_fields
 
 
 @strawberry.type
-class Tag(TagLink):  # pylint: disable=too-few-public-methods
+class Tag(TagBase):  # pylint: disable=too-few-public-methods
     """
     A DJ node tag with nodes
     """

@@ -19,13 +19,14 @@ async def list_tags(
     session = info.context["session"]  # type: ignore
     db_tags = await DBTag.find_tags(session, tag_names, tag_types)
     return [
-        Tag(
+        Tag(  # type: ignore
             name=db_tag.name,
             display_name=db_tag.display_name,
             description=db_tag.description,
             tag_type=db_tag.tag_type,
             tag_metadata=db_tag.tag_metadata,
-        ) for db_tag in db_tags
+        )
+        for db_tag in db_tags
     ]
 
 
@@ -34,8 +35,7 @@ async def list_tag_types(
     info: Info = None,
 ) -> list[str]:
     """
-    Find available tags by tag type
+    List all tag types
     """
     session = info.context["session"]  # type: ignore
     return await DBTag.get_tag_types(session)
- 

@@ -5,7 +5,6 @@ from sqlalchemy import JSON, BigInteger, Column, ForeignKey, Integer, String, se
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship
 from sqlalchemy.sql.base import ExecutableOption
-from typing_extensions import Self
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.user import User
@@ -56,7 +55,10 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
         cls,
         session: AsyncSession,
         name: str,
-    ) -> Self | None:
+    ) -> Optional["Tag"]:
+        """
+        Retrieves a tag by its name.
+        """
         statement = select(Tag).where(Tag.name == name)
         return (await session.execute(statement)).scalars().one_or_none()
 
@@ -64,9 +66,12 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
     async def find_tags(
         cls,
         session: AsyncSession,
-        tag_names: str | None = None,
-        tag_types: str | None = None,
-    ) -> list[Self]:
+        tag_names: list[str] | None = None,
+        tag_types: list[str] | None = None,
+    ) -> list["Tag"]:
+        """
+        Find tags by name or tag type.
+        """
         statement = select(Tag)
         if tag_names:
             statement = statement.where(Tag.name.in_(tag_names))
@@ -76,6 +81,9 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
 
     @classmethod
     async def get_tag_types(cls, session: AsyncSession) -> list[str]:
+        """
+        Get all unique tag types.
+        """
         statement = select(Tag.tag_type).distinct()
         return (await session.execute(statement)).scalars().all()
 
@@ -87,6 +95,9 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
         node_type: NodeType | None = None,
         options: List[ExecutableOption] | None = None,
     ) -> list["Node"]:
+        """
+        Find nodes with the tag.
+        """
         statement = select(cls).where(Tag.name == tag_name)
         base_options = joinedload(Tag.nodes)
         if options:

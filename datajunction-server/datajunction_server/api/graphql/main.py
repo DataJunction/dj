@@ -45,8 +45,6 @@ class Query:  # pylint: disable=R0903
     measures_sql: List[GeneratedSQL] = strawberry.field(  # noqa: F811
         resolver=measures_sql,
     )
-    # node sql -> GeneratedSQL(node, sql, columns ...)
-    # metrics sql -> GeneratedSQL(node, sql, columns ...)
     list_tags: list[Tag] = strawberry.field(  # noqa: F811
         resolver=list_tags,
         description="Find DJ node tags based on the search parameters.",
