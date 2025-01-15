@@ -120,6 +120,7 @@ client_secret*
 
 # random notebooks
 Untitled*
+.notebook_executed
 
 # postgres
 postgres_metadata
