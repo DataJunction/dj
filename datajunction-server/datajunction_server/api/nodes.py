@@ -1240,7 +1240,10 @@ async def refresh_source_node(  # pylint: disable=too-many-locals
             source_node.missing_table = False  # type: ignore
             refresh_details["missing_table"] = "False"
     else:
-        # since we don't see any columns, we'll assume the table is gone
+        # since we don't see any columns, we assume the table is gone
+        if source_node.missing_table:  # type: ignore
+            # but if the node already has a missing table, we can skip the update
+            return source_node  # type: ignore
         source_node.missing_table = True  # type: ignore
         new_columns = current_revision.columns
         refresh_details["missing_table"] = "True"
