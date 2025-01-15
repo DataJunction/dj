@@ -31,6 +31,12 @@ services:
       - postgres_metadata
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      timeout: 5s
 
   postgres_metadata:
     container_name: postgres_metadata
@@ -98,6 +104,23 @@ services:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  db-seed:
+    container_name: db-seed
+    networks:
+      - core
+    image: postgres:latest
+    depends_on:
+      db-migration:
+        condition: service_completed_successfully
+    environment:
+      - PGPASSWORD=dj
+    volumes:
+      - ./datajunction-server/init_data:/init_data
+    command: >
+      /bin/bash -c "
+      psql -h postgres_metadata -U dj -d dj -f /init_data/seed.sql
+      "
 
   djqs-db-migration:
     container_name: djqs-db-migration
@@ -168,7 +191,18 @@ services:
       - ./datajunction-clients/python:/home/jovyan/notebooks/datajunction
     environment:
       JUPYTER_ENABLE_LAB: "yes"
-    command: /bin/bash -c "pip install -e /home/jovyan/notebooks/datajunction/ && start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''"
+    depends_on:
+      dj:
+        condition: service_healthy
+    command: >
+      /bin/bash -c "
+      pip install -e /home/jovyan/notebooks/datajunction/ && \
+      if [ ! -f /home/jovyan/notebooks/.notebook_executed ]; then \
+        jupyter execute '/home/jovyan/notebooks/Modeling the Roads Example Database.ipynb' && \
+        touch /home/jovyan/notebooks/.notebook_executed; \
+      fi && \
+      start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''
+      "
 
   jaeger:
     container_name: jaeger
@@ -192,3 +226,4 @@ services:
       - '8080:8080'
     networks:
       - djqs-network
+
