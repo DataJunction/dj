@@ -1869,14 +1869,15 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = await module__client_with_roads.post(
             "/nodes/default.repair_orders/refresh/",
         )
-        data_second = response.json()
-        assert data_second["version"] == "v3.0"
-        assert data_second["node_revision_id"] != data["node_revision_id"]
-        assert len(data_second["columns"]) == 8
-        assert data_second["status"] == "valid"
-        assert data_second["missing_table"] is True
+        data_new = response.json()
+        assert data_new["version"] == "v3.0"
+        assert data_new["node_revision_id"] != data["node_revision_id"]
+        assert len(data_new["columns"]) == 8
+        assert data_new["status"] == "valid"
+        assert data_new["missing_table"] is True
 
         # Refresh it again, but this time the table is missing
+        data = data_new
         mocker.patch.object(
             module__query_service_client,
             "get_columns_for_table",
@@ -1887,14 +1888,27 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = await module__client_with_roads.post(
             "/nodes/default.repair_orders/refresh/",
         )
-        data_third = response.json()
-        assert data_third["version"] == "v4.0"
-        assert data_third["node_revision_id"] != data_second["node_revision_id"]
-        assert len(data_third["columns"]) == 8
-        assert data_third["status"] == "valid"
-        assert data_third["missing_table"] is True
+        data_new = response.json()
+        assert data_new["version"] == "v3.0"
+        assert data_new["node_revision_id"] == data["node_revision_id"]
+        assert len(data_new["columns"]) == 8
+        assert data_new["status"] == "valid"
+        assert data_new["missing_table"] is True
+
+        # Refresh it again, table is still missing
+        data = data_new
+        response = await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        data_new = response.json()
+        assert data_new["version"] == "v3.0"
+        assert data_new["node_revision_id"] == data["node_revision_id"]
+        assert len(data_new["columns"]) == 8
+        assert data_new["status"] == "valid"
+        assert data_new["missing_table"] is True
 
         # Refresh it again, back to normal state
+        data = data_new
         mocker.patch.object(
             module__query_service_client,
             "get_columns_for_table",
@@ -1903,12 +1917,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = await module__client_with_roads.post(
             "/nodes/default.repair_orders/refresh/",
         )
-        data_fourth = response.json()
-        assert data_fourth["version"] == "v5.0"
-        assert data_fourth["node_revision_id"] != data_second["node_revision_id"]
-        assert len(data_fourth["columns"]) == 8
-        assert data_fourth["status"] == "valid"
-        assert data_fourth["missing_table"] is False
+        data_new = response.json()
+        assert data_new["version"] == "v4.0"
+        assert data_new["node_revision_id"] != data["node_revision_id"]
+        assert len(data_new["columns"]) == 8
+        assert data_new["status"] == "valid"
+        assert data_new["missing_table"] is False
 
     @pytest.mark.asyncio
     async def test_refresh_source_node_with_query(
