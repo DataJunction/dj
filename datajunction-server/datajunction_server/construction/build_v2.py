@@ -313,6 +313,13 @@ def build_preaggregate_query(
                 f"SELECT {measure.aggregation}({measure.expression}) AS {measure.name}",
             ).select
             for col in temp_select.find_all(ast.Column):
+                # Realias based on canonical dimension name if needed
+                if col.alias_or_name.name not in parent_ast.select.column_mapping:
+                    new_alias = amenable_name(
+                        parent_node.name + SEPARATOR + col.alias_or_name.name,
+                    )
+                    if new_alias in parent_ast.select.column_mapping:
+                        col.name.name = new_alias
                 if (  # pragma: no cover
                     col.alias_or_name.name in parent_ast.select.column_mapping
                 ):

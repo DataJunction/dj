@@ -1454,3 +1454,62 @@ SELECT  default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_last_name,
         ("Donna", "Riley", mock.ANY, 320953.0),
         ("Luka", "Henderson", mock.ANY, 131364.0),
     ]
+
+
+@pytest.mark.asyncio
+async def test_measures_sql_local_dimensions(
+    module__client_with_roads: AsyncClient,
+    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+):
+    """
+    Test measures SQL for metrics that reference local dimensions
+    """
+    await fix_dimension_links(module__client_with_roads)
+
+    response = await module__client_with_roads.get(
+        "/sql/measures/v2",
+        params={
+            "metrics": [
+                "default.avg_length_of_employment",
+            ],
+            "dimensions": [
+                "default.hard_hat.hire_date",
+            ],
+            "filters": [],
+            "preaggregate": True,
+        },
+    )
+    data = response.json()
+    expected_sql = """
+    WITH default_DOT_hard_hat AS (
+      SELECT
+        default_DOT_hard_hats.hard_hat_id,
+        default_DOT_hard_hats.last_name,
+        default_DOT_hard_hats.first_name,
+        default_DOT_hard_hats.title,
+        default_DOT_hard_hats.birth_date,
+        default_DOT_hard_hats.hire_date,
+        default_DOT_hard_hats.address,
+        default_DOT_hard_hats.city,
+        default_DOT_hard_hats.state,
+        default_DOT_hard_hats.postal_code,
+        default_DOT_hard_hats.country,
+        default_DOT_hard_hats.manager,
+        default_DOT_hard_hats.contractor_id
+      FROM roads.hard_hats AS default_DOT_hard_hats
+    ),
+    default_DOT_hard_hat_built AS (
+      SELECT
+        default_DOT_hard_hat.hire_date default_DOT_hard_hat_DOT_hire_date
+      FROM default_DOT_hard_hat
+    )
+    SELECT
+      default_DOT_hard_hat_built.default_DOT_hard_hat_DOT_hire_date,
+      COUNT(1) AS count,
+      SUM(CAST(NOW() AS DATE) - default_DOT_hard_hat_DOT_hire_date) AS hire_date_sum_9b06ca5d
+    FROM default_DOT_hard_hat_built
+    GROUP BY
+      default_DOT_hard_hat_built.default_DOT_hard_hat_DOT_hire_date
+    """
+    assert str(parse(str(expected_sql))) == str(parse(str(data[0]["sql"])))
+    duckdb_conn.sql(data[0]["sql"])
