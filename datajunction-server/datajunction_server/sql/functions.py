@@ -4137,6 +4137,13 @@ def infer_type(
     return ct.DoubleType()
 
 
+@Sum.register  # type: ignore
+def infer_type(
+    arg: Union[ct.DateType, ct.TimestampType],
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
 class ToDate(Function):  # pragma: no cover # pylint: disable=abstract-method
     """
     Converts a date string to a date value.
