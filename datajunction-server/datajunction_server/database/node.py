@@ -697,6 +697,15 @@ class NodeRevision(
         )
 
         tree = parse(query)
+        if len(tree.select.projection) != 1:
+            raise DJInvalidInputException(
+                "Metric SQL cannot have more than one output column expression."
+            )
+        if tree.select.where:
+            raise DJInvalidInputException(
+                "Metric cannot have a WHERE clause. Please use IF(<clause>, ...) instead"
+                " to represent a WHERE clause."
+            )
         projection_0 = tree.select.projection[0]
         tree.select.projection[0] = projection_0.set_alias(
             ast.Name(amenable_name(name)),
