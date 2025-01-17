@@ -10,7 +10,6 @@ from datajunction_server.database.base import Base
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.models.base import labelize
-from datajunction_server.models.node_type import NodeType
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import Node
@@ -51,18 +50,6 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
     )
 
     @classmethod
-    async def get_tag_by_name(
-        cls,
-        session: AsyncSession,
-        name: str,
-    ) -> Optional["Tag"]:
-        """
-        Retrieves a tag by its name.
-        """
-        statement = select(Tag).where(Tag.name == name)
-        return (await session.execute(statement)).scalars().one_or_none()
-
-    @classmethod
     async def find_tags(
         cls,
         session: AsyncSession,
@@ -92,7 +79,6 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
         cls,
         session: AsyncSession,
         tag_name: str,
-        node_type: NodeType | None = None,
         options: List[ExecutableOption] | None = None,
     ) -> list["Node"]:
         """
@@ -104,22 +90,13 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
             base_options = base_options.options(*options)
         statement = statement.options(base_options)
         tag = (await session.execute(statement)).unique().scalars().one_or_none()
-        if not tag:
+        if not tag:  # pragma: no cover
             raise DJDoesNotExistException(
                 message=f"A tag with name `{tag_name}` does not exist.",
                 http_status_code=404,
             )
-        if not node_type:
-            return sorted(
-                [node for node in tag.nodes if not node.deactivated_at],
-                key=lambda x: x.name,
-            )
         return sorted(
-            [
-                node
-                for node in tag.nodes
-                if node.type == node_type and not node.deactivated_at
-            ],
+            [node for node in tag.nodes if not node.deactivated_at],
             key=lambda x: x.name,
         )
 
