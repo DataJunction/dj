@@ -6,6 +6,7 @@ import strawberry
 from strawberry.scalars import JSON
 from strawberry.types import Info
 
+from datajunction_server.models.engine import Dialect
 from datajunction_server.api.graphql.scalars import BigInt
 from datajunction_server.api.graphql.scalars.availabilitystate import AvailabilityState
 from datajunction_server.api.graphql.scalars.catalog_engine import Catalog
@@ -17,6 +18,7 @@ from datajunction_server.api.graphql.scalars.metricmetadata import (
     ExtractedMeasures,
     MetricMetadata,
 )
+from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.api.graphql.scalars.user import User
 from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.database.dimensionlink import (
@@ -98,6 +100,19 @@ class DimensionAttribute:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
+class Tag:  # pylint: disable=too-few-public-methods
+    """
+    Tag metadata
+    """
+
+    name: str
+    display_name: str
+    description: Optional[str]
+    tag_type: str
+    tag_metadata: JSON
+
+
+@strawberry.type
 class NodeRevision:
     """
     The base fields of a node revision, which does not include joined in entities.
@@ -136,8 +151,27 @@ class NodeRevision:
     table: Optional[str]
 
     # Only metrics will have these fields
-    metric_metadata: Optional[MetricMetadata] = None
     required_dimensions: Optional[List[Column]] = None
+
+    @strawberry.field
+    def metric_metadata(self, root: "DBNodeRevision") -> MetricMetadata | None:
+        """
+        Metric metadata
+        """
+        if root.type != NodeType.METRIC:
+            return None
+
+        query_ast = parse(root.query)
+        functions = [func.function() for func in query_ast.find_all(ast.Function)]
+        return MetricMetadata(  # type: ignore
+            direction=root.metric_metadata.direction if root.metric_metadata else None,
+            unit=root.metric_metadata.unit if root.metric_metadata else None,
+            expression=str(query_ast.select.projection[0]),
+            incompatible_druid_functions={
+                func.__name__.upper() for func in functions
+                if Dialect.DRUID not in func.dialects
+            },
+        )
 
     @strawberry.field
     def extracted_measures(self, root: "DBNodeRevision") -> ExtractedMeasures | None:
