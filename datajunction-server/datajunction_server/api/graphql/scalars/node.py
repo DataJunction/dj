@@ -98,18 +98,6 @@ class DimensionAttribute:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class Tag:  # pylint: disable=too-few-public-methods
-    """
-    Tag metadata
-    """
-
-    name: str
-    description: Optional[str]
-    tag_type: str
-    tag_metadata: JSON
-
-
-@strawberry.type
 class NodeRevision:
     """
     The base fields of a node revision, which does not include joined in entities.
@@ -124,7 +112,13 @@ class NodeRevision:
     mode: Optional[NodeMode]  # type: ignore
     description: str = ""
     updated_at: datetime.datetime
-    catalog: Optional[Catalog]
+
+    @strawberry.field
+    def catalog(self, root: "DBNodeRevision") -> Optional[Catalog]:
+        """
+        Catalog for the node
+        """
+        return Catalog.from_pydantic(root.catalog)  # type: ignore  # pylint: disable=no-member
 
     query: Optional[str] = None
     columns: List[Column]
@@ -210,6 +204,19 @@ class NodeRevision:
 
 
 @strawberry.type
+class TagBase:  # pylint: disable=too-few-public-methods
+    """
+    A DJ node tag without any referential fields
+    """
+
+    name: str
+    tag_type: str
+    description: str | None
+    display_name: str | None
+    tag_metadata: JSON | None = strawberry.field(default_factory=dict)
+
+
+@strawberry.type
 class Node:  # pylint: disable=too-few-public-methods
     """
     A DJ node
@@ -225,7 +232,7 @@ class Node:  # pylint: disable=too-few-public-methods
     current: NodeRevision
     revisions: List[NodeRevision]
 
-    tags: List[Tag]
+    tags: List[TagBase]
     created_by: User
 
     @strawberry.field
