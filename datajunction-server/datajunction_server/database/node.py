@@ -34,7 +34,11 @@ from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJInvalidInputException, DJNodeNotFound
+from datajunction_server.errors import (
+    DJInvalidInputException,
+    DJInvalidMetricQueryException,
+    DJNodeNotFound,
+)
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
@@ -729,10 +733,29 @@ class NodeRevision(
             not hasattr(projection_0, "is_aggregation")
             or not projection_0.is_aggregation()  # type: ignore
         ):
-            raise DJInvalidInputException(
-                http_status_code=HTTPStatus.BAD_REQUEST,
-                message=f"Metric {self.name} has an invalid query, "
-                "should have an aggregate expression",
+            raise DJInvalidMetricQueryException(
+                f"Metric {self.name} has an invalid query, should have an aggregate expression",
+            )
+
+        if tree.select.where:
+            raise DJInvalidMetricQueryException(
+                "Metric cannot have a WHERE clause. Please use IF(<clause>, ...) instead",
+            )
+
+        clauses = [
+            "GROUP BY" if tree.select.group_by else None,
+            "HAVING" if tree.select.having else None,
+            "LATERAL VIEW" if tree.select.lateral_views else None,
+            "UNION or INTERSECT" if tree.select.set_op else None,
+            "LIMIT" if tree.select.limit else None,
+            "ORDER BY" if tree.select.organization.order else None,
+            "SORT BY" if tree.select.organization.sort else None,
+        ]
+        invalid_clauses = [clause for clause in clauses if clause is not None]
+        if invalid_clauses:
+            raise DJInvalidMetricQueryException(
+                "Metric has an invalid query. The following are not allowed: "
+                + ", ".join(invalid_clauses),
             )
 
     def extra_validation(self) -> None:

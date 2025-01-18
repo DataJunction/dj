@@ -237,6 +237,14 @@ class DJInvalidInputException(DJException):
     http_status_code: int = HTTPStatus.UNPROCESSABLE_ENTITY
 
 
+class DJInvalidMetricQueryException(DJInvalidInputException):
+    """
+    Exception raised when the metric query provided by the user is invalid.
+    """
+
+    http_status_code: int = HTTPStatus.BAD_REQUEST
+
+
 class DJNotImplementedException(DJException):
     """
     Exception raised when some functionality hasn't been implemented in DJ yet.
