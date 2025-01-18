@@ -183,7 +183,14 @@ export default function RevisionDiff() {
                           </SyntaxHighlighter>
                         </>
                       ) : field === 'columns' ? (
-                        <div>{prevRevision[0][field].map(col => <>{col.name}<br /></>)}</div>
+                        <div>
+                          {prevRevision[0][field].map(col => (
+                            <>
+                              {col.name}
+                              <br />
+                            </>
+                          ))}
+                        </div>
                       ) : (
                         prevRevision[0][field].toString()
                       )

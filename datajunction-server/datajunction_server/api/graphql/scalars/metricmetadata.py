@@ -54,3 +54,5 @@ class MetricMetadata:  # pylint: disable=too-few-public-methods
 
     direction: Optional[MetricDirection]  # type: ignore
     unit: Optional[Unit]
+    expression: str
+    incompatible_druid_functions: list[str]
