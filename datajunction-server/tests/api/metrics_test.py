@@ -1276,3 +1276,57 @@ async def test_list_metric_metadata(module__client: AsyncClient):
             },
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_create_invalid_metric(module__client_with_roads: AsyncClient):
+    """
+    Validate that creating a metric with invalid SQL raises errors.
+    """
+    response = await module__client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "query": (
+                "SELECT sum(total_repair_cost), "
+                "sum(total_repair_cost) FROM default.repair_orders_fact"
+            ),
+            "description": "Something invalid",
+            "mode": "published",
+            "name": "default.invalid_metric_example",
+        },
+    )
+    assert response.json()["message"] == (
+        "Metric queries can only have a single expression, found 2"
+    )
+
+    response = await module__client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "query": (
+                "SELECT sum(total_repair_cost) FROM default.repair_orders_fact"
+                " WHERE total_repair_cost > 0"
+            ),
+            "description": "Something invalid",
+            "mode": "published",
+            "name": "default.invalid_metric_example",
+        },
+    )
+    assert response.json()["message"] == (
+        "Metric cannot have a WHERE clause. Please use IF(<clause>, ...) instead"
+    )
+
+    response = await module__client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "query": (
+                "SELECT sum(total_repair_cost) FROM default.repair_orders_fact "
+                "GROUP BY total_repair_cost HAVING count(*) > 0 ORDER BY 1"
+            ),
+            "description": "Something invalid",
+            "mode": "published",
+            "name": "default.invalid_metric_example",
+        },
+    )
+    assert response.json()["message"] == (
+        "Metric has an invalid query. The following are not allowed: GROUP BY, HAVING, ORDER BY"
+    )
