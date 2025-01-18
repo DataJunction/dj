@@ -133,7 +133,6 @@ export function NamespacePage() {
   useEffect(() => {
     const fetchData = async () => {
       setRetrieved(false);
-      console.log('cursor', before, filters.edited_by);
       const nodes = await djClient.listNodesForLanding(
         namespace,
         filters.node_type ? [filters.node_type.toUpperCase()] : [],
@@ -143,7 +142,6 @@ export function NamespacePage() {
         after,
         50,
       );
-      console.log('nodes', nodes);
 
       setState({
         namespace: namespace,
@@ -157,10 +155,6 @@ export function NamespacePage() {
         );
         setNextCursor(
           nodes.data ? nodes.data.findNodesPaginated.pageInfo.endCursor : '',
-        );
-        console.log(
-          'setting hasPrevPage, ',
-          nodes.data.findNodesPaginated.pageInfo.hasPrevPage,
         );
         setHasPrevPage(
           nodes.data

@@ -7,9 +7,6 @@ import ListGroupItem from '../../components/ListGroupItem';
 import ToggleSwitch from '../../components/ToggleSwitch';
 import DJClientContext from '../../providers/djclient';
 import { labelize } from '../../../utils/form';
-import { AlertMessage } from '../AddEditNodePage/AlertMessage';
-import AlertIcon from '../../icons/AlertIcon';
-import InvalidIcon from '../../icons/InvalidIcon';
 
 SyntaxHighlighter.registerLanguage('sql', sql);
 foundation.hljs['padding'] = '2rem';
@@ -71,7 +68,8 @@ export default function NodeInfoTab({ node }) {
     ) : (
       ''
     );
-  const metricQueryDiv = (
+
+  const metricQueryDiv = node.type === 'metric' ? (
     <div className="list-group-item d-flex">
       <div className="gap-2 w-100 justify-content-between py-3">
         <div style={{ marginBottom: '30px' }}>
@@ -88,7 +86,7 @@ export default function NodeInfoTab({ node }) {
         </div>
       </div>
     </div>
-  );
+  ) : '';
   const queryDiv = node?.query ? (
     <div className="list-group-item d-flex">
       <div className="d-flex gap-2 w-100 justify-content-between py-3">
@@ -158,7 +156,7 @@ export default function NodeInfoTab({ node }) {
               aria-label="MetricDirection"
             >
               {node?.metric_metadata?.direction
-                ? labelize(node?.metric_metadata?.direction)
+                ? labelize(node?.metric_metadata?.direction.toLowerCase())
                 : 'None'}
             </p>
           </div>
@@ -170,8 +168,8 @@ export default function NodeInfoTab({ node }) {
               aria-hidden="false"
               aria-label="MetricUnit"
             >
-              {node?.metric_metadata?.unit
-                ? labelize(node?.metric_metadata?.unit?.label)
+              {node?.metric_metadata?.unit.name
+                ? labelize(node?.metric_metadata?.unit?.name.toLowerCase())
                 : 'None'}
             </p>
           </div>
