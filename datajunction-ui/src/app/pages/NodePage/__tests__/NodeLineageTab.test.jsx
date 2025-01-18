@@ -34,7 +34,8 @@ describe('<NodeColumnLineage />', () => {
 
   it('renders and calls node_lineage with the correct node name', async () => {
     const djClient = mockDJClient();
-    djClient.DataJunctionAPI.metric = name => defaultProps.djNode;
+    djClient.DataJunctionAPI.node = name => mocks.mockMetricNode;
+    djClient.DataJunctionAPI.getMetric = name => mocks.mockMetricNodeJson;
     const { container } = render(
       <DJClientContext.Provider value={djClient}>
         <NodeColumnLineage {...defaultProps} />
@@ -43,7 +44,7 @@ describe('<NodeColumnLineage />', () => {
 
     await waitFor(() => {
       expect(djClient.DataJunctionAPI.node_lineage).toHaveBeenCalledWith(
-        defaultProps.djNode.name,
+        mocks.mockMetricNode.name,
       );
 
       // The origin node should be displayed

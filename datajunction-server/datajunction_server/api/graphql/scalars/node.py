@@ -25,10 +25,12 @@ from datajunction_server.database.dimensionlink import (
 from datajunction_server.database.dimensionlink import JoinType as JoinType_
 from datajunction_server.database.node import Node as DBNode
 from datajunction_server.database.node import NodeRevision as DBNodeRevision
+from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
 from datajunction_server.sql.decompose import MeasureExtractor
+from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 NodeType = strawberry.enum(NodeType_)
 NodeStatus = strawberry.enum(NodeStatus_)
@@ -136,8 +138,28 @@ class NodeRevision:
     table: Optional[str]
 
     # Only metrics will have these fields
-    metric_metadata: Optional[MetricMetadata] = None
     required_dimensions: Optional[List[Column]] = None
+
+    @strawberry.field
+    def metric_metadata(self, root: "DBNodeRevision") -> MetricMetadata | None:
+        """
+        Metric metadata
+        """
+        if root.type != NodeType.METRIC:
+            return None
+
+        query_ast = parse(root.query)
+        functions = [func.function() for func in query_ast.find_all(ast.Function)]
+        return MetricMetadata(  # type: ignore
+            direction=root.metric_metadata.direction if root.metric_metadata else None,
+            unit=root.metric_metadata.unit if root.metric_metadata else None,
+            expression=str(query_ast.select.projection[0]),
+            incompatible_druid_functions={
+                func.__name__.upper()
+                for func in functions
+                if Dialect.DRUID not in func.dialects
+            },
+        )
 
     @strawberry.field
     def extracted_measures(self, root: "DBNodeRevision") -> ExtractedMeasures | None:

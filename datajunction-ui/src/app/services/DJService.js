@@ -128,6 +128,45 @@ export const DataJunctionAPI = {
     return data;
   },
 
+  getMetric: async function (name) {
+    const query = `
+      query GetMetric($name: String!) {
+        findNodes (names: [$name]) {
+          name
+          current {
+            parents { name }
+            metricMetadata {
+              direction
+              unit { name }
+              expression
+              incompatibleDruidFunctions
+            }
+            requiredDimensions {
+              name
+            }
+          }
+        }
+      }
+    `;
+
+    const results = await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: {
+            name: name,
+          },
+        }),
+      })
+    ).json();
+    return results.data.findNodes[0];
+  },
+
   nodes: async function (prefix) {
     const queryParams = prefix ? `?prefix=${prefix}` : '';
     return await (

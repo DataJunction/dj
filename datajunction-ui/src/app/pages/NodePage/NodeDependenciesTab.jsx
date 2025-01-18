@@ -98,7 +98,7 @@ export function NodeDimensionsList({ rawDimensions }) {
             value: dim.name,
             label:
               labelize(dim.name.split('.').slice(-1)[0]) +
-              (dim.properties.includes("primary_key") ? ' (PK)' : ''),
+              (dim.properties.includes('primary_key') ? ' (PK)' : ''),
           };
         });
         return (
