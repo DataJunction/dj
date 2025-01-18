@@ -1,13 +1,13 @@
 """
-Engine related APIs.
+Engine related queries.
 """
 from typing import List
 
 from sqlalchemy import select
 from strawberry.types import Info
 
-from datajunction_server.database.engine import Engine as DBEngine
 from datajunction_server.api.graphql.scalars.catalog_engine import Engine
+from datajunction_server.database.engine import Engine as DBEngine
 
 
 async def list_engines(

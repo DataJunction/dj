@@ -1,5 +1,5 @@
 """
-Catalog related APIs.
+Catalog related queries.
 """
 
 from typing import List
@@ -7,8 +7,10 @@ from typing import List
 from sqlalchemy import select
 from strawberry.types import Info
 
+from datajunction_server.api.graphql.scalars.catalog_engine import (
+    Catalog,  # pylint: disable=W0611
+)
 from datajunction_server.database.catalog import Catalog as DBCatalog
-from datajunction_server.api.graphql.scalars.catalog_engine import Catalog  # pylint: disable=W0611
 
 
 async def list_catalogs(
