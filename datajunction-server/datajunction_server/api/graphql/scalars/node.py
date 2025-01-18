@@ -6,7 +6,6 @@ import strawberry
 from strawberry.scalars import JSON
 from strawberry.types import Info
 
-from datajunction_server.models.engine import Dialect
 from datajunction_server.api.graphql.scalars import BigInt
 from datajunction_server.api.graphql.scalars.availabilitystate import AvailabilityState
 from datajunction_server.api.graphql.scalars.catalog_engine import Catalog
@@ -18,7 +17,6 @@ from datajunction_server.api.graphql.scalars.metricmetadata import (
     ExtractedMeasures,
     MetricMetadata,
 )
-from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.api.graphql.scalars.user import User
 from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.database.dimensionlink import (
@@ -27,10 +25,12 @@ from datajunction_server.database.dimensionlink import (
 from datajunction_server.database.dimensionlink import JoinType as JoinType_
 from datajunction_server.database.node import Node as DBNode
 from datajunction_server.database.node import NodeRevision as DBNodeRevision
+from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
 from datajunction_server.sql.decompose import MeasureExtractor
+from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 NodeType = strawberry.enum(NodeType_)
 NodeStatus = strawberry.enum(NodeStatus_)
@@ -100,19 +100,6 @@ class DimensionAttribute:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class Tag:  # pylint: disable=too-few-public-methods
-    """
-    Tag metadata
-    """
-
-    name: str
-    display_name: str
-    description: Optional[str]
-    tag_type: str
-    tag_metadata: JSON
-
-
-@strawberry.type
 class NodeRevision:
     """
     The base fields of a node revision, which does not include joined in entities.
@@ -168,7 +155,8 @@ class NodeRevision:
             unit=root.metric_metadata.unit if root.metric_metadata else None,
             expression=str(query_ast.select.projection[0]),
             incompatible_druid_functions={
-                func.__name__.upper() for func in functions
+                func.__name__.upper()
+                for func in functions
                 if Dialect.DRUID not in func.dialects
             },
         )

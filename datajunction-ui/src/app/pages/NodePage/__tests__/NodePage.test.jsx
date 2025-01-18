@@ -23,6 +23,7 @@ describe('<NodePage />', () => {
       DataJunctionAPI: {
         node: jest.fn(),
         metric: jest.fn(),
+        getMetric: jest.fn(),
         revalidate: jest.fn().mockReturnValue({ status: 'valid' }),
         node_dag: jest.fn().mockReturnValue(mocks.mockNodeDAG),
         clientCode: jest.fn().mockReturnValue('dj_client = DJClient()'),
@@ -279,7 +280,9 @@ describe('<NodePage />', () => {
   it('renders the NodeInfo tab correctly for a metric node', async () => {
     const djClient = mockDJClient();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
-    djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.getMetric.mockReturnValue(
+      mocks.mockMetricNodeJson,
+    );
     const element = (
       <DJClientContext.Provider value={djClient}>
         <NodePage {...defaultProps} />
@@ -399,7 +402,9 @@ describe('<NodePage />', () => {
   it('renders the NodeColumns tab correctly', async () => {
     const djClient = mockDJClient();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
-    djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.getMetric.mockReturnValue(
+      mocks.mockMetricNodeJson,
+    );
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
     djClient.DataJunctionAPI.attributes.mockReturnValue(mocks.attributes);
     djClient.DataJunctionAPI.dimensions.mockReturnValue(mocks.dimensions);
@@ -476,7 +481,9 @@ describe('<NodePage />', () => {
   it('renders the NodeHistory tab correctly', async () => {
     const djClient = mockDJClient();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
-    djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.getMetric.mockReturnValue(
+      mocks.mockMetricNodeJson,
+    );
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
     djClient.DataJunctionAPI.history.mockReturnValue(mocks.metricNodeHistory);
     djClient.DataJunctionAPI.revisions.mockReturnValue(
@@ -576,7 +583,9 @@ describe('<NodePage />', () => {
   it('renders an empty NodeMaterialization tab correctly', async () => {
     const djClient = mockDJClient();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
-    djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.getMetric.mockReturnValue(
+      mocks.mockMetricNodeJson,
+    );
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
     djClient.DataJunctionAPI.materializations.mockReturnValue([]);
 
@@ -609,7 +618,9 @@ describe('<NodePage />', () => {
   it('renders the NodeMaterialization tab with materializations correctly', async () => {
     const djClient = mockDJClient();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockTransformNode);
-    // djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.getMetric.mockReturnValue(
+      mocks.mockMetricNodeJson,
+    );
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
     djClient.DataJunctionAPI.materializations.mockReturnValue(
       mocks.nodeMaterializations,
@@ -659,10 +670,10 @@ describe('<NodePage />', () => {
     const djClient = mockDJClient();
     window.scrollTo = jest.fn();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
-    djClient.DataJunctionAPI.nodeDimensions.mockReturnValue(
-      mocks.mockMetricNodeJson.dimensions,
+    djClient.DataJunctionAPI.nodeDimensions.mockReturnValue([]);
+    djClient.DataJunctionAPI.getMetric.mockReturnValue(
+      mocks.mockMetricNodeJson,
     );
-    djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
     djClient.DataJunctionAPI.sql.mockReturnValue({
       sql: 'SELECT * FROM testNode',
@@ -765,7 +776,9 @@ describe('<NodePage />', () => {
   it('renders a NodeColumnLineage tab correctly', async () => {
     const djClient = mockDJClient();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
-    djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNodeJson);
+    djClient.DataJunctionAPI.getMetric.mockReturnValue(
+      mocks.mockMetricNodeJson,
+    );
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
     djClient.DataJunctionAPI.node_lineage.mockReturnValue(
       mocks.mockNodeLineage,
@@ -796,7 +809,9 @@ describe('<NodePage />', () => {
   it('renders a NodeGraph tab correctly', async () => {
     const djClient = mockDJClient();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
-    djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNodeJson);
+    djClient.DataJunctionAPI.getMetric.mockReturnValue(
+      mocks.mockMetricNodeJson,
+    );
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
 
     const element = (

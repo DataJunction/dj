@@ -57,7 +57,10 @@ export default function NodeHistory({ node, djClient }) {
         </div>
       );
     }
-    if (['create', 'update', 'delete'].includes(event.activity_type) && event.entity_type === 'link') {
+    if (
+      ['create', 'update', 'delete'].includes(event.activity_type) &&
+      event.entity_type === 'link'
+    ) {
       return (
         <div className="history-left">
           <b style={{ textTransform: 'capitalize' }}>{event.activity_type}</b>{' '}
@@ -180,8 +183,9 @@ export default function NodeHistory({ node, djClient }) {
     if (event.activity_type === 'create' && event.entity_type === 'backfill') {
       return (
         <div className="history-left">
-          <b>Backfill</b> created for materialization {event.details.materialization}{' '}
-          for partition {event.details.partition[0].column_name} from{' '}
+          <b>Backfill</b> created for materialization{' '}
+          {event.details.materialization} for partition{' '}
+          {event.details.partition[0].column_name} from{' '}
           {event.details.partition[0].range[0]} to{' '}
           {event.details.partition[0].range[1]}
         </div>

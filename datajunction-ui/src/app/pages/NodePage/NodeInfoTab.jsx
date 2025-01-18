@@ -69,24 +69,29 @@ export default function NodeInfoTab({ node }) {
       ''
     );
 
-  const metricQueryDiv = node.type === 'metric' ? (
-    <div className="list-group-item d-flex">
-      <div className="gap-2 w-100 justify-content-between py-3">
-        <div style={{ marginBottom: '30px' }}>
-          <h6 className="mb-0 w-100">Upstream Node</h6>
-          <p>
-            <a href={`/nodes/${node?.upstream_node}`}>{node?.upstream_node}</a>
-          </p>
-        </div>
-        <div>
-          <h6 className="mb-0 w-100">Aggregate Expression</h6>
-          <SyntaxHighlighter language="sql" style={foundation}>
-            {node?.expression}
-          </SyntaxHighlighter>
+  const metricQueryDiv =
+    node.type === 'metric' ? (
+      <div className="list-group-item d-flex">
+        <div className="gap-2 w-100 justify-content-between py-3">
+          <div style={{ marginBottom: '30px' }}>
+            <h6 className="mb-0 w-100">Upstream Node</h6>
+            <p>
+              <a href={`/nodes/${node?.upstream_node}`}>
+                {node?.upstream_node}
+              </a>
+            </p>
+          </div>
+          <div>
+            <h6 className="mb-0 w-100">Aggregate Expression</h6>
+            <SyntaxHighlighter language="sql" style={foundation}>
+              {node?.expression}
+            </SyntaxHighlighter>
+          </div>
         </div>
       </div>
-    </div>
-  ) : '';
+    ) : (
+      ''
+    );
   const queryDiv = node?.query ? (
     <div className="list-group-item d-flex">
       <div className="d-flex gap-2 w-100 justify-content-between py-3">
@@ -156,7 +161,7 @@ export default function NodeInfoTab({ node }) {
               aria-label="MetricDirection"
             >
               {node?.metric_metadata?.direction
-                ? labelize(node?.metric_metadata?.direction.toLowerCase())
+                ? labelize(node?.metric_metadata?.direction?.toLowerCase())
                 : 'None'}
             </p>
           </div>
@@ -168,8 +173,8 @@ export default function NodeInfoTab({ node }) {
               aria-hidden="false"
               aria-label="MetricUnit"
             >
-              {node?.metric_metadata?.unit.name
-                ? labelize(node?.metric_metadata?.unit?.name.toLowerCase())
+              {node?.metric_metadata?.unit?.name
+                ? labelize(node?.metric_metadata?.unit?.name?.toLowerCase())
                 : 'None'}
             </p>
           </div>

@@ -1096,4 +1096,45 @@ describe('DataJunctionAPI', () => {
       }),
     );
   });
+
+  it('calls getMetric correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: { findNodes: [{ name: 'default.num_repair_orders' }] },
+      }),
+    );
+    await DataJunctionAPI.getMetric('default.num_repair_orders');
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/graphql`,
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+  });
+
+  it('calls notebookExportCube correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.notebookExportCube('default.repairs_cube');
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/datajunction-clients/python/notebook/?cube=default.repairs_cube`,
+      {
+        credentials: 'include',
+      },
+    );
+  });
+
+  it('calls notebookExportNamespace correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.notebookExportNamespace('default');
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/datajunction-clients/python/notebook/?namespace=default`,
+      {
+        credentials: 'include',
+      },
+    );
+  });
 });

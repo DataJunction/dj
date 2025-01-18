@@ -2,7 +2,7 @@
 Tests for the engine API.
 """
 
-# pylint: disable=line-too-long
+# pylint: disable=line-too-long,too-many-lines
 from unittest import mock
 
 import pytest
@@ -542,6 +542,11 @@ async def test_find_transform(
                         name
                     }
                 }
+                metricMetadata {
+                    unit {
+                        name
+                    }
+                }
             }
         }
     }
@@ -566,6 +571,7 @@ async def test_find_transform(
                     },
                 ],
                 "extractedMeasures": None,
+                "metricMetadata": None,
             },
             "name": "default.repair_orders_fact",
             "type": "TRANSFORM",
@@ -595,6 +601,8 @@ async def test_find_metric(
                         name
                     }
                     direction
+                    expression
+                    incompatibleDruidFunctions
                 }
                 requiredDimensions {
                     name
@@ -622,7 +630,16 @@ async def test_find_metric(
     assert data["data"]["findNodes"] == [
         {
             "current": {
-                "metricMetadata": None,
+                "metricMetadata": {
+                    "direction": None,
+                    "unit": None,
+                    "expression": (
+                        "(SUM(rm.completed_repairs) * 1.0 / SUM(rm.total_repairs_dispatched)) * "
+                        "(SUM(rm.total_amount_in_region) * 1.0 / "
+                        "SUM(na.total_amount_nationwide)) * 100"
+                    ),
+                    "incompatibleDruidFunctions": [],
+                },
                 "parents": [
                     {
                         "name": "default.regional_level_agg",
