@@ -112,7 +112,13 @@ class NodeRevision:
     mode: Optional[NodeMode]  # type: ignore
     description: str = ""
     updated_at: datetime.datetime
-    catalog: Optional[Catalog]
+
+    @strawberry.field
+    def catalog(self, root: "DBNodeRevision") -> Optional[Catalog]:
+        """
+        Catalog for the node
+        """
+        return Catalog.from_pydantic(root.catalog)  # type: ignore  # pylint: disable=no-member
 
     query: Optional[str] = None
     columns: List[Column]
