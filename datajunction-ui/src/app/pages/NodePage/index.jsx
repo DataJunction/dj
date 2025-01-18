@@ -53,13 +53,12 @@ export function NodePage() {
       const data = await djClient.node(name);
       data.createNodeClientCode = await djClient.clientCode(name);
       if (data.type === 'metric') {
-        const metric = await djClient.metric(name);
-        data.dimensions = metric.dimensions;
-        data.metric_metadata = metric.metric_metadata;
-        data.required_dimensions = metric.required_dimensions;
-        data.upstream_node = metric.upstream_node;
-        data.expression = metric.expression;
-        data.incompatible_druid_functions = metric.incompatible_druid_functions;
+        const metric = await djClient.getMetric(name);
+        data.metric_metadata = metric.current.metricMetadata;
+        data.required_dimensions = metric.current.requiredDimensions;
+        data.upstream_node = metric.current.parents[0].name;
+        data.expression = metric.current.metricMetadata.expression;
+        data.incompatible_druid_functions = metric.current.metricMetadata.incompatibleDruidFunctions;
       }
       if (data.type === 'cube') {
         const cube = await djClient.cube(name);
