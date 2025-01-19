@@ -115,8 +115,8 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     """
     from datajunction_server.api.helpers import (  # pylint: disable=import-outside-toplevel
         assemble_column_metadata,
-        validate_dimension_attributes,
-        validate_metrics,
+        check_dimension_attributes_exist,
+        check_metrics_exist,
     )
     from datajunction_server.construction.build import (  # pylint: disable=import-outside-toplevel
         group_metrics_by_parent,
@@ -146,8 +146,8 @@ async def get_measures_query(  # pylint: disable=too-many-locals
         filters = []
 
     metrics_sorting_order = {val: idx for idx, val in enumerate(metrics)}
-    metric_nodes = await validate_metrics(session, metrics)
-    await validate_dimension_attributes(session, dimensions)
+    metric_nodes = await check_metrics_exist(session, metrics)
+    await check_dimension_attributes_exist(session, dimensions)
 
     common_parents = group_metrics_by_parent(metric_nodes)
     parents_to_measures, metrics2measures = metrics_to_measures(metric_nodes)

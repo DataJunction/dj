@@ -360,7 +360,7 @@ async def validate_cube(  # pylint: disable=too-many-locals
     """
     Validate that a set of metrics and dimensions can be built together.
     """
-    metric_nodes = await validate_metrics(session, metric_names)
+    metric_nodes = await check_metrics_exist(session, metric_names)
     catalogs = [metric.current.catalog for metric in metric_nodes]
     catalog = catalogs[0] if catalogs else None
 
@@ -386,7 +386,7 @@ async def validate_cube(  # pylint: disable=too-many-locals
             http_status_code=http.client.UNPROCESSABLE_ENTITY,
         )
 
-    dimension_attributes, dimension_nodes = await validate_dimension_attributes(
+    dimension_attributes, dimension_nodes = await check_dimension_attributes_exist(
         session,
         dimension_names,
     )
@@ -430,9 +430,9 @@ async def validate_cube(  # pylint: disable=too-many-locals
     return metrics, metric_nodes, list(dimension_nodes.values()), dimensions, catalog
 
 
-async def validate_metrics(session: AsyncSession, metrics: list[str]) -> list[Node]:
+async def check_metrics_exist(session: AsyncSession, metrics: list[str]) -> list[Node]:
     """
-    Validate that the list of metrics are valid metric nodes.
+    Check that the list of metrics are valid metric nodes and return them.
     """
     metrics_sorting_order = {val: idx for idx, val in enumerate(metrics)}
     metric_nodes: List[Node] = sorted(
@@ -462,8 +462,13 @@ async def validate_metrics(session: AsyncSession, metrics: list[str]) -> list[No
     return metric_nodes
 
 
-async def validate_dimension_attributes(session: AsyncSession, dimensions: list[str]):
-    """Verify that the provided dimension attributes exist"""
+async def check_dimension_attributes_exist(
+    session: AsyncSession,
+    dimensions: list[str],
+) -> Tuple[list[list[str]], Dict[str, Node]]:
+    """
+    Verify that the provided dimension attributes exist
+    """
     dimension_attributes: List[List[str]] = [
         dimension_attribute.rsplit(".", 1) for dimension_attribute in dimensions
     ]
