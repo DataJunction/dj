@@ -115,7 +115,8 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     """
     from datajunction_server.api.helpers import (  # pylint: disable=import-outside-toplevel
         assemble_column_metadata,
-        validate_cube,
+        validate_dimension_attributes,
+        validate_metrics,
     )
     from datajunction_server.construction.build import (  # pylint: disable=import-outside-toplevel
         group_metrics_by_parent,
@@ -144,30 +145,19 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     if not filters:
         filters = []
 
-    (_, metric_nodes, _, _, _) = await validate_cube(
-        session,
-        metrics,
-        dimensions,
-    )
     metrics_sorting_order = {val: idx for idx, val in enumerate(metrics)}
-    metric_nodes = sorted(
-        metric_nodes,
-        key=lambda x: metrics_sorting_order.get(x.name, 0),
-    )
-    context = CompileContext(session=session, exception=DJException())
-    common_parents = group_metrics_by_parent(metric_nodes)
+    metric_nodes = await validate_metrics(session, metrics)
+    await validate_dimension_attributes(session, dimensions)
 
-    # Mapping between each metric node and its measures
-    parents_to_measures, metrics2measures = await metrics_to_measures(
-        session,
-        metric_nodes,
-    )
+    common_parents = group_metrics_by_parent(metric_nodes)
+    parents_to_measures, metrics2measures = metrics_to_measures(metric_nodes)
 
     column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
     matcher = re.compile(column_name_regex)
     dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
 
     measures_queries = []
+    context = CompileContext(session=session, exception=DJException())
     for parent_node, children in common_parents.items():  # type: ignore
         children = sorted(children, key=lambda x: metrics_sorting_order.get(x.name, 0))
 
@@ -183,6 +173,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
         )
 
         measure_columns, dimensional_columns = [], []
+        await refresh_if_needed(session, parent_node, ["current"])
         query_builder = await QueryBuilder.create(
             session,
             parent_node.current,
