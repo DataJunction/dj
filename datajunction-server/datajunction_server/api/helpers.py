@@ -360,54 +360,12 @@ async def validate_cube(  # pylint: disable=too-many-locals
     """
     Validate that a set of metrics and dimensions can be built together.
     """
-    metrics_sorting_order = {val: idx for idx, val in enumerate(metric_names)}
-    metric_nodes: List[Node] = sorted(
-        await Node.get_by_names(
-            session,
-            metric_names,
-            options=[
-                joinedload(Node.current).options(
-                    selectinload(NodeRevision.columns).options(
-                        selectinload(Column.node_revisions),
-                    ),
-                    joinedload(NodeRevision.catalog),
-                    selectinload(NodeRevision.parents),
-                ),
-            ],
-            include_inactive=False,
-        ),
-        key=lambda x: metrics_sorting_order.get(x.name, 0),
-    )
-    # Verify that all metrics exist
-    if len(metric_nodes) != len(metric_names):
-        not_found = set(metric_names) - {metric.name for metric in metric_nodes}
-        message = f"The following metric nodes were not found: {', '.join(not_found)}"
-        raise DJNodeNotFound(
-            message,
-            errors=[DJError(code=ErrorCode.UNKNOWN_NODE, message=message)],
-        )
-
-    # TODO: Removing for now until we fix the issue with status updates  # pylint: disable=fixme
-    # # Verify that all metrics are in valid status
-    # invalid_metrics = [
-    #     metric.name
-    #     for metric in metric_nodes
-    #     if metric.current.status == NodeStatus.INVALID
-    # ]
-    # if invalid_metrics:
-    #     message = (
-    #         f"The following metric nodes are invalid: {', '.join(invalid_metrics)}"
-    #     )
-    #     raise DJInvalidInputException(
-    #         message,
-    #         errors=[DJError(code=ErrorCode.INVALID_METRIC, message=message)],
-    #     )
-
-    metrics: List[Column] = [metric.current.columns[0] for metric in metric_nodes]
+    metric_nodes = await check_metrics_exist(session, metric_names)
     catalogs = [metric.current.catalog for metric in metric_nodes]
     catalog = catalogs[0] if catalogs else None
 
     # Verify that the provided metrics are metric nodes
+    metrics: List[Column] = [metric.current.columns[0] for metric in metric_nodes]
     if not metrics:
         raise DJInvalidInputException(
             message=("At least one metric is required"),
@@ -428,43 +386,10 @@ async def validate_cube(  # pylint: disable=too-many-locals
             http_status_code=http.client.UNPROCESSABLE_ENTITY,
         )
 
-    # Verify that the provided dimension attributes exist
-    dimension_attributes: List[List[str]] = [
-        dimension_attribute.rsplit(".", 1) for dimension_attribute in dimension_names
-    ]
-    dimension_node_names = [node_name for node_name, _ in dimension_attributes]
-    dimension_nodes: Dict[str, Node] = {
-        node.name: node
-        for node in await Node.get_by_names(
-            session,
-            dimension_node_names,
-            options=[
-                joinedload(Node.current).options(
-                    selectinload(NodeRevision.columns).options(
-                        joinedload(Column.node_revisions),
-                    ),
-                ),
-            ],
-        )
-    }
-    missing_dimensions = set(dimension_node_names) - set(dimension_nodes)
-    if missing_dimensions:  # pragma: no cover
-        missing_dimension_attributes = ", ".join(  # pragma: no cover
-            [
-                attr
-                for node_name, attr in dimension_attributes
-                if node_name in missing_dimensions
-            ],
-        )
-        message = (
-            f"Please make sure that `{missing_dimension_attributes}` "
-            "is a dimensional attribute."
-        )
-        raise DJInvalidInputException(  # pragma: no cover
-            message,
-            errors=[DJError(code=ErrorCode.INVALID_DIMENSION, message=message)],
-        )
-
+    dimension_attributes, dimension_nodes = await check_dimension_attributes_exist(
+        session,
+        dimension_names,
+    )
     dimension_mapping: Dict[str, Node] = {
         f"{node_name}{SEPARATOR}{attr}": dimension_nodes[node_name]
         for node_name, attr in dimension_attributes
@@ -503,6 +428,83 @@ async def validate_cube(  # pylint: disable=too-many-locals
         dimension_names,
     )
     return metrics, metric_nodes, list(dimension_nodes.values()), dimensions, catalog
+
+
+async def check_metrics_exist(session: AsyncSession, metrics: list[str]) -> list[Node]:
+    """
+    Check that the list of metrics are valid metric nodes and return them.
+    """
+    metrics_sorting_order = {val: idx for idx, val in enumerate(metrics)}
+    metric_nodes: List[Node] = sorted(
+        await Node.get_by_names(
+            session,
+            metrics,
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.columns).options(
+                        selectinload(Column.node_revisions),
+                    ),
+                    joinedload(NodeRevision.catalog),
+                    selectinload(NodeRevision.parents),
+                ),
+            ],
+            include_inactive=False,
+        ),
+        key=lambda x: metrics_sorting_order.get(x.name, 0),
+    )
+    if len(metric_nodes) != len(metrics):
+        not_found = set(metrics) - {metric.name for metric in metric_nodes}
+        message = f"The following metric nodes were not found: {', '.join(not_found)}"
+        raise DJNodeNotFound(
+            message,
+            errors=[DJError(code=ErrorCode.UNKNOWN_NODE, message=message)],
+        )
+    return metric_nodes
+
+
+async def check_dimension_attributes_exist(
+    session: AsyncSession,
+    dimensions: list[str],
+) -> Tuple[list[list[str]], Dict[str, Node]]:
+    """
+    Verify that the provided dimension attributes exist
+    """
+    dimension_attributes: List[List[str]] = [
+        dimension_attribute.rsplit(".", 1) for dimension_attribute in dimensions
+    ]
+    dimension_node_names = [node_name for node_name, _ in dimension_attributes]
+    dimension_nodes: Dict[str, Node] = {
+        node.name: node
+        for node in await Node.get_by_names(
+            session,
+            dimension_node_names,
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.columns).options(
+                        joinedload(Column.node_revisions),
+                    ),
+                ),
+            ],
+        )
+    }
+    missing_dimensions = set(dimension_node_names) - set(dimension_nodes)
+    if missing_dimensions:  # pragma: no cover
+        missing_dimension_attributes = ", ".join(  # pragma: no cover
+            [
+                attr
+                for node_name, attr in dimension_attributes
+                if node_name in missing_dimensions
+            ],
+        )
+        message = (
+            f"Please make sure that `{missing_dimension_attributes}` "
+            "is a dimensional attribute."
+        )
+        raise DJInvalidInputException(  # pragma: no cover
+            message,
+            errors=[DJError(code=ErrorCode.INVALID_DIMENSION, message=message)],
+        )
+    return dimension_attributes, dimension_nodes
 
 
 async def get_history(
