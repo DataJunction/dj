@@ -340,6 +340,13 @@ class NestedField(ColumnType):
         """
         return self._type
 
+    def __reduce__(self):
+        """
+        Custom method for pickling.
+        Returns a tuple of (callable, args) to recreate the object.
+        """
+        return (self.__class__, (self._name, self._type, self.is_optional, self.doc))
+
 
 class StructType(ColumnType):
     """A struct type
@@ -396,11 +403,18 @@ class ListType(ColumnType):
 
     def __new__(
         cls,
-        element_type: ColumnType,
+        element_type: ColumnType = None,
     ):
         key = (element_type,)
-        cls._instances[key] = cls._instances.get(key) or object.__new__(cls)  # type: ignore
+        cls._instances[key] = cls._instances.get(key) or super().__new__(cls)  # type: ignore
         return cls._instances[key]  # type: ignore
+
+    def __reduce__(self):
+        """
+        Custom method for pickling.
+        Returns a tuple of (callable, args) to recreate the object.
+        """
+        return (self.__class__, (self._element_field._type,))
 
     def __init__(
         self,
@@ -472,6 +486,13 @@ class MapType(ColumnType):
         The map's value
         """
         return self._value_field
+
+    def __reduce__(self):
+        """
+        Custom method for pickling.
+        Returns a tuple of (callable, args) to recreate the object.
+        """
+        return (self.__class__, (self._key_field, self._value_field))
 
 
 class BooleanType(PrimitiveType, Singleton):
