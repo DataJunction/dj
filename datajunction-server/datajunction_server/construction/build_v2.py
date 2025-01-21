@@ -1556,7 +1556,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-m
     if use_pickled and node.query_ast:
         try:
             query = pickle.loads(node.query_ast)
-        except TypeError as exc:
+        except TypeError as exc:  # pragma: no cover
             logger.error(
                 "Error loading query AST pickle for %s@%s: %s\n%s",
                 node.name,
