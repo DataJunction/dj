@@ -2,7 +2,9 @@
 """Building node SQL functions"""
 import collections
 import logging
+import pickle
 import re
+import traceback
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, DefaultDict, Dict, List, Optional, Tuple, Union, cast
@@ -532,11 +534,14 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             self.node_revision,
             ["availability", "columns"],
         )
-        node_ast = (
-            await compile_node_ast(self.session, self.node_revision)
-            if not self.physical_table
-            else self.create_query_from_physical_table(self.physical_table)
-        )
+        if self.node_revision.query_ast:
+            node_ast = pickle.loads(self.node_revision.query_ast)
+        else:
+            node_ast = (
+                await compile_node_ast(self.session, self.node_revision)
+                if not self.physical_table
+                else self.create_query_from_physical_table(self.physical_table)
+            )
 
         if self.physical_table and not self._filters and not self.dimensions:
             self.final_ast = node_ast
@@ -716,12 +721,13 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
 
             # Add the requested dimensions to the final SELECT
             if join_path:  # pragma: no cover
-                dimensions_columns = build_requested_dimensions_columns(
+                dimensions_columns, errors = build_requested_dimensions_columns(
                     requested_dimensions,
                     join_path[-1],
                     dimension_node_joins,
                 )
                 self.final_ast.select.projection.extend(dimensions_columns)
+                self.errors.extend(errors)
 
     def create_query_from_physical_table(self, physical_table) -> ast.Query:
         """
@@ -1351,6 +1357,7 @@ async def build_dimension_node_query(
         build_criteria=build_criteria,
         ctes_mapping=cte_mapping,
         use_materialized=use_materialized,
+        use_pickled=not physical_table,
     )
     return dimension_node_query
 
@@ -1381,11 +1388,12 @@ def build_requested_dimensions_columns(
     requested_dimensions,
     link,
     dimension_node_joins,
-):
+) -> Tuple[list[ast.Column], list[DJQueryBuildError]]:
     """
     Builds the requested dimension columns for the final select layer.
     """
     dimensions_columns = []
+    errors = []
     for dim in requested_dimensions:
         replacement = build_dimension_attribute(
             dim,
@@ -1395,7 +1403,14 @@ def build_requested_dimensions_columns(
         )
         if replacement:  # pragma: no cover
             dimensions_columns.append(replacement)
-    return dimensions_columns
+        else:
+            errors.append(
+                DJQueryBuildError(
+                    code=ErrorCode.INVALID_DIMENSION,
+                    message=f"Dimension attribute {dim} does not exist!",
+                ),
+            )
+    return dimensions_columns, errors
 
 
 async def compile_node_ast(session, node_revision: NodeRevision) -> ast.Query:
@@ -1515,7 +1530,7 @@ def build_join_for_link(
     return join_ast
 
 
-async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
+async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-many-statements
     session: AsyncSession,
     node: NodeRevision,
     query: ast.Query,
@@ -1525,6 +1540,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
     access_control=None,
     ctes_mapping: Dict[str, ast.Query] = None,
     use_materialized: bool = True,
+    use_pickled: bool = True,
 ) -> ast.Query:
     """
     Recursively replaces DJ node references with query ASTs. These are replaced with
@@ -1536,7 +1552,22 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
     """
     await refresh_if_needed(session, node, ["dimension_links"])
     context = CompileContext(session=session, exception=DJException())
-    await query.compile(context)
+
+    if use_pickled and node.query_ast:
+        try:
+            query = pickle.loads(node.query_ast)
+        except TypeError as exc:
+            logger.error(
+                "Error loading query AST pickle for %s@%s: %s\n%s",
+                node.name,
+                node.version,
+                exc,
+                traceback.format_exc(),  # Include the full traceback
+            )
+            await query.compile(context)
+    else:
+        await query.compile(context)
+
     query.bake_ctes()  # pylint: disable=W0212
 
     new_cte_mapping: Dict[str, ast.Query] = {}

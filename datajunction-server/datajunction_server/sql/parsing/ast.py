@@ -1730,7 +1730,8 @@ class Function(Named, Operation):
     ):
         # Check if function is a table-valued function
         if (
-            not quantifier
+            hasattr(name, "name")
+            and not quantifier
             and over is None
             and name.name.upper() in table_function_registry
         ):

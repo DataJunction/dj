@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    PickleType,
     String,
     UniqueConstraint,
     select,
@@ -645,6 +646,8 @@ class NodeRevision(
         default=[],
     )
 
+    query_ast: Mapped[PickleType | None] = mapped_column(PickleType)
+
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -683,8 +686,10 @@ class NodeRevision(
                 joinedload(DimensionLink.dimension).options(
                     selectinload(Node.current),
                 ),
+                joinedload(DimensionLink.node_revision),
             ),
             selectinload(NodeRevision.required_dimensions),
+            selectinload(NodeRevision.availability),
         )
 
     @staticmethod
