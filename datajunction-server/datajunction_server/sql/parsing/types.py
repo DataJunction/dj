@@ -414,7 +414,7 @@ class ListType(ColumnType):
         Custom method for pickling.
         Returns a tuple of (callable, args) to recreate the object.
         """
-        return (self.__class__, (self._element_field._type,))
+        return (self.__class__, (self._element_field._type,))  # pragma: no cover
 
     def __init__(
         self,
