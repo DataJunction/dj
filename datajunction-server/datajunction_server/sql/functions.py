@@ -3245,6 +3245,13 @@ def infer_type(
     return arg.type
 
 
+@Max.register  # type: ignore
+def infer_type(
+    arg: ct.TimestampType,
+) -> ct.TimestampType:
+    return arg.type
+
+
 class MaxBy(Function):
     """
     max_by(val, key) - Returns the value of val corresponding to the maximum value of key.
