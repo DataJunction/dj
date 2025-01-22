@@ -1,7 +1,6 @@
 # pylint: disable=too-many-lines,too-many-arguments
 """Nodes endpoint helper functions"""
 import logging
-import pickle
 from collections import defaultdict
 from datetime import datetime
 from http import HTTPStatus
@@ -243,14 +242,6 @@ async def create_node_revision(
         created_by_id=current_user.id,
     )
     node_validator = await validate_node_data(node_revision, session)
-
-    # Compile and save query AST
-    if node_revision.query and node_revision.type in {
-        NodeType.TRANSFORM,
-        NodeType.DIMENSION,
-    }:
-        query_ast = await compile_node_ast(session, node_revision)
-        node_revision.query_ast = pickle.dumps(query_ast)
 
     if node_validator.status == NodeStatus.INVALID:
         if node_revision.mode == NodeMode.DRAFT:
@@ -705,6 +696,11 @@ async def update_node_with_query(
             save_column_level_lineage,
             session=session,
             node_revision=new_revision,
+        )
+        background_tasks.add_task(
+            save_query_ast,
+            session=session,
+            node_name=new_revision.name,
         )
 
     history_events = {}
@@ -1202,11 +1198,6 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
         created_by_id=current_user.id,
     )
 
-    # Compile and save query AST for transforms and dimensions
-    if query_changes and new_revision.type in {NodeType.TRANSFORM, NodeType.DIMENSION}:
-        query_ast = await compile_node_ast(session, new_revision)
-        new_revision.query_ast = pickle.dumps(query_ast)
-
     if data.required_dimensions:  # type: ignore
         new_revision.required_dimensions = data.required_dimensions  # type: ignore
 
@@ -1324,6 +1315,30 @@ async def save_column_level_lineage(
     node = await Node.get_by_name(session, node_revision.name)
     column_level_lineage = await get_column_level_lineage(session, node.current)  # type: ignore
     node.current.lineage = [lineage.dict() for lineage in column_level_lineage]  # type: ignore
+    session.add(node.current)  # type: ignore
+    await session.commit()
+
+
+async def save_query_ast(
+    session: AsyncSession,
+    node_name: str,
+):
+    """
+    Compile and save query AST for a node
+    """
+    node = await Node.get_by_name(session, node_name)
+
+    if (
+        node
+        and node.current.query
+        and node.type
+        in {
+            NodeType.TRANSFORM,
+            NodeType.DIMENSION,
+        }
+    ):
+        node.current.query_ast = await compile_node_ast(session, node.current)
+
     session.add(node.current)  # type: ignore
     await session.commit()
 
@@ -1907,6 +1922,7 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
     session: AsyncSession,
     current_user: User,
     update_query_ast: bool = True,
+    background_tasks: BackgroundTasks = None,
 ) -> NodeValidator:
     """
     Revalidate a single existing node and update its status appropriately
@@ -1977,14 +1993,12 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
     node_validator = await validate_node_data(current_node_revision, session)
 
     # Compile and save query AST
-    if (
-        update_query_ast
-        and node
-        and node.type in {NodeType.TRANSFORM, NodeType.DIMENSION}
-    ):
-        query_ast = await compile_node_ast(session, node.current)
-        node.current.query_ast = pickle.dumps(query_ast)
-        session.add(node.current)
+    if update_query_ast and background_tasks:
+        background_tasks.add_task(
+            save_query_ast,
+            session=session,
+            node_name=node.name,  # type: ignore
+        )
 
     # Update the status
     node.current.status = node_validator.status  # type: ignore
