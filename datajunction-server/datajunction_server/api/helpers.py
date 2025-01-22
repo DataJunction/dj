@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Set, Tuple, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import defer, joinedload, selectinload
 from sqlalchemy.sql.operators import and_, is_
 
 from datajunction_server.construction.build import (
@@ -441,9 +441,7 @@ async def check_metrics_exist(session: AsyncSession, metrics: list[str]) -> list
             metrics,
             options=[
                 joinedload(Node.current).options(
-                    selectinload(NodeRevision.columns).options(
-                        selectinload(Column.node_revisions),
-                    ),
+                    selectinload(NodeRevision.columns),
                     joinedload(NodeRevision.catalog),
                     selectinload(NodeRevision.parents),
                 ),
@@ -480,9 +478,8 @@ async def check_dimension_attributes_exist(
             dimension_node_names,
             options=[
                 joinedload(Node.current).options(
-                    selectinload(NodeRevision.columns).options(
-                        joinedload(Column.node_revisions),
-                    ),
+                    selectinload(NodeRevision.columns),
+                    defer(NodeRevision.query_ast),
                 ),
             ],
         )
