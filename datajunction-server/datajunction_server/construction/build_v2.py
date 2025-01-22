@@ -2,7 +2,6 @@
 """Building node SQL functions"""
 import collections
 import logging
-import pickle
 import re
 import traceback
 from dataclasses import dataclass
@@ -218,7 +217,11 @@ async def get_measures_query(  # pylint: disable=too-many-locals
             else:
                 measure_columns.append(expr)
                 expr.set_semantic_type(SemanticType.MEASURE)  # type: ignore
+
         await parent_ast.compile(context)
+        dependencies, _ = await parent_ast.extract_dependencies(
+            CompileContext(session, DJException()),
+        )
 
         final_query = (
             build_preaggregate_query(
@@ -239,9 +242,6 @@ async def get_measures_query(  # pylint: disable=too-many-locals
             )
             for col in final_query.select.projection
         ]
-        dependencies, _ = await final_query.extract_dependencies(
-            CompileContext(session, DJException()),
-        )
         measures_queries.append(
             GeneratedSQL(
                 node=parent_node.current,
@@ -532,10 +532,10 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         await refresh_if_needed(
             self.session,
             self.node_revision,
-            ["availability", "columns"],
+            ["availability", "columns", "query_ast"],
         )
         if self.node_revision.query_ast:
-            node_ast = pickle.loads(self.node_revision.query_ast)
+            node_ast = self.node_revision.query_ast
         else:
             node_ast = (
                 await compile_node_ast(self.session, self.node_revision)
@@ -634,9 +634,9 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         self.errors.extend(ctx.exception.errors)
         node_alias = ast.Name(amenable_name(self.node_revision.name))
         return node_alias, await build_ast(
-            self.session,
-            self.node_revision,
-            node_ast,
+            session=self.session,
+            node=self.node_revision,
+            query=node_ast,
             filters=self._filters,
             build_criteria=self._build_criteria,
             ctes_mapping=self.cte_mapping,
@@ -1350,9 +1350,9 @@ async def build_dimension_node_query(
         )
     )
     dimension_node_query = await build_ast(
-        session,
-        link.dimension.current,
-        dimension_node_ast,
+        session=session,
+        node=link.dimension.current,
+        query=dimension_node_ast,
         filters=filters,  # type: ignore
         build_criteria=build_criteria,
         ctes_mapping=cte_mapping,
@@ -1533,9 +1533,8 @@ def build_join_for_link(
 async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-many-statements
     session: AsyncSession,
     node: NodeRevision,
-    query: ast.Query,
-    filters: Optional[List[str]],
-    memoized_queries: Dict[int, ast.Query] = None,
+    query: ast.Query | None = None,
+    filters: Optional[List[str]] = None,
     build_criteria: Optional[BuildCriteria] = None,
     access_control=None,
     ctes_mapping: Dict[str, ast.Query] = None,
@@ -1552,21 +1551,21 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-m
     """
     await refresh_if_needed(session, node, ["dimension_links"])
     context = CompileContext(session=session, exception=DJException())
-
-    if use_pickled and node.query_ast:
-        try:
-            query = pickle.loads(node.query_ast)
-        except TypeError as exc:  # pragma: no cover
-            logger.error(
-                "Error loading query AST pickle for %s@%s: %s\n%s",
-                node.name,
-                node.version,
-                exc,
-                traceback.format_exc(),  # Include the full traceback
-            )
-            await query.compile(context)
-    else:
-        await query.compile(context)
+    try:
+        query = (
+            node.query_ast
+            if use_pickled and node.query_ast
+            else await compile_node_ast(session, node)
+        )
+    except TypeError as exc:  # pragma: no cover
+        logger.error(
+            "Error unpickling query AST for %s@%s: %s\n%s",
+            node.name,
+            node.version,
+            exc,
+            traceback.format_exc(),
+        )
+        query = await compile_node_ast(session, node)
 
     query.bake_ctes()  # pylint: disable=W0212
 
@@ -1596,13 +1595,12 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-m
                 logger.debug("Didn't find physical node: %s", referenced_node.name)
                 # Build a new CTE with the query AST if there is no materialized table
                 if referenced_node.name not in ctes_mapping:
-                    node_query = parse(cast(str, referenced_node.query))
+                    # node_query = parse(cast(str, referenced_node.query))
                     query_ast = await build_ast(  # type: ignore
-                        session,
-                        referenced_node,
-                        node_query,
+                        session=session,
+                        node=referenced_node,
+                        query=None,
                         filters=filters,
-                        memoized_queries=memoized_queries,
                         build_criteria=build_criteria,
                         access_control=access_control,
                         ctes_mapping=ctes_mapping,

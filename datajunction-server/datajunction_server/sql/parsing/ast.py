@@ -2862,29 +2862,3 @@ class Query(TableExpression, UnNamed):
     @property
     def type(self) -> ColumnType:
         return self.select.type
-
-    async def build(  # pylint: disable=R0913,C0415
-        self,
-        session: AsyncSession,
-        memoized_queries: Dict[int, "Query"],
-        build_criteria: Optional[BuildCriteria] = None,
-        filters: Optional[List[str]] = None,
-        dimensions: Optional[List[str]] = None,
-        access_control=None,
-    ):
-        """
-        Transforms a query ast by replacing dj node references with their asts
-        """
-        from datajunction_server.construction.build import _build_select_ast
-
-        self.bake_ctes()  # pylint: disable=W0212
-        await _build_select_ast(
-            session,
-            self.select,
-            memoized_queries,
-            build_criteria,
-            filters,
-            dimensions,
-            access_control,
-        )
-        self.select.add_aliases_to_unnamed_columns()
