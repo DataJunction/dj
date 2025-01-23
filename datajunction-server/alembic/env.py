@@ -21,6 +21,7 @@ from datajunction_server.database import (
     Node,
     NodeNamespace,
     NodeRevision,
+    NotificationPreference,
     Partition,
     Table,
     Tag,
