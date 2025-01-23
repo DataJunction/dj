@@ -340,7 +340,7 @@ class NestedField(ColumnType):
         """
         return self._type
 
-    def __reduce__(self):
+    def __reduce__(self):  # pragma: no cover
         """
         Custom method for pickling.
         Returns a tuple of (callable, args) to recreate the object.
@@ -487,7 +487,7 @@ class MapType(ColumnType):
         """
         return self._value_field
 
-    def __reduce__(self):
+    def __reduce__(self):  # pragma: no cover
         """
         Custom method for pickling.
         Returns a tuple of (callable, args) to recreate the object.

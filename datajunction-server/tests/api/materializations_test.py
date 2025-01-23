@@ -1203,6 +1203,7 @@ async def test_spark_with_availablity(
         },
     )
     assert response.status_code in (200, 201)
+
     # check the materialization query again (query should be the same)
     response = await module__client_with_roads.get(
         "/nodes/default.test_transform/materializations/",
