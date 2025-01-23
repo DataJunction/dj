@@ -1,8 +1,8 @@
+# pylint: disable=line-too-long,too-many-lines
 """
 Tests for the engine API.
 """
 
-# pylint: disable=line-too-long,too-many-lines
 from unittest import mock
 
 import pytest
