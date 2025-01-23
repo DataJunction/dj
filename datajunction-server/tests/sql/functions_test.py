@@ -2698,15 +2698,10 @@ async def test_max() -> None:
     )
     assert Max.infer_type(ast.Column(ast.Name("x"), _type=BigIntType())) == BigIntType()
     assert Max.infer_type(ast.Column(ast.Name("x"), _type=FloatType())) == FloatType()
+    assert Max.infer_type(ast.Column(ast.Name("x"), _type=StringType())) == StringType()
     assert Max.infer_type(
         ast.Column(ast.Name("x"), _type=DecimalType(8, 6)),
     ) == DecimalType(8, 6)
-    assert (
-        Max.infer_type(
-            ast.Column(ast.Name("x"), _type=StringType()),
-        )
-        == StringType()
-    )
 
 
 @pytest.mark.asyncio
@@ -2817,13 +2812,10 @@ async def test_min() -> None:
     )
     assert Min.infer_type(ast.Column(ast.Name("x"), _type=BigIntType())) == BigIntType()
     assert Min.infer_type(ast.Column(ast.Name("x"), _type=FloatType())) == FloatType()
+    assert Min.infer_type(ast.Column(ast.Name("x"), _type=StringType())) == StringType()
     assert Min.infer_type(
         ast.Column(ast.Name("x"), _type=DecimalType(8, 6)),
     ) == DecimalType(8, 6)
-    with pytest.raises(Exception):
-        Min.infer_type(  # pylint: disable=expression-not-assigned
-            ast.Column(ast.Name("x"), _type=StringType()),
-        ) == StringType()
 
 
 @pytest.mark.asyncio
@@ -3601,3 +3593,121 @@ async def test_var_samp(session: AsyncSession):
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_unix_date(session: AsyncSession):
+    """
+    Test the `unix_date` function
+    """
+    query = parse("SELECT unix_date(DATE('1970-01-02'))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_unix_micros(session: AsyncSession):
+    """
+    Test the `unix_micros` function
+    """
+    query = parse("SELECT unix_micros(cast('1970-01-01 00:00:01Z' as timestamp))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BigIntType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_unix_millis(session: AsyncSession):
+    """
+    Test the `unix_millis` function
+    """
+    query = parse("SELECT unix_millis(cast('1970-01-01 00:00:01Z' as timestamp))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BigIntType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_unix_seconds(session: AsyncSession):
+    """
+    Test the `unix_seconds` function
+    """
+    query = parse("SELECT unix_seconds(cast('1970-01-01 00:00:01Z' as timestamp))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BigIntType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_unix_timestamp(session: AsyncSession):
+    """
+    Test the `unix_timestamp` function
+    """
+    query = parse("SELECT unix_timestamp(), unix_timestamp('2016-04-08', 'yyyy-MM-dd')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BigIntType()  # type: ignore
+    assert query.select.projection[1].type == ct.BigIntType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_timestamp(session: AsyncSession):
+    """
+    Test the `timestamp` function
+    """
+    query = parse("SELECT timestamp('2016-04-08')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_timestamp_micros(session: AsyncSession):
+    """
+    Test the `timestamp_micros` function
+    """
+    query = parse("SELECT timestamp_micros(1230219000123123)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_timestamp_millis(session: AsyncSession):
+    """
+    Test the `timestamp_millis` function
+    """
+    query = parse("SELECT timestamp_millis(1230219000123)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_timestamp_seconds(session: AsyncSession):
+    """
+    Test the `timestamp_seconds` function
+    """
+    query = parse("SELECT timestamp_seconds(1230219000.123)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.TimestampType()  # type: ignore

@@ -17,42 +17,37 @@ export default function Search() {
     }
     return str.length > 100 ? str.substring(0, 90) + '...' : str;
   };
+
   useEffect(() => {
     const fetchNodes = async () => {
-      const data = (await djClient.nodeDetails()) || [];
-      const tags = (await djClient.listTags()) || [];
-      const allEntities = data.concat(
-        tags.map(tag => {
-          tag.type = 'tag';
-          return tag;
-        }),
-      );
-      const fuse = new Fuse(allEntities || [], {
-        keys: [
-          'name', // will be assigned a `weight` of 1
-          {
-            name: 'description',
-            weight: 2,
-          },
-          {
-            name: 'display_name',
-            weight: 3,
-          },
-          {
-            name: 'type',
-            weight: 4,
-          },
-          {
-            name: 'tag_type',
-            weight: 5,
-          },
-        ],
-      });
-      setFuse(fuse);
+      try {
+        const [data, tags] = await Promise.all([
+          djClient.nodeDetails(),
+          djClient.listTags(),
+        ]);
+        const allEntities = data.concat(
+          (tags || []).map(tag => {
+            tag.type = 'tag';
+            return tag;
+          }),
+        );
+        const fuse = new Fuse(allEntities || [], {
+          keys: [
+            'name', // will be assigned a `weight` of 1
+            { name: 'description', weight: 2 },
+            { name: 'display_name', weight: 3 },
+            { name: 'type', weight: 4 },
+            { name: 'tag_type', weight: 5 },
+          ],
+        });
+        setFuse(fuse);
+      } catch (error) {
+        console.error('Error fetching nodes or tags:', error);
+      }
     };
     fetchNodes();
   }, []);
-
+  
   const handleChange = e => {
     setSearchValue(e.target.value);
     if (fuse) {
