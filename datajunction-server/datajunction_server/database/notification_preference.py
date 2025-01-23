@@ -3,7 +3,17 @@
 from datetime import datetime, timezone
 from functools import partial
 
-from sqlalchemy import ARRAY, BigInteger, DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import (
+    ARRAY,
+    BigInteger,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
@@ -18,6 +28,11 @@ class NotificationPreference(Base):  # pylint: disable=too-few-public-methods
     """
 
     __tablename__ = "notification_preferences"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_name", name="uix_entity_type_name"),
+        Index("ix_entity_name", "entity_name"),
+        Index("ix_entity_type", "entity_type"),
+    )
 
     id: Mapped[int] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"),
