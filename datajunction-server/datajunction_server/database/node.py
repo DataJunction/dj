@@ -524,16 +524,16 @@ class CompressedPickleType(TypeDecorator):  # pylint: disable=too-many-ancestors
             return None
         try:
             return pickle.loads(zlib.decompress(value))
-        except TypeError:
+        except TypeError:  # pragma: no cover
             return None
 
     def process_literal_param(self, value, dialect):
         """Convert the value to a literal for SQL statements."""
-        if value is not None:
+        if value is not None:  # pragma: no cover
             # Convert the value to a compressed and pickled representation
             compressed_value = zlib.compress(pickle.dumps(value))
             return compressed_value.hex()  # Convert binary to a safe literal format
-        return None
+        return None  # pragma: no cover
 
 
 class NodeRevision(

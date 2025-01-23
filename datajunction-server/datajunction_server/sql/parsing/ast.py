@@ -853,7 +853,7 @@ class Column(Aliasable, Named, Expression):
         return column_namespace, column_name, subscript_name
 
     @classmethod
-    def from_existing(cls, col: Aliasable | Expression):
+    def from_existing(cls, col: Aliasable | Expression, table: "TableExpression"):
         """
         Build a selectable column from an existing one
         """
@@ -862,6 +862,7 @@ class Column(Aliasable, Named, Expression):
             _type=col.type,
             semantic_entity=col.semantic_entity,
             semantic_type=col.semantic_type,
+            _table=table,
         )
 
     async def find_table_sources(

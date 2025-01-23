@@ -281,16 +281,20 @@ def build_preaggregate_query(
     parent_ast.ctes = []
     built_parent_ref = parent_node.name + "_built"
     parent_node_cte = parent_ast.to_cte(ast.Name(amenable_name(built_parent_ref)))
+    from_table = ast.Table(ast.Name(amenable_name(built_parent_ref)))
     final_query = ast.Query(
         ctes=existing_ctes + [parent_node_cte],
         select=ast.Select(
             projection=[
-                ast.Column.from_existing(col)
+                ast.Column.from_existing(col, table=from_table)
                 for col in parent_ast.select.projection
                 if col.semantic_type == SemanticType.DIMENSION  # type: ignore
             ],
-            from_=ast.From.Table(amenable_name(built_parent_ref)),
-            group_by=[ast.Column(dim.alias_or_name) for dim in dimensional_columns],
+            from_=ast.From(relations=[ast.Relation(primary=from_table)]),
+            group_by=[
+                ast.Column(dim.alias_or_name, _table=from_table)
+                for dim in dimensional_columns
+            ],
         ),
     )
 
