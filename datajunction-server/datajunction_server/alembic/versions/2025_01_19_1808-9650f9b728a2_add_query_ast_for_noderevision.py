@@ -1,4 +1,5 @@
-"""Add query ast for noderevision
+"""
+Add query ast for noderevision
 
 Revision ID: 9650f9b728a2
 Revises: 70904373eab3

@@ -1758,7 +1758,18 @@ async def test_metric_with_nth_order_dimensions_filters(
             repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
             repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
             repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-          FROM roads.repair_orders AS repair_orders
+          FROM (
+            SELECT
+              repair_order_id,
+              municipality_id,
+              hard_hat_id,
+              order_date,
+              required_date,
+              dispatched_date,
+              dispatcher_id
+            FROM roads.repair_orders
+            WHERE dispatcher_id = 1
+          ) repair_orders
           JOIN roads.repair_order_details AS repair_order_details
             ON repair_orders.repair_order_id = repair_order_details.repair_order_id
           WHERE
