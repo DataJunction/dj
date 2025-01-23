@@ -3233,16 +3233,30 @@ class Max(Function):
 
 @Max.register  # type: ignore
 def infer_type(
-    arg: ct.NumberType,
-) -> ct.NumberType:
-    return arg.type
+    arg: ct.StringType,
+) -> ct.StringType:
+    return arg.type  # pragma: no cover
 
 
 @Max.register  # type: ignore
 def infer_type(
-    arg: ct.StringType,
-) -> ct.StringType:
-    return arg.type
+    arg: ct.NumberType,
+) -> ct.NumberType:
+    return arg.type  # pragma: no cover
+
+
+@Max.register  # type: ignore
+def infer_type(
+    arg: ct.DateType,
+) -> ct.DateType:
+    return arg.type  # pragma: no cover
+
+
+@Max.register  # type: ignore
+def infer_type(
+    arg: ct.TimestampType,
+) -> ct.TimestampType:
+    return arg.type  # pragma: no cover
 
 
 class MaxBy(Function):
@@ -3309,9 +3323,16 @@ class Min(Function):
 
 @Min.register  # type: ignore
 def infer_type(
+    arg: ct.StringType,
+) -> ct.StringType:
+    return arg.type  # pragma: no cover
+
+
+@Min.register  # type: ignore
+def infer_type(
     arg: ct.NumberType,
 ) -> ct.NumberType:
-    return arg.type
+    return arg.type  # pragma: no cover
 
 
 @Min.register  # type: ignore
@@ -4315,6 +4336,62 @@ def infer_type(arg: ct.StringType) -> ct.StringType:
     return ct.StringType()
 
 
+class Timestamp(Function):
+    """
+    timestamp(expr) - Casts the value expr to the target data type timestamp.
+    """
+
+    # Druid has this function but it means something else: unix_millis()
+    dialects = [Dialect.SPARK]
+
+
+@Timestamp.register
+def infer_type(expr: ct.StringType) -> ct.TimestampType:
+    return ct.TimestampType()
+
+
+class TimestampMicros(Function):
+    """
+    timestamp_micros(microseconds) - Creates timestamp from the number of microseconds
+    since UTC epoch.
+    """
+
+    dialects = [Dialect.SPARK]
+
+
+@TimestampMicros.register
+def infer_type(microseconds: ct.BigIntType) -> ct.TimestampType:
+    return ct.TimestampType()
+
+
+class TimestampMillis(Function):
+    """
+    timestamp_millis(milliseconds) - Creates timestamp from the number of milliseconds
+    since UTC epoch.
+    """
+
+    dialects = [Dialect.SPARK]
+
+
+@TimestampMillis.register
+def infer_type(milliseconds: ct.BigIntType) -> ct.TimestampType:
+    return ct.TimestampType()
+
+
+class TimestampSeconds(Function):
+    """
+    timestamp_seconds(seconds) - Creates timestamp from the number of seconds
+    (can be fractional) since UTC epoch.
+    """
+
+    dialects = [Dialect.SPARK]
+
+
+@TimestampSeconds.register
+def infer_type(seconds: ct.NumberType) -> ct.TimestampType:
+    return ct.TimestampType()
+
+
 class Unhex(Function):
     """
     unhex(str) - Interprets each pair of characters in the input string as a
@@ -4326,6 +4403,82 @@ class Unhex(Function):
 @Unhex.register  # type: ignore
 def infer_type(arg: ct.StringType) -> ct.ColumnType:
     return ct.BinaryType()
+
+
+class UnixDate(Function):
+    """
+    unix_date(date) - Returns the number of days since 1970-01-01.
+    """
+
+    dialects = [Dialect.SPARK]
+
+
+@UnixDate.register  # type: ignore
+def infer_type(arg: ct.DateType) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+class UnixMicros(Function):
+    """
+    unix_micros(timestamp) - Returns the number of microseconds since 1970-01-01 00:00:00 UTC.
+    """
+
+    dialects = [Dialect.SPARK]
+
+
+@UnixMicros.register  # type: ignore
+def infer_type(arg: ct.TimestampType) -> ct.BigIntType:
+    return ct.BigIntType()
+
+
+class UnixMillis(Function):
+    """
+    unix_millis(timestamp) - Returns the number of milliseconds since 1970-01-01 00:00:00 UTC.
+    Truncates higher levels of precision.
+    """
+
+    dialects = [Dialect.SPARK]
+
+
+@UnixMillis.register  # type: ignore
+def infer_type(arg: ct.TimestampType) -> ct.BigIntType:
+    return ct.BigIntType()
+
+
+class UnixSeconds(Function):
+    """
+    unix_seconds(timestamp) - Returns the number of seconds since 1970-01-01 00:00:00 UTC.
+    Truncates higher levels of precision.
+    """
+
+    dialects = [Dialect.SPARK]
+
+
+@UnixSeconds.register  # type: ignore
+def infer_type(arg: ct.TimestampType) -> ct.BigIntType:
+    return ct.BigIntType()
+
+
+class UnixTimestamp(Function):
+    """
+    unix_timestamp([time_exp[, fmt]]) - Returns the UNIX timestamp of current or specified time.
+
+    Arguments:
+        time_exp - A date/timestamp or string. If not provided, this defaults to current time.
+        fmt - Date/time format pattern to follow. Ignored if time_exp is not a string.
+            Default value is "yyyy-MM-dd HH:mm:ss". See Datetime Patterns for valid date and time
+            format patterns.
+    """
+
+    dialects = [Dialect.SPARK, Dialect.DRUID]
+
+
+@UnixTimestamp.register  # type: ignore
+def infer_type(
+    time_exp: Optional[ct.StringType] = None,
+    fmt: Optional[ct.StringType] = None,
+) -> ct.BigIntType:
+    return ct.BigIntType()
 
 
 class Upper(Function):
