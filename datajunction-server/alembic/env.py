@@ -3,8 +3,8 @@ Environment for Alembic migrations.
 """
 # pylint: disable=no-member, unused-import, no-name-in-module, import-error
 
-from logging.config import fileConfig
 import os
+from logging.config import fileConfig
 
 from sqlalchemy import create_engine
 
@@ -30,7 +30,10 @@ from datajunction_server.database import (
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
 
-DEFAULT_URI = os.getenv("DATABASE_URI", "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj")
+DEFAULT_URI = os.getenv(
+    "DATABASE_URI",
+    "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj",
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
