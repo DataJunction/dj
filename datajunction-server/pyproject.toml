@@ -31,10 +31,6 @@ test = [
     "gevent>=24.2.1",
 ]
 
-[tool.pdm]
-[tool.pdm.build]
-includes = ["dj"]
-
 [[tool.pdm.autoexport]]
 filename = "requirements/docker.txt"
 groups = ["default", "uvicorn", "transpilation"]
@@ -128,7 +124,7 @@ testpaths = [
     "tests",
 ]
 
-[dependency-groups]
+[tool.pdm.dev-dependencies]
 test = [
     "codespell>=2.2.4",
     "freezegun>=1.2.2",
