@@ -1,14 +1,14 @@
 """Verify alembic migrations."""
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.engine.base import Connection
-from testcontainers.postgres import PostgresContainer
-
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.runtime.environment import EnvironmentContext
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine
+from sqlalchemy.engine.base import Connection
+from testcontainers.postgres import PostgresContainer
+
 from datajunction_server.database.base import Base
 
 
@@ -34,7 +34,7 @@ def test_migrations_are_current(connection):  # pylint: disable=redefined-outer-
     target_metadata = Base.metadata
 
     config = Config("alembic.ini")
-    config.set_main_option("script_location", "alembic")
+    config.set_main_option("script_location", "datajunction_server/alembic")
     script = ScriptDirectory.from_config(config)
 
     context = EnvironmentContext(

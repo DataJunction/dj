@@ -11,6 +11,7 @@ omit =
     */datajunction_server/api/access/authentication/google.py
     */datajunction_server/api/djsql.py
     */datajunction_server/construction/dj_query.py
+    */datajunction_server/alembic/*
 
 [paths]
 source =
