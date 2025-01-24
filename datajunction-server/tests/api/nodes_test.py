@@ -274,6 +274,7 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "default.large_revenue_payments_only",
         "default.large_revenue_payments_only_1",
         "default.large_revenue_payments_only_2",
+        "default.large_revenue_payments_only_custom",
         "default.repair_orders_fact",
     }
 

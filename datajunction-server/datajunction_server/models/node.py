@@ -495,6 +495,7 @@ class MutableNodeFields(BaseModel):
     description: str
     mode: NodeMode
     primary_key: Optional[List[str]]
+    custom_metadata: Optional[Dict]
 
 
 class MutableNodeQueryField(BaseModel):
@@ -592,7 +593,6 @@ class ColumnOutput(BaseModel):
     attributes: Optional[List[AttributeOutput]]
     dimension: Optional[NodeNameOutput]
     partition: Optional[PartitionOutput]
-    # order: Optional[int]
 
     class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
         """
@@ -803,6 +803,7 @@ class NodeRevisionOutput(BaseModel):
     parents: List[NodeNameOutput]
     metric_metadata: Optional[MetricMetadataOutput] = None
     dimension_links: Optional[List[LinkDimensionOutput]]
+    custom_metadata: Optional[Dict] = None
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         orm_mode = True
@@ -839,6 +840,7 @@ class NodeOutput(GenericNodeOutputModel):
     tags: List[TagOutput] = []
     current_version: str
     missing_table: Optional[bool] = False
+    custom_metadata: Optional[Dict] = None
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         orm_mode = True
