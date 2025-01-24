@@ -1704,3 +1704,38 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "errors": [],
             "warnings": [],
         }
+
+    @pytest.mark.asyncio
+    async def test_reading_and_saving_custom_metadata(
+        self,
+        module__client_with_account_revenue: AsyncClient,
+    ) -> None:
+        """
+        Tetst reading and saving custom metadata.
+        """
+        # read current value
+        node1 = (
+            await module__client_with_account_revenue.get(
+                "/nodes/default.large_revenue_payments_only_custom",
+            )
+        ).json()
+        assert node1["custom_metadata"] == {"foo": "bar"}
+        assert node1["version"] == "v1.0"
+
+        # save new value
+        response = await module__client_with_account_revenue.patch(
+            "/nodes/default.large_revenue_payments_only_custom",
+            json={
+                "custom_metadata": {"bar": "baz"},
+            },
+        )
+        assert response.status_code == 200
+
+        # read again
+        node2 = (
+            await module__client_with_account_revenue.get(
+                "/nodes/default.large_revenue_payments_only_custom",
+            )
+        ).json()
+        assert node2["custom_metadata"] == {"bar": "baz"}
+        assert node2["version"] == "v1.1"
