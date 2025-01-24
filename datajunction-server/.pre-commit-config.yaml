@@ -91,7 +91,7 @@ repos:
   hooks:
   - id: pylint
     name: pylint
-    entry: pylint --disable=duplicate-code,use-implicit-booleaness-not-comparison,wrong-import-order,too-many-arguments,cyclic-import
+    entry: pylint --disable=duplicate-code,use-implicit-booleaness-not-comparison,wrong-import-order,too-many-arguments,cyclic-import,too-many-positional-arguments
     language: system
     types: [python]
     exclude: ^templates/
