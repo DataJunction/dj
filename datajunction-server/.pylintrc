@@ -1,5 +1,5 @@
 [MESSAGES CONTROL]
-disable=cyclic-import,too-many-arguments,
+disable=cyclic-import,too-many-arguments,too-many-positional-arguments,
 
 [MASTER]
 # https://github.com/samuelcolvin/pydantic/issues/1961#issuecomment-759522422
