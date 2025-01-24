@@ -14,7 +14,7 @@ from os import path
 from typing import TYPE_CHECKING
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, ORJSONResponse, RedirectResponse, Response
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from jose import JWTError
@@ -80,6 +80,7 @@ app = FastAPI(
         "url": "https://mit-license.org/",
     },
     dependencies=dependencies,
+    default_response_class=ORJSONResponse,
 )
 
 app.add_middleware(

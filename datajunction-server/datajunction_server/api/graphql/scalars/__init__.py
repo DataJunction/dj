@@ -3,11 +3,11 @@ GraphQL scalars
 """
 import dataclasses
 import datetime
-import json
 from base64 import b64decode, b64encode
 from dataclasses import dataclass
 from typing import Callable, Generic, List, Optional, TypeVar, Union
 
+import orjson
 import strawberry
 from strawberry import field
 
@@ -22,43 +22,6 @@ GenericItem = TypeVar("GenericItem")
 GenericItemNode = TypeVar("GenericItemNode")
 
 
-class DateTimeJSONEncoder(json.JSONEncoder):
-    """
-    JSON encoder that handles datetime objects
-    """
-
-    def default(self, obj):  # pylint: disable=arguments-renamed
-        """
-        Check if there are datetime objects and serialize them as ISO
-        format strings.
-        """
-        if isinstance(obj, (datetime.datetime, datetime.date, datetime.time)):
-            return obj.isoformat()
-        return super().default(obj)  # pragma: no cover
-
-
-class DateTimeJSONDecoder(json.JSONDecoder):
-    """
-    JSON decoder that handles ISO format datetime strings
-    """
-
-    def __init__(self, *args, **kwargs):
-        json.JSONDecoder.__init__(self, object_hook=self.object_hook, *args, **kwargs)
-
-    def object_hook(self, source):  # pylint: disable=method-hidden
-        """
-        Check if the string is in ISO 8601 format and convert to a datetime
-        object if it is.
-        """
-        for k, v in source.items():
-            if isinstance(v, str):
-                try:
-                    source[k] = datetime.datetime.fromisoformat(str(v))
-                except ValueError:  # pragma: no cover
-                    pass  # pragma: no cover
-        return source
-
-
 @dataclass
 class Cursor:
     """
@@ -67,14 +30,31 @@ class Cursor:
 
     def encode(self) -> str:
         """Serialize this cursor into a string."""
-        json_str = json.dumps(dataclasses.asdict(self), cls=DateTimeJSONEncoder)
-        return b64encode(json_str.encode()).decode()
+
+        def default(obj):
+            if isinstance(obj, (datetime.datetime, datetime.date, datetime.time)):
+                return obj.isoformat()
+            raise TypeError(f"Type {type(obj)} not serializable")  # pragma: no cover
+
+        json_bytes = orjson.dumps(dataclasses.asdict(self), default=default)
+        return b64encode(json_bytes).decode()
 
     @classmethod
     def decode(cls, serialized: str) -> "Cursor":
         """Parse the string into an instance of this Cursor class."""
-        json_str = b64decode(serialized.encode()).decode()
-        json_obj = json.loads(json_str, cls=DateTimeJSONDecoder)
+        json_bytes = b64decode(serialized.encode())
+
+        def object_hook(obj):
+            for k, v in obj.items():
+                if isinstance(v, str):
+                    try:
+                        obj[k] = datetime.datetime.fromisoformat(v)
+                    except ValueError:  # pragma: no cover
+                        pass  # pragma: no cover
+            return obj
+
+        json_obj = orjson.loads(json_bytes)
+        json_obj = object_hook(json_obj)
         return cls(**json_obj)
 
 
