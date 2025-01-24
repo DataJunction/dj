@@ -1,6 +1,6 @@
 [project]
 dependencies = []
-requires-python = ">=3.8,<4.0"
+requires-python = ">=3.10,<4.0"
 
 [tool.pdm.dev-dependencies]
 dev = [
