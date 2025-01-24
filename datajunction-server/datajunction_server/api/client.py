@@ -1,6 +1,7 @@
 """
 APIs related to generating client code used for performing various actions in DJ.
 """
+import json
 import logging
 import os
 import tempfile
@@ -125,10 +126,7 @@ async def client_code_for_adding_materialization(
     with_b = "\n".join(
         [
             f"    {line}"
-            for line in orjson.dumps(  # pylint: disable=no-member
-                user_modified_config,
-                indent=4,
-            ).split("\n")
+            for line in json.dumps(user_modified_config, indent=4).split("\n")
         ],
     )
     client_code = f"""dj = DJBuilder(DJ_URL)
