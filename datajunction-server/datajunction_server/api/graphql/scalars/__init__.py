@@ -36,7 +36,10 @@ class Cursor:
                 return obj.isoformat()
             raise TypeError(f"Type {type(obj)} not serializable")  # pragma: no cover
 
-        json_bytes = orjson.dumps(dataclasses.asdict(self), default=default)
+        json_bytes = orjson.dumps(  # pylint: disable=no-member
+            dataclasses.asdict(self),
+            default=default,
+        )
         return b64encode(json_bytes).decode()
 
     @classmethod
@@ -53,7 +56,7 @@ class Cursor:
                         pass  # pragma: no cover
             return obj
 
-        json_obj = orjson.loads(json_bytes)
+        json_obj = orjson.loads(json_bytes)  # pylint: disable=no-member
         json_obj = object_hook(json_obj)
         return cls(**json_obj)
 
