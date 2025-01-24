@@ -1,4 +1,6 @@
 """Node database schema."""
+import pickle
+import zlib
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
@@ -14,7 +16,9 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
+    TypeDecorator,
     UniqueConstraint,
     select,
 )
@@ -492,6 +496,46 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         return nodes
 
 
+class CompressedPickleType(TypeDecorator):  # pylint: disable=too-many-ancestors
+    """
+    A SQLAlchemy type for storing zlib-compressed pickled objects.
+    """
+
+    impl = LargeBinary
+    python_type = object
+
+    def __init__(self, *args, protocol=pickle.HIGHEST_PROTOCOL, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.protocol = protocol
+
+    def process_bind_param(self, value, dialect):
+        """
+        Serialize and compress the Python object before storing it in the database.
+        """
+        if value is None:
+            return None
+        return zlib.compress(pickle.dumps(value, protocol=self.protocol))
+
+    def process_result_value(self, value, dialect):
+        """
+        Decompress and deserialize the stored value into a Python object.
+        """
+        if value is None:
+            return None
+        try:
+            return pickle.loads(zlib.decompress(value))
+        except TypeError:  # pragma: no cover
+            return None
+
+    def process_literal_param(self, value, dialect):
+        """Convert the value to a literal for SQL statements."""
+        if value is not None:  # pragma: no cover
+            # Convert the value to a compressed and pickled representation
+            compressed_value = zlib.compress(pickle.dumps(value))
+            return compressed_value.hex()  # Convert binary to a safe literal format
+        return None  # pragma: no cover
+
+
 class NodeRevision(
     Base,
 ):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
@@ -645,6 +689,11 @@ class NodeRevision(
         default=[],
     )
 
+    query_ast: Mapped[CompressedPickleType | None] = mapped_column(
+        CompressedPickleType,
+        default=None,
+    )
+
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -683,8 +732,10 @@ class NodeRevision(
                 joinedload(DimensionLink.dimension).options(
                     selectinload(Node.current),
                 ),
+                joinedload(DimensionLink.node_revision),
             ),
             selectinload(NodeRevision.required_dimensions),
+            selectinload(NodeRevision.availability),
         )
 
     @staticmethod

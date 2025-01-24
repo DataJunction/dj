@@ -157,6 +157,8 @@ async def revalidate(
     name: str,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    *,
+    background_tasks: BackgroundTasks,
 ) -> NodeStatusDetails:
     """
     Revalidate a single existing node and update its status appropriately
@@ -165,6 +167,7 @@ async def revalidate(
         name=name,
         session=session,
         current_user=current_user,
+        background_tasks=background_tasks,
     )
 
     return NodeStatusDetails(
