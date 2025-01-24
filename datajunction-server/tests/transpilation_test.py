@@ -77,7 +77,7 @@ def test_druid_sql(mocker: MockerFixture) -> None:
         columns=[],
         dialect=Dialect.DRUID,
     )
-    assert translated_sql.sql == "SELECT 1"
+    assert translated_sql.sql == "SELECT\n  1"
     generated_sql = GeneratedSQL(
         node=NodeNameVersion(name="a", version="v1.0"),
         sql="SELECT 1",
