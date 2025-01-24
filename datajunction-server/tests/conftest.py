@@ -21,6 +21,8 @@ from typing import (
 )
 from unittest.mock import MagicMock, patch
 
+import httpx
+
 import duckdb
 import pytest
 import pytest_asyncio
@@ -127,7 +129,7 @@ def postgres_container() -> PostgresContainer:
     """
     postgres = PostgresContainer(
         image="postgres:latest",
-        user="dj",
+        username="dj",
         password="dj",
         dbname="dj",
         port=5432,
@@ -350,7 +352,10 @@ async def client(  # pylint: disable=too-many-statements
     app.dependency_overrides[get_settings] = get_settings_override
     app.dependency_overrides[validate_access] = default_validate_access
 
-    async with AsyncClient(app=app, base_url="http://test") as test_client:
+    async with AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as test_client:
         test_client.headers.update(
             {
                 "Authorization": f"Bearer {EXAMPLE_TOKEN}",
@@ -589,7 +594,10 @@ async def client_with_query_service_example_loader(  # pylint: disable=too-many-
     # The test client includes a signed and encrypted JWT in the authorization headers.
     # Even though the user is mocked to always return a "dj" user, this allows for the
     # JWT logic to be tested on all requests.
-    client = AsyncClient(app=app, base_url="http://test")
+    client = AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    )
     client.headers.update(
         {
             "Authorization": f"Bearer {EXAMPLE_TOKEN}",
@@ -710,7 +718,10 @@ async def module__client(  # pylint: disable=too-many-statements
         get_query_service_client
     ] = get_query_service_client_override
 
-    async with AsyncClient(app=app, base_url="http://test") as test_client:
+    async with AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as test_client:
         test_client.headers.update(
             {
                 "Authorization": f"Bearer {EXAMPLE_TOKEN}",
@@ -864,7 +875,7 @@ def module__postgres_container(request) -> PostgresContainer:
     """
     postgres = PostgresContainer(
         image="postgres:latest",
-        user="dj",
+        username="dj",
         password="dj",
         dbname=request.module.__name__,
         port=5432,
