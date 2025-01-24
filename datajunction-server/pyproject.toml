@@ -5,6 +5,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["datajunction_server"]
 
+[tool.pdm]
+[tool.pdm.build]
+includes = ["dj"]
+
 [[tool.pdm.autoexport]]
 filename = "requirements/docker.txt"
 groups = ["default", "uvicorn", "transpilation"]
