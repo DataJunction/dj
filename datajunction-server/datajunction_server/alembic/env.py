@@ -6,7 +6,7 @@ Environment for Alembic migrations.
 import os
 from logging.config import fileConfig
 
-from alembic import context
+import alembic
 from sqlalchemy import create_engine
 
 from datajunction_server.database import (
@@ -37,7 +37,7 @@ DEFAULT_URI = os.getenv(
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
-config = context.config
+config = alembic.context.config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -68,8 +68,8 @@ def run_migrations_offline():
     script output.
 
     """
-    x_args = context.get_x_argument(as_dictionary=True)
-    context.configure(
+    x_args = alembic.context.get_x_argument(as_dictionary=True)
+    alembic.context.configure(
         url=x_args.get("uri") or DEFAULT_URI,
         target_metadata=target_metadata,
         literal_binds=True,
@@ -77,8 +77,8 @@ def run_migrations_offline():
         render_as_batch=True,
     )
 
-    with context.begin_transaction():
-        context.run_migrations()
+    with alembic.context.begin_transaction():
+        alembic.context.run_migrations()
 
 
 def run_migrations_online():
@@ -88,21 +88,21 @@ def run_migrations_online():
     and associate a connection with the context.
 
     """
-    x_args = context.get_x_argument(as_dictionary=True)
+    x_args = alembic.context.get_x_argument(as_dictionary=True)
     connectable = create_engine(x_args.get("uri") or DEFAULT_URI)
 
     with connectable.connect() as connection:
-        context.configure(
+        alembic.context.configure(
             connection=connection,
             target_metadata=target_metadata,
             render_as_batch=True,
         )
 
-        with context.begin_transaction():
-            context.run_migrations()
+        with alembic.context.begin_transaction():
+            alembic.context.run_migrations()
 
 
-if context.is_offline_mode():
+if alembic.context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
