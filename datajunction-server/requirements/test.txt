@@ -106,6 +106,7 @@ pytest-xdist==3.6.1
 python-dateutil==2.9.0.post0
 python-dotenv==0.21.1
 python-jose==3.3.0
+python-multipart==0.0.20
 pywin32==308; sys_platform == "win32"
 pyyaml==6.0.2
 redis==4.6.0
