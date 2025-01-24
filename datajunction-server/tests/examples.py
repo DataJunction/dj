@@ -1507,6 +1507,19 @@ ACCOUNT_REVENUE = (  # type: ignore
         {
             "query": (
                 "SELECT payment_id, payment_amount, customer_id, account_type "
+                "FROM default.revenue WHERE payment_amount > 1000000"
+            ),
+            "description": "Only large revenue payments",
+            "mode": "published",
+            "name": "default.large_revenue_payments_only_custom",
+            "custom_metadata": {"foo": "bar"},
+        },
+    ),
+    (
+        "/nodes/transform/",
+        {
+            "query": (
+                "SELECT payment_id, payment_amount, customer_id, account_type "
                 "FROM default.revenue WHERE "
                 "large_revenue_payments_and_business_only > 1000000 "
                 "AND account_type='BUSINESS'"
