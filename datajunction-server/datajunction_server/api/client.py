@@ -1,13 +1,13 @@
 """
 APIs related to generating client code used for performing various actions in DJ.
 """
-import json
 import logging
 import os
 import tempfile
 from datetime import datetime
 from typing import Dict, Optional, cast
 
+import orjson
 from fastapi import BackgroundTasks, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -125,7 +125,10 @@ async def client_code_for_adding_materialization(
     with_b = "\n".join(
         [
             f"    {line}"
-            for line in json.dumps(user_modified_config, indent=4).split("\n")
+            for line in orjson.dumps(  # pylint: disable=no-member
+                user_modified_config,
+                indent=4,
+            ).split("\n")
         ],
     )
     client_code = f"""dj = DJBuilder(DJ_URL)
@@ -203,7 +206,7 @@ def notebook_file_response(notebook: Dict, background_tasks: BackgroundTasks):
     """
     file_descriptor, path = tempfile.mkstemp(suffix=".ipynb")
     with os.fdopen(file_descriptor, "w") as file:
-        file.write(json.dumps(notebook))
+        file.write(orjson.dumps(notebook))  # pylint: disable=no-member
 
     background_tasks.add_task(os.unlink, path)
     headers = {

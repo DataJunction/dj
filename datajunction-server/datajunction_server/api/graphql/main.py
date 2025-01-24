@@ -1,4 +1,5 @@
 """DJ graphql"""
+import orjson
 import strawberry
 from fastapi import Depends
 from strawberry.fastapi import GraphQLRouter
@@ -78,4 +79,17 @@ class Query:  # pylint: disable=R0903
 
 schema = strawberry.Schema(query=Query)
 
-graphql_app = GraphQLRouter(schema, context_getter=get_context)
+
+class CustomGraphQLRouter(GraphQLRouter):
+    """
+    Custom GraphQL router that uses orjson for all JSON serialization tasks.
+    """
+
+    def decode_json(self, data: str | bytes) -> object:
+        return orjson.loads(data)
+
+    def encode_json(self, data: object) -> bytes:
+        return orjson.dumps(data)
+
+
+graphql_app = CustomGraphQLRouter(schema, context_getter=get_context)
