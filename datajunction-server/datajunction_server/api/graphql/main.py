@@ -86,10 +86,12 @@ class CustomGraphQLRouter(GraphQLRouter):
     """
 
     def decode_json(self, data: str | bytes) -> object:
-        return orjson.loads(data)
+        """Override with orjson decoding"""
+        return orjson.loads(data)  # pylint: disable=no-member
 
-    def encode_json(self, data: object) -> bytes:
-        return orjson.dumps(data)
+    def encode_json(self, response_data: object) -> bytes:
+        """Override with orjson encoding"""
+        return orjson.dumps(response_data)  # pylint: disable=no-member
 
 
 graphql_app = CustomGraphQLRouter(schema, context_getter=get_context)
