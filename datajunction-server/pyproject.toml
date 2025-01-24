@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["datajunction_server"]
-
+include = ["alembic/**", "alembic.ini"]
 
 [tool.pdm]
 [tool.pdm.build]
