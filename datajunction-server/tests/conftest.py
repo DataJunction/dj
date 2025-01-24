@@ -4,7 +4,6 @@ Fixtures for testing.
 """
 
 import asyncio
-import httpx
 import os
 import re
 from http.client import HTTPException
@@ -23,6 +22,7 @@ from typing import (
 from unittest.mock import MagicMock, patch
 
 import duckdb
+import httpx
 import pytest
 import pytest_asyncio
 from cachelib.simple import SimpleCache
@@ -84,12 +84,15 @@ def _init_cache() -> Generator[Any, Any, None]:
 
 
 @pytest_asyncio.fixture
-def settings(mocker: MockerFixture) -> Iterator[Settings]:
+def settings(
+    mocker: MockerFixture,
+    postgres_container: PostgresContainer,
+) -> Iterator[Settings]:
     """
     Custom settings for unit tests.
     """
     settings = Settings(
-        index="sqlite+aiosqlite://",
+        index=postgres_container.get_connection_url(),
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,

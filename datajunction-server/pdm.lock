@@ -3,36 +3,12 @@
 
 [metadata]
 groups = ["default", "test", "transpilation", "uvicorn"]
-strategy = ["cross_platform", "inherit_metadata"]
+strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:c6278e2df60c42d7fe4c436bf54b9472374f44c2b008add3342db329fab3e6d8"
+content_hash = "sha256:97b7d300d95d6551a4b6f5220f8d69c8ddc3940047ea744f212de54951e9c1b4"
 
 [[metadata.targets]]
 requires_python = "~=3.10"
-
-[[package]]
-name = "accept-types"
-version = "0.4.1"
-summary = "Determine the best content to send in an HTTP response"
-groups = ["default"]
-files = [
-    {file = "accept-types-0.4.1.tar.gz", hash = "sha256:fb27099716d8f0360408c8ca86d69dbfed44455834b70d1506250abe521b535a"},
-    {file = "accept_types-0.4.1-py3-none-any.whl", hash = "sha256:c87feccdffb66b02f9343ff387d7fd5c451ccb2e1221fbd37ea0cedef5cf290f"},
-]
-
-[[package]]
-name = "aiosqlite"
-version = "0.20.0"
-requires_python = ">=3.8"
-summary = "asyncio bridge to the standard sqlite3 module"
-groups = ["default"]
-dependencies = [
-    "typing-extensions>=4.0",
-]
-files = [
-    {file = "aiosqlite-0.20.0-py3-none-any.whl", hash = "sha256:36a1deaca0cac40ebe32aac9977a6e2bbc7f5189f23f4a54d5908986729e5bd6"},
-    {file = "aiosqlite-0.20.0.tar.gz", hash = "sha256:6d35c8c256637f4672f843c31021464090805bf925385ac39473fb16eaaca3d7"},
-]
 
 [[package]]
 name = "alembic"
@@ -94,19 +70,6 @@ dependencies = [
 files = [
     {file = "anyio-4.8.0-py3-none-any.whl", hash = "sha256:b5011f270ab5eb0abf13385f851315585cc37ef330dd88e27ec3d34d651fd47a"},
     {file = "anyio-4.8.0.tar.gz", hash = "sha256:1d9fe889df5212298c0c0723fa20479d1b94883a2df44bd3897aa91083316f7a"},
-]
-
-[[package]]
-name = "asciidag"
-version = "0.2.0"
-summary = "Draw DAGs (directed acyclic graphs) as ASCII art, à la git log --graph"
-groups = ["default"]
-dependencies = [
-    "enum34; python_version < \"3.4\"",
-]
-files = [
-    {file = "asciidag-0.2.0-py2.py3-none-any.whl", hash = "sha256:f7ea1e6a867ab4c3a2537ff03bc0f25d8fccc2d5109f9f329220ba4fbb1b3e02"},
-    {file = "asciidag-0.2.0.tar.gz", hash = "sha256:acf4df123fc222322467d9bdb2020e44b4e1af37d38129092a080c3cda54a788"},
 ]
 
 [[package]]
@@ -1181,7 +1144,7 @@ name = "iniconfig"
 version = "2.0.0"
 requires_python = ">=3.7"
 summary = "brain-dead simple config-ini parsing"
-groups = ["default", "test"]
+groups = ["test"]
 files = [
     {file = "iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374"},
     {file = "iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3"},
@@ -1691,7 +1654,7 @@ name = "packaging"
 version = "24.2"
 requires_python = ">=3.8"
 summary = "Core utilities for Python packages"
-groups = ["default", "test"]
+groups = ["test"]
 files = [
     {file = "packaging-24.2-py3-none-any.whl", hash = "sha256:09abb1bccd265c01f4a3aa3f7a7db064b36514d2cba19a2f694fe6150451a759"},
     {file = "packaging-24.2.tar.gz", hash = "sha256:c228a6dc5e932d346bc5739379109d49e8853dd8223571c7c5b55260edc0b97f"},
@@ -1776,7 +1739,7 @@ name = "pluggy"
 version = "1.5.0"
 requires_python = ">=3.8"
 summary = "plugin and hook calling mechanisms for python"
-groups = ["default", "test"]
+groups = ["test"]
 files = [
     {file = "pluggy-1.5.0-py3-none-any.whl", hash = "sha256:44e1ad92c8ca002de6377e165f3e0f1be63266ab4d554740532335b9d75ea669"},
     {file = "pluggy-1.5.0.tar.gz", hash = "sha256:2cffa88e94fdc978c4c574f15f9e59b7f4201d439195c3715ca9e2486f1d0cf1"},
@@ -2066,7 +2029,7 @@ name = "pytest"
 version = "8.3.4"
 requires_python = ">=3.8"
 summary = "pytest: simple powerful testing with Python"
-groups = ["default", "test"]
+groups = ["test"]
 dependencies = [
     "colorama; sys_platform == \"win32\"",
     "exceptiongroup>=1.0.0rc8; python_version < \"3.11\"",
@@ -2082,17 +2045,16 @@ files = [
 
 [[package]]
 name = "pytest-asyncio"
-version = "0.21.2"
-requires_python = ">=3.7"
+version = "0.25.2"
+requires_python = ">=3.9"
 summary = "Pytest support for asyncio"
-groups = ["default", "test"]
+groups = ["test"]
 dependencies = [
-    "pytest>=7.0.0",
-    "typing-extensions>=3.7.2; python_version < \"3.8\"",
+    "pytest<9,>=8.2",
 ]
 files = [
-    {file = "pytest_asyncio-0.21.2-py3-none-any.whl", hash = "sha256:ab664c88bb7998f711d8039cacd4884da6430886ae8bbd4eded552ed2004f16b"},
-    {file = "pytest_asyncio-0.21.2.tar.gz", hash = "sha256:d67738fc232b94b326b9d060750beb16e0074210b98dd8b58a5239fa2a154f45"},
+    {file = "pytest_asyncio-0.25.2-py3-none-any.whl", hash = "sha256:0d0bb693f7b99da304a0634afc0a4b19e49d5e0de2d670f38dc4bfa5727c5075"},
+    {file = "pytest_asyncio-0.25.2.tar.gz", hash = "sha256:3f8ef9a98f45948ea91a0ed3dc4268b5326c0e7bce73892acc654df4262ad45f"},
 ]
 
 [[package]]
@@ -2188,17 +2150,6 @@ dependencies = [
 files = [
     {file = "python-jose-3.3.0.tar.gz", hash = "sha256:55779b5e6ad599c6336191246e95eb2293a9ddebd555f796a65f838f07e5d78a"},
     {file = "python_jose-3.3.0-py2.py3-none-any.whl", hash = "sha256:9b1376b023f8b298536eedd47ae1089bcdb848f1535ab30555cd92002d78923a"},
-]
-
-[[package]]
-name = "python-multipart"
-version = "0.0.20"
-requires_python = ">=3.8"
-summary = "A streaming multipart parser for Python"
-groups = ["default"]
-files = [
-    {file = "python_multipart-0.0.20-py3-none-any.whl", hash = "sha256:8a62d3a8335e06589fe01f2a3e178cdcc632f3fbe0d492ad9ee0ec35aab1f104"},
-    {file = "python_multipart-0.0.20.tar.gz", hash = "sha256:8dd0cab45b8e23064ae09147625994d090fa46f5b0d1e13af944c331a7fa9d13"},
 ]
 
 [[package]]
@@ -2575,7 +2526,7 @@ name = "sqlparse"
 version = "0.5.3"
 requires_python = ">=3.8"
 summary = "A non-validating SQL parser."
-groups = ["default"]
+groups = ["test"]
 files = [
     {file = "sqlparse-0.5.3-py3-none-any.whl", hash = "sha256:cf2196ed3418f3ba5de6af7e82c694a9fbdbfecccdfc72e281548517081f16ca"},
     {file = "sqlparse-0.5.3.tar.gz", hash = "sha256:09f67787f56a0b16ecdbde1bfc7f5d9c3371ca683cfeaa8e6ff60b4807ec9272"},
@@ -2708,7 +2659,7 @@ name = "tomli"
 version = "2.2.1"
 requires_python = ">=3.8"
 summary = "A lil' TOML parser"
-groups = ["default", "test"]
+groups = ["test"]
 marker = "python_version < \"3.11\""
 files = [
     {file = "tomli-2.2.1-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:678e4fa69e4575eb77d103de3df8a895e1591b48e740211bd1067378c69e8249"},
