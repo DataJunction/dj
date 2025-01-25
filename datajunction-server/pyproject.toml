@@ -24,9 +24,8 @@ without-hashes = true
 name = "datajunction-server"
 dynamic = ["version"]
 description = "DataJunction server library for running to a DataJunction server"
-authors = [
-    {name = "DataJunction Authors", email = "yian.shang@gmail.com"},
-]
+repository = "https://github.com/DataJunction/dj"
+keywords = ["semanticlayer", "metrics"]
 dependencies = [
     # Database and ORM
     "alembic>=1.10.3",
@@ -108,7 +107,8 @@ dj = 'datajunction_server.superset:DJEngineSpec'
 path = "datajunction_server/__about__.py"
 
 [project.urls]
-repository = "https://github.com/DataJunction/dj"
+Homepage = "https://datajunction.io"
+Repository = "https://github.com/DataJunction/dj"
 
 [tool.coverage.run]
 source = ['datajunction_server/']
@@ -124,7 +124,7 @@ testpaths = [
     "tests",
 ]
 
-[tool.pdm.dev-dependencies]
+[dependency-groups]
 test = [
     "codespell>=2.2.4",
     "freezegun>=1.2.2",
