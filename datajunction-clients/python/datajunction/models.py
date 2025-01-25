@@ -193,6 +193,8 @@ class UpdateNode(SerializableMixin):  # pylint: disable=too-many-instance-attrib
     mode: Optional[NodeMode] = None
     primary_key: Optional[List[str]] = None
     query: Optional[str] = None
+    # this is a problem .... fails many tests
+    custom_metadata: Optional[Dict] = None
 
     # source nodes only
     catalog: Optional[str] = None
