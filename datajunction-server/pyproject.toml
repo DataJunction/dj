@@ -124,7 +124,7 @@ testpaths = [
     "tests",
 ]
 
-[dependency-groups]
+[tool.pdm.dev-dependencies]
 test = [
     "codespell>=2.2.4",
     "freezegun>=1.2.2",
