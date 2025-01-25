@@ -327,6 +327,15 @@ def test_compile_deploying_a_project(
         {"attribute_type": {"namespace": "system", "name": "dimension"}},
     ]
 
+    # check custom metadata
+    national_level_agg = builder_client.transform(
+        "projects.project1.roads.national_level_agg",
+    )
+    assert national_level_agg.custom_metadata == {
+        "level": "national",
+        "sublevel": "state",
+    }
+
 
 def test_compile_redeploying_a_project(
     change_to_project_dir: Callable,
