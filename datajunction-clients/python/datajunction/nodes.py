@@ -107,6 +107,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
     columns: Optional[List[models.Column]] = None
     query: Optional[str] = None
     dimension_links: list[DimensionLink] | None = None
+    custom_metadata: Optional[Dict[str, Any]] = None
 
     def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
         """
@@ -140,6 +141,9 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
             if self.columns
             else None,
             "query": self.query if hasattr(self, "query") else None,
+            "custom_metadata": self.custom_metadata
+            if hasattr(self, "custom_metadata")
+            else None,
         }
         exclude = exclude + self.exclude if exclude else self.exclude
         dict_ = {k: v for k, v in dict_.items() if k not in exclude}
@@ -480,6 +484,7 @@ class NodeWithQuery(Node):
             mode=self.mode,
             primary_key=self.primary_key,
             query=self.query,
+            custom_metadata=self.custom_metadata,
         )
         return self.dj_client._update_node(self.name, update_node)
 

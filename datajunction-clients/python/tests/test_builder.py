@@ -71,6 +71,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "foo.bar.avg_time_to_dispatch",
             "foo.bar.cube_one",
             "foo.bar.repair_orders_thin",
+            "foo.bar.with_custom_metadata",
         }
         assert set(client.namespace("foo.bar").sources()) == {
             "foo.bar.repair_orders",
@@ -105,6 +106,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "foo.bar.avg_time_to_dispatch",
         }
         assert client.namespace("foo.bar").transforms() == [
+            "foo.bar.with_custom_metadata",
             "foo.bar.repair_orders_thin",
         ]
         assert client.namespace("foo.bar").cubes() == ["foo.bar.cube_one"]
@@ -592,6 +594,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ),
             mode=NodeMode.PUBLISHED,
             tags=[foo_tag],
+            custom_metadata={"foo": "bar"},
         )
         assert large_revenue_payments_only.name == "default.large_revenue_payments_only"
         assert (
@@ -600,6 +603,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         )
         assert len(large_revenue_payments_only.columns) == 4
         assert [tag["name"] for tag in large_revenue_payments_only.tags] == ["foo"]
+        assert large_revenue_payments_only.custom_metadata == {"foo": "bar"}
 
         client.transform("default.large_revenue_payments_only")
 
@@ -1010,6 +1014,21 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "dimension": None,
             "partition": None,
         } in response["columns"]
+
+    def test_update_custom_metadata(self, client):
+        """
+        Verify that updating a node's custom metadata works.
+        """
+        transform_node = client.transform("foo.bar.with_custom_metadata")
+        assert transform_node.custom_metadata == {"foo": "bar"}
+
+        # update
+        transform_node.custom_metadata = {"bar": "baz"}
+        transform_node.save()
+
+        # check again
+        transform_node_again = client.transform("foo.bar.with_custom_metadata")
+        assert transform_node_again.custom_metadata == {"bar": "baz"}
 
     def test_update_source_node(self, client):
         """

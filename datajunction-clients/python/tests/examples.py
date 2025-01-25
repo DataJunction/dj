@@ -1140,6 +1140,19 @@ EXAMPLES = (  # type: ignore
             "name": "foo.bar.repair_orders_thin",
         },
     ),
+    (
+        "/nodes/transform/",
+        {
+            "description": "node with custom metadata",
+            "query": (
+                "SELECT repair_order_id, municipality_id, hard_hat_id "
+                "FROM foo.bar.repair_orders"
+            ),
+            "mode": "published",
+            "name": "foo.bar.with_custom_metadata",
+            "custom_metadata": {"foo": "bar"},
+        },
+    ),
 )
 
 COLUMN_MAPPINGS = {
