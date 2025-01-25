@@ -229,9 +229,6 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         ),
         viewonly=True,
         uselist=False,
-        # lazy="selectin",
-        # selectin for one-to-many
-        # joined for many-to-many or many-to-one
     )
 
     children: Mapped[List["NodeRevision"]] = relationship(
@@ -643,6 +640,11 @@ class NodeRevision(
     lineage: Mapped[Optional[List[Dict]]] = mapped_column(
         JSON,
         default=[],
+    )
+
+    custom_metadata: Mapped[Optional[Dict]] = mapped_column(
+        JSON,
+        default={},
     )
 
     def __hash__(self) -> int:

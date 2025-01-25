@@ -181,11 +181,12 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         assert set(nodes) == {
             "default.repair_orders_thin",
             "foo.bar.repair_orders_thin",
+            "foo.bar.with_custom_metadata",
         }
 
         # partial list
         nodes = client.list_transforms(namespace="foo.bar")
-        assert nodes == ["foo.bar.repair_orders_thin"]
+        assert nodes == ["foo.bar.with_custom_metadata", "foo.bar.repair_orders_thin"]
 
     def test_list_nodes(self, client):
         """
@@ -252,6 +253,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
                 "default.cube_two",
                 "default.repair_orders_thin",
                 "foo.bar.repair_orders_thin",
+                "foo.bar.with_custom_metadata",
             ],
         )
 
@@ -287,6 +289,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
                 "foo.bar.avg_time_to_dispatch",
                 "foo.bar.cube_one",
                 "foo.bar.repair_orders_thin",
+                "foo.bar.with_custom_metadata",
             ],
         )
 
