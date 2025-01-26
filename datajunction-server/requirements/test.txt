@@ -8,7 +8,7 @@ anyio==4.8.0
 asgiref==3.8.1
 astroid==3.3.8
 async-timeout==5.0.1; python_full_version <= "3.11.2"
-attrs==24.3.0
+attrs==25.1.0
 bcrypt==4.2.1
 billiard==4.2.1
 cachelib==0.13.0
@@ -26,7 +26,7 @@ codespell==2.4.0
 colorama==0.4.6; sys_platform == "win32" or platform_system == "Windows"
 coverage[toml]==7.6.10
 cryptography==44.0.0
-deprecated==1.2.15
+deprecated==1.2.17
 dill==0.3.9
 distlib==0.3.9
 docker==7.1.0
@@ -98,7 +98,7 @@ pygments==2.19.1
 pylint==3.3.3
 pyparsing==3.2.1; python_version > "3.0"
 pytest==8.3.4
-pytest-asyncio==0.25.2
+pytest-asyncio==0.21.2
 pytest-cov==6.0.0
 pytest-integration==0.2.3
 pytest-mock==3.14.0
@@ -110,7 +110,7 @@ python-multipart==0.0.20
 pywin32==308; sys_platform == "win32"
 pyyaml==6.0.2
 redis==4.6.0
-referencing==0.36.1
+referencing==0.36.2
 requests==2.29.0
 requests-mock==1.12.1
 requests-oauthlib==2.0.0
@@ -122,10 +122,9 @@ six==1.17.0
 sniffio==1.3.1
 sqlalchemy==2.0.37
 sqlalchemy-utils==0.41.2
-sqlglot==26.3.6
 sqlparse==0.5.3
-sse-starlette==2.2.1
-starlette==0.45.2
+sse-starlette==2.0.0
+starlette==0.45.3
 strawberry-graphql==0.258.0
 testcontainers==4.9.1
 time-machine==2.16.0; implementation_name != "pypy"
