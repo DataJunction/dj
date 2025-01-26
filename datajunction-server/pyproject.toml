@@ -143,4 +143,5 @@ test = [
     "httpx>=0.27.0",
     "greenlet>=3.0.3",
     "gevent>=24.2.1",
+    "sqlparse<1.0.0,>=0.4.3",
 ]
