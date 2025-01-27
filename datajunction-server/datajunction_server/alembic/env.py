@@ -6,9 +6,9 @@ Environment for Alembic migrations.
 import os
 from logging.config import fileConfig
 
-import alembic
 from sqlalchemy import create_engine
 
+import alembic
 from datajunction_server.database import (
     AttributeType,
     Catalog,
