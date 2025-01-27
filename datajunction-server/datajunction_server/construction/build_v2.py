@@ -217,6 +217,9 @@ async def get_measures_query(  # pylint: disable=too-many-locals
                 measure_columns.append(expr)
                 expr.set_semantic_type(SemanticType.MEASURE)  # type: ignore
         await parent_ast.compile(context)
+        dependencies, _ = await parent_ast.extract_dependencies(
+            CompileContext(session, DJException()),
+        )
 
         final_query = (
             build_preaggregate_query(
@@ -237,9 +240,6 @@ async def get_measures_query(  # pylint: disable=too-many-locals
             )
             for col in final_query.select.projection
         ]
-        dependencies, _ = await final_query.extract_dependencies(
-            CompileContext(session, DJException()),
-        )
         measures_queries.append(
             GeneratedSQL(
                 node=parent_node.current,
@@ -281,16 +281,20 @@ def build_preaggregate_query(
     parent_ast.ctes = []
     built_parent_ref = parent_node.name + "_built"
     parent_node_cte = parent_ast.to_cte(ast.Name(amenable_name(built_parent_ref)))
+    from_table = ast.Table(ast.Name(amenable_name(built_parent_ref)))
     final_query = ast.Query(
         ctes=existing_ctes + [parent_node_cte],
         select=ast.Select(
             projection=[
-                ast.Column.from_existing(col)
+                ast.Column.from_existing(col, table=from_table)
                 for col in parent_ast.select.projection
                 if col.semantic_type == SemanticType.DIMENSION  # type: ignore
             ],
-            from_=ast.From.Table(amenable_name(built_parent_ref)),
-            group_by=[ast.Column(dim.alias_or_name) for dim in dimensional_columns],
+            from_=ast.From(relations=[ast.Relation(primary=from_table)]),
+            group_by=[
+                ast.Column(dim.alias_or_name, _table=from_table)
+                for dim in dimensional_columns
+            ],
         ),
     )
 
@@ -530,13 +534,16 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         await refresh_if_needed(
             self.session,
             self.node_revision,
-            ["availability", "columns"],
+            ["availability", "columns", "query_ast"],
         )
-        node_ast = (
-            await compile_node_ast(self.session, self.node_revision)
-            if not self.physical_table
-            else self.create_query_from_physical_table(self.physical_table)
-        )
+        if self.node_revision.query_ast:
+            node_ast = self.node_revision.query_ast
+        else:
+            node_ast = (
+                await compile_node_ast(self.session, self.node_revision)
+                if not self.physical_table
+                else self.create_query_from_physical_table(self.physical_table)
+            )
 
         if self.physical_table and not self._filters and not self.dimensions:
             self.final_ast = node_ast
@@ -716,12 +723,13 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
 
             # Add the requested dimensions to the final SELECT
             if join_path:  # pragma: no cover
-                dimensions_columns = build_requested_dimensions_columns(
+                dimensions_columns, errors = build_requested_dimensions_columns(
                     requested_dimensions,
                     join_path[-1],
                     dimension_node_joins,
                 )
                 self.final_ast.select.projection.extend(dimensions_columns)
+                self.errors.extend(errors)
 
     def create_query_from_physical_table(self, physical_table) -> ast.Query:
         """
@@ -1351,6 +1359,7 @@ async def build_dimension_node_query(
         build_criteria=build_criteria,
         ctes_mapping=cte_mapping,
         use_materialized=use_materialized,
+        use_pickled=not physical_table,
     )
     return dimension_node_query
 
@@ -1381,11 +1390,12 @@ def build_requested_dimensions_columns(
     requested_dimensions,
     link,
     dimension_node_joins,
-):
+) -> Tuple[list[ast.Column], list[DJQueryBuildError]]:
     """
     Builds the requested dimension columns for the final select layer.
     """
     dimensions_columns = []
+    errors = []
     for dim in requested_dimensions:
         replacement = build_dimension_attribute(
             dim,
@@ -1395,7 +1405,14 @@ def build_requested_dimensions_columns(
         )
         if replacement:  # pragma: no cover
             dimensions_columns.append(replacement)
-    return dimensions_columns
+        else:
+            errors.append(
+                DJQueryBuildError(
+                    code=ErrorCode.INVALID_DIMENSION,
+                    message=f"Dimension attribute {dim} does not exist!",
+                ),
+            )
+    return dimensions_columns, errors
 
 
 async def compile_node_ast(session, node_revision: NodeRevision) -> ast.Query:
@@ -1515,16 +1532,16 @@ def build_join_for_link(
     return join_ast
 
 
-async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
+async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-many-statements
     session: AsyncSession,
     node: NodeRevision,
     query: ast.Query,
     filters: Optional[List[str]],
-    memoized_queries: Dict[int, ast.Query] = None,
     build_criteria: Optional[BuildCriteria] = None,
     access_control=None,
     ctes_mapping: Dict[str, ast.Query] = None,
     use_materialized: bool = True,
+    use_pickled: bool = True,
 ) -> ast.Query:
     """
     Recursively replaces DJ node references with query ASTs. These are replaced with
@@ -1534,10 +1551,24 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
     This function will apply any filters that can be pushed down to each referenced node's AST
     (filters are only applied if they don't require dimension node joins).
     """
-    await refresh_if_needed(session, node, ["dimension_links"])
     context = CompileContext(session=session, exception=DJException())
-    await query.compile(context)
+    cached_query_ast = node.query_ast
+    if use_pickled and cached_query_ast:
+        try:
+            query = cached_query_ast
+        except TypeError as exc:  # pragma: no cover
+            logger.error(
+                "Error loading query AST pickle for %s@%s: %s",
+                node.name,
+                node.version,
+                exc,
+            )
+            await query.compile(context)
+    else:
+        await query.compile(context)
+
     query.bake_ctes()  # pylint: disable=W0212
+    await refresh_if_needed(session, node, ["dimension_links"])
 
     new_cte_mapping: Dict[str, ast.Query] = {}
     if ctes_mapping is None:
@@ -1571,7 +1602,6 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals
                         referenced_node,
                         node_query,
                         filters=filters,
-                        memoized_queries=memoized_queries,
                         build_criteria=build_criteria,
                         access_control=access_control,
                         ctes_mapping=ctes_mapping,

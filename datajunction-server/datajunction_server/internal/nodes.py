@@ -20,6 +20,7 @@ from datajunction_server.api.helpers import (
     resolve_downstream_references,
     validate_cube,
 )
+from datajunction_server.construction.build_v2 import compile_node_ast
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
@@ -241,6 +242,7 @@ async def create_node_revision(
         created_by_id=current_user.id,
     )
     node_validator = await validate_node_data(node_revision, session)
+
     if node_validator.status == NodeStatus.INVALID:
         if node_revision.mode == NodeMode.DRAFT:
             node_revision.status = NodeStatus.INVALID
@@ -695,6 +697,11 @@ async def update_node_with_query(
             session=session,
             node_revision=new_revision,
         )
+        background_tasks.add_task(
+            save_query_ast,
+            session=session,
+            node_name=new_revision.name,
+        )
 
     history_events = {}
     old_columns_map = {col.name: col.type for col in old_revision.columns}
@@ -1080,7 +1087,7 @@ async def create_node_from_inactive(  # pylint: disable=too-many-arguments
     return None
 
 
-async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-branches
+async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements,line-too-long
     session: AsyncSession,
     old_revision: NodeRevision,
     node: Node,
@@ -1190,6 +1197,7 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
         ],
         created_by_id=current_user.id,
     )
+
     if data.required_dimensions:  # type: ignore
         new_revision.required_dimensions = data.required_dimensions  # type: ignore
 
@@ -1307,6 +1315,30 @@ async def save_column_level_lineage(
     node = await Node.get_by_name(session, node_revision.name)
     column_level_lineage = await get_column_level_lineage(session, node.current)  # type: ignore
     node.current.lineage = [lineage.dict() for lineage in column_level_lineage]  # type: ignore
+    session.add(node.current)  # type: ignore
+    await session.commit()
+
+
+async def save_query_ast(
+    session: AsyncSession,
+    node_name: str,
+):
+    """
+    Compile and save query AST for a node
+    """
+    node = await Node.get_by_name(session, node_name)
+
+    if (
+        node
+        and node.current.query
+        and node.type
+        in {
+            NodeType.TRANSFORM,
+            NodeType.DIMENSION,
+        }
+    ):
+        node.current.query_ast = await compile_node_ast(session, node.current)
+
     session.add(node.current)  # type: ignore
     await session.commit()
 
@@ -1889,6 +1921,8 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
     name: str,
     session: AsyncSession,
     current_user: User,
+    update_query_ast: bool = True,
+    background_tasks: BackgroundTasks = None,
 ) -> NodeValidator:
     """
     Revalidate a single existing node and update its status appropriately
@@ -1957,6 +1991,14 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
 
     # Revalidate all other node types
     node_validator = await validate_node_data(current_node_revision, session)
+
+    # Compile and save query AST
+    if update_query_ast and background_tasks:
+        background_tasks.add_task(
+            save_query_ast,
+            session=session,
+            node_name=node.name,  # type: ignore
+        )
 
     # Update the status
     node.current.status = node_validator.status  # type: ignore
@@ -2055,6 +2097,7 @@ async def hard_delete_node(
             name=node.name,
             session=session,
             current_user=current_user,
+            update_query_ast=False,
         )
         impact.append(
             {
@@ -2079,6 +2122,7 @@ async def hard_delete_node(
             name=node.name,
             session=session,
             current_user=current_user,
+            update_query_ast=False,
         )
         impact.append(
             {
