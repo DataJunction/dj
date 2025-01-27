@@ -1,7 +1,7 @@
 """Add custom metadata field to nodes.
 
 Revision ID: bec3296d7537
-Revises: 70904373eab3
+Revises: 9650f9b728a2
 Create Date: 2025-01-24 00:20:26.333974+00:00
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "bec3296d7537"
-down_revision = "70904373eab3"
+down_revision = "9650f9b728a2"
 branch_labels = None
 depends_on = None
 
