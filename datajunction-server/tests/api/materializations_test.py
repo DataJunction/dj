@@ -1214,6 +1214,11 @@ async def test_spark_with_availablity(
     # refresh the materialization on 2nd node now with availability
     # (query should now include availability of the 1st node)
     response = await module__client_with_roads.post(
+        "/nodes/default.test_transform_two/validate/",
+    )
+    assert response.status_code in (200, 201)
+
+    response = await module__client_with_roads.post(
         "/nodes/default.test_transform_two/materialization/",
         json={
             "job": "spark_sql",

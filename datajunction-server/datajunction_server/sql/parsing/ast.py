@@ -853,7 +853,7 @@ class Column(Aliasable, Named, Expression):
         return column_namespace, column_name, subscript_name
 
     @classmethod
-    def from_existing(cls, col: Aliasable | Expression):
+    def from_existing(cls, col: Aliasable | Expression, table: "TableExpression"):
         """
         Build a selectable column from an existing one
         """
@@ -862,6 +862,7 @@ class Column(Aliasable, Named, Expression):
             _type=col.type,
             semantic_entity=col.semantic_entity,
             semantic_type=col.semantic_type,
+            _table=table,
         )
 
     async def find_table_sources(
@@ -1730,7 +1731,8 @@ class Function(Named, Operation):
     ):
         # Check if function is a table-valued function
         if (
-            not quantifier
+            hasattr(name, "name")
+            and not quantifier
             and over is None
             and name.name.upper() in table_function_registry
         ):
@@ -2861,29 +2863,3 @@ class Query(TableExpression, UnNamed):
     @property
     def type(self) -> ColumnType:
         return self.select.type
-
-    async def build(  # pylint: disable=R0913,C0415
-        self,
-        session: AsyncSession,
-        memoized_queries: Dict[int, "Query"],
-        build_criteria: Optional[BuildCriteria] = None,
-        filters: Optional[List[str]] = None,
-        dimensions: Optional[List[str]] = None,
-        access_control=None,
-    ):
-        """
-        Transforms a query ast by replacing dj node references with their asts
-        """
-        from datajunction_server.construction.build import _build_select_ast
-
-        self.bake_ctes()  # pylint: disable=W0212
-        await _build_select_ast(
-            session,
-            self.select,
-            memoized_queries,
-            build_criteria,
-            filters,
-            dimensions,
-            access_control,
-        )
-        self.select.add_aliases_to_unnamed_columns()
