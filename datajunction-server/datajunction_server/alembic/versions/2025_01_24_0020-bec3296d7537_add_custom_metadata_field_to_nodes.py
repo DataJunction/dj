@@ -8,7 +8,6 @@ Create Date: 2025-01-24 00:20:26.333974+00:00
 # pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
 
 import sqlalchemy as sa
-
 from alembic import op
 
 # revision identifiers, used by Alembic.
