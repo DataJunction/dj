@@ -1,7 +1,0 @@
-[MESSAGES CONTROL]
-disable=cyclic-import,too-many-arguments,
-
-[MASTER]
-# https://github.com/samuelcolvin/pydantic/issues/1961#issuecomment-759522422
-extension-pkg-whitelist=pydantic
-ignore=templates,docs
