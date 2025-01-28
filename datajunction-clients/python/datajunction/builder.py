@@ -355,6 +355,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         primary_key: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
+        custom_metadata: Optional[Dict] = None,
         update_if_exists: bool = False,
     ) -> "Transform":
         """
@@ -371,6 +372,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 "primary_key": primary_key,
                 "tags": tags,
                 "mode": mode,
+                "custom_metadata": custom_metadata,
             },
             update_if_exists=update_if_exists,
         )
