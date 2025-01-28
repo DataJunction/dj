@@ -240,6 +240,7 @@ async def create_node_revision(
         mode=data.mode,
         required_dimensions=data.required_dimensions or [],
         created_by_id=current_user.id,
+        custom_metadata=data.custom_metadata,
     )
     node_validator = await validate_node_data(node_revision, session)
 
@@ -480,6 +481,7 @@ async def copy_to_new_node(
         # TODO: availability and materializations are missing here  # pylint: disable=fixme
         lineage=old_revision.lineage,
         created_by_id=current_user.id,
+        custom_metadata=old_revision.custom_metadata,
     )
 
     # Assemble new dimension links, where each link will need to have their join SQL rewritten
@@ -998,6 +1000,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
             for link in old_revision.dimension_links
         ],
         created_by_id=current_user.id,
+        custom_metadata=old_revision.custom_metadata,
     )
 
 
@@ -1087,7 +1090,7 @@ async def create_node_from_inactive(  # pylint: disable=too-many-arguments
     return None
 
 
-async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements,line-too-long
+async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     session: AsyncSession,
     old_revision: NodeRevision,
     node: Node,
@@ -1098,7 +1101,7 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
     """
     Creates a new revision from an existing node revision.
     """
-    metadata_changes = data is not None and data.metric_metadata
+    # minor changes
     minor_changes = (
         (data and data.description and old_revision.description != data.description)
         or (data and data.mode and old_revision.mode != data.mode)
@@ -1107,9 +1110,19 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
             and data.display_name
             and old_revision.display_name != data.display_name
         )
-        or metadata_changes
+        or (
+            data
+            and data.metric_metadata
+            and old_revision.metric_metadata != data.metric_metadata
+        )
+        or (
+            data
+            and data.custom_metadata
+            and old_revision.custom_metadata != data.custom_metadata
+        )
     )
 
+    # major changes
     query_changes = (
         old_revision.type != NodeType.SOURCE
         and data
@@ -1118,17 +1131,17 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
     )
     column_changes = (
         old_revision.type == NodeType.SOURCE
-        and data is not None
-        and data.columns is not None
+        and data
+        and data.columns
         and ({col.identifier() for col in old_revision.columns} != data.columns)
     )
     pk_changes = (
-        data is not None
+        data
         and data.primary_key
         and {col.name for col in old_revision.primary_key()} != set(data.primary_key)
     )
     required_dim_changes = (
-        data is not None
+        data
         and data.required_dimensions
         and {col.name for col in old_revision.required_dimensions}
         != set(data.required_dimensions)
@@ -1196,10 +1209,13 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
             for link in old_revision.dimension_links
         ],
         created_by_id=current_user.id,
+        custom_metadata=old_revision.custom_metadata,
     )
-
     if data.required_dimensions:  # type: ignore
         new_revision.required_dimensions = data.required_dimensions  # type: ignore
+
+    if data.custom_metadata:  # type: ignore
+        new_revision.custom_metadata = data.custom_metadata  # type: ignore
 
     # Link the new revision to its parents if a new revision was created and update its status
     if new_revision.type != NodeType.SOURCE:

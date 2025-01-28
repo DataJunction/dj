@@ -405,6 +405,7 @@ class TransformYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attr
     primary_key: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     mode: NodeMode = NodeMode.PUBLISHED
+    custom_metadata: Optional[Dict] = None
     deploy_order: int = 2
 
     def deploy(self, name: str, prefix: str, client: DJBuilder):
@@ -419,6 +420,7 @@ class TransformYAML(LinkableNodeYAML):  # pylint: disable=too-many-instance-attr
             primary_key=self.primary_key,
             tags=self.tags,
             mode=self.mode,
+            custom_metadata=self.custom_metadata,
             update_if_exists=True,
         )
         self._deploy_column_settings(node)
