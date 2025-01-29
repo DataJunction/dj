@@ -229,7 +229,7 @@ export default function NodeInfoTab({ node }) {
             ))
           : node?.required_dimensions?.map(dim => (
               <span className="rounded-pill badge bg-secondary-soft PrimaryKey">
-                <a href={`/nodes/${node?.upstream_node}`}>{dim}</a>
+                <a href={`/nodes/${node?.upstream_node}`}>{dim.name}</a>
               </span>
             ))}
       </p>
