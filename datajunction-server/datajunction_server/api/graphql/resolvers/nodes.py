@@ -4,7 +4,7 @@ Node resolvers
 from typing import Any, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import defer, joinedload, selectinload
 from strawberry.types import Info
 
 from datajunction_server.api.graphql.scalars.node import NodeName
@@ -109,7 +109,7 @@ def load_node_revision_options(node_revision_fields):
     Based on the GraphQL query input fields, builds a list of node revision
     load options.
     """
-    options = []
+    options = [defer(DBNodeRevision.query_ast)]
     is_cube_request = (
         "cube_metrics" in node_revision_fields
         or "cube_dimensions" in node_revision_fields
