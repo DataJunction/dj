@@ -699,11 +699,14 @@ async def update_node_with_query(
             session=session,
             node_revision=new_revision,
         )
-        background_tasks.add_task(
-            save_query_ast,
-            session=session,
-            node_name=new_revision.name,
-        )
+        # TODO: Do not save this until:
+        #   1. We get to the bottom of why there are query building discrepancies
+        #   2. We audit our database calls to defer pulling the query_ast in most cases
+        # background_tasks.add_task(
+        #     save_query_ast,
+        #     session=session,
+        #     node_name=new_revision.name,
+        # )
 
     history_events = {}
     old_columns_map = {col.name: col.type for col in old_revision.columns}
@@ -1937,7 +1940,7 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
     name: str,
     session: AsyncSession,
     current_user: User,
-    update_query_ast: bool = True,
+    update_query_ast: bool = False,
     background_tasks: BackgroundTasks = None,
 ) -> NodeValidator:
     """
