@@ -699,7 +699,7 @@ async def update_node_with_query(
             session=session,
             node_revision=new_revision,
         )
-        # TODO: Do not save this until:
+        # TODO: Do not save this until:  # pylint: disable=fixme
         #   1. We get to the bottom of why there are query building discrepancies
         #   2. We audit our database calls to defer pulling the query_ast in most cases
         # background_tasks.add_task(
