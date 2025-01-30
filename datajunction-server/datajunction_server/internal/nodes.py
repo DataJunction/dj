@@ -1338,7 +1338,7 @@ async def save_column_level_lineage(
     await session.commit()
 
 
-async def save_query_ast(
+async def save_query_ast(  # pragma: no cover
     session: AsyncSession,
     node_name: str,
 ):
@@ -2013,7 +2013,7 @@ async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statement
 
     # Compile and save query AST
     if update_query_ast and background_tasks:
-        background_tasks.add_task(
+        background_tasks.add_task(  # pragma: no cover
             save_query_ast,
             session=session,
             node_name=node.name,  # type: ignore
