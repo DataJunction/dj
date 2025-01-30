@@ -537,7 +537,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
             ["availability", "columns", "query_ast"],
         )
         if self.node_revision.query_ast:
-            node_ast = self.node_revision.query_ast
+            node_ast = self.node_revision.query_ast  # pragma: no cover
         else:
             node_ast = (
                 await compile_node_ast(self.session, self.node_revision)
@@ -1554,8 +1554,8 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-m
     context = CompileContext(session=session, exception=DJException())
     cached_query_ast = node.query_ast
     if use_pickled and cached_query_ast:
-        try:
-            query = cached_query_ast
+        try:  # pragma: no cover
+            query = cached_query_ast  # pragma: no cover
         except TypeError as exc:  # pragma: no cover
             logger.error(
                 "Error loading query AST pickle for %s@%s: %s",

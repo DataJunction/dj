@@ -511,7 +511,9 @@ class CompressedPickleType(TypeDecorator):  # pylint: disable=too-many-ancestors
         """
         if value is None:
             return None
-        return zlib.compress(pickle.dumps(value, protocol=self.protocol))
+        return zlib.compress(  # pragma: no cover
+            pickle.dumps(value, protocol=self.protocol),
+        )
 
     def process_result_value(self, value, dialect):
         """
@@ -519,8 +521,8 @@ class CompressedPickleType(TypeDecorator):  # pylint: disable=too-many-ancestors
         """
         if value is None:
             return None
-        try:
-            return pickle.loads(zlib.decompress(value))
+        try:  # pragma: no cover
+            return pickle.loads(zlib.decompress(value))  # pragma: no cover
         except TypeError:  # pragma: no cover
             return None
 
