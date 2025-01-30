@@ -4,7 +4,7 @@ Node resolvers
 from typing import Any, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload, defer
+from sqlalchemy.orm import defer, joinedload, selectinload
 from strawberry.types import Info
 
 from datajunction_server.api.graphql.scalars.node import NodeName
