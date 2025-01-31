@@ -223,8 +223,7 @@ def test_average():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT SUM(sales_amount_sum_a1b27bc7) / "
-            "SUM(sales_amount_count_a1b27bc7) FROM parent_node",
+            "SELECT SUM(sales_amount_sum_a1b27bc7) / SUM(sales_amount_count_a1b27bc7) FROM parent_node",
         ),
     )
 
