@@ -1,4 +1,5 @@
 """Tag-related scalars."""
+
 import strawberry
 from strawberry.types import Info
 

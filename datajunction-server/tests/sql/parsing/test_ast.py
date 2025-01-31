@@ -2,6 +2,7 @@
 """
 testing ast Nodes and their methods
 """
+
 from typing import cast
 
 import pytest
@@ -1039,7 +1040,8 @@ FROM VALUES
 
     await query.compile(ctx)
     assert [
-        (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
+        (col.alias_or_name.name, col.type)  # type: ignore
+        for col in query.select.projection
     ] == expected_columns
     assert query.select.from_.relations[0].primary.values == expected_values  # type: ignore
     assert query.columns[0].table.alias_or_name == expected_table_name  # type: ignore
@@ -1066,7 +1068,8 @@ FROM VALUES
 
     await query.compile(ctx)
     assert [
-        (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
+        (col.alias_or_name.name, col.type)  # type: ignore
+        for col in query.select.projection
     ] == expected_columns
     assert query.select.from_.relations[0].primary.values == expected_values  # type: ignore
     assert query.columns[0].table.alias_or_name == expected_table_name  # type: ignore
@@ -1080,10 +1083,12 @@ FROM VALUES
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
     assert [
-        (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
+        (col.alias_or_name.name, col.type)  # type: ignore
+        for col in query.select.projection
     ] == [("source", types.StringType())]
     assert [
-        val[0].value for val in query.select.from_.relations[0].primary.values  # type: ignore
+        val[0].value
+        for val in query.select.from_.relations[0].primary.values  # type: ignore
     ] == ["'a'", "'b'", "'c'"]
     assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
         name="tab",
@@ -1100,10 +1105,12 @@ FROM VALUES
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
     assert [
-        (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
+        (col.alias_or_name.name, col.type)  # type: ignore
+        for col in query.select.projection
     ] == [("col1", types.StringType())]
     assert [
-        val[0].value for val in query.select.from_.relations[0].primary.values  # type: ignore
+        val[0].value
+        for val in query.select.from_.relations[0].primary.values  # type: ignore
     ] == ["'a'", "'b'", "'c'"]
     assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
         name="tab",
@@ -1129,7 +1136,8 @@ FROM VALUES
     await query.compile(ctx)
     assert not exc.errors
     assert [
-        (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
+        (col.alias_or_name.name, col.type)  # type: ignore
+        for col in query.select.projection
     ] == [("a_", types.IntegerType()), ("b_", types.IntegerType())]
 
 

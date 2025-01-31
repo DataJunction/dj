@@ -1,6 +1,7 @@
 """
 Models for users and auth
 """
+
 from typing import List, Optional
 
 from pydantic import BaseModel

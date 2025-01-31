@@ -1,6 +1,7 @@
 """
 A secure API router for routes that require authentication
 """
+
 from http import HTTPStatus
 from typing import Any, Callable
 

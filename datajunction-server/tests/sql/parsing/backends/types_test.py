@@ -1,6 +1,7 @@
 """
 Tests for types
 """
+
 import datajunction_server.sql.parsing.types as ct
 from datajunction_server.sql.parsing import ast
 

@@ -1,4 +1,5 @@
 """Column scalars"""
+
 from typing import List, Optional
 
 import strawberry

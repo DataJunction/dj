@@ -1,4 +1,5 @@
 """Tests for notification dependency injection"""
+
 import unittest
 from unittest.mock import patch
 

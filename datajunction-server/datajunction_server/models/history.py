@@ -1,6 +1,7 @@
 """
 Model for history.
 """
+
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from pydantic.main import BaseModel

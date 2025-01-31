@@ -2,6 +2,7 @@
 """
 Tests for the nodes API.
 """
+
 import re
 from typing import Any, Dict
 from unittest import mock
@@ -1593,8 +1594,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         Registering a view with a query service set up should succeed.
         """
         response = await module__client_with_basic.post(
-            "/register/view/public/main/view_foo?"
-            "query=SELECT+1+AS+one+,+'two'+AS+two",
+            "/register/view/public/main/view_foo?query=SELECT+1+AS+one+,+'two'+AS+two",
         )
         data = response.json()
         assert data["name"] == "source.public.main.view_foo"

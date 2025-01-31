@@ -1,6 +1,7 @@
 """
 Authorization related functionality
 """
+
 from typing import Iterable, List, Union
 
 from datajunction_server.database.node import Node, NodeRevision

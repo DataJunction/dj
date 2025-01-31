@@ -1,6 +1,7 @@
 """
 Models for measures.
 """
+
 from typing import TYPE_CHECKING, List, Optional
 
 from pydantic.class_validators import root_validator

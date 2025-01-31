@@ -1,6 +1,7 @@
 """
 Tests for generate SQL queries
 """
+
 from unittest import mock
 
 import pytest

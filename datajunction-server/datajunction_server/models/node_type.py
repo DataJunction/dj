@@ -1,4 +1,5 @@
 """Node type"""
+
 from pydantic import BaseModel
 
 from datajunction_server.enum import StrEnum

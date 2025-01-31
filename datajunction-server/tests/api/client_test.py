@@ -1,6 +1,7 @@
 """
 Tests for client code generator.
 """
+
 import os
 from pathlib import Path
 

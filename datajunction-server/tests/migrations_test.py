@@ -1,4 +1,5 @@
 """Verify alembic migrations."""
+
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config

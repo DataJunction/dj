@@ -1,6 +1,7 @@
 """
 Tests for the catalog API.
 """
+
 import pytest
 from httpx import AsyncClient
 

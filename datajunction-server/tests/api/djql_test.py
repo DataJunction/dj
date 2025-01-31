@@ -1,6 +1,7 @@
 """
 Tests for the djsql API.
 """
+
 import pytest
 from httpx import AsyncClient
 

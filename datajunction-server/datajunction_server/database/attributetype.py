@@ -1,4 +1,5 @@
 """Attribute type database schema."""
+
 from typing import TYPE_CHECKING, List, Optional
 
 import sqlalchemy as sa

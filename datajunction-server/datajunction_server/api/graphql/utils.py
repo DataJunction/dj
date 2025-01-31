@@ -1,4 +1,5 @@
 """Utils for handling GraphQL queries."""
+
 import re
 from typing import Any, Dict
 

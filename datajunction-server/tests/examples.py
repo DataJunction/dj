@@ -3,6 +3,7 @@
 """
 Post requests for all example entities
 """
+
 from datajunction_server.database.column import Column
 from datajunction_server.models.query import QueryWithResults
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
@@ -684,7 +685,7 @@ CROSS JOIN
         {
             "description": "Average length of employment",
             "query": (
-                "SELECT avg(CAST(NOW() AS DATE) - hire_date) " "FROM default.hard_hat"
+                "SELECT avg(CAST(NOW() AS DATE) - hire_date) FROM default.hard_hat"
             ),
             "mode": "published",
             "name": "default.avg_length_of_employment",
@@ -1298,7 +1299,7 @@ NAMESPACED_ROADS = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Average length of employment",
-            "query": ("SELECT avg(NOW() - hire_date) " "FROM foo.bar.hard_hats"),
+            "query": ("SELECT avg(NOW() - hire_date) FROM foo.bar.hard_hats"),
             "mode": "published",
             "name": "foo.bar.avg_length_of_employment",
         },
@@ -1307,9 +1308,7 @@ NAMESPACED_ROADS = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total repair order discounts",
-            "query": (
-                "SELECT sum(price * discount) " "FROM foo.bar.repair_order_details"
-            ),
+            "query": ("SELECT sum(price * discount) FROM foo.bar.repair_order_details"),
             "mode": "published",
             "name": "foo.bar.total_repair_order_discounts",
         },
@@ -1318,9 +1317,7 @@ NAMESPACED_ROADS = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total repair order discounts",
-            "query": (
-                "SELECT avg(price * discount) " "FROM foo.bar.repair_order_details"
-            ),
+            "query": ("SELECT avg(price * discount) FROM foo.bar.repair_order_details"),
             "mode": "published",
             "name": "foo.bar.avg_repair_order_discounts",
         },
@@ -1330,7 +1327,7 @@ NAMESPACED_ROADS = (  # type: ignore
         {
             "description": "Average time to dispatch a repair order",
             "query": (
-                "SELECT avg(dispatched_date - order_date) " "FROM foo.bar.repair_orders"
+                "SELECT avg(dispatched_date - order_date) FROM foo.bar.repair_orders"
             ),
             "mode": "published",
             "name": "foo.bar.avg_time_to_dispatch",
@@ -1858,7 +1855,7 @@ EVENT = (  # type: ignore
         {
             "name": "default.device_ids_count",
             "description": "Number of Distinct Devices",
-            "query": "SELECT COUNT(DISTINCT device_id) " "FROM default.event_source",
+            "query": "SELECT COUNT(DISTINCT device_id) FROM default.event_source",
             "mode": "published",
         },
     ),
@@ -1867,7 +1864,7 @@ EVENT = (  # type: ignore
         {
             "name": "default.long_events_distinct_countries",
             "description": "Number of Distinct Countries for Long Events",
-            "query": "SELECT COUNT(DISTINCT country) " "FROM default.long_events",
+            "query": "SELECT COUNT(DISTINCT country) FROM default.long_events",
             "mode": "published",
         },
     ),
@@ -1915,8 +1912,7 @@ DBT = (  # type: ignore
         {
             "description": "User dimension",
             "query": (
-                "SELECT id, first_name, last_name "
-                "FROM dbt.source.jaffle_shop.customers"
+                "SELECT id, first_name, last_name FROM dbt.source.jaffle_shop.customers"
             ),
             "mode": "published",
             "name": "dbt.dimension.customers",
@@ -2007,7 +2003,7 @@ DBT = (  # type: ignore
         {
             "description": "Item dimension",
             "query": (
-                "SELECT item_name " "account_type_classification FROM default.sales"
+                "SELECT item_name account_type_classification FROM default.sales"
             ),
             "mode": "published",
             "name": "default.items",

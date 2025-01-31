@@ -1,5 +1,6 @@
 # pylint: disable=unsubscriptable-object
 """Backfill database schema."""
+
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import JSON, BigInteger, ForeignKey, Integer

@@ -1,4 +1,5 @@
 """Used for extracting measures form metric definitions."""
+
 import hashlib
 from functools import lru_cache
 

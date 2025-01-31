@@ -1,4 +1,5 @@
 """Node database schema."""
+
 import pickle
 import zlib
 from datetime import datetime, timezone
@@ -469,14 +470,12 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         if after:
             cursor = NodeCursor.decode(after)
             statement = statement.where(
-                (Node.created_at, Node.id)
-                <= (cursor.created_at, cursor.id),  # pylint: disable=no-member
+                (Node.created_at, Node.id) <= (cursor.created_at, cursor.id),  # pylint: disable=no-member
             ).order_by(Node.created_at.desc(), Node.id.desc())
         elif before:
             cursor = NodeCursor.decode(before)
             statement = statement.where(
-                (Node.created_at, Node.id)
-                >= (cursor.created_at, cursor.id),  # pylint: disable=no-member
+                (Node.created_at, Node.id) >= (cursor.created_at, cursor.id),  # pylint: disable=no-member
             )
             statement = statement.order_by(Node.created_at.asc(), Node.id.asc())
         else:

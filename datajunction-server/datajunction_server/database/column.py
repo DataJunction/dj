@@ -1,4 +1,5 @@
 """Column database schema."""
+
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from sqlalchemy import BigInteger, ForeignKey, Integer, String

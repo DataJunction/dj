@@ -651,9 +651,7 @@ class Name(Node):
         """
         quote_style = "" if not quotes else self.quote_style
         namespace = str(self.namespace) + "." if self.namespace else ""
-        return (
-            f"{namespace}{quote_style}{self.name}{quote_style}"  # pylint: disable=C0301
-        )
+        return f"{namespace}{quote_style}{self.name}{quote_style}"  # pylint: disable=C0301
 
 
 TNamed = TypeVar("TNamed", bound="Named")  # pylint: disable=C0103
@@ -908,8 +906,7 @@ class Column(Aliasable, Named, Expression):
                 # This column may be namespaced, in which case we'll search for an origin table
                 # that has the namespace as an alias or name. If this column has no namespace,
                 # it should be sourced from the immediate table
-                not namespace
-                or namespace == table.alias_or_name.identifier(False)
+                not namespace or namespace == table.alias_or_name.identifier(False)
             ):
                 result = await table.add_ref_column(self, ctx)
                 if result:
@@ -1448,8 +1445,7 @@ class UnaryOp(Operation):
 
         def raise_unop_exception():
             raise DJParseException(
-                "Incompatible type in unary operation "
-                f"{self}. Got {type} in {self}.",
+                f"Incompatible type in unary operation {self}. Got {type} in {self}.",
             )
 
         if self.op == UnaryOpKind.Not:
@@ -2083,7 +2079,7 @@ class Like(Predicate):
     def __str__(self) -> str:
         not_ = "NOT " if self.negated else ""
         if self.quantifier:  # quantifier means a pattern with multiple elements
-            pattern = f'({", ".join(str(p) for p in self.patterns)})'
+            pattern = f"({', '.join(str(p) for p in self.patterns)})"
         else:
             pattern = self.patterns
         escape_char = f" ESCAPE '{self.escape_char}'" if self.escape_char else ""
@@ -2304,7 +2300,7 @@ class InlineTable(TableExpression, Named):
 
     def __str__(self) -> str:
         values = "VALUES " + ",\n\t".join(
-            [f'({", ".join([str(col) for col in row])})' for row in self.values],
+            [f"({', '.join([str(col) for col in row])})" for row in self.values],
         )
         inline_alias = self.alias_or_name.name if self.alias_or_name else ""
         alias = inline_alias + (

@@ -1,4 +1,5 @@
 """Generate SQL-related GraphQL queries."""
+
 from typing import Annotated, Optional, OrderedDict
 
 import strawberry

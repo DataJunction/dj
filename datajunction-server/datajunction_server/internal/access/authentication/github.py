@@ -1,6 +1,7 @@
 """
 GitHub OAuth helper functions
 """
+
 import logging
 import secrets
 from urllib.parse import urljoin

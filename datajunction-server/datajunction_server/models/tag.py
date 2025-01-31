@@ -1,6 +1,7 @@
 """
 Models for tags.
 """
+
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from pydantic import Extra

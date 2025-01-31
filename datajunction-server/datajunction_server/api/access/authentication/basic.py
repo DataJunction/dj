@@ -1,6 +1,7 @@
 """
 Basic OAuth Authentication Router
 """
+
 from datetime import timedelta
 from http import HTTPStatus
 

@@ -1,6 +1,7 @@
 """
 Google OAuth Router
 """
+
 import logging
 import secrets
 from datetime import timedelta

@@ -1,4 +1,5 @@
 """Tag database schema."""
+
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from sqlalchemy import JSON, BigInteger, Column, ForeignKey, Integer, String, select

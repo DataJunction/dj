@@ -1,6 +1,7 @@
 """
 Models for columns.
 """
+
 from typing import TYPE_CHECKING, List, Optional
 
 from pydantic.main import BaseModel

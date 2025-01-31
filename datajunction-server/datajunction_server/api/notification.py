@@ -1,4 +1,5 @@
 """Dependency for notifications"""
+
 import logging
 
 from datajunction_server.database.history import History

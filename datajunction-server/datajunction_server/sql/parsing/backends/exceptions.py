@@ -1,6 +1,7 @@
 """
 defines exceptions used for backend parsing
 """
+
 from http import HTTPStatus
 
 from datajunction_server.errors import DJException

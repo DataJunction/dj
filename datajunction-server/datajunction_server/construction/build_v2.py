@@ -1,5 +1,6 @@
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401,too-many-lines,protected-access,line-too-long
 """Building node SQL functions"""
+
 import collections
 import logging
 import re
@@ -196,9 +197,7 @@ async def get_measures_query(  # pylint: disable=too-many-locals
                 for expr in parent_ast.select.projection
                 if from_amenable_name(expr.alias_or_name.identifier(False)).split(  # type: ignore
                     SEPARATOR,
-                )[
-                    -1
-                ]
+                )[-1]
                 in parents_to_measures[parent_node.name]
                 or from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
                 in dimensions_without_roles
@@ -1533,7 +1532,8 @@ def build_join_for_link(
         replacement = ast.Column(
             name=ast.Name(full_column.column_name),
             _table=join_right if is_dimension_node else join_left,
-            _type=(dimension_node_columns if is_dimension_node else node_columns)  # type: ignore
+            _type=(dimension_node_columns if is_dimension_node else node_columns)
+            # type: ignore
             .get(full_column.column_name)
             .type,
         )
@@ -1588,7 +1588,6 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-m
         await refresh_if_needed(session, referenced_node, ["dimension_links"])
 
         for ref_expr in reference_expressions:
-
             # Try to find a materialized table attached to this node, if one exists.
             physical_table = None
             if use_materialized:

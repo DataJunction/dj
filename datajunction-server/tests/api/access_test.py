@@ -1,6 +1,7 @@
 """
 Tests for the data API.
 """
+
 import pytest
 from httpx import AsyncClient
 

@@ -1,4 +1,5 @@
 """Node-related scalars."""
+
 import datetime
 from typing import List, Optional
 

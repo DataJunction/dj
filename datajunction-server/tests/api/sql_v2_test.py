@@ -1,4 +1,5 @@
 """Tests for all /sql endpoints that use node SQL build v2"""
+
 # pylint: disable=line-too-long,too-many-lines
 from unittest import mock
 
