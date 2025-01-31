@@ -2929,9 +2929,9 @@ async def test_get_sql_for_metrics_no_access(module__client_with_examples: Async
 
         return _validate_access
 
-    module__client_with_examples.app.dependency_overrides[
-        validate_access
-    ] = validate_access_override
+    module__client_with_examples.app.dependency_overrides[validate_access] = (
+        validate_access_override
+    )
 
     response = await module__client_with_examples.get(
         "/sql/",
@@ -2959,9 +2959,9 @@ async def test_get_sql_for_metrics_no_access(module__client_with_examples: Async
     assert "read:node/default.hard_hat" in data["message"]
     assert data["errors"][0]["code"] == 500
 
-    module__client_with_examples.app.dependency_overrides[
+    module__client_with_examples.app.dependency_overrides[validate_access] = (
         validate_access
-    ] = validate_access
+    )
 
     module__client_with_examples.app.dependency_overrides.clear()
 
@@ -3580,9 +3580,9 @@ async def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
 
         return _validate_access
 
-    module__client_with_examples.app.dependency_overrides[
-        validate_access
-    ] = validate_access_override
+    module__client_with_examples.app.dependency_overrides[validate_access] = (
+        validate_access_override
+    )
     response = await module__client_with_examples.get(
         "/sql/",
         params={

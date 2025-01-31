@@ -1,4 +1,5 @@
 """Measure database schema."""
+
 from typing import List, Optional
 
 from sqlalchemy import BigInteger, Enum, Integer, String

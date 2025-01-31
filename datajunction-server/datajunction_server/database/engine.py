@@ -1,4 +1,5 @@
 """Engine database schema."""
+
 from typing import Optional
 
 import sqlalchemy as sa

@@ -189,9 +189,7 @@ async def test_raise_on_having_without_a_groupby(construction_session: AsyncSess
     node_a_rev = NodeRevision(
         node=node_a,
         version="1",
-        query=(
-            "SELECT country FROM basic.transform.country_agg " "HAVING country='US'"
-        ),
+        query=("SELECT country FROM basic.transform.country_agg HAVING country='US'"),
     )
 
     query_ast = parse(node_a_rev.query)

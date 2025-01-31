@@ -1,4 +1,5 @@
 """Partition database schema."""
+
 import re
 from typing import Optional
 

@@ -1,4 +1,5 @@
 """History database schema."""
+
 from datetime import datetime, timezone
 from functools import partial
 from typing import Any, Dict, Optional

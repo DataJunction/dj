@@ -1,4 +1,5 @@
 """Models for materialization"""
+
 import enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 

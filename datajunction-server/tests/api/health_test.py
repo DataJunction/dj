@@ -1,6 +1,7 @@
 """
 Tests for the healthcheck API.
 """
+
 import asyncio
 
 import pytest

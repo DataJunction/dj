@@ -1,6 +1,7 @@
 """
 DAG related functions.
 """
+
 import itertools
 from typing import Dict, List, Optional, Set, Union
 
@@ -699,15 +700,11 @@ async def get_nodes_with_dimension(
                 )
                 .join(
                     NodeColumns,
-                    onclause=(
-                        NodeRevision.id == NodeColumns.node_id
-                    ),  # pylint: disable=superfluous-parens
+                    onclause=(NodeRevision.id == NodeColumns.node_id),  # pylint: disable=superfluous-parens
                 )
                 .join(
                     Column,
-                    onclause=(
-                        NodeColumns.column_id == Column.id
-                    ),  # pylint: disable=superfluous-parens
+                    onclause=(NodeColumns.column_id == Column.id),  # pylint: disable=superfluous-parens
                 )
                 .where(
                     Column.dimension_id.in_(  # type: ignore  # pylint: disable=no-member

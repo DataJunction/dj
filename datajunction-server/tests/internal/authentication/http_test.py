@@ -1,6 +1,7 @@
 """
 Test internal http authentication logic
 """
+
 import asyncio
 from unittest.mock import MagicMock
 

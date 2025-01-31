@@ -1,6 +1,7 @@
 """
 Tests for ``datajunction_server.sql.dag``.
 """
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 

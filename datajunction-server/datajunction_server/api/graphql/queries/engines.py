@@ -1,6 +1,7 @@
 """
 Engine related queries.
 """
+
 from typing import List
 
 from sqlalchemy import select

@@ -1,4 +1,5 @@
 """Partition-related models."""
+
 from typing import TYPE_CHECKING, List, Optional
 
 from pydantic.main import BaseModel

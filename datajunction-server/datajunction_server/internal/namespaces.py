@@ -1,6 +1,7 @@
 """
 Helper methods for namespaces endpoints.
 """
+
 import os
 import re
 from datetime import datetime

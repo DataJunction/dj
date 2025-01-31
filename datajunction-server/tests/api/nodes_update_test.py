@@ -1,4 +1,5 @@
 """Tests for node updates"""
+
 from unittest import mock
 
 import pytest

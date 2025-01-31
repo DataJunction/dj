@@ -332,7 +332,8 @@ async def test_infer_bad_case_types(construction_session: AsyncSession):
         )
         await query.compile(ctx)
         [  # pylint: disable=pointless-statement
-            exp.type for exp in query.select.projection  # type: ignore
+            exp.type  # type: ignore
+            for exp in query.select.projection
         ]
 
     assert str(excinfo.value) == "Not all the same type in CASE! Found: bigint, string"

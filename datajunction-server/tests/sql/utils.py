@@ -1,6 +1,7 @@
 """
 Helper functions.
 """
+
 import os
 
 from sqlalchemy.sql import Select

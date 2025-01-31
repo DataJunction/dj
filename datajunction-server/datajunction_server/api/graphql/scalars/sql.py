@@ -1,4 +1,5 @@
 """SQL-related scalars."""
+
 from functools import cached_property
 
 import strawberry

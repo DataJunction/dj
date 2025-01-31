@@ -1,6 +1,7 @@
 """
 Node resolvers
 """
+
 from typing import Any, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession

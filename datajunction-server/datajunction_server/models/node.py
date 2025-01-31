@@ -2,6 +2,7 @@
 """
 Model for nodes.
 """
+
 import enum
 import sys
 from dataclasses import dataclass

@@ -1,4 +1,5 @@
 """SQL transpilation plugins manager."""
+
 import importlib
 from abc import ABC, abstractmethod
 from typing import Optional

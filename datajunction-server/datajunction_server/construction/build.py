@@ -1,5 +1,6 @@
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401,too-many-lines,protected-access,line-too-long
 """Functions for building DJ node queries"""
+
 import collections
 import logging
 import os
@@ -249,7 +250,8 @@ def build_materialized_cube_node(
         ]  # pragma: no cover
     else:
         selected_metric_keys = [
-            col.node_revision().name for col in selected_metrics  # type: ignore
+            col.node_revision().name  # type: ignore
+            for col in selected_metrics
         ]
 
     # Assemble query for materialized cube based on the previously saved measures

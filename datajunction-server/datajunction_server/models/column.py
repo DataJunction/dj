@@ -1,6 +1,7 @@
 """
 Models for columns.
 """
+
 from typing import Optional, TypedDict
 
 from pydantic.main import BaseModel

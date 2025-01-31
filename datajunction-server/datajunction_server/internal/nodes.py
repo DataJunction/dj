@@ -1,5 +1,6 @@
 # pylint: disable=too-many-lines,too-many-arguments
 """Nodes endpoint helper functions"""
+
 import logging
 from collections import defaultdict
 from datetime import datetime
@@ -685,7 +686,8 @@ async def update_node_with_query(
             session=session,
             node_revision_id=node.current.id,  # type: ignore
             materialization_names=[
-                mat.name for mat in node.current.materializations  # type: ignore
+                mat.name
+                for mat in node.current.materializations  # type: ignore
             ],
             query_service_client=query_service_client,
             request_headers=request_headers,

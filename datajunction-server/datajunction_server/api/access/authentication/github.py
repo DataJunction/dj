@@ -1,6 +1,7 @@
 """
 GitHub OAuth Authentication Router
 """
+
 import logging
 from datetime import timedelta
 from http import HTTPStatus

@@ -1,4 +1,5 @@
 """Collection database schema."""
+
 from datetime import datetime, timezone
 from functools import partial
 from typing import List, Optional
