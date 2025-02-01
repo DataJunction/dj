@@ -208,8 +208,8 @@ def test_average():
 
     expected_measures = [
         Measure(
-            name="count",
-            expression="1",
+            name="sales_amount_count_a1b27bc7",
+            expression="sales_amount",
             aggregation="COUNT",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
@@ -222,7 +222,10 @@ def test_average():
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT SUM(sales_amount_sum_a1b27bc7) / SUM(count) FROM parent_node"),
+        parse(
+            "SELECT SUM(sales_amount_sum_a1b27bc7) / "
+            "SUM(sales_amount_count_a1b27bc7) FROM parent_node",
+        ),
     )
 
 
@@ -604,8 +607,8 @@ def test_metric_query_with_aliases():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         Measure(
-            name="count",
-            expression="1",
+            name="time_to_dispatch_count_bf99afd6",
+            expression="CAST(time_to_dispatch AS INT)",
             aggregation="COUNT",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
@@ -620,6 +623,6 @@ def test_metric_query_with_aliases():
     assert str(derived_sql) == str(
         parse(
             "SELECT SUM(time_to_dispatch_sum_bf99afd6) / "
-            "SUM(count) FROM default.repair_orders_fact",
+            "SUM(time_to_dispatch_count_bf99afd6) FROM default.repair_orders_fact",
         ),
     )

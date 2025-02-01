@@ -151,15 +151,12 @@ class MeasureExtractor:
         of the selected measure).
         """
         arg = func.args[0]
-        measure_name = "_".join(
-            [str(col) for col in arg.find_all(ast.Column)]
-            + [dj_functions.Sum.__name__.lower()],
-        )
+        measure_name = "_".join([str(col) for col in arg.find_all(ast.Column)])
         expression = str(arg)
         short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
         return [
             Measure(
-                name=f"{measure_name}_{short_hash}",
+                name=f"{measure_name}_{dj_functions.Sum.__name__.lower()}_{short_hash}",
                 expression=expression,
                 aggregation=dj_functions.Sum.__name__.upper(),
                 rule=AggregationRule(
@@ -169,8 +166,8 @@ class MeasureExtractor:
                 ),
             ),
             Measure(
-                name="count",
-                expression="1",
+                name=f"{measure_name}_{dj_functions.Count.__name__.lower()}_{short_hash}",
+                expression=expression,
                 aggregation=dj_functions.Count.__name__.upper(),
                 rule=AggregationRule(
                     type=Aggregability.FULL
