@@ -79,10 +79,10 @@ async def test_measures_sql(
                 "semanticType": "MEASURE",
             },
             {
-                "name": "count",
+                "name": "price_count_78a5eb43",
                 "semanticEntity": {
-                    "column": "count",
-                    "name": "default.repair_orders_fact.count",
+                    "column": "price_count_78a5eb43",
+                    "name": "default.repair_orders_fact.price_count_78a5eb43",
                     "node": "default.repair_orders_fact",
                 },
                 "semanticType": "MEASURE",
