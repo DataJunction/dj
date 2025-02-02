@@ -70,7 +70,7 @@ export default function NodeInfoTab({ node }) {
     );
 
   const metricQueryDiv =
-    node.type === 'metric' ? (
+    node?.type === 'metric' ? (
       <div className="list-group-item d-flex">
         <div className="gap-2 w-100 justify-content-between py-3">
           <div style={{ marginBottom: '30px' }}>
