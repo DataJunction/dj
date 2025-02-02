@@ -106,18 +106,6 @@ def combine_measures_on_shared_grain(
         select=ast.Select(
             projection=grain_fields + measures_fields,  # type: ignore
             from_=ast.From(relations=[from_relation]),
-            # where=ast.BinaryOp.And(
-            #     *[
-            #         ast.BinaryOp.Eq(
-            #             ast.Column(
-            #                 ast.Name(mat.timestamp_column),
-            #                 _table=measures_tables[mat.output_table_name],
-            #             ),
-            #             ast.Function(ast.Name("DJ_LOGICAL_TIMESTAMP"), args=[]),
-            #         )
-            #         for mat in measures_materializations
-            #     ]
-            # )
         ),
     )
 
