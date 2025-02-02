@@ -1,5 +1,6 @@
 """Helper functions related to cube materializations."""
 import itertools
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.build_v2 import get_measures_query
@@ -56,11 +57,13 @@ def combine_measures_on_shared_grain(
         measureB.three,
         measureB.four
       FROM measureA
-      JOIN measureB ON 
+      JOIN measureB ON
         measureA.grain1 = measureB.grain1 AND
         measureA.grain2 = measureB.grain2
     """
-    measures_tables = {mat.output_table_name: mat.table_ast() for mat in measures_materializations}
+    measures_tables = {
+        mat.output_table_name: mat.table_ast() for mat in measures_materializations
+    }
     initial_mat = measures_materializations[0]
 
     # Coalesce grain fields
@@ -96,10 +99,11 @@ def combine_measures_on_shared_grain(
                     on=_combine_measures_join_criteria(
                         measures_tables[initial_mat.output_table_name],
                         measures_tables[mat.output_table_name],
-                        query_grain
+                        query_grain,
                     ),
                 ),
-            ) for mat in measures_materializations[1:]
+            )
+            for mat in measures_materializations[1:]
         ],
     )
     return ast.Query(
@@ -114,16 +118,18 @@ def _combine_measures_join_criteria(left_table, right_table, query_grain):
     """
     Generate the join condition across tables for shared grains.
     """
-    return ast.BinaryOp.And(*[
-        ast.BinaryOp.Eq(
-            ast.Column(name=ast.Name(grain), _table=left_table),
-            ast.Column(name=ast.Name(grain), _table=right_table),
-        )
-        for grain in query_grain
-    ])
+    return ast.BinaryOp.And(
+        *[
+            ast.BinaryOp.Eq(
+                ast.Column(name=ast.Name(grain), _table=left_table),
+                ast.Column(name=ast.Name(grain), _table=right_table),
+            )
+            for grain in query_grain
+        ]
+    )
 
 
-async def build_cube_materialization(
+async def build_cube_materialization(  # pylint: disable=used-before-assignment,too-many-locals
     session: AsyncSession,
     current_revision: NodeRevision,
     upsert_input: UpsertCubeMaterialization,
@@ -174,6 +180,7 @@ async def build_cube_materialization(
         measures_materialization = measures_materializations[0]
         combiners = [
             CombineMaterialization(
+                node=measures_materialization.node,
                 output_table_name=measures_materialization.output_table_name,
                 columns=measures_materialization.columns,
                 grain=measures_materialization.grain,
@@ -182,7 +189,7 @@ async def build_cube_materialization(
                 timestamp_column=measures_materialization.timestamp_column,
                 timestamp_format=measures_materialization.timestamp_format,
                 granularity=measures_materialization.granularity,
-                upstream_tables=measures_materialization.output_table_name,
+                upstream_tables=[measures_materialization.output_table_name],
             ),
         ]
     if len(measures_materializations) > 1:
@@ -252,6 +259,6 @@ async def build_cube_materialization(
         ],
         dimensions=current_revision.cube_node_dimensions,
         measures_materializations=measures_materializations,
-        combiners=combiners,
+        combiners=combiners,  # pylint: disable=possibly-used-before-assignment
     )
     return config

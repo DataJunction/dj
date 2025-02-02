@@ -295,7 +295,8 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         Gets materialization info for the node and materialization config name.
         """
         response = self.requests_session.get(
-            f"/materialization/{node_name}/{node_version}/{materialization_name}/?node_type={node_type}",
+            f"/materialization/{node_name}/{node_version}/{materialization_name}/"
+            f"?node_type={node_type}",
             timeout=3,
             headers={
                 **self.requests_session.headers,
