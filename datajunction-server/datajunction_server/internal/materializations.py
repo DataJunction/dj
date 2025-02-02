@@ -13,6 +13,9 @@ from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.internal.cube_materializations import (
+    build_cube_materialization,
+)
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
@@ -250,13 +253,22 @@ async def create_new_materialization(
                 "temporal partition specified on the cube. Please make sure at "
                 "least one cube element has a temporal partition defined",
             )
-        generic_config = await build_cube_materialization_config(
-            session,
-            current_revision,
-            upsert,
-            validate_access,
-            current_user=current_user,
-        )
+
+        # Druid Cube (this job will take subsume all existing jobs)
+        if upsert.job == MaterializationJobTypeEnum.DRUID_CUBE:
+            generic_config = await build_cube_materialization(
+                session=session,
+                current_revision=current_revision,
+                upsert_input=upsert,
+            )
+        else:
+            generic_config = await build_cube_materialization_config(
+                session,
+                current_revision,
+                upsert,
+                validate_access,
+                current_user=current_user,
+            )
     materialization_name = (
         f"{upsert.job.name.lower()}__{upsert.strategy.name.lower()}"
         + (f"__{temporal_partition[0].name}" if temporal_partition else "")

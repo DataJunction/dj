@@ -460,6 +460,17 @@ class MaterializationJobTypeEnum(enum.Enum):
         job_class="DruidMetricsCubeMaterializationJob",
     )
 
+    DRUID_CUBE = MaterializationJobType(
+        name="druid_cube",
+        label="Druid Cube",
+        description=(
+            "Used to materialize a cube of metrics and dimensions to Druid for low-latency access."
+            "Will replace the other cube materialization types."
+        ),
+        allowed_node_types=[NodeType.CUBE],
+        job_class="DruidCubeMaterializationJob",
+    )
+
     @classmethod
     def find_match(cls, job_name: str) -> "MaterializationJobTypeEnum":
         """Find a matching enum value for the given job name"""

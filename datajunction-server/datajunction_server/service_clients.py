@@ -15,11 +15,15 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
     ErrorCode,
 )
+from datajunction_server.models.cube_materialization import (
+    DruidCubeMaterializationInput,
+)
 from datajunction_server.models.materialization import (
     DruidMaterializationInput,
     GenericMaterializationInput,
     MaterializationInfo,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.sql.parsing.types import ColumnType
@@ -232,6 +236,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         materialization_input: Union[
             GenericMaterializationInput,
             DruidMaterializationInput,
+            DruidCubeMaterializationInput,
         ],
         request_headers: Optional[Dict[str, str]] = None,
     ) -> MaterializationInfo:
@@ -241,7 +246,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         that this functionality may be moved to the materialization service at a later point.
         """
         response = self.requests_session.post(
-            "/materialization/",
+            "/cubes/materialize",
             json=materialization_input.dict(),
             headers={
                 **self.requests_session.headers,
@@ -282,6 +287,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         self,
         node_name: str,
         node_version: str,
+        node_type: NodeType,
         materialization_name: str,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> MaterializationInfo:
@@ -289,7 +295,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         Gets materialization info for the node and materialization config name.
         """
         response = self.requests_session.get(
-            f"/materialization/{node_name}/{node_version}/{materialization_name}/",
+            f"/materialization/{node_name}/{node_version}/{materialization_name}/?node_type={node_type}",
             timeout=3,
             headers={
                 **self.requests_session.headers,
@@ -305,13 +311,16 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
     def run_backfill(
         self,
         node_name: str,
+        node_version: str,
+        node_type: NodeType,
         materialization_name: str,
         partitions: List[PartitionBackfill],
         request_headers: Optional[Dict[str, str]] = None,
     ) -> MaterializationInfo:
         """Kicks off a backfill with the given backfill spec"""
         response = self.requests_session.post(
-            f"/materialization/run/{node_name}/{materialization_name}/",
+            f"/materialization/run/{node_name}/{materialization_name}"
+            f"/?node_version={node_version}&node_type={node_type}",
             json=[partition.dict() for partition in partitions],
             headers={
                 **self.requests_session.headers,

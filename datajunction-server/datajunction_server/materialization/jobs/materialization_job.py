@@ -44,6 +44,8 @@ class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
         """
         return query_service_client.run_backfill(
             materialization.node_revision.name,
+            materialization.node_revision.version,
+            materialization.node_revision.type,
             materialization.name,  # type: ignore
             partitions,
             request_headers=request_headers,

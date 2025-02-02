@@ -834,6 +834,8 @@ async def test_spark_sql_full(
     )
     assert module__query_service_client.run_backfill.call_args_list[0].args == (  # type: ignore
         "default.hard_hat",
+        "v1.0",
+        "dimension",
         "spark_sql__full__birth_date__country",
         [
             PartitionBackfill(
@@ -944,6 +946,8 @@ async def test_spark_sql_incremental(
     )
     assert module__query_service_client.run_backfill.call_args_list[-1].args == (  # type: ignore
         "default.hard_hat_2",
+        "v1.0",
+        "dimension",
         "spark_sql__incremental_time__birth_date",
         [
             PartitionBackfill(
