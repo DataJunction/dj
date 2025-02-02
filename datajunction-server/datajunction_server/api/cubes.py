@@ -12,14 +12,25 @@ from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.dimensions import build_dimensions_from_cube_query
 from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
+from datajunction_server.internal.materializations import build_cube_materialization
 from datajunction_server.internal.nodes import get_cube_revision_metadata
 from datajunction_server.models import access
 from datajunction_server.models.cube import (
     CubeRevisionMetadata,
     DimensionValue,
     DimensionValues,
+)
+from datajunction_server.models.cube_materialization import (
+    DruidCubeMaterializationInput,
+    UpsertCubeMaterialization,
+)
+from datajunction_server.models.materialization import (
+    Granularity,
+    MaterializationJobTypeEnum,
+    MaterializationStrategy,
 )
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import QueryCreate
@@ -45,6 +56,95 @@ async def get_cube(
     Get information on a cube
     """
     return await get_cube_revision_metadata(session, name)
+
+
+@router.get("/cubes/{name}/materialization", name="Materialization Config Cube")
+async def cube_materialization_info(
+    name: str,
+    session: AsyncSession = Depends(get_session),
+) -> DruidCubeMaterializationInput:
+    """
+    The standard cube materialization config. DJ makes sensible materialization choices
+    where possible.
+
+    Requirements:
+    - The cube must have a temporal partition column specified.
+    - The job strategy will always be "incremental time".
+
+    Outputs:
+    "measures_materializations":
+        We group the metrics by parent node. Then we try to pre-aggregate each parent node as
+        much as possible to prepare for metric queries on the cube's dimensions.
+    "combiners":
+        We combine each set of measures materializations on their shared grain. Note that we don't
+        support materializing cubes with measures materializations that don't share the same grain.
+        However, we keep `combiners` as a list in the eventual future where we support that.
+    "metrics":
+        We include a list of metrics, their required measures, and the derived expression (e.g., the
+        expression used by the metric that makes use of the pre-aggregated measures)
+
+    Once we create a scheduled materialization workflow, we freeze the metadata for that particular
+    materialized dataset. This allows us to reconstruct metrics SQL from the dataset when needed.
+    To request metrics from the materialized cube, use the metrics' measures metadata.
+    """
+    node = await Node.get_cube_by_name(session, name)
+    temporal_partitions = node.current.temporal_partition_columns()  # type: ignore
+    if not temporal_partitions:
+        raise DJInvalidInputException(
+            "The cube must have a temporal partition column set "
+            "in order for it to be materialized.",
+        )
+    temporal_partition = temporal_partitions[0] if temporal_partitions else None
+    granularity_lookback_defaults = {
+        Granularity.MINUTE: "1 MINUTE",
+        Granularity.HOUR: "1 HOUR",
+        Granularity.DAY: "1 DAY",
+        Granularity.WEEK: "1 WEEK",
+        Granularity.MONTH: "1 MONTH",
+        Granularity.QUARTER: "1 QUARTER",
+        Granularity.YEAR: "1 YEAR",
+    }
+    granularity_cron_defaults = {
+        Granularity.MINUTE: "* * * * *",  # Runs every minute
+        Granularity.HOUR: "0 * * * *",  # Runs at the start of every hour
+        Granularity.DAY: "0 0 * * *",  # Runs at midnight every day
+        Granularity.WEEK: "0 0 * * 0",  # Runs at midnight on Sundays
+        Granularity.MONTH: "0 0 1 * *",  # Runs at midnight on the first of every month
+        Granularity.QUARTER: "0 0 1 */3 *",  # Runs at midnight on the first day of each quarter
+        Granularity.YEAR: "0 0 1 1 *",  # Runs at midnight on January 1st every year
+    }
+    upsert = UpsertCubeMaterialization(
+        job=MaterializationJobTypeEnum.DRUID_CUBE,
+        strategy=(
+            MaterializationStrategy.INCREMENTAL_TIME
+            if temporal_partition
+            else MaterializationStrategy.FULL
+        ),
+        lookback_window=granularity_lookback_defaults.get(
+            temporal_partition.partition.granularity,
+            granularity_lookback_defaults[Granularity.DAY],
+        ),
+        schedule=granularity_cron_defaults.get(
+            temporal_partition.partition.granularity,
+            granularity_cron_defaults[Granularity.DAY],
+        ),
+    )
+    cube_config = await build_cube_materialization(
+        session,
+        node.current,  # type: ignore
+        upsert,
+    )
+    return DruidCubeMaterializationInput(
+        name="",
+        cube=cube_config.cube,
+        dimensions=cube_config.dimensions,
+        metrics=cube_config.metrics,
+        strategy=upsert.strategy,
+        schedule=upsert.schedule,
+        job=upsert.job.name,
+        measures_materializations=cube_config.measures_materializations,
+        combiners=cube_config.combiners,
+    )
 
 
 @router.get("/cubes/{name}/dimensions/sql", name="Dimensions SQL for Cube")

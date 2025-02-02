@@ -6,13 +6,16 @@ from pydantic import BaseModel, Field, validator
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.models.materialization import MaterializationJobTypeEnum, MaterializationStrategy, DRUID_AGG_MAPPING
-from datajunction_server.models.node_type import NodeNameVersion
-from datajunction_server.models.partition import (
-    Granularity,
-)
-from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.models.column import SemanticType
+from datajunction_server.models.materialization import (
+    DRUID_AGG_MAPPING,
+    MaterializationJobTypeEnum,
+    MaterializationStrategy,
+)
+from datajunction_server.models.node_type import NodeNameVersion
+from datajunction_server.models.partition import Granularity
+from datajunction_server.models.query import ColumnMetadata
+
 
 class Aggregability(StrEnum):
     """
@@ -110,12 +113,9 @@ class MeasuresMaterialization(BaseModel):
         description="The time granularity for each materialization run. Examples: DAY, HOUR",
     )
 
-    spark_conf: dict[str, str] | None = Field(
+    spark_conf: Dict[str, str] | None = Field(
         description="Spark config for this materialization.",
     )
-    # druid_spec: dict[str, Any] | None = Field(
-    #     description="Druid ingestion configuration for this materialization.",
-    # )
     upstream_tables: list[str] = Field(
         description="List of upstream tables used in this materialization.",
     )
@@ -124,7 +124,9 @@ class MeasuresMaterialization(BaseModel):
         """
         Generate a unique output table name based on the parameters.
         """
-        from datajunction_server.sql.parsing import ast
+        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
+            ast,
+        )
 
         return ast.Table(name=ast.Name(self.output_table_name))
 
@@ -154,6 +156,9 @@ class MeasuresMaterialization(BaseModel):
 
     @classmethod
     def from_measures_query(cls, measures_query, temporal_partition):
+        """
+        Builds a MeasuresMaterialization object from a measures query.
+        """
         return MeasuresMaterialization(
             node=measures_query.node,
             grain=measures_query.grain,
@@ -202,7 +207,10 @@ class CubeMetric(BaseModel):
         description="List of measures required by this metric.",
     )
     derived_expression: str = Field(
-        description="The expression for rewriting the original metric query using the materialized measures.",
+        description=(
+            "The expression for rewriting the original metric query "
+            "using the materialized measures.",
+        ),
     )
 
 
@@ -247,9 +255,12 @@ class UpsertCubeMaterialization(BaseModel):
 
 
 class CombineMaterialization(BaseModel):
+    """
+    Stage for combining measures datasets at their shared grain and ingesting to Druid.
+    Note that if there is only one upstream measures dataset, the Spark combining stage will
+    be skipped and we ingest the aggregated measures directly to Druid.
+    """
 
-    # Optional query to combine measures. If there is only one measures output
-    # then this is unnecessary.
     node: NodeNameVersion
     query: str | None
     columns: List[ColumnMetadata]
@@ -275,6 +286,9 @@ class CombineMaterialization(BaseModel):
 
     @property
     def output_table_name(self) -> str:
+        """
+        Builds an output table name based on the node and a hash of its unique key.
+        """
         unique_string = "|".join(
             [
                 self.node.name,

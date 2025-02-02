@@ -175,7 +175,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
             session,
             node_revision_id=current_revision.id,
             materialization_names=[new_materialization.name],
-            query_service_client=get_query_service_client(),  # type: ignore
+            query_service_client=get_query_service_client(request),  # type: ignore
             request_headers=request_headers,
         )
         return JSONResponse(
@@ -250,7 +250,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
         session,
         node_revision_id=current_revision.id,
         materialization_names=[new_materialization.name],
-        query_service_client=get_query_service_client(),  # type: ignore
+        query_service_client=get_query_service_client(request),  # type: ignore
         request_headers=request_headers,
     )
     return JSONResponse(

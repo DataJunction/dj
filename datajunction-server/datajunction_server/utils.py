@@ -185,7 +185,9 @@ async def refresh_if_needed(session: AsyncSession, obj, attributes: list[str]):
         await session.refresh(obj, attributes_to_refresh)
 
 
-def get_query_service_client() -> Optional[QueryServiceClient]:
+def get_query_service_client(  # pylint: disable=unused-argument
+    request: Request = None,
+) -> Optional[QueryServiceClient]:
     """
     Return query service client
     """
