@@ -23,12 +23,12 @@ from datajunction_server.errors import (
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
+from datajunction_server.models.cube_materialization import Aggregability, Measure
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.sql import GeneratedSQL
 from datajunction_server.naming import amenable_name, from_amenable_name
-from datajunction_server.sql.decompose import Aggregability, Measure
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, cached_parse, parse
 from datajunction_server.utils import SEPARATOR, refresh_if_needed
@@ -262,6 +262,15 @@ async def get_measures_query(  # pylint: disable=too-many-locals
                     else [pk_col.name for pk_col in parent_node.current.primary_key()]
                 ),
                 errors=query_builder.errors,
+                metrics={
+                    metric.name: (
+                        metrics2measures[metric.name][0],
+                        str(metrics2measures[metric.name][1]).replace("\n", "")
+                        if preaggregate
+                        else metric.query,
+                    )
+                    for metric in children
+                },
             ),
         )
     return measures_queries
