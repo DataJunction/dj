@@ -604,6 +604,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         response = query_service_client.get_materialization_info(
             node_name="default.hard_hat",
             node_version="v3.1",
+            node_type=NodeType.DIMENSION,
             materialization_name="default",
         )
         mock_request.assert_called_with(
@@ -633,6 +634,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         response = query_service_client.get_materialization_info(
             node_name="default.hard_hat",
             node_version="v3.1",
+            node_type=NodeType.DIMENSION,
             materialization_name="default",
         )
         assert response == {
@@ -659,6 +661,8 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         query_service_client = QueryServiceClient(uri=self.endpoint)
         response = query_service_client.run_backfill(
             node_name="default.hard_hat",
+            node_version="v1",
+            node_type=NodeType.DIMENSION,
             partitions=[
                 PartitionBackfill(
                     column_name="hire_date",
@@ -689,6 +693,8 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         query_service_client = QueryServiceClient(uri=self.endpoint)
         response = query_service_client.run_backfill(
             node_name="default.hard_hat",
+            node_version="v1",
+            node_type=NodeType.DIMENSION,
             partitions=[
                 PartitionBackfill(
                     column_name="hire_date",

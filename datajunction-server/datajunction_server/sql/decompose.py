@@ -2,55 +2,13 @@
 import hashlib
 from functools import lru_cache
 
-from pydantic import BaseModel
-
-from datajunction_server.enum import StrEnum
+from datajunction_server.models.cube_materialization import (
+    Aggregability,
+    AggregationRule,
+    Measure,
+)
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
-
-
-class Aggregability(StrEnum):
-    """
-    Type of allowed aggregation for a given measure.
-    """
-
-    FULL = "full"
-    LIMITED = "limited"
-    NONE = "none"
-
-
-class AggregationRule(BaseModel):
-    """
-    The aggregation rule for the measure. If the Aggregability type is LIMITED, the `level` should
-    be specified to highlight the level at which the measure needs to be aggregated in order to
-    support the specified aggregation function.
-
-    For example, consider a metric like COUNT(DISTINCT user_id). It can be decomposed into a
-    single measure with LIMITED aggregability, i.e., it is only aggregatable if the measure is
-    calculated at the `user_id` level:
-    - name: num_users
-      expression: DISTINCT user_id
-      aggregation: COUNT
-      rule:
-        type: LIMITED
-        level: ["user_id"]
-    """
-
-    type: Aggregability = Aggregability.NONE
-    level: list[str] | None = None
-
-
-class Measure(BaseModel):
-    """
-    Measures are aggregated facts (e.g. SUM(view_secs)). They can be optionally combined
-    to build derived metrics, e.g. SUM(clicks) / SUM(view_secs). Combining is optional because
-    a stand-alone measure can itself be a metric.
-    """
-
-    name: str
-    expression: str  # A SQL expression for defining the measure
-    aggregation: str
-    rule: AggregationRule
 
 
 class MeasureExtractor:

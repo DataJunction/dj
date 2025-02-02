@@ -27,6 +27,7 @@ from datajunction_server.internal.materializations import (
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models import access
 from datajunction_server.models.base import labelize
+from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.materialization import (
     MaterializationConfigInfoUnified,
     MaterializationConfigOutput,
@@ -80,7 +81,7 @@ def materialization_jobs_info() -> JSONResponse:
 )
 async def upsert_materialization(  # pylint: disable=too-many-locals
     node_name: str,
-    data: UpsertMaterialization,
+    data: UpsertCubeMaterialization | UpsertMaterialization,
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
@@ -95,7 +96,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
     for the materialization config, it will always update that named config.
     """
     request_headers = dict(request.headers)
-    node = await Node.get_by_name(session, node_name)
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     if node.type == NodeType.SOURCE:  # type: ignore
         raise DJInvalidInputException(
             http_status_code=HTTPStatus.BAD_REQUEST,
@@ -103,6 +104,11 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
         )
     if node.type == NodeType.CUBE:  # type: ignore
         node = await Node.get_cube_by_name(session, node_name)
+    _logger.info(
+        "Upserting materialization for node=%s@%s",
+        node.name,  # type: ignore
+        node.current_version,  # type: ignore
+    )
 
     current_revision = node.current  # type: ignore
     old_materializations = {mat.name: mat for mat in current_revision.materializations}
@@ -131,6 +137,11 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
         existing_materialization
         and existing_materialization.config == new_materialization.config
     ):
+        _logger.info(
+            "Existing materialization found for node=%s@%s",
+            node.name,  # type: ignore
+            node.current_version,  # type: ignore
+        )
         new_materialization.node_revision = None  # type: ignore
         # if the materialization was deactivated before, restore it
         if existing_materialization.deactivated_at is not None:
@@ -151,15 +162,20 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
         existing_materialization_info = query_service_client.get_materialization_info(
             node_name,
             current_revision.version,  # type: ignore
+            current_revision.type,
             new_materialization.name,  # type: ignore
             request_headers=request_headers,
         )
-        # refresh existing materialization job
+        _logger.info(
+            "Refresh materialization workflows for node=%s@%s",
+            node.name,  # type: ignore
+            node.current_version,  # type: ignore
+        )
         await schedule_materialization_jobs(
             session,
             node_revision_id=current_revision.id,
             materialization_names=[new_materialization.name],
-            query_service_client=query_service_client,
+            query_service_client=get_query_service_client(),  # type: ignore
             request_headers=request_headers,
         )
         return JSONResponse(
@@ -178,12 +194,22 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
         )
     # If changes are detected, update the existing or save the new materialization
     if existing_materialization:
+        _logger.info(
+            "Updating existing materialization for node=%s@%s",
+            node.name,  # type: ignore
+            node.current_version,  # type: ignore
+        )
         existing_materialization.config = new_materialization.config
         existing_materialization.schedule = new_materialization.schedule
         new_materialization.node_revision = None  # type: ignore
         new_materialization = existing_materialization
         new_materialization.deactivated_at = None
     else:
+        _logger.info(
+            "Adding new materialization for node=%s@%s",
+            node.name,  # type: ignore
+            node.current_version,  # type: ignore
+        )
         unchanged_existing_materializations = [
             config
             for config in current_revision.materializations
@@ -215,12 +241,16 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
         ),
     )
     await session.commit()
-
+    _logger.info(
+        "Scheduling materialization workflows for node=%s@%s",
+        node.name,  # type: ignore
+        node.current_version,  # type: ignore
+    )
     materialization_response = await schedule_materialization_jobs(
         session,
         node_revision_id=current_revision.id,
         materialization_names=[new_materialization.name],
-        query_service_client=query_service_client,
+        query_service_client=get_query_service_client(),  # type: ignore
         request_headers=request_headers,
     )
     return JSONResponse(
@@ -260,6 +290,7 @@ async def list_node_materializations(
             info = query_service_client.get_materialization_info(
                 node_name,
                 node.current.version,  # type: ignore
+                node.type,  # type: ignore
                 materialization.name,  # type: ignore
                 request_headers=request_headers,
             )
