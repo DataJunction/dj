@@ -7,13 +7,14 @@ from pydantic.class_validators import root_validator
 from pydantic.main import BaseModel
 
 from datajunction_server.database.node import Node
+from datajunction_server.models.cube_materialization import Measure
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
     MetricMetadataOutput,
 )
 from datajunction_server.models.query import ColumnMetadata
-from datajunction_server.sql.decompose import Measure, MeasureExtractor
+from datajunction_server.sql.decompose import MeasureExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.transpilation import get_transpilation_plugin
 from datajunction_server.typing import UTCDatetime

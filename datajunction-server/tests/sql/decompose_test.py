@@ -3,12 +3,12 @@ Tests for ``datajunction_server.sql.decompose``.
 """
 import pytest
 
-from datajunction_server.sql.decompose import (
+from datajunction_server.models.cube_materialization import (
     Aggregability,
     AggregationRule,
     Measure,
-    MeasureExtractor,
 )
+from datajunction_server.sql.decompose import MeasureExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
