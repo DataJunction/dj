@@ -133,21 +133,12 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
 
                     <Field as="select" name="job_type">
                       <>
-                        {/* <option
-                          key={'druid_measures_cube'}
-                          value={'druid_measures_cube'}
-                        >
-                          Druid Measures Cube (Pre-Agg Cube)
-                        </option> */}
                         <option
-                          key={'druid_measures_cube'}
-                          value={'druid_measures_cube'}
+                          key={'druid_cube'}
+                          value={'druid_cube'}
                         >
                           Druid
                         </option>
-                        {/* <option key={'spark_sql'} value={'spark_sql'}>
-                          Iceberg Table
-                        </option> */}
                       </>
                     </Field>
                     <br />
