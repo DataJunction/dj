@@ -750,6 +750,11 @@ async def module__client(  # pylint: disable=too-many-statements
 
         return _
 
+    module_mocker.patch(
+        "datajunction_server.api.materializations.get_query_service_client",
+        get_query_service_client_override,
+    )
+
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
     app.dependency_overrides[validate_access] = default_validate_access
@@ -757,21 +762,17 @@ async def module__client(  # pylint: disable=too-many-statements
         get_query_service_client
     ] = get_query_service_client_override
 
-    with module_mocker.patch(
-        "datajunction_server.api.materializations.get_query_service_client",
-        get_query_service_client_override,
-    ):
-        async with AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://test",
-        ) as test_client:
-            test_client.headers.update(
-                {
-                    "Authorization": f"Bearer {EXAMPLE_TOKEN}",
-                },
-            )
-            test_client.app = app
-            yield test_client
+    async with AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as test_client:
+        test_client.headers.update(
+            {
+                "Authorization": f"Bearer {EXAMPLE_TOKEN}",
+            },
+        )
+        test_client.app = app
+        yield test_client
 
     app.dependency_overrides.clear()
 
