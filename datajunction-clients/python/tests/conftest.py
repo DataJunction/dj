@@ -26,6 +26,7 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
+from fastapi import Request
 from httpx import AsyncClient
 from pytest_mock import MockerFixture
 from sqlalchemy import create_engine
