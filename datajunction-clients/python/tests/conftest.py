@@ -274,6 +274,7 @@ def module__server(  # pylint: disable=too-many-statements
     module__session: AsyncSession,
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,
+    module_mocker,
 ) -> Iterator[TestClient]:
     """
     Create a mock server for testing APIs that contains a mock query service.
@@ -289,6 +290,11 @@ def module__server(  # pylint: disable=too-many-statements
 
     def get_settings_override() -> Settings:
         return module__settings
+
+    module_mocker.patch(
+        "datajunction_server.api.materializations.get_query_service_client",
+        get_query_service_client_override,
+    )
 
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
