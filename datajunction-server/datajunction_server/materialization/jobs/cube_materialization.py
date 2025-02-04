@@ -141,7 +141,7 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
                 "The materialization job config class must be defined!",
             )
         cube_config = self.config_class.parse_obj(materialization.config)  # type: ignore
-        return query_service_client.materialize(
+        return query_service_client.materialize_cube(
             materialization_input=DruidCubeMaterializationInput(
                 name=materialization.name,
                 cube=cube_config.cube,

@@ -278,7 +278,9 @@ def module__server(  # pylint: disable=too-many-statements
     Create a mock server for testing APIs that contains a mock query service.
     """
 
-    def get_query_service_client_override() -> QueryServiceClient:
+    def get_query_service_client_override(
+        request: Request = None,  # pylint: disable=unused-argument
+    ) -> QueryServiceClient:
         return module__query_service_client
 
     async def get_session_override() -> AsyncSession:
