@@ -2910,7 +2910,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["message"] == (
             "Materialization job type `SOMETHING` not found. Available job "
-            "types: ['SPARK_SQL', 'DRUID_MEASURES_CUBE', 'DRUID_METRICS_CUBE']"
+            "types: ['SPARK_SQL', 'DRUID_MEASURES_CUBE', 'DRUID_METRICS_CUBE', 'DRUID_CUBE']"
         )
 
     @pytest.mark.asyncio

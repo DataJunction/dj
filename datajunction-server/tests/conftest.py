@@ -693,7 +693,7 @@ async def module__client(  # pylint: disable=too-many-statements
     module__session: AsyncSession,
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,  # pylint: disable=unused-argument
-    mocker: MockerFixture,
+    module_mocker: MockerFixture,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -710,7 +710,7 @@ async def module__client(  # pylint: disable=too-many-statements
     def get_query_service_client_override(
         request: Request = None,  # pylint: disable=unused-argument
     ) -> QueryServiceClient:
-        return query_service_client
+        return module__query_service_client
 
     def get_session_override() -> AsyncSession:
         return module__session
@@ -724,7 +724,7 @@ async def module__client(  # pylint: disable=too-many-statements
 
         return _
 
-    mocker.patch(
+    module_mocker.patch(
         "datajunction_server.api.materializations.get_query_service_client",
         get_query_service_client_override,
     )
