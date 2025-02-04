@@ -608,7 +608,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             materialization_name="default",
         )
         mock_request.assert_called_with(
-            "/materialization/default.hard_hat/v3.1/default/",
+            "/materialization/default.hard_hat/v3.1/default/?node_type=dimension",
             timeout=3,
             headers=ANY,
         )
@@ -676,7 +676,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "output_tables": [],
         }
         mocked_call.assert_called_with(
-            "/materialization/run/default.hard_hat/default/",
+            "/materialization/run/default.hard_hat/default/?node_version=v1&node_type=dimension",
             json=[
                 {
                     "column_name": "hire_date",
@@ -712,7 +712,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "output_tables": [],
         }
         mocked_call.assert_called_with(
-            "/materialization/run/default.hard_hat/default/",
+            "/materialization/run/default.hard_hat/default/?node_version=v1&node_type=dimension",
             json=[
                 {
                     "column_name": "hire_date",

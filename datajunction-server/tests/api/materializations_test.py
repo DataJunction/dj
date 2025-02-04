@@ -156,6 +156,17 @@ async def test_materialization_info(module__client: AsyncClient) -> None:
                 "label": "Druid Metrics Cube (Post-Agg Cube)",
                 "name": "druid_metrics_cube",
             },
+            {
+                "allowed_node_types": [
+                    "cube",
+                ],
+                "description": "Used to materialize a cube of metrics and dimensions to Druid for "
+                "low-latency access.Will replace the other cube materialization "
+                "types.",
+                "job_class": "DruidCubeMaterializationJob",
+                "label": "Druid Cube",
+                "name": "druid_cube",
+            },
         ],
         "strategies": [
             {"label": "Full", "name": "full"},
