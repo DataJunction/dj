@@ -1,4 +1,5 @@
 """Node materialization helper functions"""
+import logging
 import zlib
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -40,6 +41,7 @@ from datajunction_server.sql.parsing.types import TimestampType
 from datajunction_server.utils import SEPARATOR
 
 MAX_COLUMN_NAME_LENGTH = 128
+_logger = logging.getLogger(__name__)
 
 
 async def rewrite_metrics_expressions(
@@ -193,6 +195,12 @@ async def build_non_cube_materialization_config(
     """
     Build materialization config for non-cube nodes (transforms and dimensions).
     """
+    _logger.info(
+        "Building materialization config for node=%s node_type=%s %s",
+        current_revision.name,
+        current_revision.type,
+        upsert,
+    )
     build_criteria = get_default_criteria(
         node=current_revision,
     )

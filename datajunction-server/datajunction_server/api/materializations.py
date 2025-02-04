@@ -81,7 +81,7 @@ def materialization_jobs_info() -> JSONResponse:
 )
 async def upsert_materialization(  # pylint: disable=too-many-locals
     node_name: str,
-    data: UpsertCubeMaterialization | UpsertMaterialization,
+    data: UpsertMaterialization | UpsertCubeMaterialization,
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,

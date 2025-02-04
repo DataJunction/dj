@@ -236,8 +236,32 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         materialization_input: Union[
             GenericMaterializationInput,
             DruidMaterializationInput,
-            DruidCubeMaterializationInput,
         ],
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> MaterializationInfo:
+        """
+        Post a request to the query service asking it to set up a scheduled materialization
+        for the node. The query service is expected to manage all reruns of this job. Note
+        that this functionality may be moved to the materialization service at a later point.
+        """
+        response = self.requests_session.post(
+            "/materialization/",
+            json=materialization_input.dict(),
+            headers={
+                **self.requests_session.headers,
+                **QueryServiceClient.filtered_headers(request_headers),
+            }
+            if request_headers
+            else self.requests_session.headers,
+        )
+        if response.status_code not in (200, 201):  # pragma: no cover
+            return MaterializationInfo(urls=[], output_tables=[])
+        result = response.json()
+        return MaterializationInfo(**result)
+
+    def materialize_cube(
+        self,
+        materialization_input: DruidCubeMaterializationInput,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> MaterializationInfo:
         """
