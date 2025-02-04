@@ -110,6 +110,32 @@ def settings(
     yield settings
 
 
+@pytest_asyncio.fixture
+def settings_no_qs(
+    mocker: MockerFixture,
+    postgres_container: PostgresContainer,
+) -> Iterator[Settings]:
+    """
+    Custom settings for unit tests.
+    """
+    settings = Settings(
+        index=postgres_container.get_connection_url(),
+        repository="/path/to/repository",
+        results_backend=SimpleCache(default_timeout=0),
+        celery_broker=None,
+        redis_cache=None,
+        query_service=None,
+        secret="a-fake-secretkey",
+    )
+
+    mocker.patch(
+        "datajunction_server.utils.get_settings",
+        return_value=settings,
+    )
+
+    yield settings
+
+
 @pytest.fixture(scope="session")
 def duckdb_conn() -> duckdb.DuckDBPyConnection:  # pylint: disable=c-extension-no-member
     """
@@ -333,7 +359,7 @@ def query_service_client(
 @pytest_asyncio.fixture
 async def client(  # pylint: disable=too-many-statements
     session: AsyncSession,
-    settings: Settings,
+    settings_no_qs: Settings,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -343,7 +369,7 @@ async def client(  # pylint: disable=too-many-statements
         return session
 
     def get_settings_override() -> Settings:
-        return settings
+        return settings_no_qs
 
     def default_validate_access() -> ValidateAccessFn:
         def _(access_control: AccessControl):
@@ -724,11 +750,6 @@ async def module__client(  # pylint: disable=too-many-statements
 
         return _
 
-    module_mocker.patch(
-        "datajunction_server.api.materializations.get_query_service_client",
-        get_query_service_client_override,
-    )
-
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
     app.dependency_overrides[validate_access] = default_validate_access
@@ -736,17 +757,21 @@ async def module__client(  # pylint: disable=too-many-statements
         get_query_service_client
     ] = get_query_service_client_override
 
-    async with AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://test",
-    ) as test_client:
-        test_client.headers.update(
-            {
-                "Authorization": f"Bearer {EXAMPLE_TOKEN}",
-            },
-        )
-        test_client.app = app
-        yield test_client
+    with module_mocker.patch(
+        "datajunction_server.api.materializations.get_query_service_client",
+        get_query_service_client_override,
+    ):
+        async with AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as test_client:
+            test_client.headers.update(
+                {
+                    "Authorization": f"Bearer {EXAMPLE_TOKEN}",
+                },
+            )
+            test_client.app = app
+            yield test_client
 
     app.dependency_overrides.clear()
 
