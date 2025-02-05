@@ -48,4 +48,4 @@ appropriate join paths between nodes to generate queries for metrics.
 
 ## The Community
 
-To get involved, feel free to join the DataJunction open-source community sync that's held ever two weeks--all are welcome! For an invite to the sync, simply join the [datajunction-community](https://groups.google.com/g/datajunction-community) google group.
+To get involved, feel free to join the DataJunction open-source community sync that's held ever two weeks--all are welcome! For an invite to the sync, simply join the [datajunction-community](https://groups.google.com/g/datajunction-community) google group. Also please join us on [slack](https://join.slack.com/t/dj-w5m3063/shared_invite/zt-2zazrd9xw-wnjm5a_sIuQ3uqgjS~pO~w)!
