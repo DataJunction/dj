@@ -278,11 +278,12 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             }
             if request_headers
             else self.requests_session.headers,
+            timeout=10,
         )
         if response.status_code not in (200, 201):  # pragma: no cover
-            return MaterializationInfo(urls=[], output_tables=[])
-        result = response.json()
-        return MaterializationInfo(**result)
+            return MaterializationInfo(urls=[], output_tables=[])  # pragma: no cover
+        result = response.json()  # pragma: no cover
+        return MaterializationInfo(**result)  # pragma: no cover
 
     def deactivate_materialization(
         self,

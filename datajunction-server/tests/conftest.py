@@ -1038,6 +1038,17 @@ def module__query_service_client(
         mock_materialize,
     )
 
+    mock_materialize_cube = MagicMock()
+    mock_materialize_cube.return_value = MaterializationInfo(
+        urls=["http://fake.url/job"],
+        output_tables=["common.a", "common.b"],
+    )
+    module_mocker.patch.object(
+        qs_client,
+        "materialize_cube",
+        mock_materialize_cube,
+    )
+
     mock_deactivate_materialization = MagicMock()
     mock_deactivate_materialization.return_value = MaterializationInfo(
         urls=["http://fake.url/job"],
