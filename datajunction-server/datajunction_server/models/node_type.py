@@ -45,14 +45,3 @@ class NodeNameVersion(BaseModel):
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         orm_mode = True
-
-    def __str__(self):
-        return f"{self.name}@{self.version}"
-
-    @classmethod
-    def from_string(cls, node_name_version: str):
-        """
-        Returns the object from a name + version string in the format node.name@v1
-        """
-        name, version = node_name_version.split("@")
-        return NodeNameVersion(name=name, version=version)
