@@ -239,7 +239,7 @@ class UpsertCubeMaterialization(BaseModel):
         """
         Validates the `job` field. Converts to an enum if `job` is a string.
         """
-        if isinstance(job, str):
+        if isinstance(job, str):  # pragma: no cover
             job_name = job.upper()
             options = (
                 MaterializationJobTypeEnum._member_names_  # pylint: disable=protected-access,no-member
