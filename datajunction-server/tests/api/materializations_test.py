@@ -741,7 +741,7 @@ async def test_druid_cube_incremental(
     - Job Type: druid_cube
     - Strategy: incremental_time
     """
-    cube_name = "default.repairs_cube__incremental"
+    cube_name = "default.repairs_cube__default_incremental"
     client_with_repairs_cube = await client_with_repairs_cube(cube_name=cube_name)
     # [failure] If there is no time partition column configured
     response = await client_with_repairs_cube.post(
@@ -776,7 +776,7 @@ async def test_druid_cube_incremental(
     assert response.status_code in (200, 201)
     assert response.json()["message"] == (
         "Successfully updated materialization config named `druid_cube__incremental_time__default"
-        ".repair_orders_fact.order_date` for node `default.repairs_cube__incremental`"
+        ".repair_orders_fact.order_date` for node `default.repairs_cube__default_incremental`"
     )
     _, kwargs = module__query_service_client.materialize_cube.call_args_list[0]  # type: ignore
     mat = kwargs["materialization_input"]
@@ -786,7 +786,7 @@ async def test_druid_cube_incremental(
     )
     assert mat.job == "DruidCubeMaterializationJob"
     assert mat.cube == NodeNameVersion(
-        name="default.repairs_cube__incremental",
+        name="default.repairs_cube__default_incremental",
         version="v1.0",
     )
     assert mat.dimensions == [
