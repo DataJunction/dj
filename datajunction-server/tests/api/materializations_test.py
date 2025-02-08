@@ -12,7 +12,6 @@ from httpx import AsyncClient
 from datajunction_server.models.cube_materialization import (
     Aggregability,
     AggregationRule,
-    CombineMaterialization,
     CubeMetric,
     Measure,
     MeasureKey,
@@ -937,91 +936,98 @@ async def test_druid_cube_incremental(
         "default.roads.municipality_municipality_type",
         "default.roads.municipality_type",
     ]
-    assert mat.combiners == [
-        CombineMaterialization(
-            node=NodeNameVersion(name="default.repair_orders_fact", version=ANY_STRING),
-            query=None,
-            columns=[
-                ColumnMetadata(
-                    name="default_DOT_repair_orders_fact_DOT_order_date",
-                    type="timestamp",
-                    column="order_date",
-                    node="default.repair_orders_fact",
-                    semantic_entity="default.repair_orders_fact.order_date",
-                    semantic_type="dimension",
-                ),
-                ColumnMetadata(
-                    name="default_DOT_hard_hat_DOT_state",
-                    type="string",
-                    column="state",
-                    node="default.hard_hat",
-                    semantic_entity="default.hard_hat.state",
-                    semantic_type="dimension",
-                ),
-                ColumnMetadata(
-                    name="default_DOT_dispatcher_DOT_company_name",
-                    type="string",
-                    column="company_name",
-                    node="default.dispatcher",
-                    semantic_entity="default.dispatcher.company_name",
-                    semantic_type="dimension",
-                ),
-                ColumnMetadata(
-                    name="default_DOT_municipality_dim_DOT_local_region",
-                    type="string",
-                    column="local_region",
-                    node="default.municipality_dim",
-                    semantic_entity="default.municipality_dim.local_region",
-                    semantic_type="dimension",
-                ),
-                ColumnMetadata(
-                    name="repair_order_id_count_0b7dfba0",
-                    type="bigint",
-                    column="repair_order_id_count_0b7dfba0",
-                    node="default.repair_orders_fact",
-                    semantic_entity="default.repair_orders_fact.repair_order_id_count_0b7dfba0",
-                    semantic_type="measure",
-                ),
-                ColumnMetadata(
-                    name="total_repair_cost_sum_9bdaf803",
-                    type="double",
-                    column="total_repair_cost_sum_9bdaf803",
-                    node="default.repair_orders_fact",
-                    semantic_entity="default.repair_orders_fact.total_repair_cost_sum_9bdaf803",
-                    semantic_type="measure",
-                ),
-            ],
-            grain=[
-                "default_DOT_repair_orders_fact_DOT_order_date",
-                "default_DOT_hard_hat_DOT_state",
-                "default_DOT_dispatcher_DOT_company_name",
-                "default_DOT_municipality_dim_DOT_local_region",
-            ],
-            dimensions=[
-                "default_DOT_repair_orders_fact_DOT_order_date",
-                "default_DOT_hard_hat_DOT_state",
-                "default_DOT_dispatcher_DOT_company_name",
-                "default_DOT_municipality_dim_DOT_local_region",
-            ],
-            measures=[
-                Measure(
-                    name="repair_order_id_count_0b7dfba0",
-                    expression="repair_order_id",
-                    aggregation="COUNT",
-                    rule=AggregationRule(type=Aggregability.FULL, level=None),
-                ),
-                Measure(
-                    name="total_repair_cost_sum_9bdaf803",
-                    expression="total_repair_cost",
-                    aggregation="SUM",
-                    rule=AggregationRule(type=Aggregability.FULL, level=None),
-                ),
-            ],
-            timestamp_column="default_DOT_repair_orders_fact_DOT_order_date",
-            timestamp_format="yyyyMMdd",
-            granularity=Granularity.DAY,
-            upstream_tables=["default_repair_orders_fact_v1_0_950074a749e6c113"],
+    assert mat.measures_materializations[0].output_table_name == (
+        "default_repair_orders_fact_v1_0_950074a749e6c113"
+    )
+    assert mat.combiners[0].node == NodeNameVersion(
+        name="default.repair_orders_fact",
+        version=ANY_STRING,
+    )
+    assert mat.combiners[0].query is None
+    assert mat.combiners[0].columns == [
+        ColumnMetadata(
+            name="default_DOT_repair_orders_fact_DOT_order_date",
+            type="timestamp",
+            column="order_date",
+            node="default.repair_orders_fact",
+            semantic_entity="default.repair_orders_fact.order_date",
+            semantic_type="dimension",
         ),
+        ColumnMetadata(
+            name="default_DOT_hard_hat_DOT_state",
+            type="string",
+            column="state",
+            node="default.hard_hat",
+            semantic_entity="default.hard_hat.state",
+            semantic_type="dimension",
+        ),
+        ColumnMetadata(
+            name="default_DOT_dispatcher_DOT_company_name",
+            type="string",
+            column="company_name",
+            node="default.dispatcher",
+            semantic_entity="default.dispatcher.company_name",
+            semantic_type="dimension",
+        ),
+        ColumnMetadata(
+            name="default_DOT_municipality_dim_DOT_local_region",
+            type="string",
+            column="local_region",
+            node="default.municipality_dim",
+            semantic_entity="default.municipality_dim.local_region",
+            semantic_type="dimension",
+        ),
+        ColumnMetadata(
+            name="repair_order_id_count_0b7dfba0",
+            type="bigint",
+            column="repair_order_id_count_0b7dfba0",
+            node="default.repair_orders_fact",
+            semantic_entity="default.repair_orders_fact.repair_order_id_count_0b7dfba0",
+            semantic_type="measure",
+        ),
+        ColumnMetadata(
+            name="total_repair_cost_sum_9bdaf803",
+            type="double",
+            column="total_repair_cost_sum_9bdaf803",
+            node="default.repair_orders_fact",
+            semantic_entity="default.repair_orders_fact.total_repair_cost_sum_9bdaf803",
+            semantic_type="measure",
+        ),
+    ]
+    assert mat.combiners[0].grain == [
+        "default_DOT_repair_orders_fact_DOT_order_date",
+        "default_DOT_hard_hat_DOT_state",
+        "default_DOT_dispatcher_DOT_company_name",
+        "default_DOT_municipality_dim_DOT_local_region",
+    ]
+    assert mat.combiners[0].dimensions == [
+        "default_DOT_repair_orders_fact_DOT_order_date",
+        "default_DOT_hard_hat_DOT_state",
+        "default_DOT_dispatcher_DOT_company_name",
+        "default_DOT_municipality_dim_DOT_local_region",
+    ]
+    assert mat.combiners[0].measures == [
+        Measure(
+            name="repair_order_id_count_0b7dfba0",
+            expression="repair_order_id",
+            aggregation="COUNT",
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+        Measure(
+            name="total_repair_cost_sum_9bdaf803",
+            expression="total_repair_cost",
+            aggregation="SUM",
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+    ]
+    assert (
+        mat.combiners[0].timestamp_column
+        == "default_DOT_repair_orders_fact_DOT_order_date"
+    )
+    assert mat.combiners[0].timestamp_format == "yyyyMMdd"
+    assert mat.combiners[0].granularity == Granularity.DAY
+    assert mat.combiners[0].upstream_tables == [
+        "default_repair_orders_fact_v1_0_950074a749e6c113",
     ]
 
 
