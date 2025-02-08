@@ -592,6 +592,7 @@ class ColumnOutput(BaseModel):
     type: str
     attributes: Optional[List[AttributeOutput]]
     dimension: Optional[NodeNameOutput]
+    dimension_column: Optional[str]
     partition: Optional[PartitionOutput]
 
     class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
