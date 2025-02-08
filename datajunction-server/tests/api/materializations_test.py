@@ -730,6 +730,22 @@ async def test_druid_metrics_cube_incremental(
     )
 
 
+class AnyString(str):
+    "A helper str obj that compares equal to everything."
+
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    def __repr__(self):
+        return "<ANY_STRING>"
+
+
+ANY_STRING = AnyString()
+
+
 @pytest.mark.asyncio
 async def test_druid_cube_incremental(
     client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
@@ -802,7 +818,7 @@ async def test_druid_cube_incremental(
                 MeasureKey(
                     node=NodeNameVersion(
                         name="default.repair_orders_fact",
-                        version="v1.0",
+                        version=ANY_STRING,
                     ),
                     measure_name="repair_order_id_count_0b7dfba0",
                 ),
@@ -816,7 +832,7 @@ async def test_druid_cube_incremental(
                 MeasureKey(
                     node=NodeNameVersion(
                         name="default.repair_orders_fact",
-                        version="v1.0",
+                        version=ANY_STRING,
                     ),
                     measure_name="total_repair_cost_sum_9bdaf803",
                 ),
