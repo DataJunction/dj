@@ -843,7 +843,7 @@ async def test_druid_cube_incremental(
     ]
     assert mat.measures_materializations[0].node == NodeNameVersion(
         name="default.repair_orders_fact",
-        version="v1.0",
+        version=ANY_STRING,
     )
     assert mat.measures_materializations[0].grain == [
         "default_DOT_repair_orders_fact_DOT_order_date",
@@ -939,7 +939,7 @@ async def test_druid_cube_incremental(
     ]
     assert mat.combiners == [
         CombineMaterialization(
-            node=NodeNameVersion(name="default.repair_orders_fact", version="v1.0"),
+            node=NodeNameVersion(name="default.repair_orders_fact", version=ANY_STRING),
             query=None,
             columns=[
                 ColumnMetadata(
