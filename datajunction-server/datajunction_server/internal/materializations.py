@@ -262,7 +262,7 @@ async def create_new_materialization(
                 "least one cube element has a temporal partition defined",
             )
 
-        # Druid Cube (this job will take subsume all existing jobs)
+        # Druid Cube (this job will subsume all existing cube materialization types)
         if upsert.job == MaterializationJobTypeEnum.DRUID_CUBE:
             generic_config = await build_cube_materialization(
                 session=session,
