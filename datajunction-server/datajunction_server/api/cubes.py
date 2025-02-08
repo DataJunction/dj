@@ -58,7 +58,7 @@ async def get_cube(
     return await get_cube_revision_metadata(session, name)
 
 
-@router.get("/cubes/{name}/materialization", name="Materialization Config Cube")
+@router.get("/cubes/{name}/materialization", name="Cube Materialization Config")
 async def cube_materialization_info(
     name: str,
     session: AsyncSession = Depends(get_session),
@@ -89,9 +89,9 @@ async def cube_materialization_info(
     """
     node = await Node.get_cube_by_name(session, name)
     temporal_partitions = node.current.temporal_partition_columns()  # type: ignore
-    if not temporal_partitions:
+    if len(temporal_partitions) != 1:
         raise DJInvalidInputException(
-            "The cube must have a temporal partition column set "
+            "The cube must have a single temporal partition column set "
             "in order for it to be materialized.",
         )
     temporal_partition = temporal_partitions[0] if temporal_partitions else None
