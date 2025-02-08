@@ -2194,7 +2194,8 @@ async def test_cube_materialization_metadata(
     )
     results = response.json()
     assert results["message"] == (
-        "The cube must have a temporal partition column set in order for it to be materialized."
+        "The cube must have a single temporal partition column set"
+        " in order for it to be materialized."
     )
 
     await client_with_repairs_cube.post(
