@@ -168,7 +168,7 @@ async def build_cube_materialization(  # pylint: disable=used-before-assignment,
         )
     }
     if len(query_grains) > 1:
-        raise DJInvalidInputException(
+        raise DJInvalidInputException(  # pragma: no cover
             "DJ cannot manage materializations for cubes that have underlying "
             "measures queries at different grains: "
             + " vs ".join(
