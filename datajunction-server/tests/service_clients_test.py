@@ -825,7 +825,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         mock_request.assert_called_with(
             "/cubes/materialize",
             json=materialization_input.dict(),
-            timeout=10,
+            timeout=20,
             headers=ANY,
         )
         assert response == {
