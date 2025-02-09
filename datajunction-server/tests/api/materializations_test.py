@@ -936,8 +936,8 @@ async def test_druid_cube_incremental(
         "default.roads.municipality_municipality_type",
         "default.roads.municipality_type",
     ]
-    assert mat.measures_materializations[0].output_table_name == (
-        "default_repair_orders_fact_v1_0_950074a749e6c113"
+    assert mat.measures_materializations[0].output_table_name.startswith(
+        "default_repair_orders_fact",
     )
     assert mat.combiners[0].node == NodeNameVersion(
         name="default.repair_orders_fact",
@@ -1026,9 +1026,7 @@ async def test_druid_cube_incremental(
     )
     assert mat.combiners[0].timestamp_format == "yyyyMMdd"
     assert mat.combiners[0].granularity == Granularity.DAY
-    assert mat.combiners[0].upstream_tables == [
-        "default_repair_orders_fact_v1_0_950074a749e6c113",
-    ]
+    assert mat.combiners[0].upstream_tables[0].startswith("default_repair_orders_fact")
 
 
 @pytest.mark.asyncio

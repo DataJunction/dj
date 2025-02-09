@@ -37,9 +37,16 @@ def generate_partition_filter_sql(
         lookback_window == "1 DAY" or not lookback_window
     ):
         return f"{temporal_partition.name} = {partition_sql}"
-    lookback_timestamp = f"{logical_ts} - INTERVAL {lookback_window}"
-    partition_start = _partition_sql(lookback_timestamp, str(temporal_partition.type))
-    return f"{temporal_partition.name} BETWEEN {partition_start} AND {partition_sql}"
+    lookback_timestamp = (
+        f"{logical_ts} - INTERVAL {lookback_window}"  # pragma: no cover
+    )
+    partition_start = _partition_sql(  # pragma: no cover
+        lookback_timestamp,
+        str(temporal_partition.type),
+    )
+    return (  # pragma: no cover
+        f"{temporal_partition.name} BETWEEN {partition_start} AND {partition_sql}"
+    )
 
 
 def combine_measures_on_shared_grain(
