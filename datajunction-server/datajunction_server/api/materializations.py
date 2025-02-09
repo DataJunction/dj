@@ -105,7 +105,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
     if node.type == NodeType.CUBE:  # type: ignore
         node = await Node.get_cube_by_name(session, node_name)
     _logger.info(
-        "Upserting materialization for node=%s@%s",
+        "Upserting materialization for node=%s version=%s",
         node.name,  # type: ignore
         node.current_version,  # type: ignore
     )
@@ -138,7 +138,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
         and existing_materialization.config == new_materialization.config
     ):
         _logger.info(
-            "Existing materialization found for node=%s@%s",
+            "Existing materialization found for node=%s version=%s",
             node.name,  # type: ignore
             node.current_version,  # type: ignore
         )
@@ -167,7 +167,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
             request_headers=request_headers,
         )
         _logger.info(
-            "Refresh materialization workflows for node=%s@%s",
+            "Refresh materialization workflows for node=%s version=%s",
             node.name,  # type: ignore
             node.current_version,  # type: ignore
         )
@@ -195,7 +195,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
     # If changes are detected, update the existing or save the new materialization
     if existing_materialization:
         _logger.info(
-            "Updating existing materialization for node=%s@%s",
+            "Updating existing materialization for node=%s version=%s",
             node.name,  # type: ignore
             node.current_version,  # type: ignore
         )
@@ -206,7 +206,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
         new_materialization.deactivated_at = None
     else:
         _logger.info(
-            "Adding new materialization for node=%s@%s",
+            "Adding new materialization for node=%s version=%s",
             node.name,  # type: ignore
             node.current_version,  # type: ignore
         )
@@ -242,7 +242,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
     )
     await session.commit()
     _logger.info(
-        "Scheduling materialization workflows for node=%s@%s",
+        "Scheduling materialization workflows for node=%s version=%s",
         node.name,  # type: ignore
         node.current_version,  # type: ignore
     )

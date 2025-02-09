@@ -1,6 +1,7 @@
 """
 Cube materialization jobs
 """
+import logging
 from typing import Dict, Optional
 
 from datajunction_server.database.materialization import Materialization
@@ -25,6 +26,8 @@ from datajunction_server.naming import amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+_logger = logging.getLogger(__name__)
 
 
 class DefaultCubeMaterialization(
@@ -141,6 +144,10 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
                 "The materialization job config class must be defined!",
             )
         cube_config = self.config_class.parse_obj(materialization.config)  # type: ignore
+        _logger.info(
+            "Scheduling DruidCubeMaterializationJob for node=%s",
+            cube_config.cube,
+        )
         return query_service_client.materialize_cube(
             materialization_input=DruidCubeMaterializationInput(
                 name=materialization.name,
