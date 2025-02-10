@@ -1409,7 +1409,13 @@ async def list_downstream_nodes(
     List all nodes that are downstream from the given node, filterable by type and max depth.
     Setting a max depth of -1 will include all downstream nodes.
     """
-    return await get_downstream_nodes(session, name, node_type, depth=depth)
+    return await get_downstream_nodes(
+        session=session,
+        node_name=name,
+        node_type=node_type,
+        include_deactivated=False,
+        depth=depth,
+    )
 
 
 @router.get(

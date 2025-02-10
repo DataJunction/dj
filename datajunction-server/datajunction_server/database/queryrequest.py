@@ -296,6 +296,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
                         ),
                     ),
                 ],
+                raise_if_not_exists=True,
             )
             for node in nodes
         ]
