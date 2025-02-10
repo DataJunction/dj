@@ -980,6 +980,25 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
+  materializeCube: async function (nodeName, jobType, strategy, schedule, lookbackWindow) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/materialization`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          job: jobType,
+          strategy: strategy,
+          schedule: schedule,
+          lookback_window: lookbackWindow,
+        }),
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
   runBackfill: async function (nodeName, materializationName, partitionValues) {
     const response = await fetch(
       `${DJ_URL}/nodes/${nodeName}/materializations/${materializationName}/backfill`,

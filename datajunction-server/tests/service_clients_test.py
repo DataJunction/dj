@@ -15,6 +15,12 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
     ErrorCode,
 )
+from datajunction_server.models.cube_materialization import (
+    CubeMetric,
+    DruidCubeMaterializationInput,
+    MeasureKey,
+    NodeNameVersion,
+)
 from datajunction_server.models.materialization import (
     GenericMaterializationInput,
     MaterializationStrategy,
@@ -604,10 +610,11 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         response = query_service_client.get_materialization_info(
             node_name="default.hard_hat",
             node_version="v3.1",
+            node_type=NodeType.DIMENSION,
             materialization_name="default",
         )
         mock_request.assert_called_with(
-            "/materialization/default.hard_hat/v3.1/default/",
+            "/materialization/default.hard_hat/v3.1/default/?node_type=dimension",
             timeout=3,
             headers=ANY,
         )
@@ -633,6 +640,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         response = query_service_client.get_materialization_info(
             node_name="default.hard_hat",
             node_version="v3.1",
+            node_type=NodeType.DIMENSION,
             materialization_name="default",
         )
         assert response == {
@@ -659,6 +667,8 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         query_service_client = QueryServiceClient(uri=self.endpoint)
         response = query_service_client.run_backfill(
             node_name="default.hard_hat",
+            node_version="v1",
+            node_type=NodeType.DIMENSION,
             partitions=[
                 PartitionBackfill(
                     column_name="hire_date",
@@ -672,7 +682,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "output_tables": [],
         }
         mocked_call.assert_called_with(
-            "/materialization/run/default.hard_hat/default/",
+            "/materialization/run/default.hard_hat/default/?node_version=v1&node_type=dimension",
             json=[
                 {
                     "column_name": "hire_date",
@@ -689,6 +699,8 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         query_service_client = QueryServiceClient(uri=self.endpoint)
         response = query_service_client.run_backfill(
             node_name="default.hard_hat",
+            node_version="v1",
+            node_type=NodeType.DIMENSION,
             partitions=[
                 PartitionBackfill(
                     column_name="hire_date",
@@ -706,7 +718,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "output_tables": [],
         }
         mocked_call.assert_called_with(
-            "/materialization/run/default.hard_hat/default/",
+            "/materialization/run/default.hard_hat/default/?node_version=v1&node_type=dimension",
             json=[
                 {
                     "column_name": "hire_date",
@@ -746,4 +758,77 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         ) == {
             "User-Agent": "python-requests/2.29.0",
             "Accept": "*/*",
+        }
+
+    def test_materialize_cube(self, mocker: MockerFixture) -> None:
+        """
+        Test materialize cube via query service client
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "urls": ["http://fake.url/job"],
+            "output_tables": ["common.a", "common.b"],
+        }
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        materialization_input = DruidCubeMaterializationInput(
+            name="default",
+            strategy=MaterializationStrategy.INCREMENTAL_TIME,
+            schedule="@daily",
+            job="DruidCubeMaterialization",
+            cube=NodeNameVersion(name="default.repairs_cube", version="v1.0"),
+            dimensions=["default.hard_hat.first_name", "default.hard_hat.last_name"],
+            metrics=[
+                CubeMetric(
+                    metric=NodeNameVersion(
+                        name="default.num_repair_orders",
+                        version="v1.0",
+                    ),
+                    required_measures=[
+                        MeasureKey(
+                            node=NodeNameVersion(
+                                name="default.repair_orders",
+                                version="v1.0",
+                            ),
+                            measure_name="count",
+                        ),
+                    ],
+                    derived_expression="SUM(count)",
+                ),
+                CubeMetric(
+                    metric=NodeNameVersion(
+                        name="default.avg_repair_price",
+                        version="v1.0",
+                    ),
+                    required_measures=[
+                        MeasureKey(
+                            node=NodeNameVersion(
+                                name="default.repair_orders",
+                                version="v1.0",
+                            ),
+                            measure_name="sum_price_123abc",
+                        ),
+                    ],
+                    derived_expression="SUM(sum_price_123abc)",
+                ),
+            ],
+            measures_materializations=[],
+            combiners=[],
+        )
+        response = query_service_client.materialize_cube(materialization_input)
+        mock_request.assert_called_with(
+            "/cubes/materialize",
+            json=materialization_input.dict(),
+            timeout=20,
+            headers=ANY,
+        )
+        assert response == {
+            "urls": ["http://fake.url/job"],
+            "output_tables": ["common.a", "common.b"],
         }

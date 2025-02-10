@@ -2,6 +2,7 @@
 """
 Data related APIs.
 """
+import logging
 from typing import Callable, Dict, List, Optional
 
 from fastapi import BackgroundTasks, Depends, Query, Request
@@ -42,6 +43,8 @@ from datajunction_server.utils import (
     get_settings,
 )
 
+_logger = logging.getLogger(__name__)
+
 settings = get_settings()
 router = SecureAPIRouter(tags=["data"])
 
@@ -61,6 +64,7 @@ async def add_availability_state(
     """
     Add an availability state to a node.
     """
+    _logger.info("Storing availability for node=%s", node_name)
 
     node = await Node.get_by_name(
         session,

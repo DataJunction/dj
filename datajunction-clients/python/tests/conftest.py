@@ -26,6 +26,7 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
+from fastapi import Request
 from httpx import AsyncClient
 from pytest_mock import MockerFixture
 from sqlalchemy import create_engine
@@ -273,12 +274,15 @@ def module__server(  # pylint: disable=too-many-statements
     module__session: AsyncSession,
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,
+    module_mocker,
 ) -> Iterator[TestClient]:
     """
     Create a mock server for testing APIs that contains a mock query service.
     """
 
-    def get_query_service_client_override() -> QueryServiceClient:
+    def get_query_service_client_override(
+        request: Request = None,  # pylint: disable=unused-argument
+    ) -> QueryServiceClient:
         return module__query_service_client
 
     async def get_session_override() -> AsyncSession:
@@ -286,6 +290,11 @@ def module__server(  # pylint: disable=too-many-statements
 
     def get_settings_override() -> Settings:
         return module__settings
+
+    module_mocker.patch(
+        "datajunction_server.api.materializations.get_query_service_client",
+        get_query_service_client_override,
+    )
 
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
