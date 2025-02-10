@@ -34,24 +34,24 @@ export default function NodeDependenciesTab({ node, djClient }) {
       {retrieved ? (
         <NodeList nodes={nodeDAG.upstreams} />
       ) : (
-        <span style={{ display: 'inline-block' }}>
-          <LoadingIcon />
+        <span style={{ display: 'block' }}>
+          <LoadingIcon centered={false} />
         </span>
       )}
       <h2>Downstreams</h2>
       {retrieved ? (
         <NodeList nodes={nodeDAG.downstreams} />
       ) : (
-        <span style={{ display: 'inline-block' }}>
-          <LoadingIcon />
+        <span style={{ display: 'block' }}>
+          <LoadingIcon centered={false} />
         </span>
       )}
       <h2>Dimensions</h2>
       {retrieved ? (
         <NodeDimensionsList rawDimensions={nodeDAG.dimensions} />
       ) : (
-        <span style={{ display: 'inline-block' }}>
-          <LoadingIcon />
+        <span style={{ display: 'block' }}>
+          <LoadingIcon centered={false} />
         </span>
       )}
     </div>
@@ -142,6 +142,6 @@ export function NodeList({ nodes }) {
       ))}
     </ul>
   ) : (
-    <span style={{ display: 'inline-block' }}>None</span>
+    <span style={{ display: 'block' }}>None</span>
   );
 }
