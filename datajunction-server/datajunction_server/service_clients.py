@@ -422,7 +422,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             timeout=20,
         )
         if response.status_code not in (200, 201):
-            _logger.exception(
+            _logger.exception(  # pragma: no cover
                 "[DJQS] Failed to run backfill for node=%s with `POST %s`",
                 node_name,
                 backfill_endpoint,
