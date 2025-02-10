@@ -1,4 +1,5 @@
 """Node materialization helper functions"""
+import logging
 import zlib
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -13,6 +14,9 @@ from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.internal.cube_materializations import (
+    build_cube_materialization,
+)
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
@@ -37,6 +41,7 @@ from datajunction_server.sql.parsing.types import TimestampType
 from datajunction_server.utils import SEPARATOR
 
 MAX_COLUMN_NAME_LENGTH = 128
+_logger = logging.getLogger(__name__)
 
 
 async def rewrite_metrics_expressions(
@@ -190,6 +195,12 @@ async def build_non_cube_materialization_config(
     """
     Build materialization config for non-cube nodes (transforms and dimensions).
     """
+    _logger.info(
+        "Building materialization config for node=%s node_type=%s %s",
+        current_revision.name,
+        current_revision.type,
+        upsert,
+    )
     build_criteria = get_default_criteria(
         node=current_revision,
     )
@@ -250,13 +261,22 @@ async def create_new_materialization(
                 "temporal partition specified on the cube. Please make sure at "
                 "least one cube element has a temporal partition defined",
             )
-        generic_config = await build_cube_materialization_config(
-            session,
-            current_revision,
-            upsert,
-            validate_access,
-            current_user=current_user,
-        )
+
+        # Druid Cube (this job will subsume all existing cube materialization types)
+        if upsert.job == MaterializationJobTypeEnum.DRUID_CUBE:
+            generic_config = await build_cube_materialization(
+                session=session,
+                current_revision=current_revision,
+                upsert_input=upsert,
+            )
+        else:
+            generic_config = await build_cube_materialization_config(
+                session,
+                current_revision,
+                upsert,
+                validate_access,
+                current_user=current_user,
+            )
     materialization_name = (
         f"{upsert.job.name.lower()}__{upsert.strategy.name.lower()}"
         + (f"__{temporal_partition[0].name}" if temporal_partition else "")

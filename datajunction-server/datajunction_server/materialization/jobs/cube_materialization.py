@@ -1,6 +1,7 @@
 """
 Cube materialization jobs
 """
+import logging
 from typing import Dict, Optional
 
 from datajunction_server.database.materialization import Materialization
@@ -8,6 +9,10 @@ from datajunction_server.database.node import NodeRevision
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.materialization.jobs.materialization_job import (
     MaterializationJob,
+)
+from datajunction_server.models.cube_materialization import (
+    DruidCubeConfig,
+    DruidCubeMaterializationInput,
 )
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
@@ -21,6 +26,8 @@ from datajunction_server.naming import amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+_logger = logging.getLogger(__name__)
 
 
 class DefaultCubeMaterialization(
@@ -113,6 +120,48 @@ class DruidMeasuresCubeMaterializationJob(DruidMaterializationJob, Materializati
 
     dialect = Dialect.DRUID
     config_class = DruidMeasuresCubeConfig  # type: ignore
+
+
+class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
+    """
+    Druid materialization (aggregations aka metrics) for a cube node.
+    """
+
+    dialect = Dialect.DRUID
+    config_class = DruidCubeConfig  # type: ignore
+
+    def schedule(
+        self,
+        materialization: Materialization,
+        query_service_client: QueryServiceClient,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> MaterializationInfo:
+        """
+        Use the query service to kick off the materialization setup.
+        """
+        if not self.config_class:  # type: ignore
+            raise DJInvalidInputException(  # pragma: no cover
+                "The materialization job config class must be defined!",
+            )
+        cube_config = self.config_class.parse_obj(materialization.config)  # type: ignore
+        _logger.info(
+            "Scheduling DruidCubeMaterializationJob for node=%s",
+            cube_config.cube,
+        )
+        return query_service_client.materialize_cube(
+            materialization_input=DruidCubeMaterializationInput(
+                name=materialization.name,
+                cube=cube_config.cube,
+                dimensions=cube_config.dimensions,
+                metrics=cube_config.metrics,
+                strategy=materialization.strategy,
+                schedule=materialization.schedule,
+                job=materialization.job,
+                measures_materializations=cube_config.measures_materializations,
+                combiners=cube_config.combiners,
+            ),
+            request_headers=request_headers,
+        )
 
 
 def build_materialization_query(

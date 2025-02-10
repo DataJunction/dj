@@ -9,7 +9,16 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
-from datajunction_server.models.partition import PartitionBackfill
+from datajunction_server.models.cube_materialization import (
+    Aggregability,
+    AggregationRule,
+    CubeMetric,
+    Measure,
+    MeasureKey,
+    NodeNameVersion,
+)
+from datajunction_server.models.partition import Granularity, PartitionBackfill
+from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
@@ -155,6 +164,17 @@ async def test_materialization_info(module__client: AsyncClient) -> None:
                 "job_class": "DruidMetricsCubeMaterializationJob",
                 "label": "Druid Metrics Cube (Post-Agg Cube)",
                 "name": "druid_metrics_cube",
+            },
+            {
+                "allowed_node_types": [
+                    "cube",
+                ],
+                "description": "Used to materialize a cube of metrics and dimensions to Druid for "
+                "low-latency access.Will replace the other cube materialization "
+                "types.",
+                "job_class": "DruidCubeMaterializationJob",
+                "label": "Druid Cube",
+                "name": "druid_cube",
             },
         ],
         "strategies": [
@@ -709,6 +729,306 @@ async def test_druid_metrics_cube_incremental(
     )
 
 
+class AnyString(str):
+    "A helper str obj that compares equal to everything."
+
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    def __repr__(self):
+        return "<ANY_STRING>"
+
+
+ANY_STRING = AnyString()
+
+
+@pytest.mark.asyncio
+async def test_druid_cube_incremental(
+    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+    module__query_service_client: QueryServiceClient,
+    set_temporal_column,  # pylint: disable=redefined-outer-name
+):
+    """
+    Verifying this materialization setup:
+    - Job Type: druid_cube
+    - Strategy: incremental_time
+    """
+    cube_name = "default.repairs_cube__default_incremental"
+    client_with_repairs_cube = await client_with_repairs_cube(cube_name=cube_name)
+    # [failure] If there is no time partition column configured
+    response = await client_with_repairs_cube.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={
+            "job": "druid_cube",
+            "strategy": "incremental_time",
+            "schedule": "@daily",
+            "lookback_window": "1 DAY",
+        },
+    )
+    assert response.json()["message"] == (
+        "Cannot create materialization with strategy `incremental_time` "
+        "without specifying a time partition column!"
+    )
+
+    # [success] When there is a column on the cube with the partition label, should succeed.
+    await set_temporal_column(
+        client_with_repairs_cube,
+        cube_name,
+        "default.repair_orders_fact.order_date",
+    )
+    response = await client_with_repairs_cube.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={
+            "job": "druid_cube",
+            "strategy": "incremental_time",
+            "schedule": "@daily",
+            "lookback_window": "1 DAY",
+        },
+    )
+    assert response.status_code in (200, 201)
+    assert response.json()["message"] == (
+        "Successfully updated materialization config named `druid_cube__incremental_time__default"
+        ".repair_orders_fact.order_date` for node `default.repairs_cube__default_incremental`"
+    )
+    _, kwargs = module__query_service_client.materialize_cube.call_args_list[0]  # type: ignore
+    mat = kwargs["materialization_input"]
+    assert (
+        mat.name
+        == "druid_cube__incremental_time__default.repair_orders_fact.order_date"
+    )
+    assert mat.job == "DruidCubeMaterializationJob"
+    assert mat.cube == NodeNameVersion(
+        name="default.repairs_cube__default_incremental",
+        version="v1.0",
+    )
+    assert mat.dimensions == [
+        "default.repair_orders_fact.order_date",
+        "default.hard_hat.state",
+        "default.dispatcher.company_name",
+        "default.municipality_dim.local_region",
+    ]
+    assert mat.metrics == [
+        CubeMetric(
+            metric=NodeNameVersion(name="default.num_repair_orders", version="v1.0"),
+            required_measures=[
+                MeasureKey(
+                    node=NodeNameVersion(
+                        name="default.repair_orders_fact",
+                        version=ANY_STRING,
+                    ),
+                    measure_name="repair_order_id_count_0b7dfba0",
+                ),
+            ],
+            derived_expression="SELECT  SUM(repair_order_id_count_0b7dfba0)"
+            "  FROM default.repair_orders_fact",
+        ),
+        CubeMetric(
+            metric=NodeNameVersion(name="default.total_repair_cost", version="v1.0"),
+            required_measures=[
+                MeasureKey(
+                    node=NodeNameVersion(
+                        name="default.repair_orders_fact",
+                        version=ANY_STRING,
+                    ),
+                    measure_name="total_repair_cost_sum_9bdaf803",
+                ),
+            ],
+            derived_expression="SELECT  sum(total_repair_cost_sum_9bdaf803)"
+            "  FROM default.repair_orders_fact",
+        ),
+    ]
+    assert mat.measures_materializations[0].node == NodeNameVersion(
+        name="default.repair_orders_fact",
+        version=ANY_STRING,
+    )
+    assert mat.measures_materializations[0].grain == [
+        "default_DOT_repair_orders_fact_DOT_order_date",
+        "default_DOT_hard_hat_DOT_state",
+        "default_DOT_dispatcher_DOT_company_name",
+        "default_DOT_municipality_dim_DOT_local_region",
+    ]
+    assert mat.measures_materializations[0].dimensions == [
+        "default_DOT_repair_orders_fact_DOT_order_date",
+        "default_DOT_hard_hat_DOT_state",
+        "default_DOT_dispatcher_DOT_company_name",
+        "default_DOT_municipality_dim_DOT_local_region",
+    ]
+    assert mat.measures_materializations[0].measures == [
+        Measure(
+            name="repair_order_id_count_0b7dfba0",
+            expression="repair_order_id",
+            aggregation="COUNT",
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+        Measure(
+            name="total_repair_cost_sum_9bdaf803",
+            expression="total_repair_cost",
+            aggregation="SUM",
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+    ]
+    assert mat.measures_materializations[0].columns == [
+        ColumnMetadata(
+            name="default_DOT_repair_orders_fact_DOT_order_date",
+            type="timestamp",
+            column="order_date",
+            node="default.repair_orders_fact",
+            semantic_entity="default.repair_orders_fact.order_date",
+            semantic_type="dimension",
+        ),
+        ColumnMetadata(
+            name="default_DOT_hard_hat_DOT_state",
+            type="string",
+            column="state",
+            node="default.hard_hat",
+            semantic_entity="default.hard_hat.state",
+            semantic_type="dimension",
+        ),
+        ColumnMetadata(
+            name="default_DOT_dispatcher_DOT_company_name",
+            type="string",
+            column="company_name",
+            node="default.dispatcher",
+            semantic_entity="default.dispatcher.company_name",
+            semantic_type="dimension",
+        ),
+        ColumnMetadata(
+            name="default_DOT_municipality_dim_DOT_local_region",
+            type="string",
+            column="local_region",
+            node="default.municipality_dim",
+            semantic_entity="default.municipality_dim.local_region",
+            semantic_type="dimension",
+        ),
+        ColumnMetadata(
+            name="repair_order_id_count_0b7dfba0",
+            type="bigint",
+            column="repair_order_id_count_0b7dfba0",
+            node="default.repair_orders_fact",
+            semantic_entity="default.repair_orders_fact.repair_order_id_count_0b7dfba0",
+            semantic_type="measure",
+        ),
+        ColumnMetadata(
+            name="total_repair_cost_sum_9bdaf803",
+            type="double",
+            column="total_repair_cost_sum_9bdaf803",
+            node="default.repair_orders_fact",
+            semantic_entity="default.repair_orders_fact.total_repair_cost_sum_9bdaf803",
+            semantic_type="measure",
+        ),
+    ]
+    assert (
+        mat.measures_materializations[0].timestamp_column
+        == "default_DOT_repair_orders_fact_DOT_order_date"
+    )
+    assert mat.measures_materializations[0].timestamp_format == "yyyyMMdd"
+    assert mat.measures_materializations[0].granularity == Granularity.DAY
+    assert mat.measures_materializations[0].spark_conf is None
+    assert mat.measures_materializations[0].upstream_tables == [
+        "default.roads.repair_orders",
+        "default.roads.repair_order_details",
+        "default.roads.hard_hats",
+        "default.roads.dispatchers",
+        "default.roads.municipality",
+        "default.roads.municipality_municipality_type",
+        "default.roads.municipality_type",
+    ]
+    assert mat.measures_materializations[0].output_table_name.startswith(
+        "default_repair_orders_fact",
+    )
+    assert mat.combiners[0].node == NodeNameVersion(
+        name="default.repair_orders_fact",
+        version=ANY_STRING,
+    )
+    assert mat.combiners[0].query is None
+    assert mat.combiners[0].columns == [
+        ColumnMetadata(
+            name="default_DOT_repair_orders_fact_DOT_order_date",
+            type="timestamp",
+            column="order_date",
+            node="default.repair_orders_fact",
+            semantic_entity="default.repair_orders_fact.order_date",
+            semantic_type="dimension",
+        ),
+        ColumnMetadata(
+            name="default_DOT_hard_hat_DOT_state",
+            type="string",
+            column="state",
+            node="default.hard_hat",
+            semantic_entity="default.hard_hat.state",
+            semantic_type="dimension",
+        ),
+        ColumnMetadata(
+            name="default_DOT_dispatcher_DOT_company_name",
+            type="string",
+            column="company_name",
+            node="default.dispatcher",
+            semantic_entity="default.dispatcher.company_name",
+            semantic_type="dimension",
+        ),
+        ColumnMetadata(
+            name="default_DOT_municipality_dim_DOT_local_region",
+            type="string",
+            column="local_region",
+            node="default.municipality_dim",
+            semantic_entity="default.municipality_dim.local_region",
+            semantic_type="dimension",
+        ),
+        ColumnMetadata(
+            name="repair_order_id_count_0b7dfba0",
+            type="bigint",
+            column="repair_order_id_count_0b7dfba0",
+            node="default.repair_orders_fact",
+            semantic_entity="default.repair_orders_fact.repair_order_id_count_0b7dfba0",
+            semantic_type="measure",
+        ),
+        ColumnMetadata(
+            name="total_repair_cost_sum_9bdaf803",
+            type="double",
+            column="total_repair_cost_sum_9bdaf803",
+            node="default.repair_orders_fact",
+            semantic_entity="default.repair_orders_fact.total_repair_cost_sum_9bdaf803",
+            semantic_type="measure",
+        ),
+    ]
+    assert mat.combiners[0].grain == [
+        "default_DOT_repair_orders_fact_DOT_order_date",
+        "default_DOT_hard_hat_DOT_state",
+        "default_DOT_dispatcher_DOT_company_name",
+        "default_DOT_municipality_dim_DOT_local_region",
+    ]
+    assert mat.combiners[0].dimensions == [
+        "default_DOT_repair_orders_fact_DOT_order_date",
+        "default_DOT_hard_hat_DOT_state",
+        "default_DOT_dispatcher_DOT_company_name",
+        "default_DOT_municipality_dim_DOT_local_region",
+    ]
+    assert mat.combiners[0].measures == [
+        Measure(
+            name="repair_order_id_count_0b7dfba0",
+            expression="repair_order_id",
+            aggregation="COUNT",
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+        Measure(
+            name="total_repair_cost_sum_9bdaf803",
+            expression="total_repair_cost",
+            aggregation="SUM",
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+    ]
+    assert (
+        mat.combiners[0].timestamp_column
+        == "default_DOT_repair_orders_fact_DOT_order_date"
+    )
+    assert mat.combiners[0].timestamp_format == "yyyyMMdd"
+    assert mat.combiners[0].granularity == Granularity.DAY
+    assert mat.combiners[0].upstream_tables[0].startswith("default_repair_orders_fact")
+
+
 @pytest.mark.asyncio
 async def test_spark_sql_full(
     module__client_with_roads: AsyncClient,  # pylint: disable=redefined-outer-name
@@ -834,6 +1154,8 @@ async def test_spark_sql_full(
     )
     assert module__query_service_client.run_backfill.call_args_list[0].args == (  # type: ignore
         "default.hard_hat",
+        "v1.0",
+        "dimension",
         "spark_sql__full__birth_date__country",
         [
             PartitionBackfill(
@@ -944,6 +1266,8 @@ async def test_spark_sql_incremental(
     )
     assert module__query_service_client.run_backfill.call_args_list[-1].args == (  # type: ignore
         "default.hard_hat_2",
+        "v1.0",
+        "dimension",
         "spark_sql__incremental_time__birth_date",
         [
             PartitionBackfill(

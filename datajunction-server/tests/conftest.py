@@ -26,6 +26,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from cachelib.simple import SimpleCache
+from fastapi import Request
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from httpx import AsyncClient
@@ -85,6 +86,32 @@ def _init_cache() -> Generator[Any, Any, None]:
 
 @pytest_asyncio.fixture
 def settings(
+    mocker: MockerFixture,
+    postgres_container: PostgresContainer,
+) -> Iterator[Settings]:
+    """
+    Custom settings for unit tests.
+    """
+    settings = Settings(
+        index=postgres_container.get_connection_url(),
+        repository="/path/to/repository",
+        results_backend=SimpleCache(default_timeout=0),
+        celery_broker=None,
+        redis_cache=None,
+        query_service="query_service:8001",
+        secret="a-fake-secretkey",
+    )
+
+    mocker.patch(
+        "datajunction_server.utils.get_settings",
+        return_value=settings,
+    )
+
+    yield settings
+
+
+@pytest_asyncio.fixture
+def settings_no_qs(
     mocker: MockerFixture,
     postgres_container: PostgresContainer,
 ) -> Iterator[Settings]:
@@ -332,7 +359,7 @@ def query_service_client(
 @pytest_asyncio.fixture
 async def client(  # pylint: disable=too-many-statements
     session: AsyncSession,
-    settings: Settings,
+    settings_no_qs: Settings,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -342,7 +369,7 @@ async def client(  # pylint: disable=too-many-statements
         return session
 
     def get_settings_override() -> Settings:
-        return settings
+        return settings_no_qs
 
     def default_validate_access() -> ValidateAccessFn:
         def _(access_control: AccessControl):
@@ -572,13 +599,16 @@ async def client_with_query_service_example_loader(  # pylint: disable=too-many-
     session: AsyncSession,
     settings: Settings,
     query_service_client: QueryServiceClient,
+    mocker: MockerFixture,
 ) -> Callable[[Optional[List[str]]], AsyncClient]:
     """
     Provides a callable fixture for loading examples into a test client
     fixture that additionally has a mocked query service.
     """
 
-    def get_query_service_client_override() -> QueryServiceClient:
+    def get_query_service_client_override(
+        request: Request = None,  # pylint: disable=unused-argument
+    ) -> QueryServiceClient:
         return query_service_client
 
     def get_session_override() -> AsyncSession:
@@ -604,6 +634,10 @@ async def client_with_query_service_example_loader(  # pylint: disable=too-many-
         {
             "Authorization": f"Bearer {EXAMPLE_TOKEN}",
         },
+    )
+    mocker.patch(
+        "datajunction_server.api.materializations.get_query_service_client",
+        get_query_service_client_override,
     )
 
     def _load_examples(examples_to_load: Optional[List[str]] = None):
@@ -684,7 +718,8 @@ async def module__client_example_loader(
 async def module__client(  # pylint: disable=too-many-statements
     module__session: AsyncSession,
     module__settings: Settings,
-    module__query_service_client: QueryServiceClient,
+    module__query_service_client: QueryServiceClient,  # pylint: disable=unused-argument
+    module_mocker: MockerFixture,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -698,7 +733,9 @@ async def module__client(  # pylint: disable=too-many-statements
     )
     await module__session.execute(statement)
 
-    def get_query_service_client_override() -> QueryServiceClient:
+    def get_query_service_client_override(
+        request: Request = None,  # pylint: disable=unused-argument
+    ) -> QueryServiceClient:
         return module__query_service_client
 
     def get_session_override() -> AsyncSession:
@@ -712,6 +749,11 @@ async def module__client(  # pylint: disable=too-many-statements
             access_control.approve_all()
 
         return _
+
+    module_mocker.patch(
+        "datajunction_server.api.materializations.get_query_service_client",
+        get_query_service_client_override,
+    )
 
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
@@ -994,6 +1036,17 @@ def module__query_service_client(
         qs_client,
         "materialize",
         mock_materialize,
+    )
+
+    mock_materialize_cube = MagicMock()
+    mock_materialize_cube.return_value = MaterializationInfo(
+        urls=["http://fake.url/job"],
+        output_tables=["common.a", "common.b"],
+    )
+    module_mocker.patch.object(
+        qs_client,
+        "materialize_cube",
+        mock_materialize_cube,
     )
 
     mock_deactivate_materialization = MagicMock()

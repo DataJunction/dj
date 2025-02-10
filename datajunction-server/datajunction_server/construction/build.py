@@ -14,12 +14,13 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
+from datajunction_server.models.cube_materialization import Measure
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.naming import LOOKUP_CHARS, amenable_name, from_amenable_name
 from datajunction_server.sql.dag import get_shared_dimensions
-from datajunction_server.sql.decompose import Measure, MeasureExtractor
+from datajunction_server.sql.decompose import MeasureExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.utils import SEPARATOR

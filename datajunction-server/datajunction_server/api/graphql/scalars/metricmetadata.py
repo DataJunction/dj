@@ -4,10 +4,14 @@ from typing import Optional
 
 import strawberry
 
+from datajunction_server.models.cube_materialization import (
+    Aggregability as Aggregability_,
+)
+from datajunction_server.models.cube_materialization import (
+    AggregationRule as AggregationRule_,
+)
+from datajunction_server.models.cube_materialization import Measure as Measure_
 from datajunction_server.models.node import MetricDirection as MetricDirection_
-from datajunction_server.sql.decompose import Aggregability as Aggregability_
-from datajunction_server.sql.decompose import AggregationRule as AggregationRule_
-from datajunction_server.sql.decompose import Measure as Measure_
 
 MetricDirection = strawberry.enum(MetricDirection_)
 Aggregability = strawberry.enum(Aggregability_)
