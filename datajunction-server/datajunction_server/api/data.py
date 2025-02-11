@@ -15,7 +15,7 @@ from datajunction_server.api.helpers import (
     build_sql_for_multiple_metrics,
     query_event_stream,
 )
-from datajunction_server.api.notification import get_notifier
+from datajunction_server.api.notifications import get_notifier
 from datajunction_server.api.sql import get_node_sql
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import ActivityType, EntityType, History
