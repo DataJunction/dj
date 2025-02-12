@@ -14,7 +14,7 @@ class TestNotification(unittest.TestCase):
     """Test sending notifications"""
 
     @mock.patch("datajunction_server.api.notifications._logger")
-    def test_notify(self, mock_logger):
+    def test_notification(self, mock_logger):
         """Test the get_notifier dependency"""
         notify = get_notifier()
         event = History(
@@ -64,7 +64,7 @@ async def test_notification_preferences(
         "/notifications/subscribe",
         json={
             "entity_type": EntityType.NODE,
-            "entity_name": "some_node_name",
+            "entity_name": "some_node_name2",
             "activity_types": [ActivityType.REFRESH],
             "alert_types": ["slack", "email"],
         },
@@ -73,7 +73,7 @@ async def test_notification_preferences(
     response = await module__client.get("/notifications/")
     assert response.status_code == 200
     assert len(response.json()) > 0
-    assert response.json()[0]["entity_name"] == "some_node_name"
+    assert response.json()[0]["entity_name"] == "some_node_name2"
     assert response.json()[0]["username"] == "dj"
 
 
@@ -128,7 +128,7 @@ async def test_notification_unsubscribe(
     response = await module__client.post(
         "/notifications/subscribe",
         json={
-            "entity_name": "some_node_name",
+            "entity_name": "some_node_name3",
             "entity_type": EntityType.NODE,
             "activity_types": [ActivityType.DELETE],
             "alert_types": ["slack", "email"],
@@ -141,12 +141,12 @@ async def test_notification_unsubscribe(
         "/notifications/unsubscribe",
         params={
             "entity_type": EntityType.NODE,
-            "entity_name": "some_node_name",
+            "entity_name": "some_node_name3",
         },
     )
     assert response.status_code == 200
     assert response.json() == {
-        "message": "Notification preferences successfully removed for some_node_name",
+        "message": "Notification preferences successfully removed for some_node_name3",
     }
 
     # Verify that the notification preference is actually removed
