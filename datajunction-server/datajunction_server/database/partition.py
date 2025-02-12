@@ -3,7 +3,7 @@
 import re
 from typing import Optional
 
-from sqlalchemy import BigInteger, Enum, ForeignKey, Integer
+from sqlalchemy import BigInteger, Enum, ForeignKey, Index, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
@@ -29,6 +29,9 @@ class Partition(Base):  # type: ignore
     """
 
     __tablename__ = "partition"
+    __table_args__ = (
+        Index("idx_partition_column_id", "column_id", postgresql_using="btree"),
+    )
 
     id: Mapped[int] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"),
