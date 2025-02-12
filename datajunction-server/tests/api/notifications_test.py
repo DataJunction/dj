@@ -155,7 +155,7 @@ async def test_notification_unsubscribe(
     # Verify that the notification preference is actually removed
     response = await module__client.get("/notifications/")
     assert response.status_code == 200
-    assert all(pref["entity_name"] != "some_node_name" for pref in response.json())
+    assert all(pref["entity_name"] != "some_node_name3" for pref in response.json())
 
 
 @pytest.mark.asyncio
