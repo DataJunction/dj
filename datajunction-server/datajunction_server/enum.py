@@ -6,7 +6,7 @@ import enum
 import sys
 
 if sys.version_info >= (3, 11):
-    from enum import (  # noqa  # pylint: disable=unused-import  # pragma: no cover
+    from enum import (  # pragma: no cover
         IntEnum,
         StrEnum,
     )
