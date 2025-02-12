@@ -8,8 +8,8 @@ Create Date: 2025-02-11 16:19:35.918790+00:00
 # pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
 
 import sqlalchemy as sa
-from alembic import op
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "c3d5f327296c"
@@ -57,7 +57,7 @@ def upgrade():
                     "SET_ATTRIBUTE",
                     "STATUS_CHANGE",
                     name="notification_activitytype",
-                )
+                ),
             ),
             nullable=False,
         ),
