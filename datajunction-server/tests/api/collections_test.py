@@ -2,6 +2,7 @@
 """
 Tests for the collections API.
 """
+
 import pytest
 from httpx import AsyncClient
 

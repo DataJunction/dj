@@ -1,6 +1,7 @@
 """
 Tags related queries.
 """
+
 from strawberry.types import Info
 
 from datajunction_server.api.graphql.scalars.tag import Tag

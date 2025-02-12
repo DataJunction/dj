@@ -1,6 +1,7 @@
 """
 Tests for the history endpoint
 """
+
 from unittest import mock
 
 import pytest

@@ -1,4 +1,5 @@
 """Dimension links table."""
+
 from functools import cached_property
 from typing import TYPE_CHECKING, Dict, List, Optional, Set
 

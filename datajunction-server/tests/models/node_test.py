@@ -4,7 +4,6 @@ Tests for ``datajunction_server.models.node``.
 
 # pylint: disable=use-implicit-booleaness-not-comparison
 
-
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,9 +68,7 @@ def test_extra_validation() -> None:
         type=node.type,
         node=node,
         version="1",
-        query="SELECT count(repair_order_id) "
-        "AS Anum_repair_orders "
-        "FROM repair_orders",
+        query="SELECT count(repair_order_id) AS Anum_repair_orders FROM repair_orders",
     )
     node_revision.extra_validation()
 

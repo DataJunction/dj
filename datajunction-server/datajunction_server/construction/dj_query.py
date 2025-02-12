@@ -2,6 +2,7 @@
 """
 Functions for making queries directly against DJ
 """
+
 from typing import Dict, List, Set, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession

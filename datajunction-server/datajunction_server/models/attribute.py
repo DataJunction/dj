@@ -1,6 +1,7 @@
 """
 Models for attributes.
 """
+
 from enum import Enum
 from typing import List, Optional
 

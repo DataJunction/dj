@@ -1,6 +1,7 @@
 """
 Dimensions-related query building
 """
+
 from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession

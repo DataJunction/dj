@@ -1,6 +1,7 @@
 """
 Google OAuth helper functions
 """
+
 import logging
 import secrets
 from http import HTTPStatus

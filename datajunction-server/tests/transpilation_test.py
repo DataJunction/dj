@@ -1,4 +1,5 @@
 """Tests the transpilation plugins."""
+
 import pytest
 from pytest_mock import MockerFixture
 

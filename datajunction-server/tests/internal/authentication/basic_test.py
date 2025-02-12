@@ -1,6 +1,7 @@
 """
 Tests for basic auth helper functions
 """
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession

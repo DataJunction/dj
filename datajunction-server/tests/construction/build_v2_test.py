@@ -1,5 +1,6 @@
 # pylint: disable=redefined-outer-name,too-many-lines
 """Tests for building nodes"""
+
 from typing import List, Tuple
 
 import pytest
@@ -676,9 +677,9 @@ async def test_build_source_node_with_direct_filter(
         ).strip()
     )
 
-    query_ast = await (
-        query_builder.add_filters(["source.events.utc_date = 20210101"]).build()
-    )
+    query_ast = await query_builder.add_filters(
+        ["source.events.utc_date = 20210101"],
+    ).build()
     expected = """
     WITH source_DOT_events AS (
       SELECT
@@ -902,9 +903,9 @@ async def test_build_dimension_node_with_direct_and_pushdown_filter(
         session,
         devices.current,
     )
-    query_ast = await (
-        query_builder.filter_by("shared.devices.device_manufacturer = 'Apple'").build()
-    )
+    query_ast = await query_builder.filter_by(
+        "shared.devices.device_manufacturer = 'Apple'",
+    ).build()
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
     # Pushdown filter
@@ -1581,9 +1582,7 @@ async def test_build_with_source_filters(
         session,
         events_agg.current,
     )
-    query_ast = await (
-        query_builder.filter_by("shared.date.dateint = 20250101").build()
-    )
+    query_ast = await query_builder.filter_by("shared.date.dateint = 20250101").build()
     expected = """
     WITH
     agg_DOT_events AS (

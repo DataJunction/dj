@@ -1,4 +1,5 @@
 """Helper functions to generate client code."""
+
 import os
 import urllib
 from typing import List, Optional, cast

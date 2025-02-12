@@ -56,10 +56,6 @@ from datajunction_server.utils import (
     get_settings,
 )
 
-from .construction.fixtures import (  # pylint: disable=unused-import
-    build_expectation,
-    construction_session,
-)
 from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS, SERVICE_SETUP
 
 # pylint: disable=redefined-outer-name, invalid-name, W0611
@@ -548,11 +544,11 @@ def compare_parse_trees(tree1, tree2):
     Recursively compare two ANTLR parse trees for equality.
     """
     # Check if the node types are the same
-    if type(tree1) != type(tree2):  # pylint: disable=unidiomatic-typecheck
+    if type(tree1) is not type(tree2):  # pylint: disable=unidiomatic-typecheck
         return False
 
     # Check if the node texts are the same
-    if tree1.getText() != tree2.getText():
+    if tree1.getText() is not tree2.getText():
         return False
 
     # Check if the number of child nodes is the same
@@ -619,9 +615,9 @@ async def client_with_query_service_example_loader(  # pylint: disable=too-many-
 
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
-    app.dependency_overrides[
-        get_query_service_client
-    ] = get_query_service_client_override
+    app.dependency_overrides[get_query_service_client] = (
+        get_query_service_client_override
+    )
 
     # The test client includes a signed and encrypted JWT in the authorization headers.
     # Even though the user is mocked to always return a "dj" user, this allows for the
@@ -758,9 +754,9 @@ async def module__client(  # pylint: disable=too-many-statements
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
     app.dependency_overrides[validate_access] = default_validate_access
-    app.dependency_overrides[
-        get_query_service_client
-    ] = get_query_service_client_override
+    app.dependency_overrides[get_query_service_client] = (
+        get_query_service_client_override
+    )
 
     async with AsyncClient(
         transport=httpx.ASGITransport(app=app),

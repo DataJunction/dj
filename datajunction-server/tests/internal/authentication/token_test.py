@@ -1,6 +1,7 @@
 """
 Test JWT helper functions
 """
+
 from datetime import timedelta
 
 from datajunction_server.internal.access.authentication import tokens

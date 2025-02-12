@@ -156,7 +156,7 @@ class Dispatch(metaclass=DispatchMeta):
         raise TypeError(
             f"`{cls.__name__}.{func_name}` got an invalid "
             "combination of types: "
-            f'{", ".join(str(t[1].__name__) for t in types)}',
+            f"{', '.join(str(t[1].__name__) for t in types)}",
         )
 
 

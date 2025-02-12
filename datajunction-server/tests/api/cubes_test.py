@@ -2,6 +2,7 @@
 """
 Tests for the cubes API.
 """
+
 from typing import Dict, Iterator
 from unittest import mock
 

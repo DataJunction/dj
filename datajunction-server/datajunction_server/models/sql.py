@@ -1,6 +1,7 @@
 """
 Models for generated SQL
 """
+
 from typing import List, Optional
 
 from pydantic.class_validators import root_validator

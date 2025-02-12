@@ -1,4 +1,5 @@
 """Error-related scalar types."""
+
 import strawberry
 
 from datajunction_server.errors import ErrorCode as ErrorCode_

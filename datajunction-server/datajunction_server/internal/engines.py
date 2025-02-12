@@ -1,4 +1,5 @@
 """Helper functions for engines."""
+
 from http import HTTPStatus
 
 from fastapi import HTTPException

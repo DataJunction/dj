@@ -2,6 +2,7 @@
 """
 Tests for the metrics API.
 """
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text

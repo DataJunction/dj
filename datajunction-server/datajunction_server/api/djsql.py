@@ -39,7 +39,7 @@ async def get_data_for_djsql(  # pylint: disable=R0914, R0913
     current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
-    )
+    ),
 ) -> QueryWithResults:
     """
     Return data for a DJ SQL query
@@ -90,7 +90,7 @@ async def get_data_stream_for_djsql(
     current_user: User = Depends(get_and_update_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
         validate_access,
-    )
+    ),
 ) -> QueryWithResults:  # pragma: no cover
     """
     Return data for a DJ SQL query using server side events

@@ -1,6 +1,7 @@
 """
 Configuration for the datajunction server.
 """
+
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
@@ -13,7 +14,7 @@ from celery import Celery
 from pydantic import BaseSettings
 
 if TYPE_CHECKING:
-    from datajunction_server.models.access import AccessControl
+    pass
 
 
 class Settings(

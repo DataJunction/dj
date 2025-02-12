@@ -64,7 +64,9 @@ async def get_node_columns(
             ],
         )
         available = [
-            col for col in node.current.columns if col.name == node_column.column  # type: ignore
+            col
+            for col in node.current.columns  # type: ignore
+            if col.name == node_column.column
         ]
         if len(available) == 0:
             raise DJDoesNotExistException(

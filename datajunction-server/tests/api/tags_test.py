@@ -1,6 +1,7 @@
 """
 Tests for tags.
 """
+
 from unittest import mock
 
 import pytest

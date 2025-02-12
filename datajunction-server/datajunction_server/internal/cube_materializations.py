@@ -1,4 +1,5 @@
 """Helper functions related to cube materializations."""
+
 import itertools
 
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -1,4 +1,5 @@
 """Models related to cube materialization"""
+
 import hashlib
 from typing import Any, Dict, List, Optional, Union
 
