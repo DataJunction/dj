@@ -62,6 +62,7 @@ from datajunction_server.models.materialization import (
     MaterializationJobTypeEnum,
     UpsertMaterialization,
 )
+from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -668,12 +669,21 @@ async def update_node_with_query(
                 await create_new_materialization(
                     session,
                     new_revision,
-                    UpsertMaterialization(
+                    UpsertMaterialization(  # type: ignore
                         name=old.name,
                         config=old.config,
                         schedule=old.schedule,
                         strategy=old.strategy,
                         job=MaterializationJobTypeEnum.find_match(old.job),
+                    )
+                    if old.job != MaterializationJobTypeEnum.DRUID_CUBE.value.job_class
+                    else (
+                        UpsertCubeMaterialization(
+                            job=MaterializationJobTypeEnum.find_match(old.job),
+                            strategy=old.strategy,
+                            schedule=old.schedule,
+                            lookback_window=old.lookback_window,
+                        )
                     ),
                     validate_access,
                     current_user=current_user,
