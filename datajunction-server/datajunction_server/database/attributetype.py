@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING, List, Optional
 
 import sqlalchemy as sa
-from sqlalchemy import UniqueConstraint, select
+from sqlalchemy import Index, UniqueConstraint, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -87,7 +87,10 @@ class ColumnAttribute(Base):
     """
 
     __tablename__ = "columnattribute"
-    __table_args__ = (UniqueConstraint("attribute_type_id", "column_id"),)
+    __table_args__ = (
+        UniqueConstraint("attribute_type_id", "column_id"),
+        Index("idx_columnattribute_column_id", "column_id"),
+    )
 
     id: Mapped[int] = mapped_column(
         sa.BigInteger().with_variant(sa.Integer, "sqlite"),

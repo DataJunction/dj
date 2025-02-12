@@ -3,7 +3,7 @@
 from functools import cached_property
 from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
-from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Integer
+from sqlalchemy import JSON, BigInteger, Enum, ForeignKey, Index, Integer
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,6 +23,10 @@ class DimensionLink(Base):
     """
 
     __tablename__ = "dimensionlink"
+    __table_args__ = (
+        Index("idx_dimensionlink_node_revision_id", "node_revision_id"),
+        Index("idx_dimensionlink_dimension_id", "dimension_id"),
+    )
 
     id: Mapped[int] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"),

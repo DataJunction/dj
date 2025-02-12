@@ -5,7 +5,7 @@ from functools import partial
 from typing import Any, Dict, List, Optional
 
 import sqlalchemy as sa
-from sqlalchemy import JSON, DateTime, ForeignKey
+from sqlalchemy import JSON, DateTime, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from datajunction_server.database.base import Base
@@ -83,6 +83,7 @@ class NodeAvailabilityState(Base):
     """
 
     __tablename__ = "nodeavailabilitystate"
+    __table_args__ = (Index("idx_nodeavailabilitystate_node_id", "node_id"),)
 
     availability_id: Mapped[int] = mapped_column(
         ForeignKey(
