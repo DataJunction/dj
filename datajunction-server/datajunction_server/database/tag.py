@@ -2,7 +2,16 @@
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from sqlalchemy import JSON, BigInteger, Column, ForeignKey, Integer, String, select
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Column,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship
 from sqlalchemy.sql.base import ExecutableOption
@@ -108,6 +117,10 @@ class TagNodeRelationship(Base):
     """
 
     __tablename__ = "tagnoderelationship"
+    __table_args__ = (
+        Index("idx_tagnoderelationship_tag_id", "tag_id"),
+        Index("idx_tagnoderelationship_node_id", "node_id"),
+    )
 
     tag_id: Mapped[int] = mapped_column(
         ForeignKey("tag.id", name="fk_tagnoderelationship_tag_id_tag"),
