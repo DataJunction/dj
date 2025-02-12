@@ -879,7 +879,7 @@ async def test_cube_materialization_sql_and_measures(
     INNER JOIN default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
     INNER JOIN default_DOT_dispatcher ON default_DOT_repair_order.dispatcher_id = default_DOT_dispatcher.dispatcher_id
     INNER JOIN default_DOT_municipality_dim ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id
-    """  # noqa: W191,E101,C0301
+    """
     assert str(parse(data["materializations"][0]["config"]["query"])) == str(
         parse(expected_materialization_query),
     )
