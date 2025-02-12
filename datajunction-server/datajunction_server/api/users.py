@@ -72,15 +72,15 @@ async def list_users_with_activity(
     statement = (
         select(
             User.username,
-            func.count(History.id).label("count"),  # pylint: disable=not-callable
+            func.count(History.id).label("count"),
         )
         .join(
-            History,  # pylint: disable=superfluous-parens
+            History,
             onclause=(User.username == History.user),
             isouter=True,
         )
         .group_by(User.username)
-        .order_by(func.count(History.id).desc())  # pylint: disable=not-callable
+        .order_by(func.count(History.id).desc())
     )
     result = await session.execute(statement)
     return [

@@ -15,11 +15,8 @@ async def test_list_nodes_with_dimension_access_limited(
     """
     Test ``GET /dimensions/{name}/nodes/``.
     """
-    # pylint: disable=import-outside-toplevel
     from datajunction_server.internal.access.authorization import validate_access
     from datajunction_server.models import access
-
-    # pylint: enable=import-outside-toplevel
 
     def validate_access_override():
         def _validate_access(access_control: access.AccessControl):

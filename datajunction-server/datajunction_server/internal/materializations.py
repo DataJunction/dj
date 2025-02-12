@@ -21,6 +21,7 @@ from datajunction_server.internal.cube_materializations import (
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
+from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.materialization import (
     DruidMeasuresCubeConfig,
     DruidMetricsCubeConfig,
@@ -58,7 +59,7 @@ async def rewrite_metrics_expressions(
     metrics_expressions = {}
     measures_to_output_columns_lookup = {
         column.semantic_entity: column.name
-        for column in measures_query.columns  # type: ignore # pylint: disable=not-an-iterable
+        for column in measures_query.columns  # type: ignore
     }
     for metric in current_revision.cube_metrics():
         measures_for_metric = []
@@ -80,7 +81,7 @@ async def rewrite_metrics_expressions(
                     ),
                 )
 
-                col._table = None  # pylint: disable=protected-access
+                col._table = None
                 col.name = ast.Name(
                     measures_to_output_columns_lookup[full_column_name],
                 )
@@ -134,12 +135,12 @@ async def build_cube_materialization_config(
                 query=metrics_query.sql,
                 dimensions=[
                     col.name
-                    for col in metrics_query.columns  # type: ignore # pylint: disable=not-an-iterable
+                    for col in metrics_query.columns  # type: ignore
                     if col.semantic_type != SemanticType.METRIC
                 ],
                 metrics=[
                     col
-                    for col in metrics_query.columns  # type: ignore # pylint: disable=not-an-iterable
+                    for col in metrics_query.columns  # type: ignore
                     if col.semantic_type == SemanticType.METRIC
                 ],
                 spark=upsert_input.config.spark,
@@ -168,7 +169,7 @@ async def build_cube_materialization_config(
                 query=measures_query.sql,
                 dimensions=[
                     col.name
-                    for col in measures_query.columns  # type: ignore # pylint: disable=not-an-iterable
+                    for col in measures_query.columns  # type: ignore
                     if col.semantic_type == SemanticType.DIMENSION
                 ],
                 measures=metrics_expressions,
@@ -228,7 +229,7 @@ async def build_non_cube_materialization_config(
 async def create_new_materialization(
     session: AsyncSession,
     current_revision: NodeRevision,
-    upsert: UpsertMaterialization,
+    upsert: UpsertMaterialization | UpsertCubeMaterialization,
     validate_access: access.ValidateAccessFn,
     current_user: User,
 ) -> Materialization:
@@ -341,7 +342,7 @@ def _get_readable_name(expr):
     )
 
 
-def decompose_expression(  # pylint: disable=too-many-return-statements
+def decompose_expression(
     expr: Union[ast.Aliasable, ast.Expression],
 ) -> Tuple[ast.Expression, List[ast.Alias]]:
     """

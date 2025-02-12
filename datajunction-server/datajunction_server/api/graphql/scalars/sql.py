@@ -53,7 +53,7 @@ class SemanticEntity:
 
 
 @strawberry.type
-class ColumnMetadata:  # pylint: disable=too-few-public-methods
+class ColumnMetadata:
     """
     Column metadata for generated SQL
     """
@@ -65,7 +65,7 @@ class ColumnMetadata:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class GeneratedSQL:  # pylint: disable=too-few-public-methods
+class GeneratedSQL:
     """
     Generated SQL for a given node
     """

@@ -1,4 +1,3 @@
-# pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401,too-many-lines,protected-access,line-too-long
 """Building node SQL functions"""
 
 import collections
@@ -91,7 +90,7 @@ class DimensionJoin:
     node_query: Optional[ast.Query] = None
 
 
-async def get_measures_query(  # pylint: disable=too-many-locals
+async def get_measures_query(
     session: AsyncSession,
     metrics: List[str],
     dimensions: List[str],
@@ -114,12 +113,12 @@ async def get_measures_query(  # pylint: disable=too-many-locals
     and others are aggregations on measures in parent node B, this function will return a
     dictionary that maps A to the measures query for A, and B to the measures query for B.
     """
-    from datajunction_server.api.helpers import (  # pylint: disable=import-outside-toplevel
+    from datajunction_server.api.helpers import (
         assemble_column_metadata,
         check_dimension_attributes_exist,
         check_metrics_exist,
     )
-    from datajunction_server.construction.build import (  # pylint: disable=import-outside-toplevel
+    from datajunction_server.construction.build import (
         group_metrics_by_parent,
         metrics_to_measures,
         rename_columns,
@@ -338,7 +337,7 @@ def build_preaggregate_query(
     return final_query
 
 
-class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-public-methods
+class QueryBuilder:
     """
     This class allows users to configure building node SQL by incrementally building out
     the build configuration, including adding filters, dimensions, ordering, and limit
@@ -697,7 +696,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
                 link = cast(DimensionLink, link)
                 if all(
                     dim in link.foreign_keys_reversed for dim in requested_dimensions
-                ):  # pylint: disable=line-too-long # pragma: no cover
+                ):  # pragma: no cover
                     continue  # pragma: no cover
 
                 if link.dimension.name in self.cte_mapping:
@@ -838,7 +837,7 @@ class QueryBuilder:  # pylint: disable=too-many-instance-attributes,too-many-pub
         return dimension_node_joins
 
 
-class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
+class CubeQueryBuilder:
     """
     This class allows users to configure building cube SQL (retrieving SQL for multiple
     metrics + dimensions) through settings like adding filters, dimensions, ordering, and limit
@@ -1080,7 +1079,7 @@ class CubeQueryBuilder:  # pylint: disable=too-many-instance-attributes
         """
         Build the metrics' queries grouped by parent
         """
-        from datajunction_server.construction.build import (  # pylint: disable=import-outside-toplevel,line-too-long
+        from datajunction_server.construction.build import (
             group_metrics_by_parent,
         )
 
@@ -1541,7 +1540,7 @@ def build_join_for_link(
     return join_ast
 
 
-async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-many-statements
+async def build_ast(
     session: AsyncSession,
     node: NodeRevision,
     query: ast.Query,
@@ -1576,7 +1575,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-m
     else:
         await query.compile(context)
 
-    query.bake_ctes()  # pylint: disable=W0212
+    query.bake_ctes()
     await refresh_if_needed(session, node, ["dimension_links"])
 
     new_cte_mapping: Dict[str, ast.Query] = {}
@@ -1627,7 +1626,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-m
                 )
                 query_ast = ast.Table(  # type: ignore
                     reference_cte.alias,  # type: ignore
-                    _columns=reference_cte._columns,  # pylint: disable=protected-access
+                    _columns=reference_cte._columns,
                     _dj_node=referenced_node,
                 )
             else:
@@ -1671,7 +1670,7 @@ async def build_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-m
                     and col.table.dj_node
                     and col.table.dj_node.name == referenced_node.name
                 ):
-                    col._table = query_ast  # pylint: disable=protected-access
+                    col._table = query_ast
 
     # Apply pushdown filters if possible
     apply_filters_to_node(node, query, to_filter_asts(filters))

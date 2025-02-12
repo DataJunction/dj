@@ -1,7 +1,6 @@
 """
 Tests for building nodes and extracting dependencies
 """
-# pylint: disable=too-many-lines
 
 import pytest
 
@@ -14,7 +13,7 @@ def test_compound_build_exception():
     Test raising a CompoundBuildException
     """
     CompoundBuildException().reset()
-    CompoundBuildException().set_raise(False)  # pylint: disable=protected-access
+    CompoundBuildException().set_raise(False)
     CompoundBuildException().append(
         error=DJError(
             code=ErrorCode.INVALID_SQL_QUERY,
@@ -36,7 +35,7 @@ def test_raise_compound_build_exception():
     Test raising a CompoundBuildException
     """
     CompoundBuildException().reset()
-    CompoundBuildException().set_raise(True)  # pylint: disable=protected-access
+    CompoundBuildException().set_raise(True)
     with pytest.raises(DJException) as exc_info:
         CompoundBuildException().append(
             error=DJError(

@@ -10,7 +10,7 @@ from datajunction_server.database.base import Base
 from datajunction_server.models.engine import Dialect
 
 
-class Engine(Base):  # pylint: disable=too-few-public-methods
+class Engine(Base):
     """
     A query engine.
     """

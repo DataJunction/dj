@@ -1,5 +1,4 @@
 """Availability state database schema."""
-# pylint: disable=unsubscriptable-object
 
 from datetime import datetime, timezone
 from functools import partial
@@ -14,7 +13,7 @@ from datajunction_server.models.node import BuildCriteria, PartitionAvailability
 from datajunction_server.typing import UTCDatetime
 
 
-class AvailabilityState(Base):  # pylint: disable=too-few-public-methods
+class AvailabilityState(Base):
     """
     The availability of materialized data for a node
     """
@@ -68,17 +67,17 @@ class AvailabilityState(Base):  # pylint: disable=too-few-public-methods
 
     def is_available(
         self,
-        criteria: Optional[BuildCriteria] = None,  # pylint: disable=unused-argument
+        criteria: Optional[BuildCriteria] = None,
     ) -> bool:  # pragma: no cover
         """
         Determine whether an availability state is useable given criteria
         """
-        # TODO: we should evaluate this availability state against the criteria. # pylint: disable=fixme
+        # TODO: we should evaluate this availability state against the criteria.
         #       Remember that VTTS can be also evaluated at runtime dependency.
         return True
 
 
-class NodeAvailabilityState(Base):  # pylint: disable=too-few-public-methods
+class NodeAvailabilityState(Base):
     """
     Join table for availability state
     """

@@ -26,7 +26,7 @@ async def get_dj_node(
     """Return the DJ Node with a given name from a set of node types"""
     query = select(Node).filter(Node.name == node_name)
     if kinds:
-        query = query.filter(Node.type.in_(kinds))  # type: ignore  # pylint: disable=no-member
+        query = query.filter(Node.type.in_(kinds))  # type: ignore
     match = None
     try:
         match = (
@@ -59,7 +59,7 @@ async def try_get_dj_node(
     kinds: Optional[Set[NodeType]] = None,
 ) -> Optional[Node]:
     "wraps get dj node to return None if no node is found"
-    from datajunction_server.sql.parsing.ast import Column  # pylint: disable=C0415
+    from datajunction_server.sql.parsing.ast import Column
 
     if isinstance(name, Column):
         if name.name.namespace is not None:  # pragma: no cover
@@ -76,9 +76,7 @@ def to_namespaced_name(name: str) -> "Name":
     """
     Builds a namespaced name from a string
     """
-    from datajunction_server.sql.parsing.ast import (  # pylint: disable=import-outside-toplevel
-        Name,
-    )
+    from datajunction_server.sql.parsing.ast import Name
 
     chunked = name.split(".")
     chunked.reverse()

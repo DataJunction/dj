@@ -10,14 +10,14 @@ Dialect = strawberry.enum(Dialect_)
 
 
 @strawberry.experimental.pydantic.type(model=EngineInfo, all_fields=True)
-class Engine:  # pylint: disable=too-few-public-methods
+class Engine:
     """
     Database engine
     """
 
 
 @strawberry.experimental.pydantic.type(model=CatalogInfo, all_fields=True)
-class Catalog:  # pylint: disable=too-few-public-methods
+class Catalog:
     """
     Class for a Catalog
     """

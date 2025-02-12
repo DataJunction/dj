@@ -111,7 +111,7 @@ async def get_downstream_nodes(
     max_depths = (
         select(
             paths.c.node_id,
-            func.max(paths.c.depth).label("max_depth"),  # pylint: disable=not-callable
+            func.max(paths.c.depth).label("max_depth"),
         )
         .group_by(paths.c.node_id)
         .cte("max_depths")
@@ -226,7 +226,7 @@ async def get_upstream_nodes(
     ]
 
 
-async def get_dimensions_dag(  # pylint: disable=too-many-locals
+async def get_dimensions_dag(
     session: AsyncSession,
     node_revision: NodeRevision,
     with_attributes: bool = True,
@@ -267,7 +267,7 @@ async def get_dimensions_dag(  # pylint: disable=too-many-locals
                 DimensionLink.dimension_id,
                 (
                     literal("[")
-                    + func.coalesce(  # pylint: disable=not-callable
+                    + func.coalesce(
                         DimensionLink.role,
                         literal(""),
                     )
@@ -696,18 +696,18 @@ async def get_nodes_with_dimension(
                     onclause=(
                         (NodeRevision.node_id == Node.id)
                         & (Node.current_version == NodeRevision.version)
-                    ),  # pylint: disable=superfluous-parens
+                    ),
                 )
                 .join(
                     NodeColumns,
-                    onclause=(NodeRevision.id == NodeColumns.node_id),  # pylint: disable=superfluous-parens
+                    onclause=(NodeRevision.id == NodeColumns.node_id),
                 )
                 .join(
                     Column,
-                    onclause=(NodeColumns.column_id == Column.id),  # pylint: disable=superfluous-parens
+                    onclause=(NodeColumns.column_id == Column.id),
                 )
                 .where(
-                    Column.dimension_id.in_(  # type: ignore  # pylint: disable=no-member
+                    Column.dimension_id.in_(  # type: ignore
                         [current_node.id],
                     ),
                 )
@@ -735,7 +735,7 @@ async def get_nodes_with_dimension(
                     onclause=(
                         (NodeRevision.node_id == Node.id)
                         & (Node.current_version == NodeRevision.version)
-                    ),  # pylint: disable=superfluous-parens
+                    ),
                 )
                 .where(DimensionLink.dimension_id.in_([current_node.id]))
             )
@@ -852,7 +852,7 @@ async def get_dimension_dag_indegree(session, node_names: List[str]) -> Dict[str
     statement = (
         select(
             DimensionLink.dimension_id,
-            func.count(DimensionLink.id),  # pylint: disable=not-callable
+            func.count(DimensionLink.id),
         )
         .where(DimensionLink.dimension_id.in_(dimension_ids))
         .group_by(DimensionLink.dimension_id)

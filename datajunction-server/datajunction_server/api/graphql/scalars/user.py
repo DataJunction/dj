@@ -22,7 +22,7 @@ class OAuthProvider(Enum):
 
 
 @strawberry.type
-class User:  # pylint: disable=too-few-public-methods
+class User:
     """
     A DataJunction User
     """

@@ -70,7 +70,7 @@ async def get_access_token(
     request_session = requests.session()
     token_request = google.auth.transport.requests.Request(session=request_session)
     user_data = id_token.verify_oauth2_token(
-        id_token=credentials._id_token,  # pylint: disable=protected-access
+        id_token=credentials._id_token,
         request=token_request,
         audience=setting.google_oauth_client_id,
     )

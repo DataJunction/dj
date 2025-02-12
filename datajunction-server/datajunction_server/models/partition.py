@@ -66,7 +66,7 @@ class PartitionBackfill(BaseModel):
     values: Optional[List]
     range: Optional[List]
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
@@ -80,7 +80,7 @@ class PartitionOutput(BaseModel):
     granularity: Optional[str]
     expression: Optional[str]
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
@@ -103,5 +103,5 @@ class BackfillOutput(BaseModel):
     spec: Optional[List[PartitionBackfill]]
     urls: Optional[List[str]]
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True

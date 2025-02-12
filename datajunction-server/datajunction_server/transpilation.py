@@ -64,7 +64,7 @@ class SQLGlotTranspilationPlugin(SQLTranspilationPlugin):
         """
         Transpile a given SQL query using the specific library.
         """
-        import sqlglot  # pylint: disable=import-outside-toplevel,import-error
+        import sqlglot
 
         # Check to make sure that the output dialect is supported by sqlglot before transpiling
         if (

@@ -8,7 +8,7 @@ ErrorCode = strawberry.enum(ErrorCode_)
 
 
 @strawberry.type
-class DJError:  # pylint: disable=too-few-public-methods
+class DJError:
     """
     A DJ error
     """

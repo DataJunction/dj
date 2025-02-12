@@ -20,5 +20,5 @@ class CatalogInfo(BaseModel):
     name: str
     engines: Optional[List[EngineInfo]] = []
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True

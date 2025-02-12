@@ -56,7 +56,7 @@ class Catalog(Base):
         return hash(self.id)
 
 
-class CatalogEngines(Base):  # type: ignore  # pylint: disable=too-few-public-methods
+class CatalogEngines(Base):  # type: ignore
     """
     Join table for catalogs and engines.
     """

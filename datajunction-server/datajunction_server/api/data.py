@@ -1,4 +1,3 @@
-# pylint: disable=too-many-arguments
 """
 Data related APIs.
 """
@@ -57,7 +56,7 @@ async def add_availability_state(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
     notify: Callable = Depends(get_notifier),
@@ -164,7 +163,7 @@ async def add_availability_state(
 
 
 @router.get("/data/{node_name}/", name="Get Data for a Node")
-async def get_data(  # pylint: disable=too-many-locals
+async def get_data(
     node_name: str,
     *,
     dimensions: List[str] = Query([], description="Dimensional attributes to group by"),
@@ -184,7 +183,7 @@ async def get_data(  # pylint: disable=too-many-locals
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
     background_tasks: BackgroundTasks,
@@ -243,7 +242,7 @@ async def get_data(  # pylint: disable=too-many-locals
 
 
 @router.get("/stream/{node_name}", response_model=QueryWithResults)
-async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
+async def get_data_stream_for_node(
     node_name: str,
     *,
     dimensions: List[str] = Query([], description="Dimensional attributes to group by"),
@@ -259,7 +258,7 @@ async def get_data_stream_for_node(  # pylint: disable=R0914, R0913
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
     background_tasks: BackgroundTasks,
@@ -365,7 +364,7 @@ def get_data_for_query(
 
 
 @router.get("/data/", response_model=QueryWithResults, name="Get Data For Metrics")
-async def get_data_for_metrics(  # pylint: disable=R0914, R0913
+async def get_data_for_metrics(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
@@ -379,7 +378,7 @@ async def get_data_for_metrics(  # pylint: disable=R0914, R0913
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> QueryWithResults:
@@ -424,7 +423,7 @@ async def get_data_for_metrics(  # pylint: disable=R0914, R0913
 
 
 @router.get("/stream/", response_model=QueryWithResults)
-async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
+async def get_data_stream_for_metrics(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
@@ -437,7 +436,7 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> QueryWithResults:

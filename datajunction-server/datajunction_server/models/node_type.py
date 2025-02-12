@@ -32,7 +32,7 @@ class NodeNameOutput(BaseModel):
 
     name: str
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
@@ -44,5 +44,5 @@ class NodeNameVersion(BaseModel):
     name: str
     version: str
 
-    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+    class Config:
         orm_mode = True

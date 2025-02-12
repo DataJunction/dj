@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
 
 
-class Materialization(Base):  # pylint: disable=too-few-public-methods
+class Materialization(Base):
     """
     Materialization configured for a node.
     """
@@ -107,9 +107,7 @@ class Materialization(Base):  # pylint: disable=too-few-public-methods
         """
         Get materializations by name and node revision id.
         """
-        from datajunction_server.database.node import (  # pylint: disable=import-outside-toplevel
-            NodeRevision,
-        )
+        from datajunction_server.database.node import NodeRevision
 
         statement = (
             select(cls)

@@ -137,7 +137,7 @@ def _combine_measures_join_criteria(left_table, right_table, query_grain):
     )
 
 
-async def build_cube_materialization(  # pylint: disable=used-before-assignment,too-many-locals
+async def build_cube_materialization(
     session: AsyncSession,
     current_revision: NodeRevision,
     upsert_input: UpsertCubeMaterialization,
@@ -267,6 +267,6 @@ async def build_cube_materialization(  # pylint: disable=used-before-assignment,
         ],
         dimensions=current_revision.cube_node_dimensions,
         measures_materializations=measures_materializations,
-        combiners=combiners,  # pylint: disable=possibly-used-before-assignment
+        combiners=combiners,
     )
     return config

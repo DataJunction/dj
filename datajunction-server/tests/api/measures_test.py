@@ -100,7 +100,7 @@ async def test_list_all_measures(
 @pytest.mark.asyncio
 async def test_create_measure(
     module__client_with_roads: AsyncClient,
-    failed_measure: Dict,  # pylint: disable=redefined-outer-name
+    failed_measure: Dict,
 ) -> None:
     """
     Test ``POST /measures/``.

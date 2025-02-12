@@ -125,9 +125,7 @@ class MeasuresMaterialization(BaseModel):
         """
         Generate a unique output table name based on the parameters.
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
+        from datajunction_server.sql.parsing import ast
 
         return ast.Table(name=ast.Name(self.output_table_name))
 
@@ -174,7 +172,7 @@ class MeasuresMaterialization(BaseModel):
             query=measures_query.sql,
             dimensions=[
                 col.name
-                for col in measures_query.columns  # type: ignore # pylint: disable=not-an-iterable
+                for col in measures_query.columns  # type: ignore
                 if col.semantic_type == SemanticType.DIMENSION
             ],
             measures=list(
@@ -210,7 +208,7 @@ class CubeMetric(BaseModel):
     derived_expression: str = Field(
         description=(
             "The expression for rewriting the original metric query "
-            "using the materialized measures.",
+            "using the materialized measures."
         ),
     )
 
@@ -233,7 +231,7 @@ class UpsertCubeMaterialization(BaseModel):
     lookback_window: str | None = "1 DAY"
 
     @validator("job", pre=True)
-    def validate_job(  # pylint: disable=no-self-argument
+    def validate_job(
         cls,
         job: Union[str, MaterializationJobTypeEnum],
     ) -> MaterializationJobTypeEnum:
@@ -242,9 +240,7 @@ class UpsertCubeMaterialization(BaseModel):
         """
         if isinstance(job, str):  # pragma: no cover
             job_name = job.upper()
-            options = (
-                MaterializationJobTypeEnum._member_names_  # pylint: disable=protected-access,no-member
-            )
+            options = MaterializationJobTypeEnum._member_names_
             if job_name not in options:
                 raise DJInvalidInputException(
                     http_status_code=404,
@@ -344,7 +340,6 @@ class CombineMaterialization(BaseModel):
                         "format": "parquet",
                         "dimensionsSpec": {
                             "dimensions": sorted(
-                                # pylint: disable=no-member
                                 list(set(self.dimensions)),  # type: ignore
                             ),
                         },

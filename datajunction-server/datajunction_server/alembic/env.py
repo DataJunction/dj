@@ -1,7 +1,6 @@
 """
 Environment for Alembic migrations.
 """
-# pylint: disable=no-member, unused-import, no-name-in-module, import-error
 
 import os
 from logging.config import fileConfig

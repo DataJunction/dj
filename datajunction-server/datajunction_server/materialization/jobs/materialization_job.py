@@ -23,7 +23,7 @@ from datajunction_server.utils import get_settings
 settings = get_settings()
 
 
-class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
+class MaterializationJob(abc.ABC):
     """
     Base class for a materialization job
     """
@@ -63,7 +63,7 @@ class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
         """
 
 
-class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pragma: no cover
+class SparkSqlMaterializationJob(  # pragma: no cover
     MaterializationJob,
 ):
     """

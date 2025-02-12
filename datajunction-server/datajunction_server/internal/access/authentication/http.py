@@ -20,7 +20,7 @@ from datajunction_server.internal.access.authentication.tokens import decode_tok
 from datajunction_server.utils import get_session, get_settings
 
 
-class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
+class DJHTTPBearer(HTTPBearer):
     """
     A custom HTTPBearer that accepts a cookie or bearer token
     """
