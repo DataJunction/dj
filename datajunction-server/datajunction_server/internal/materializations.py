@@ -21,6 +21,7 @@ from datajunction_server.internal.cube_materializations import (
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
+from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.materialization import (
     DruidMeasuresCubeConfig,
     DruidMetricsCubeConfig,
@@ -228,7 +229,7 @@ async def build_non_cube_materialization_config(
 async def create_new_materialization(
     session: AsyncSession,
     current_revision: NodeRevision,
-    upsert: UpsertMaterialization,
+    upsert: UpsertMaterialization | UpsertCubeMaterialization,
     validate_access: access.ValidateAccessFn,
     current_user: User,
 ) -> Materialization:
