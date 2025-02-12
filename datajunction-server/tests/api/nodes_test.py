@@ -1,4 +1,3 @@
-# pylint: disable=too-many-lines
 """
 Tests for the nodes API.
 """
@@ -280,7 +279,7 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
     }
 
 
-class TestNodeCRUD:  # pylint: disable=too-many-public-methods
+class TestNodeCRUD:
     """
     Test node CRUD
     """
@@ -1291,7 +1290,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             (
                 await session.execute(
                     select(NodeRelationship).where(
-                        NodeRelationship.child_id.in_(  # type: ignore  # pylint: disable=no-member
+                        NodeRelationship.child_id.in_(  # type: ignore
                             [rev.id for rev in revisions],
                         ),
                     ),
@@ -1310,7 +1309,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             (
                 await session.execute(
                     select(Node).where(
-                        Node.name.in_(upstream_names),  # type: ignore  # pylint: disable=no-member
+                        Node.name.in_(upstream_names),  # type: ignore
                     ),
                 )
             )
@@ -1373,7 +1372,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             (
                 await session.execute(
                     select(NodeRevision).where(
-                        NodeRevision.name.like("default%"),  # type: ignore # pylint: disable=no-member
+                        NodeRevision.name.like("default%"),  # type: ignore
                     ),
                 )
             )
@@ -2259,8 +2258,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
     @pytest.mark.asyncio
     async def test_create_invalid_transform_node(
         self,
-        catalog: Catalog,  # pylint: disable=unused-argument
-        source_node: Node,  # pylint: disable=unused-argument
+        catalog: Catalog,
+        source_node: Node,
         client: AsyncClient,
         create_invalid_transform_node_payload: Dict[str, Any],
     ) -> None:
@@ -2326,8 +2325,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
     @pytest.mark.asyncio
     async def test_create_update_transform_node(
         self,
-        catalog: Catalog,  # pylint: disable=unused-argument
-        source_node: Node,  # pylint: disable=unused-argument
+        catalog: Catalog,
+        source_node: Node,
         client: AsyncClient,
         create_transform_node_payload: Dict[str, Any],
     ) -> None:
@@ -2590,8 +2589,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
     @pytest.mark.asyncio
     async def test_create_dimension_node_fails(
         self,
-        catalog: Catalog,  # pylint: disable=unused-argument
-        source_node: Node,  # pylint: disable=unused-argument
+        catalog: Catalog,
+        source_node: Node,
         client: AsyncClient,
     ):
         """
@@ -2632,8 +2631,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
     @pytest.mark.asyncio
     async def test_create_update_dimension_node(
         self,
-        catalog: Catalog,  # pylint: disable=unused-argument
-        source_node: Node,  # pylint: disable=unused-argument
+        catalog: Catalog,
+        source_node: Node,
         client: AsyncClient,
         create_dimension_node_payload: Dict[str, Any],
     ) -> None:
@@ -2804,8 +2803,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
     @pytest.mark.asyncio
     async def test_updating_node_to_invalid_draft(
         self,
-        catalog: Catalog,  # pylint: disable=unused-argument
-        source_node: Node,  # pylint: disable=unused-argument
+        catalog: Catalog,
+        source_node: Node,
         client: AsyncClient,
         create_dimension_node_payload: Dict[str, Any],
     ) -> None:
@@ -2871,7 +2870,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["status"] == "invalid"
 
     @pytest.mark.asyncio
-    async def test_upsert_materialization_config(  # pylint: disable=too-many-arguments
+    async def test_upsert_materialization_config(
         self,
         client_with_query_service_example_loader,
     ) -> None:
@@ -3840,7 +3839,7 @@ class TestNodeColumnsAttributes:
         ]
 
 
-class TestValidateNodes:  # pylint: disable=too-many-public-methods
+class TestValidateNodes:
     """
     Test ``POST /nodes/validate/``.
     """
@@ -5012,7 +5011,7 @@ async def test_resolving_downstream_status(
         (metric3, NodeType.METRIC),
     ]:
         response = await client_with_service_setup.post(
-            f"/nodes/{node_type.value}/",  # pylint: disable=no-member
+            f"/nodes/{node_type.value}/",
             json=node,
         )
         assert response.status_code == 201
@@ -5768,11 +5767,11 @@ class TestCopyNode:
         ]
 
     @pytest.mark.asyncio
-    async def test_copy_nodes(  # pylint: disable=too-many-locals
+    async def test_copy_nodes(
         self,
         client_with_roads: AsyncClient,
-        repairs_cube_payload,  # pylint: disable=redefined-outer-name
-        metric_with_required_dim_payload,  # pylint: disable=redefined-outer-name
+        repairs_cube_payload,
+        metric_with_required_dim_payload,
     ):
         """
         Test copying all nodes in the roads database

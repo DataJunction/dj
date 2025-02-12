@@ -1,4 +1,3 @@
-# pylint: disable=too-many-lines
 """Tests for /materialization api"""
 
 import json
@@ -44,7 +43,7 @@ def load_expected_file():
 
 @pytest_asyncio.fixture
 async def client_with_repairs_cube(
-    module__client_with_roads: AsyncClient,  # pylint: disable=redefined-outer-name
+    module__client_with_roads: AsyncClient,
 ):
     """
     Adds a repairs cube to the test client
@@ -83,7 +82,7 @@ async def client_with_repairs_cube(
 
 
 @pytest.fixture
-def set_temporal_column():  # pylint: disable=redefined-outer-name
+def set_temporal_column():
     """
     Sets the given column as a temporal partition on the specified node.
     """
@@ -103,7 +102,7 @@ def set_temporal_column():  # pylint: disable=redefined-outer-name
 
 
 @pytest.fixture
-def set_categorical_partition():  # pylint: disable=redefined-outer-name
+def set_categorical_partition():
     """
     Sets the given column as a categorical partition on the specified node.
     """
@@ -301,10 +300,10 @@ async def test_crud_materialization(module__client_with_basic: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_druid_measures_cube_full(
-    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_repairs_cube: AsyncClient,
     module__query_service_client: QueryServiceClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
-    set_temporal_column,  # pylint: disable=redefined-outer-name
+    load_expected_file,
+    set_temporal_column,
 ):
     """
     Verifying this materialization setup:
@@ -421,11 +420,11 @@ async def test_druid_measures_cube_full(
 
 @pytest.mark.asyncio
 async def test_druid_measures_cube_incremental(
-    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_repairs_cube: AsyncClient,
     module__query_service_client: QueryServiceClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
-    set_temporal_column,  # pylint: disable=redefined-outer-name
-    set_categorical_partition,  # pylint: disable=redefined-outer-name,
+    load_expected_file,
+    set_temporal_column,
+    set_categorical_partition,
 ):
     """
     Verifying this materialization setup:
@@ -609,11 +608,11 @@ WHERE repair_orders.order_date = DJ_LOGICAL_TIMESTAMP()""",
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="The test is unstable depending on run order")
 async def test_druid_metrics_cube_incremental(
-    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_repairs_cube: AsyncClient,
     module__query_service_client: QueryServiceClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
-    set_temporal_column,  # pylint: disable=redefined-outer-name,
-    set_categorical_partition,  # pylint: disable=redefined-outer-name,
+    load_expected_file,
+    set_temporal_column,
+    set_categorical_partition,
 ):
     """
     Verifying this materialization setup:
@@ -748,9 +747,9 @@ ANY_STRING = AnyString()
 
 @pytest.mark.asyncio
 async def test_druid_cube_incremental(
-    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_repairs_cube: AsyncClient,
     module__query_service_client: QueryServiceClient,
-    set_temporal_column,  # pylint: disable=redefined-outer-name
+    set_temporal_column,
 ):
     """
     Verifying this materialization setup:
@@ -1032,9 +1031,9 @@ async def test_druid_cube_incremental(
 
 @pytest.mark.asyncio
 async def test_spark_sql_full(
-    module__client_with_roads: AsyncClient,  # pylint: disable=redefined-outer-name
+    module__client_with_roads: AsyncClient,
     module__query_service_client: QueryServiceClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
+    load_expected_file,
 ):
     """
     Verifying this materialization setup:
@@ -1171,11 +1170,11 @@ async def test_spark_sql_full(
 
 @pytest.mark.asyncio
 async def test_spark_sql_incremental(
-    module__client_with_roads: AsyncClient,  # pylint: disable=redefined-outer-name
+    module__client_with_roads: AsyncClient,
     module__query_service_client: QueryServiceClient,
-    set_temporal_column,  # pylint: disable=redefined-outer-name
-    set_categorical_partition,  # pylint: disable=redefined-outer-name
-    load_expected_file,  # pylint: disable=redefined-outer-name
+    set_temporal_column,
+    set_categorical_partition,
+    load_expected_file,
 ):
     """
     Verifying this materialization setup:
@@ -1407,7 +1406,7 @@ async def test_spark_sql_incremental(
 
 @pytest.mark.asyncio
 async def test_spark_with_availablity(
-    module__client_with_roads: AsyncClient,  # pylint: disable=redefined-outer-name
+    module__client_with_roads: AsyncClient,
 ):
     """
     Verify that we build the Query correctly with or without the materialization availability.

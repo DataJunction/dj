@@ -19,7 +19,7 @@ from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
 @dataclass
-class NodeValidator:  # pylint: disable=too-many-instance-attributes
+class NodeValidator:
     """
     Node validation
     """
@@ -50,7 +50,7 @@ class NodeValidator:  # pylint: disable=too-many-instance-attributes
         return updated_columns
 
 
-async def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
+async def validate_node_data(
     data: Union[NodeRevisionBase, NodeRevision],
     session: AsyncSession,
 ) -> NodeValidator:

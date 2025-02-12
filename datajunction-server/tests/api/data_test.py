@@ -1,9 +1,7 @@
-# pylint: disable=too-many-lines
 """
 Tests for the data API.
 """
 
-# pylint: disable=too-many-lines,C0302
 from typing import Dict, List, Optional
 from unittest import mock
 
@@ -644,7 +642,7 @@ class TestDataForNode:
         assert "Query foo-bar-baz not found." in yet_another_response.text
 
 
-class TestAvailabilityState:  # pylint: disable=too-many-public-methods
+class TestAvailabilityState:
     """
     Test ``POST /data/{node_name}/availability/``.
     """
@@ -968,7 +966,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "default.large_revenue_payments_and_business_only",
         )
         updated_at_1 = (
-            large_revenue_payments_and_business_only.current.availability.updated_at  # type: ignore  # pylint: disable=line-too-long
+            large_revenue_payments_and_business_only.current.availability.updated_at  # type: ignore
         )
 
         response = await module__client_with_account_revenue.post(
@@ -989,7 +987,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "default.large_revenue_payments_and_business_only",
         )
         updated_at_2 = (
-            large_revenue_payments_and_business_only.current.availability.updated_at  # type: ignore  # pylint: disable=line-too-long
+            large_revenue_payments_and_business_only.current.availability.updated_at  # type: ignore
         )
 
         assert updated_at_2 > updated_at_1

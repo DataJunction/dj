@@ -10,7 +10,7 @@ from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
 
 
-class TestDataAccessControl:  # pylint: disable=too-few-public-methods
+class TestDataAccessControl:
     """
     Test the data access control.
     """

@@ -15,7 +15,7 @@ from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.typing import UTCDatetime
 
 
-class Collection(Base):  # pylint: disable=too-few-public-methods
+class Collection(Base):
     """
     A collection of nodes
     """
@@ -71,7 +71,7 @@ class Collection(Base):  # pylint: disable=too-few-public-methods
         return collection
 
 
-class CollectionNodes(Base):  # type: ignore  # pylint: disable=too-few-public-methods
+class CollectionNodes(Base):  # type: ignore
     """
     Join table for collections and nodes.
     """

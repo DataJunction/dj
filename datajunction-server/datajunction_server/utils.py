@@ -9,7 +9,6 @@ import re
 from functools import lru_cache
 from http import HTTPStatus
 
-# pylint: disable=line-too-long
 from typing import AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
@@ -163,7 +162,7 @@ async def get_session() -> AsyncIterator[AsyncSession]:
     session = session_manager.session()
     try:
         yield session
-    except Exception as exc:  # pylint: disable=broad-exception-raised
+    except Exception as exc:
         await session.rollback()  # pragma: no cover
         raise exc  # pragma: no cover
     finally:
@@ -186,7 +185,7 @@ async def refresh_if_needed(session: AsyncSession, obj, attributes: list[str]):
         await session.refresh(obj, attributes_to_refresh)
 
 
-def get_query_service_client(  # pylint: disable=unused-argument
+def get_query_service_client(
     request: Request = None,
 ) -> Optional[QueryServiceClient]:
     """

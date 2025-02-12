@@ -10,7 +10,7 @@ from datajunction_server.construction.build_v2 import get_measures_query
 
 
 @strawberry.input
-class CubeDefinition:  # pylint: disable=too-few-public-methods
+class CubeDefinition:
     """
     The cube definition for the query
     """
@@ -42,7 +42,7 @@ class CubeDefinition:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.input
-class EngineSettings:  # pylint: disable=too-few-public-methods
+class EngineSettings:
     """
     The engine settings for the query
     """

@@ -1,4 +1,3 @@
-# pylint: disable=too-many-lines
 """
 Helpers for API endpoints
 """
@@ -66,7 +65,7 @@ _logger = logging.getLogger(__name__)
 COLUMN_NAME_REGEX = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
 
 
-async def get_node_namespace(  # pylint: disable=too-many-arguments
+async def get_node_namespace(
     session: AsyncSession,
     namespace: str,
     raise_if_not_exists: bool = True,
@@ -85,7 +84,7 @@ async def get_node_namespace(  # pylint: disable=too-many-arguments
     return node_namespace
 
 
-async def get_node_by_name(  # pylint: disable=too-many-arguments
+async def get_node_by_name(
     session: AsyncSession,
     name: Optional[str],
     node_type: Optional[NodeType] = None,
@@ -189,7 +188,7 @@ async def get_catalog_by_name(session: AsyncSession, name: str) -> Catalog:
     return catalog
 
 
-async def get_query(  # pylint: disable=too-many-arguments
+async def get_query(
     session: AsyncSession,
     node_name: str,
     dimensions: List[str],
@@ -203,9 +202,7 @@ async def get_query(  # pylint: disable=too-many-arguments
     """
     Get a query for a metric, dimensions, and filters
     """
-    from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel
-        QueryBuilder,
-    )
+    from datajunction_server.construction.build_v2 import QueryBuilder
 
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     build_criteria = get_default_criteria(node.current, engine)  # type: ignore
@@ -261,9 +258,7 @@ async def resolve_downstream_references(
     """
     Find all node revisions with missing parent references to `node` and resolve them
     """
-    from datajunction_server.internal.validation import (  # pylint: disable=import-outside-toplevel
-        validate_node_data,
-    )
+    from datajunction_server.internal.validation import validate_node_data
 
     missing_parents = (
         (
@@ -352,7 +347,7 @@ def map_dimensions_to_roles(dimensions: List[str]) -> Dict[str, str]:
     return {dim_rols[0]: dim_rols[1] for dim_rols in dimension_roles}
 
 
-async def validate_cube(  # pylint: disable=too-many-locals
+async def validate_cube(
     session: AsyncSession,
     metric_names: List[str],
     dimension_names: List[str],
@@ -576,7 +571,7 @@ async def find_existing_cube(
     )
     for name in element_names:
         statement = statement.filter(
-            NodeRevision.cube_elements.any(Column.name == name),  # type: ignore  # pylint: disable=no-member
+            NodeRevision.cube_elements.any(Column.name == name),  # type: ignore
         ).options(
             joinedload(Node.current).options(
                 joinedload(NodeRevision.materializations),
@@ -594,7 +589,7 @@ async def find_existing_cube(
     return None
 
 
-async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-many-locals
+async def build_sql_for_multiple_metrics(
     session: AsyncSession,
     metrics: List[str],
     dimensions: List[str],
@@ -682,7 +677,7 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
             access_control.add_request_by_node(cube)
             access_control.state = access.AccessControlState.INDIRECT
             access_control.raise_if_invalid_requests()
-        query_ast = build_materialized_cube_node(  # pylint: disable=E1121
+        query_ast = build_materialized_cube_node(
             metric_columns,
             dimension_columns,
             cube,
@@ -758,7 +753,7 @@ async def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,
     )
 
 
-async def query_event_stream(  # pylint: disable=too-many-arguments
+async def query_event_stream(
     query: QueryWithResults,
     request_headers: Optional[Dict[str, str]],
     query_service_client: QueryServiceClient,
@@ -824,7 +819,7 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
         await asyncio.sleep(stream_delay)  # pragma: no cover
 
 
-async def build_sql_for_dj_query(  # pylint: disable=too-many-locals  # pragma: no cover
+async def build_sql_for_dj_query(  # pragma: no cover
     session: AsyncSession,
     query: str,
     access_control: access.AccessControl,

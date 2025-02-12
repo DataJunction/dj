@@ -35,7 +35,7 @@ async def get_tags_by_name(
     """
     Retrieves a list of tags by name
     """
-    statement = select(Tag).where(Tag.name.in_(names))  # type: ignore  # pylint: disable=no-member
+    statement = select(Tag).where(Tag.name.in_(names))  # type: ignore
     tags = (await session.execute(statement)).scalars().all()
     difference = set(names) - {tag.name for tag in tags}
     if difference:

@@ -1,4 +1,3 @@
-# pylint: disable=too-many-lines
 """
 Fixtures for testing.
 """
@@ -57,8 +56,6 @@ from datajunction_server.utils import (
 )
 
 from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS, SERVICE_SETUP
-
-# pylint: disable=redefined-outer-name, invalid-name, W0611
 
 
 EXAMPLE_TOKEN = (
@@ -133,16 +130,16 @@ def settings_no_qs(
 
 
 @pytest.fixture(scope="session")
-def duckdb_conn() -> duckdb.DuckDBPyConnection:  # pylint: disable=c-extension-no-member
+def duckdb_conn() -> duckdb.DuckDBPyConnection:
     """
     DuckDB connection fixture with mock roads data loaded
     """
-    with open(  # pylint: disable=unspecified-encoding
+    with open(
         os.path.join(os.path.dirname(__file__), "duckdb.sql"),
     ) as mock_data:
-        with duckdb.connect(  # pylint: disable=c-extension-no-member
+        with duckdb.connect(
             ":memory:",
-        ) as conn:  # pylint: disable=c-extension-no-member
+        ) as conn:
             conn.execute(mock_data.read())
             yield conn
 
@@ -216,7 +213,7 @@ def event_loop():
 @pytest.fixture
 def query_service_client(
     mocker: MockerFixture,
-    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+    duckdb_conn: duckdb.DuckDBPyConnection,
 ) -> Iterator[QueryServiceClient]:
     """
     Custom settings for unit tests.
@@ -227,10 +224,8 @@ def query_service_client(
         catalog: str,
         schema: str,
         table: str,
-        engine: Optional[Engine] = None,  # pylint: disable=unused-argument
-        request_headers: Optional[  # pylint: disable=unused-argument
-            Dict[str, str]
-        ] = None,
+        engine: Optional[Engine] = None,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> List[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
@@ -242,9 +237,7 @@ def query_service_client(
 
     def mock_submit_query(
         query_create: QueryCreate,
-        request_headers: Optional[  # pylint: disable=unused-argument
-            Dict[str, str]
-        ] = None,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
         result = duckdb_conn.sql(query_create.submitted_query)
         columns = [
@@ -274,9 +267,7 @@ def query_service_client(
     def mock_create_view(
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[  # pylint: disable=unused-argument
-            Dict[str, str]
-        ] = None,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> str:
         duckdb_conn.sql(query_create.submitted_query)
         return f"View {view_name} created successfully."
@@ -289,9 +280,7 @@ def query_service_client(
 
     def mock_get_query(
         query_id: str,
-        request_headers: Optional[  # pylint: disable=unused-argument
-            Dict[str, str]
-        ] = None,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> Collection[Collection[str]]:
         if query_id == "foo-bar-baz":
             raise DJQueryServiceClientEntityNotFound("Query foo-bar-baz not found.")
@@ -353,7 +342,7 @@ def query_service_client(
 
 
 @pytest_asyncio.fixture
-async def client(  # pylint: disable=too-many-statements
+async def client(
     session: AsyncSession,
     settings_no_qs: Settings,
 ) -> AsyncGenerator[AsyncClient, None]:
@@ -544,7 +533,7 @@ def compare_parse_trees(tree1, tree2):
     Recursively compare two ANTLR parse trees for equality.
     """
     # Check if the node types are the same
-    if type(tree1) is not type(tree2):  # pylint: disable=unidiomatic-typecheck
+    if type(tree1) is not type(tree2):
         return False
 
     # Check if the node texts are the same
@@ -591,7 +580,7 @@ def compare_query_strings_fixture():
 
 
 @pytest_asyncio.fixture
-async def client_with_query_service_example_loader(  # pylint: disable=too-many-statements
+async def client_with_query_service_example_loader(
     session: AsyncSession,
     settings: Settings,
     query_service_client: QueryServiceClient,
@@ -603,7 +592,7 @@ async def client_with_query_service_example_loader(  # pylint: disable=too-many-
     """
 
     def get_query_service_client_override(
-        request: Request = None,  # pylint: disable=unused-argument
+        request: Request = None,
     ) -> QueryServiceClient:
         return query_service_client
 
@@ -643,7 +632,7 @@ async def client_with_query_service_example_loader(  # pylint: disable=too-many-
 
 
 @pytest_asyncio.fixture
-async def client_with_query_service(  # pylint: disable=too-many-statements
+async def client_with_query_service(
     client_with_query_service_example_loader: Callable[
         [Optional[List[str]]],
         AsyncClient,
@@ -711,10 +700,10 @@ async def module__client_example_loader(
 
 
 @pytest_asyncio.fixture(scope="module")
-async def module__client(  # pylint: disable=too-many-statements
+async def module__client(
     module__session: AsyncSession,
     module__settings: Settings,
-    module__query_service_client: QueryServiceClient,  # pylint: disable=unused-argument
+    module__query_service_client: QueryServiceClient,
     module_mocker: MockerFixture,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
@@ -730,7 +719,7 @@ async def module__client(  # pylint: disable=too-many-statements
     await module__session.execute(statement)
 
     def get_query_service_client_override(
-        request: Request = None,  # pylint: disable=unused-argument
+        request: Request = None,
     ) -> QueryServiceClient:
         return module__query_service_client
 
@@ -933,7 +922,7 @@ def module__postgres_container(request) -> PostgresContainer:
 @pytest.fixture(scope="module")
 def module__query_service_client(
     module_mocker: MockerFixture,
-    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+    duckdb_conn: duckdb.DuckDBPyConnection,
 ) -> Iterator[QueryServiceClient]:
     """
     Custom settings for unit tests.
@@ -944,10 +933,8 @@ def module__query_service_client(
         catalog: str,
         schema: str,
         table: str,
-        engine: Optional[Engine] = None,  # pylint: disable=unused-argument
-        request_headers: Optional[  # pylint: disable=unused-argument
-            Dict[str, str]
-        ] = None,
+        engine: Optional[Engine] = None,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> List[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
@@ -959,9 +946,7 @@ def module__query_service_client(
 
     def mock_submit_query(
         query_create: QueryCreate,
-        request_headers: Optional[  # pylint: disable=unused-argument
-            Dict[str, str]
-        ] = None,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
         result = duckdb_conn.sql(query_create.submitted_query)
         columns = [
@@ -991,9 +976,7 @@ def module__query_service_client(
     def mock_create_view(
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[  # pylint: disable=unused-argument
-            Dict[str, str]
-        ] = None,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> str:
         duckdb_conn.sql(query_create.submitted_query)
         return f"View {view_name} created successfully."
@@ -1006,9 +989,7 @@ def module__query_service_client(
 
     def mock_get_query(
         query_id: str,
-        request_headers: Optional[  # pylint: disable=unused-argument
-            Dict[str, str]
-        ] = None,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> Collection[Collection[str]]:
         if query_id == "foo-bar-baz":
             raise DJQueryServiceClientEntityNotFound("Query foo-bar-baz not found.")

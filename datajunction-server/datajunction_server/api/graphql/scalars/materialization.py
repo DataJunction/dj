@@ -7,7 +7,7 @@ from strawberry.scalars import JSON
 
 
 @strawberry.type
-class PartitionBackfill:  # pylint: disable=too-few-public-methods
+class PartitionBackfill:
     """
     Used for setting backfilled values
     """
@@ -23,7 +23,7 @@ class PartitionBackfill:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class Backfill:  # pylint: disable=too-few-public-methods
+class Backfill:
     """
     Materialization job backfill
     """
@@ -33,7 +33,7 @@ class Backfill:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class MaterializationConfig:  # pylint: disable=too-few-public-methods
+class MaterializationConfig:
     """
     Materialization config
     """

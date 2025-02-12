@@ -2,8 +2,6 @@
 Tests for ``datajunction_server.models.node``.
 """
 
-# pylint: disable=use-implicit-booleaness-not-comparison
-
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -317,5 +315,5 @@ def test_node_cursors() -> None:
     assert cursor.encode() == encoded_cursor
 
     decoded_cursor = NodeCursor.decode(encoded_cursor)
-    assert decoded_cursor.created_at == cursor.created_at  # pylint: disable=no-member
-    assert decoded_cursor.id == cursor.id  # pylint: disable=no-member
+    assert decoded_cursor.created_at == cursor.created_at
+    assert decoded_cursor.id == cursor.id

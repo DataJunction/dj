@@ -29,14 +29,14 @@ FIXED_PARSER = re.compile(r"(?i)fixed\((?P<length>\d+)\)")
 VARCHAR_PARSER = re.compile(r"(?i)varchar(\((?P<length>\d+)\))?")
 
 
-class Singleton:  # pylint: disable=too-few-public-methods
+class Singleton:
     """
     Singleton for types
     """
 
     _instance = None
 
-    def __new__(cls, *args, **kwargs):  # pylint: disable=unused-argument
+    def __new__(cls, *args, **kwargs):
         if not isinstance(cls._instance, cls):
             cls._instance = super(Singleton, cls).__new__(cls)
         return cls._instance
@@ -49,12 +49,12 @@ class ColumnType(BaseModel):
 
     _initialized = False
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         extra = Extra.allow
         arbitrary_types_allowed = True
         underscore_attrs_are_private = False
 
-    def __init__(  # pylint: disable=keyword-arg-before-vararg
+    def __init__(
         self,
         type_string: str,
         repr_string: str = None,
@@ -85,16 +85,14 @@ class ColumnType(BaseModel):
         yield cls.validate
 
     @classmethod
-    def validate(  # pylint: disable=too-many-return-statements
+    def validate(
         cls,
         v: Any,
     ) -> "ColumnType":
         """
         Parses the column type
         """
-        from datajunction_server.sql.parsing.backends.antlr4 import (  # pylint: disable=import-outside-toplevel
-            parse_rule,
-        )
+        from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
 
         return cast(ColumnType, parse_rule(str(v), "dataType"))
 
@@ -144,15 +142,15 @@ class ColumnType(BaseModel):
         return has_common_ancestor(self.__class__, other.__class__)
 
 
-class PrimitiveType(ColumnType):  # pylint: disable=too-few-public-methods
+class PrimitiveType(ColumnType):
     """Base class for all Column Primitive Types"""
 
 
-class NumberType(PrimitiveType):  # pylint: disable=too-few-public-methods
+class NumberType(PrimitiveType):
     """Base class for all Column Number Types"""
 
 
-class NullType(PrimitiveType, Singleton):  # pylint: disable=too-few-public-methods
+class NullType(PrimitiveType, Singleton):
     """A data type for NULL
 
     Example:
@@ -264,9 +262,7 @@ class NestedField(ColumnType):
         doc: Optional[str] = None,
     ):
         if isinstance(name, str):  # pragma: no cover
-            from datajunction_server.sql.parsing.ast import (  # pylint: disable=import-outside-toplevel
-                Name,
-            )
+            from datajunction_server.sql.parsing.ast import Name
 
             name = Name(name)
 
@@ -283,9 +279,7 @@ class NestedField(ColumnType):
     ):
         if not self._initialized:
             if isinstance(name, str):  # pragma: no cover
-                from datajunction_server.sql.parsing.ast import (  # pylint: disable=import-outside-toplevel
-                    Name,
-                )
+                from datajunction_server.sql.parsing.ast import Name
 
                 name = Name(name)
             doc_string = "" if doc is None else f", doc={repr(doc)}"
@@ -569,7 +563,7 @@ class TinyIntType(IntegerBase):
         super().__init__("tinyint", "TinyIntType()")
 
 
-class SmallIntType(IntegerBase):  # pylint: disable=R0901
+class SmallIntType(IntegerBase):
     """A SmallInt data type can be represented using an instance of this class. SmallInts are
     16-bit signed integers.
 
@@ -617,7 +611,7 @@ class BigIntType(IntegerBase):
         super().__init__("bigint", "BigIntType()")
 
 
-class LongType(BigIntType):  # pylint: disable=R0901
+class LongType(BigIntType):
     """A Long data type can be represented using an instance of this class. Longs are
     64-bit signed integers.
 
@@ -678,7 +672,6 @@ class DateTimeBase(PrimitiveType, Singleton):
     Base class for date and time types.
     """
 
-    # pylint: disable=invalid-name
     class Unit(StrEnum):
         """
         Units used for date and time functions and intervals
@@ -695,8 +688,6 @@ class DateTimeBase(PrimitiveType, Singleton):
         quarter = "QUARTER"
         hour = "HOUR"
         millisecond = "MILLISECOND"
-
-    # pylint: enable=invalid-name
 
 
 class DateType(DateTimeBase):
@@ -796,11 +787,11 @@ class DayTimeIntervalType(IntervalTypeBase):
             self._to = to_
 
     @property
-    def from_(self) -> str:  # pylint: disable=missing-function-docstring
+    def from_(self) -> str:
         return self._from  # pragma: no cover
 
     @property
-    def to_(  # pylint: disable=missing-function-docstring
+    def to_(
         self,
     ) -> Optional[str]:
         return self._to  # pragma: no cover
@@ -843,11 +834,11 @@ class YearMonthIntervalType(IntervalTypeBase):
             self._to = to_
 
     @property
-    def from_(self) -> str:  # pylint: disable=missing-function-docstring
+    def from_(self) -> str:
         return self._from  # pragma: no cover
 
     @property
-    def to_(  # pylint: disable=missing-function-docstring
+    def to_(
         self,
     ) -> Optional[str]:
         return self._to  # pragma: no cover

@@ -101,7 +101,6 @@ async def default_attribute_types(session: AsyncSession = Depends(get_session)):
 
     # Update existing default attribute types
     statement = select(AttributeType).filter(
-        # pylint: disable=no-member
         AttributeType.name.in_(  # type: ignore
             set(default_attribute_type_names.keys()),
         ),

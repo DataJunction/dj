@@ -7,8 +7,6 @@ from httpx import AsyncClient
 
 from tests.sql.utils import assert_query_strings_equal, compare_query_strings
 
-# pylint: disable=too-many-lines,C0301
-
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Will move djsql to new sql build later")

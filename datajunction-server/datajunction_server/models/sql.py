@@ -32,7 +32,7 @@ class GeneratedSQL(BaseModel):
     errors: Optional[List[DJQueryBuildError]] = None
 
     @root_validator(pre=False)
-    def transpile_sql(  # pylint: disable=no-self-argument
+    def transpile_sql(
         cls,
         values,
     ):

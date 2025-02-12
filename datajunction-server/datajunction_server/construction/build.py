@@ -1,4 +1,3 @@
-# pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401,too-many-lines,protected-access,line-too-long
 """Functions for building DJ node queries"""
 
 import collections
@@ -91,7 +90,7 @@ def rename_columns(
             ):
                 column_ref = expression.alias_or_name.identifier()
                 if column_ref in node_columns:  # type: ignore
-                    alias_name = f"{node.name}{SEPARATOR}{column_ref}"  # type: ignore  # pragma: no cover  # pylint: disable=line-too-long
+                    alias_name = f"{node.name}{SEPARATOR}{column_ref}"  # type: ignore  # pragma: no cover
                     expression.set_semantic_entity(alias_name)  # pragma: no cover
                 else:
                     expression.set_semantic_entity(from_amenable_name(column_ref))
@@ -104,15 +103,13 @@ def rename_columns(
                 col.alias = None
 
     if built_ast.select.group_by:
-        for i in range(  # pylint: disable=consider-using-enumerate  # pragma: no cover
+        for i in range(  # pragma: no cover
             len(built_ast.select.group_by),
         ):
             if hasattr(built_ast.select.group_by[i], "alias"):  # pragma: no cover
                 built_ast.select.group_by[i] = ast.Column(
                     name=built_ast.select.group_by[i].name,  # type: ignore
-                    # pylint:disable=protected-access
                     _type=built_ast.select.group_by[i].type,  # type: ignore
-                    # pylint:disable=protected-access
                     _table=built_ast.select.group_by[i]._table,  # type: ignore
                 )
                 built_ast.select.group_by[i].alias = None
@@ -155,13 +152,13 @@ async def validate_shared_dimensions(
             )
 
 
-async def build_metric_nodes(  # pylint: disable=too-many-statements
+async def build_metric_nodes(
     session: AsyncSession,
     metric_nodes: List[Node],
     filters: List[str],
     dimensions: List[str],
-    orderby: List[str],  # pylint: disable=unused-argument
-    limit: Optional[int] = None,  # pylint: disable=unused-argument
+    orderby: List[str],
+    limit: Optional[int] = None,
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     build_criteria: Optional[BuildCriteria] = None,
@@ -180,9 +177,7 @@ async def build_metric_nodes(  # pylint: disable=too-many-statements
     (e) Join together the transforms on the shared dimensions
     (f) Select all the requested metrics and dimensions in the final SELECT
     """
-    from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel
-        CubeQueryBuilder,
-    )
+    from datajunction_server.construction.build_v2 import CubeQueryBuilder
 
     engine = (
         await get_engine(session, engine_name, engine_version)
@@ -244,7 +239,7 @@ def build_materialized_cube_node(
     cube_config = GenericCubeConfig.parse_obj(materialization_config.config)
 
     if materialization_config.name == "default":
-        # TODO: remove after we migrate old Druid materializations  # pylint: disable=fixme
+        # TODO: remove after we migrate old Druid materializations
         selected_metric_keys = [
             col.name for col in selected_metrics
         ]  # pragma: no cover
@@ -316,7 +311,6 @@ def build_materialized_cube_node(
         filter_asts.append(temp_select.where)
 
     if filter_asts:  # pragma: no cover
-        # pylint: disable=no-value-for-parameter
         combined_ast.select.where = ast.BinaryOp.And(*filter_asts)
 
     # Add orderby

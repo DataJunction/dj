@@ -1,7 +1,5 @@
 """Tests for the /sql/ endpoint"""
 
-# pylint: disable=line-too-long,too-many-lines
-# pylint: disable=C0302
 import duckdb
 import pytest
 from httpx import AsyncClient, Response
@@ -276,11 +274,11 @@ async def get_query_requests(session: AsyncSession, query_type: QueryBuildType):
 
 
 @pytest.mark.asyncio
-async def test_saving_node_sql_requests(  # pylint: disable=too-many-statements
+async def test_saving_node_sql_requests(
     session: AsyncSession,
     client_with_roads: AsyncClient,
-    transform_node_sql_request,  # pylint: disable=redefined-outer-name
-    update_transform_node,  # pylint: disable=redefined-outer-name
+    transform_node_sql_request,
+    update_transform_node,
 ) -> None:
     """
     Test different scenarios involving saving and reusing cached query requests when
@@ -419,8 +417,8 @@ async def test_saving_node_sql_requests(  # pylint: disable=too-many-statements
 async def test_saving_measures_sql_requests(
     session: AsyncSession,
     client_with_roads: AsyncClient,
-    measures_sql_request,  # pylint: disable=redefined-outer-name
-    update_transform_node,  # pylint: disable=redefined-outer-name
+    measures_sql_request,
+    update_transform_node,
 ) -> None:
     """
     Test saving query request while requesting measures SQL for a set of metrics + dimensions
@@ -501,11 +499,11 @@ async def test_saving_measures_sql_requests(
 
 
 @pytest.mark.asyncio
-async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statements
+async def test_saving_metrics_sql_requests(
     session: AsyncSession,
     client_with_roads: AsyncClient,
-    metrics_sql_request,  # pylint: disable=redefined-outer-name
-    update_transform_node,  # pylint: disable=redefined-outer-name
+    metrics_sql_request,
+    update_transform_node,
 ) -> None:
     """
     Requesting metrics SQL for a set of metrics + dimensions + filters
@@ -627,7 +625,7 @@ async def test_saving_metrics_sql_requests(  # pylint: disable=too-many-statemen
     assert len(query_request) == 3
 
 
-async def verify_node_sql(  # pylint: disable=too-many-arguments
+async def verify_node_sql(
     custom_client: AsyncClient,
     node_name: str,
     dimensions,
@@ -656,7 +654,7 @@ async def verify_node_sql(  # pylint: disable=too-many-arguments
 
 
 @pytest.mark.asyncio
-async def test_transform_sql_filter_joinable_dimension(  # pylint: disable=too-many-arguments
+async def test_transform_sql_filter_joinable_dimension(
     module__client_with_examples: AsyncClient,
 ):
     """
@@ -885,7 +883,7 @@ async def test_transform_sql_filter_joinable_dimension(  # pylint: disable=too-m
 
 
 @pytest.mark.asyncio
-async def test_transform_sql_filter_dimension_pk_col(  # pylint: disable=too-many-arguments
+async def test_transform_sql_filter_dimension_pk_col(
     module__client_with_examples: AsyncClient,
 ):
     """
@@ -1067,7 +1065,7 @@ async def test_transform_sql_filter_dimension_pk_col(  # pylint: disable=too-man
 
 
 @pytest.mark.asyncio
-async def test_transform_sql_filter_direct_node(  # pylint: disable=too-many-arguments
+async def test_transform_sql_filter_direct_node(
     module__client_with_examples: AsyncClient,
 ):
     """
@@ -1631,7 +1629,7 @@ async def test_metric_with_node_level_and_nth_order_filters(
     Verify metric SQL generation with filters on dimensions at the metric's
     parent node level and filters on nth-order dimensions.
     """
-    await verify_node_sql(  # pylint: disable=expression-not-assigned
+    await verify_node_sql(
         custom_client=module__client_with_examples,
         node_name="default.num_repair_orders",
         dimensions=["default.hard_hat.state"],
@@ -2408,191 +2406,6 @@ async def test_metric_with_joinable_dimension_multiple_hops(
     )
 
 
-# @pytest.mark.parametrize(
-#     "node_name, dimensions, filters, orderby, sql",
-#     [
-#         # querying on source node with filter on joinable dimension
-#         (
-#             "foo.bar.repair_orders",
-#             [],
-#             ["foo.bar.hard_hat.state='CA'"],
-#             [],
-#             """
-#             SELECT  foo_DOT_bar_DOT_repair_orders.repair_order_id foo_DOT_bar_DOT_repair_orders_DOT_repair_order_id,
-#                 foo_DOT_bar_DOT_repair_orders.municipality_id foo_DOT_bar_DOT_repair_orders_DOT_municipality_id,
-#                 foo_DOT_bar_DOT_repair_orders.hard_hat_id foo_DOT_bar_DOT_repair_orders_DOT_hard_hat_id,
-#                 foo_DOT_bar_DOT_repair_orders.order_date foo_DOT_bar_DOT_repair_orders_DOT_order_date,
-#                 foo_DOT_bar_DOT_repair_orders.required_date foo_DOT_bar_DOT_repair_orders_DOT_required_date,
-#                 foo_DOT_bar_DOT_repair_orders.dispatched_date foo_DOT_bar_DOT_repair_orders_DOT_dispatched_date,
-#                 foo_DOT_bar_DOT_repair_orders.dispatcher_id foo_DOT_bar_DOT_repair_orders_DOT_dispatcher_id,
-#                 foo_DOT_bar_DOT_hard_hat.state foo_DOT_bar_DOT_hard_hat_DOT_state
-#              FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders LEFT JOIN (SELECT  foo_DOT_bar_DOT_repair_orders.repair_order_id,
-#                 foo_DOT_bar_DOT_repair_orders.municipality_id,
-#                 foo_DOT_bar_DOT_repair_orders.hard_hat_id,
-#                 foo_DOT_bar_DOT_repair_orders.dispatcher_id
-#              FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders)
-#              AS foo_DOT_bar_DOT_repair_order ON foo_DOT_bar_DOT_repair_orders.repair_order_id = foo_DOT_bar_DOT_repair_order.repair_order_id
-#             LEFT JOIN (SELECT  foo_DOT_bar_DOT_hard_hats.hard_hat_id,
-#                 foo_DOT_bar_DOT_hard_hats.state
-#              FROM roads.hard_hats AS foo_DOT_bar_DOT_hard_hats)
-#              AS foo_DOT_bar_DOT_hard_hat ON foo_DOT_bar_DOT_repair_order.hard_hat_id = foo_DOT_bar_DOT_hard_hat.hard_hat_id
-#              WHERE  foo_DOT_bar_DOT_hard_hat.state = 'CA'
-#             """,
-#         ),
-#         # querying source node with filters directly on the node
-#         (
-#             "foo.bar.repair_orders",
-#             [],
-#             ["foo.bar.repair_orders.order_date='2009-08-14'"],
-#             [],
-#             """
-#             SELECT
-#               foo_DOT_bar_DOT_repair_orders.repair_order_id foo_DOT_bar_DOT_repair_orders_DOT_repair_order_id,
-#               foo_DOT_bar_DOT_repair_orders.municipality_id foo_DOT_bar_DOT_repair_orders_DOT_municipality_id,
-#               foo_DOT_bar_DOT_repair_orders.hard_hat_id foo_DOT_bar_DOT_repair_orders_DOT_hard_hat_id,
-#               foo_DOT_bar_DOT_repair_orders.order_date foo_DOT_bar_DOT_repair_orders_DOT_order_date,
-#               foo_DOT_bar_DOT_repair_orders.required_date foo_DOT_bar_DOT_repair_orders_DOT_required_date,
-#               foo_DOT_bar_DOT_repair_orders.dispatched_date foo_DOT_bar_DOT_repair_orders_DOT_dispatched_date,
-#               foo_DOT_bar_DOT_repair_orders.dispatcher_id foo_DOT_bar_DOT_repair_orders_DOT_dispatcher_id
-#             FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
-#             WHERE
-#               foo_DOT_bar_DOT_repair_orders.order_date = '2009-08-14'
-#             """,
-#         ),
-#         (
-#             "foo.bar.num_repair_orders",
-#             [],
-#             [],
-#             [],
-#             """
-#             SELECT
-#               count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS foo_DOT_bar_DOT_num_repair_orders
-#             FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
-#             """,
-#         ),
-#         (
-#             "foo.bar.num_repair_orders",
-#             ["foo.bar.hard_hat.state"],
-#             ["foo.bar.repair_orders.dispatcher_id=1", "foo.bar.hard_hat.state='AZ'"],
-#             [],
-#             """
-#             SELECT  count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS foo_DOT_bar_DOT_num_repair_orders,
-#                 foo_DOT_bar_DOT_hard_hat.state foo_DOT_bar_DOT_hard_hat_DOT_state
-#              FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders LEFT JOIN (SELECT  foo_DOT_bar_DOT_repair_orders.repair_order_id,
-#                 foo_DOT_bar_DOT_repair_orders.municipality_id,
-#                 foo_DOT_bar_DOT_repair_orders.hard_hat_id,
-#                 foo_DOT_bar_DOT_repair_orders.dispatcher_id
-#              FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders)
-#              AS foo_DOT_bar_DOT_repair_order ON foo_DOT_bar_DOT_repair_orders.repair_order_id = foo_DOT_bar_DOT_repair_order.repair_order_id
-#             LEFT JOIN (SELECT  foo_DOT_bar_DOT_hard_hats.hard_hat_id,
-#                 foo_DOT_bar_DOT_hard_hats.state
-#              FROM roads.hard_hats AS foo_DOT_bar_DOT_hard_hats)
-#              AS foo_DOT_bar_DOT_hard_hat ON foo_DOT_bar_DOT_repair_order.hard_hat_id = foo_DOT_bar_DOT_hard_hat.hard_hat_id
-#              WHERE  foo_DOT_bar_DOT_hard_hat.state = 'AZ' AND foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1
-#              GROUP BY  foo_DOT_bar_DOT_hard_hat.state
-#             """,
-#         ),
-#         (
-#             "foo.bar.num_repair_orders",
-#             [
-#                 "foo.bar.hard_hat.city",
-#                 "foo.bar.hard_hat.last_name",
-#                 "foo.bar.dispatcher.company_name",
-#                 "foo.bar.municipality_dim.local_region",
-#             ],
-#             [
-#                 "foo.bar.repair_orders.dispatcher_id=1",
-#                 "foo.bar.hard_hat.state != 'AZ'",
-#                 "foo.bar.dispatcher.phone = '4082021022'",
-#                 "foo.bar.repair_orders.order_date >= '2020-01-01'",
-#             ],
-#             ["foo.bar.hard_hat.last_name"],
-#             """
-#             SELECT  count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS foo_DOT_bar_DOT_num_repair_orders,
-#                 foo_DOT_bar_DOT_hard_hat.city foo_DOT_bar_DOT_hard_hat_DOT_city,
-#                 foo_DOT_bar_DOT_hard_hat.last_name foo_DOT_bar_DOT_hard_hat_DOT_last_name,
-#                 foo_DOT_bar_DOT_dispatcher.company_name foo_DOT_bar_DOT_dispatcher_DOT_company_name,
-#                 foo_DOT_bar_DOT_municipality_dim.local_region foo_DOT_bar_DOT_municipality_dim_DOT_local_region
-#              FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders LEFT JOIN (SELECT  foo_DOT_bar_DOT_repair_orders.repair_order_id,
-#                 foo_DOT_bar_DOT_repair_orders.municipality_id,
-#                 foo_DOT_bar_DOT_repair_orders.hard_hat_id,
-#                 foo_DOT_bar_DOT_repair_orders.dispatcher_id
-#              FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders)
-#              AS foo_DOT_bar_DOT_repair_order ON foo_DOT_bar_DOT_repair_orders.repair_order_id = foo_DOT_bar_DOT_repair_order.repair_order_id
-#             LEFT JOIN (SELECT  foo_DOT_bar_DOT_dispatchers.dispatcher_id,
-#                 foo_DOT_bar_DOT_dispatchers.company_name,
-#                 foo_DOT_bar_DOT_dispatchers.phone
-#              FROM roads.dispatchers AS foo_DOT_bar_DOT_dispatchers)
-#              AS foo_DOT_bar_DOT_dispatcher ON foo_DOT_bar_DOT_repair_order.dispatcher_id = foo_DOT_bar_DOT_dispatcher.dispatcher_id
-#             LEFT JOIN (SELECT  foo_DOT_bar_DOT_hard_hats.hard_hat_id,
-#                 foo_DOT_bar_DOT_hard_hats.last_name,
-#                 foo_DOT_bar_DOT_hard_hats.city,
-#                 foo_DOT_bar_DOT_hard_hats.state
-#              FROM roads.hard_hats AS foo_DOT_bar_DOT_hard_hats)
-#              AS foo_DOT_bar_DOT_hard_hat ON foo_DOT_bar_DOT_repair_order.hard_hat_id = foo_DOT_bar_DOT_hard_hat.hard_hat_id
-#             LEFT JOIN (SELECT  m.municipality_id AS municipality_id,
-#                 m.local_region
-#              FROM roads.municipality AS m LEFT JOIN roads.municipality_municipality_type AS mmt ON m.municipality_id = mmt.municipality_id
-#             LEFT JOIN roads.municipality_type AS mt ON mmt.municipality_type_id = mt.municipality_type_desc)
-#              AS foo_DOT_bar_DOT_municipality_dim ON foo_DOT_bar_DOT_repair_order.municipality_id = foo_DOT_bar_DOT_municipality_dim.municipality_id
-#              WHERE  foo_DOT_bar_DOT_repair_orders.order_date >= '2020-01-01' AND foo_DOT_bar_DOT_dispatcher.phone = '4082021022' AND foo_DOT_bar_DOT_hard_hat.state != 'AZ' AND foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1
-#              GROUP BY  foo_DOT_bar_DOT_hard_hat.city, foo_DOT_bar_DOT_hard_hat.last_name, foo_DOT_bar_DOT_dispatcher.company_name, foo_DOT_bar_DOT_municipality_dim.local_region
-#             ORDER BY foo_DOT_bar_DOT_hard_hat.last_name
-#             """,
-#         ),
-#         (
-#             "foo.bar.avg_repair_price",
-#             ["foo.bar.hard_hat.city"],
-#             [],
-#             [],
-#             """
-#             SELECT
-#               avg(foo_DOT_bar_DOT_repair_order_details.price) foo_DOT_bar_DOT_avg_repair_price,
-#               foo_DOT_bar_DOT_hard_hat.city foo_DOT_bar_DOT_hard_hat_DOT_city
-#             FROM roads.repair_order_details AS foo_DOT_bar_DOT_repair_order_details
-#             LEFT JOIN (
-#               SELECT
-#                 foo_DOT_bar_DOT_repair_orders.repair_order_id,
-#                 foo_DOT_bar_DOT_repair_orders.municipality_id,
-#                 foo_DOT_bar_DOT_repair_orders.hard_hat_id,
-#                 foo_DOT_bar_DOT_repair_orders.dispatcher_id
-#               FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
-#             ) AS foo_DOT_bar_DOT_repair_order
-#             ON foo_DOT_bar_DOT_repair_order_details.repair_order_id
-#                = foo_DOT_bar_DOT_repair_order.repair_order_id
-#             LEFT JOIN (
-#               SELECT
-#                 foo_DOT_bar_DOT_hard_hats.hard_hat_id,
-#                 foo_DOT_bar_DOT_hard_hats.city
-#               FROM roads.hard_hats AS foo_DOT_bar_DOT_hard_hats
-#             ) AS foo_DOT_bar_DOT_hard_hat
-#             ON foo_DOT_bar_DOT_repair_order.hard_hat_id = foo_DOT_bar_DOT_hard_hat.hard_hat_id
-#             GROUP BY foo_DOT_bar_DOT_hard_hat.city
-#             """,
-#         ),
-#     ],
-# )
-# @pytest.mark.asyncio
-# async def test_sql_with_filters_on_namespaced_nodes(  # pylint: disable=R0913
-#     node_name,
-#     dimensions,
-#     filters,
-#     orderby,
-#     sql,
-#     module__client_with_examples: AsyncClient,
-# ):
-#     """
-#     Test ``GET /sql/{node_name}/`` with various filters and dimensions using a
-#     version of the DJ roads database with namespaces.
-#     """
-#     response = await module__client_with_examples.get(
-#         f"/sql/{node_name}/",
-#         params={"dimensions": dimensions, "filters": filters, "orderby": orderby},
-#     )
-#     data = response.json()
-#     assert str(parse(str(data["sql"]))) == str(parse(str(sql)))
-
-
 @pytest.mark.asyncio
 async def test_union_all(
     module__client_with_examples: AsyncClient,
@@ -3309,7 +3122,7 @@ FROM default_DOT_repair_orders_fact_metrics
 @pytest.mark.asyncio
 async def test_get_sql_including_dimensions_with_disambiguated_columns(
     module__client_with_examples: AsyncClient,
-    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+    duckdb_conn: duckdb.DuckDBPyConnection,
 ):
     """
     Test getting SQL that includes dimensions with SQL that has to disambiguate projection columns with prefixes
@@ -3799,7 +3612,7 @@ async def test_filter_pushdowns(
 
 @pytest.mark.asyncio
 async def test_sql_use_materialized_table(
-    measures_sql_request,  # pylint: disable=redefined-outer-name
+    measures_sql_request,
     module__client_with_examples: AsyncClient,
 ):
     """

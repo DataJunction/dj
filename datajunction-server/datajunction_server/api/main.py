@@ -5,7 +5,6 @@ Main DJ server app.
 # All the models need to be imported here so that SQLModel can define their
 # relationships at runtime without causing circular imports.
 # See https://sqlmodel.tiangolo.com/tutorial/code-structure/#make-circular-imports-work.
-# pylint: disable=unused-import,ungrouped-imports
 
 import logging
 from http import HTTPStatus
@@ -114,7 +113,7 @@ async def startup():
 
 
 @app.exception_handler(DJException)
-async def dj_exception_handler(  # pylint: disable=unused-argument
+async def dj_exception_handler(
     request: Request,
     exc: DJException,
 ) -> JSONResponse:

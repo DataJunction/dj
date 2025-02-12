@@ -1,4 +1,3 @@
-# pylint: disable=too-many-lines,redefined-outer-name,line-too-long
 """
 Tests for the cubes API.
 """
@@ -891,7 +890,7 @@ async def test_cube_materialization_sql_and_measures(
 
 @pytest.mark.asyncio
 async def test_druid_cube_agg_materialization(
-    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_repairs_cube: AsyncClient,
     module__query_service_client: Iterator[QueryServiceClient],
 ):
     """
@@ -1277,7 +1276,7 @@ async def test_materialized_cube_sql(
 
 @pytest.mark.asyncio
 async def test_remove_dimension_link_invalidate_cube(
-    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_repairs_cube: AsyncClient,
 ):
     """
     Verify that removing a dimension link can invalidate a cube.
@@ -1339,7 +1338,7 @@ async def test_remove_dimension_link_invalidate_cube(
 
 @pytest.mark.asyncio
 async def test_changing_node_upstream_from_cube(
-    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_repairs_cube: AsyncClient,
 ):
     """
     Verify changing nodes upstream from a cube
@@ -1505,7 +1504,7 @@ def assert_updated_repairs_cube(data):
 
 @pytest.mark.asyncio
 async def test_updating_cube(
-    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_repairs_cube: AsyncClient,
 ):
     """
     Verify updating a cube
@@ -1609,7 +1608,7 @@ async def test_updating_cube(
 
 @pytest.mark.asyncio
 async def test_updating_cube_with_existing_materialization(
-    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_repairs_cube: AsyncClient,
     module__query_service_client: QueryServiceClient,
 ):
     """
@@ -1827,7 +1826,7 @@ async def test_updating_cube_with_existing_materialization(
 
 @pytest.mark.asyncio
 async def test_get_materialized_cube_dimension_sql(
-    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_repairs_cube: AsyncClient,
 ):
     """
     Test building SQL to get unique dimension values for a materialized cube
@@ -1982,7 +1981,7 @@ async def test_get_materialized_cube_dimension_sql(
 
 @pytest.mark.asyncio
 async def test_get_unmaterialized_cube_dimensions_values(
-    client_with_repairs_cube: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_repairs_cube: AsyncClient,
 ):
     """
     Test building SQL + getting data for dimension values for an unmaterialized cube

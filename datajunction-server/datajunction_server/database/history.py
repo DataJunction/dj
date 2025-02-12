@@ -48,7 +48,7 @@ class EntityType(StrEnum):
     TAG = "tag"
 
 
-class History(Base):  # pylint: disable=too-few-public-methods
+class History(Base):
     """
     An event to store as part of the server's activity history
     """

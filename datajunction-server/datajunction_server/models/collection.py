@@ -18,7 +18,7 @@ class CollectionInfo(BaseModel):
     name: str
     description: str
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
@@ -32,5 +32,5 @@ class CollectionDetails(CollectionInfo):
     description: str
     nodes: list[NodeNameOutput]
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True

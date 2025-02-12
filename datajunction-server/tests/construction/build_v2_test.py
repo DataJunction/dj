@@ -1,4 +1,3 @@
-# pylint: disable=redefined-outer-name,too-many-lines
 """Tests for building nodes"""
 
 from typing import List, Tuple
@@ -570,7 +569,7 @@ async def test_dimension_join_path(
     session: AsyncSession,
     events: Node,
     events_agg: Node,
-    events_agg_devices_link: Node,  # pylint: disable=unused-argument
+    events_agg_devices_link: Node,
 ):
     """
     Test finding a join path between the dimension attribute and the node.
@@ -718,8 +717,8 @@ async def test_build_source_node_with_direct_filter(
 async def test_build_source_with_pushdown_filters(
     session: AsyncSession,
     events: Node,
-    devices: Node,  # pylint: disable=unused-argument
-    events_devices_link: DimensionLink,  # pylint: disable=unused-argument
+    devices: Node,
+    events_devices_link: DimensionLink,
 ):
     """
     Test building a source node with a dimension attribute filter that can be
@@ -775,8 +774,8 @@ async def test_build_source_with_pushdown_filters(
 async def test_build_source_with_join_filters(
     session: AsyncSession,
     events: Node,
-    devices: Node,  # pylint: disable=unused-argument
-    events_devices_link: DimensionLink,  # pylint: disable=unused-argument
+    devices: Node,
+    events_devices_link: DimensionLink,
 ):
     """
     Test building a source node with a dimension attribute filter that
@@ -875,9 +874,9 @@ async def test_build_dimension_node(
 @pytest.mark.asyncio
 async def test_build_dimension_node_with_direct_and_pushdown_filter(
     session: AsyncSession,
-    events: Node,  # pylint: disable=unused-argument
+    events: Node,
     devices: Node,
-    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
+    events_agg_devices_link: DimensionLink,
 ):
     """
     Test building a dimension node with a direct filter and a pushdown filter (the result
@@ -922,11 +921,11 @@ async def test_build_dimension_node_with_direct_and_pushdown_filter(
 @pytest.mark.asyncio
 async def test_build_transform_with_pushdown_dimensions_filters(
     session: AsyncSession,
-    events: Node,  # pylint: disable=unused-argument
+    events: Node,
     events_agg: Node,
-    devices: Node,  # pylint: disable=unused-argument
-    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
-    manufacturers_dim: Node,  # pylint: disable=unused-argument
+    devices: Node,
+    events_agg_devices_link: DimensionLink,
+    manufacturers_dim: Node,
 ):
     """
     Test building a transform node with filters and dimensions that can be pushed down
@@ -973,12 +972,12 @@ async def test_build_transform_with_pushdown_dimensions_filters(
 @pytest.mark.asyncio
 async def test_build_transform_with_deeper_pushdown_dimensions_filters(
     session: AsyncSession,
-    events: Node,  # pylint: disable=unused-argument
+    events: Node,
     events_agg: Node,
-    events_devices_link: DimensionLink,  # pylint: disable=unused-argument
-    devices: Node,  # pylint: disable=unused-argument
-    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
-    manufacturers_dim: Node,  # pylint: disable=unused-argument
+    events_devices_link: DimensionLink,
+    devices: Node,
+    events_agg_devices_link: DimensionLink,
+    manufacturers_dim: Node,
 ):
     """
     Test building a transform node with filters and dimensions that can be pushed down
@@ -1035,12 +1034,12 @@ async def test_build_transform_with_deeper_pushdown_dimensions_filters(
 @pytest.mark.asyncio
 async def test_build_transform_w_cte_and_pushdown_dimensions_filters(
     session: AsyncSession,
-    events: Node,  # pylint: disable=unused-argument
+    events: Node,
     events_agg_complex: Node,
-    events_devices_link: DimensionLink,  # pylint: disable=unused-argument
-    devices: Node,  # pylint: disable=unused-argument
-    events_agg_complex_devices_link: DimensionLink,  # pylint: disable=unused-argument
-    manufacturers_dim: Node,  # pylint: disable=unused-argument
+    events_devices_link: DimensionLink,
+    devices: Node,
+    events_agg_complex_devices_link: DimensionLink,
+    manufacturers_dim: Node,
 ):
     """
     Test building a transform node that has CTEs in the node query, built with
@@ -1106,11 +1105,11 @@ async def test_build_transform_w_cte_and_pushdown_dimensions_filters(
 @pytest.mark.asyncio
 async def test_build_transform_with_join_dimensions_filters(
     session: AsyncSession,
-    events: Node,  # pylint: disable=unused-argument
+    events: Node,
     events_agg: Node,
-    devices: Node,  # pylint: disable=unused-argument
-    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
-    manufacturers_dim: Node,  # pylint: disable=unused-argument
+    devices: Node,
+    events_agg_devices_link: DimensionLink,
+    manufacturers_dim: Node,
 ):
     """
     Test building a transform node with filters and dimensions that require a join
@@ -1169,12 +1168,12 @@ async def test_build_transform_with_join_dimensions_filters(
 @pytest.mark.asyncio
 async def test_build_transform_with_multijoin_dimensions_filters(
     session: AsyncSession,
-    events: Node,  # pylint: disable=unused-argument
+    events: Node,
     events_agg: Node,
-    devices: Node,  # pylint: disable=unused-argument
-    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
-    manufacturers_dim: Node,  # pylint: disable=unused-argument
-    country_dim: Node,  # pylint: disable=unused-argument
+    devices: Node,
+    events_agg_devices_link: DimensionLink,
+    manufacturers_dim: Node,
+    country_dim: Node,
 ):
     """
     Test building a transform node with filters and dimensions that require
@@ -1252,9 +1251,9 @@ async def test_build_transform_with_multijoin_dimensions_filters(
 @pytest.mark.asyncio
 async def test_build_fail_no_join_path_found(
     session: AsyncSession,
-    events: Node,  # pylint: disable=unused-argument
+    events: Node,
     events_agg: Node,
-    country_dim: Node,  # pylint: disable=unused-argument
+    country_dim: Node,
 ):
     """
     Test failed node building due to not being able to find a join path to the dimension
@@ -1303,9 +1302,9 @@ async def test_build_fail_no_join_path_found(
 @pytest.mark.asyncio
 async def test_query_builder(
     session: AsyncSession,
-    events: Node,  # pylint: disable=unused-argument
+    events: Node,
     events_agg: Node,
-    country_dim: Node,  # pylint: disable=unused-argument
+    country_dim: Node,
 ):
     """
     Test failed node building due to not being able to find a join path to the dimension
@@ -1328,24 +1327,24 @@ async def test_query_builder(
     )
     assert query_builder.filters == ["shared.countries.region_name = 'APAC'"]
     assert query_builder.dimensions == ["shared.countries.region_name"]
-    assert query_builder._orderby == [  # pylint: disable=protected-access
+    assert query_builder._orderby == [
         "shared.countries.region_name DESC",
         "shared.countries.region_name ASC",
     ]
-    assert query_builder._limit == 100  # pylint: disable=protected-access
+    assert query_builder._limit == 100
     assert not query_builder.include_dimensions_in_groupby
 
 
 @pytest.mark.asyncio
 async def test_build_transform_sql_without_materialized_tables(
     session: AsyncSession,
-    events: Node,  # pylint: disable=unused-argument
+    events: Node,
     events_agg: Node,
-    devices: Node,  # pylint: disable=unused-argument
-    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
-    manufacturers_dim: Node,  # pylint: disable=unused-argument
-    country_dim: Node,  # pylint: disable=unused-argument
-    events_agg_countries_link: DimensionLink,  # pylint: disable=unused-argument
+    devices: Node,
+    events_agg_devices_link: DimensionLink,
+    manufacturers_dim: Node,
+    country_dim: Node,
+    events_agg_countries_link: DimensionLink,
 ):
     """
     Test building a transform node with filters and dimensions that forces skipping the materialized
@@ -1471,13 +1470,13 @@ async def test_build_transform_sql_without_materialized_tables(
 @pytest.mark.asyncio
 async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
     session: AsyncSession,
-    events: Node,  # pylint: disable=unused-argument
+    events: Node,
     events_agg: Node,
-    devices: Node,  # pylint: disable=unused-argument
-    events_agg_devices_link: DimensionLink,  # pylint: disable=unused-argument
-    manufacturers_dim: Node,  # pylint: disable=unused-argument
-    country_dim: Node,  # pylint: disable=unused-argument
-    events_agg_countries_link: DimensionLink,  # pylint: disable=unused-argument
+    devices: Node,
+    events_agg_devices_link: DimensionLink,
+    manufacturers_dim: Node,
+    country_dim: Node,
+    events_agg_countries_link: DimensionLink,
 ):
     """
     Test building a transform node with filters and dimensions that require
@@ -1570,10 +1569,10 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
 @pytest.mark.asyncio
 async def test_build_with_source_filters(
     session: AsyncSession,
-    events: Node,  # pylint: disable=unused-argument
+    events: Node,
     events_agg: Node,
-    date_dim: Node,  # pylint: disable=unused-argument
-    events_agg_date_dim_link: DimensionLink,  # pylint: disable=unused-argument
+    date_dim: Node,
+    events_agg_date_dim_link: DimensionLink,
 ):
     """
     Test build node with filters on source

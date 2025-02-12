@@ -16,7 +16,7 @@ from datajunction_server.sql.dag import _node_output_options
 from datajunction_server.typing import UTCDatetime
 
 
-class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
+class NodeNamespace(Base):
     """
     A node namespace
     """
@@ -42,7 +42,7 @@ class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
         statement = (
             select(
                 NodeNamespace.namespace,
-                func.count(Node.id).label("num_nodes"),  # pylint: disable=not-callable
+                func.count(Node.id).label("num_nodes"),
             )
             .join(
                 Node,
@@ -96,7 +96,7 @@ class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
             select(Node)
             .where(
                 or_(
-                    Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
+                    Node.namespace.like(f"{namespace}.%"),
                     Node.namespace == namespace,
                 ),
                 Node.type == node_type if node_type else True,
@@ -160,7 +160,7 @@ class NodeNamespace(Base):  # pylint: disable=too-few-public-methods
             select(Node)
             .where(
                 or_(
-                    Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
+                    Node.namespace.like(f"{namespace}.%"),
                     Node.namespace == namespace,
                 ),
             )

@@ -66,7 +66,7 @@ async def list_metrics(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> List[str]:
@@ -124,7 +124,7 @@ async def get_common_dimensions(
     input_errors = []
     statement = (
         select(Node)
-        .where(Node.name.in_(metric))  # type: ignore  # pylint: disable=no-member
+        .where(Node.name.in_(metric))  # type: ignore
         .where(is_(Node.deactivated_at, None))
     )
     metric_nodes = (await session.execute(statement)).scalars().all()

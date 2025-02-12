@@ -69,7 +69,7 @@ async def get_context(
 
 
 @strawberry.type
-class Query:  # pylint: disable=R0903
+class Query:
     """
     Parent of all DJ graphql queries
     """

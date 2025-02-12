@@ -1,4 +1,3 @@
-# pylint: disable=too-many-arguments
 """
 Cube related APIs.
 """
@@ -164,7 +163,7 @@ async def get_cube_dimension_sql(
     include_counts: bool = False,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=redefined-outer-name
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> TranslatedSQL:
@@ -189,7 +188,7 @@ async def get_cube_dimension_sql(
     "/cubes/{name}/dimensions/data",
     name="Dimensions Values for Cube",
 )
-async def get_cube_dimension_values(  # pylint: disable=too-many-locals
+async def get_cube_dimension_values(
     name: str,
     *,
     dimensions: List[str] = Query([], description="Dimensions to get values for"),
@@ -207,7 +206,7 @@ async def get_cube_dimension_values(  # pylint: disable=too-many-locals
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=redefined-outer-name
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> DimensionValues:
@@ -260,7 +259,7 @@ async def get_cube_dimension_values(  # pylint: disable=too-many-locals
     return DimensionValues(  # pragma: no cover
         dimensions=[
             from_amenable_name(col.name)
-            for col in translated_sql.columns  # type: ignore # pylint: disable=not-an-iterable
+            for col in translated_sql.columns  # type: ignore
             if col.name != "count"
         ],
         values=dimension_values,

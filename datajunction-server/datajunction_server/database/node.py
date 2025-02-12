@@ -62,7 +62,7 @@ if TYPE_CHECKING:
     from datajunction_server.database.dimensionlink import DimensionLink
 
 
-class NodeRelationship(Base):  # pylint: disable=too-few-public-methods
+class NodeRelationship(Base):
     """
     Join table for self-referential many-to-many relationships between nodes.
     """
@@ -84,7 +84,7 @@ class NodeRelationship(Base):  # pylint: disable=too-few-public-methods
     )
 
 
-class CubeRelationship(Base):  # pylint: disable=too-few-public-methods
+class CubeRelationship(Base):
     """
     Join table for many-to-many relationships between cube nodes and metric/dimension nodes.
     """
@@ -102,7 +102,7 @@ class CubeRelationship(Base):  # pylint: disable=too-few-public-methods
     )
 
 
-class BoundDimensionsRelationship(Base):  # pylint: disable=too-few-public-methods
+class BoundDimensionsRelationship(Base):
     """
     Join table for many-to-many relationships between metric nodes
     and parent nodes for dimensions that are required.
@@ -127,7 +127,7 @@ class BoundDimensionsRelationship(Base):  # pylint: disable=too-few-public-metho
     )
 
 
-class MissingParent(Base):  # pylint: disable=too-few-public-methods
+class MissingParent(Base):
     """
     A missing parent node
     """
@@ -145,7 +145,7 @@ class MissingParent(Base):  # pylint: disable=too-few-public-methods
     )
 
 
-class NodeMissingParents(Base):  # pylint: disable=too-few-public-methods
+class NodeMissingParents(Base):
     """
     Join table for missing parents
     """
@@ -168,7 +168,7 @@ class NodeMissingParents(Base):  # pylint: disable=too-few-public-methods
     )
 
 
-class Node(Base):  # pylint: disable=too-few-public-methods
+class Node(Base):
     """
     Node that acts as an umbrella for all node revisions
     """
@@ -384,7 +384,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         return node  # pragma: no cover
 
     @classmethod
-    async def find(  # pylint: disable=keyword-arg-before-vararg
+    async def find(
         cls,
         session: AsyncSession,
         prefix: Optional[str] = None,
@@ -397,7 +397,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         statement = select(Node).where(is_(Node.deactivated_at, None))
         if prefix:
             statement = statement.where(
-                Node.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
+                Node.name.like(f"{prefix}%"),  # type: ignore
             )
         if node_type:
             statement = statement.where(Node.type == node_type)
@@ -405,7 +405,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         return result.unique().scalars().all()
 
     @classmethod
-    async def find_by(  # pylint: disable=keyword-arg-before-vararg,too-many-locals
+    async def find_by(
         cls,
         session: AsyncSession,
         names: Optional[List[str]] = None,
@@ -417,7 +417,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         limit: Optional[int] = 100,
         before: Optional[str] = None,
         after: Optional[str] = None,
-        *options: ExecutableOption,  # pylint: disable=keyword-arg-before-vararg
+        *options: ExecutableOption,
     ) -> List["Node"]:
         """
         Finds a list of nodes by prefix
@@ -446,11 +446,11 @@ class Node(Base):  # pylint: disable=too-few-public-methods
             )  # pragma: no cover
         if names:
             statement = statement.where(
-                Node.name.in_(names),  # type: ignore  # pylint: disable=no-member
+                Node.name.in_(names),  # type: ignore
             )
         if fragment:
             statement = statement.where(
-                Node.name.like(f"%{fragment}%"),  # type: ignore  # pylint: disable=no-member
+                Node.name.like(f"%{fragment}%"),  # type: ignore
             )
         if node_types:
             statement = statement.where(Node.type.in_(node_types))
@@ -470,12 +470,12 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         if after:
             cursor = NodeCursor.decode(after)
             statement = statement.where(
-                (Node.created_at, Node.id) <= (cursor.created_at, cursor.id),  # pylint: disable=no-member
+                (Node.created_at, Node.id) <= (cursor.created_at, cursor.id),
             ).order_by(Node.created_at.desc(), Node.id.desc())
         elif before:
             cursor = NodeCursor.decode(before)
             statement = statement.where(
-                (Node.created_at, Node.id) >= (cursor.created_at, cursor.id),  # pylint: disable=no-member
+                (Node.created_at, Node.id) >= (cursor.created_at, cursor.id),
             )
             statement = statement.order_by(Node.created_at.asc(), Node.id.asc())
         else:
@@ -492,7 +492,7 @@ class Node(Base):  # pylint: disable=too-few-public-methods
         return nodes
 
 
-class CompressedPickleType(TypeDecorator):  # pylint: disable=too-many-ancestors
+class CompressedPickleType(TypeDecorator):
     """
     A SQLAlchemy type for storing zlib-compressed pickled objects.
     """
@@ -536,7 +536,7 @@ class CompressedPickleType(TypeDecorator):  # pylint: disable=too-many-ancestors
 
 class NodeRevision(
     Base,
-):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
+):
     """
     A node revision.
     """
@@ -571,7 +571,7 @@ class NodeRevision(
     query: Mapped[Optional[str]] = mapped_column(String)
     mode: Mapped[NodeMode] = mapped_column(
         Enum(NodeMode),
-        default=NodeMode.PUBLISHED,  # pylint: disable=no-member
+        default=NodeMode.PUBLISHED,
     )
 
     version: Mapped[Optional[str]] = mapped_column(
@@ -705,7 +705,7 @@ class NodeRevision(
         Returns the primary key columns of this node.
         """
         primary_key_columns = []
-        for col in self.columns:  # pylint: disable=not-an-iterable
+        for col in self.columns:
             if col.has_primary_key_attribute():
                 primary_key_columns.append(col)
         return primary_key_columns
@@ -715,7 +715,6 @@ class NodeRevision(
         """
         Default options when loading a node
         """
-        # pylint: disable=import-outside-toplevel
         from datajunction_server.database.dimensionlink import DimensionLink
 
         return (
@@ -747,12 +746,8 @@ class NodeRevision(
         Return a metric query with the metric aliases reassigned to
         have the same name as the node, if they aren't already matching.
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
-        from datajunction_server.sql.parsing.backends.antlr4 import (  # pylint: disable=import-outside-toplevel
-            parse,
-        )
+        from datajunction_server.sql.parsing import ast
+        from datajunction_server.sql.parsing.backends.antlr4 import parse
 
         tree = parse(query)
         projection_0 = tree.select.projection[0]
@@ -768,9 +763,7 @@ class NodeRevision(
         The Node SQL query should have a single expression in its
         projections and it should be an aggregation function.
         """
-        from datajunction_server.sql.parsing.backends.antlr4 import (  # pylint: disable=import-outside-toplevel
-            parse,
-        )
+        from datajunction_server.sql.parsing.backends.antlr4 import parse
 
         # must have a single expression
         tree = parse(self.query)
@@ -842,13 +835,13 @@ class NodeRevision(
         Copy dimension links and attributes from another node revision if the column names match
         """
         old_columns_mapping = {col.name: col for col in old_revision.columns}
-        for col in self.columns:  # pylint: disable=not-an-iterable
+        for col in self.columns:
             if col.name in old_columns_mapping:
                 col.dimension_id = old_columns_mapping[col.name].dimension_id
                 col.attributes = old_columns_mapping[col.name].attributes or []
         return self
 
-    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+    class Config:
         extra = Extra.allow
 
     def has_available_materialization(self, build_criteria: BuildCriteria) -> bool:
@@ -857,7 +850,7 @@ class NodeRevision(
         """
         return (
             self.availability is not None  # pragma: no cover
-            and self.availability.is_available(  # pylint: disable=no-member
+            and self.availability.is_available(
                 criteria=build_criteria,
             )
         )
@@ -875,10 +868,7 @@ class NodeRevision(
         """
         Cube elements along with their nodes
         """
-        return [
-            (element, element.node_revision())
-            for element in self.cube_elements  # pylint: disable=not-an-iterable
-        ]
+        return [(element, element.node_revision()) for element in self.cube_elements]
 
     def cube_metrics(self) -> List[Node]:
         """
@@ -946,7 +936,7 @@ class NodeRevision(
         """
         return [
             col
-            for col in self.columns  # pylint: disable=not-an-iterable
+            for col in self.columns
             if col.partition and col.partition.type_ == PartitionType.TEMPORAL
         ]
 
@@ -956,7 +946,7 @@ class NodeRevision(
         """
         return [
             col
-            for col in self.columns  # pylint: disable=not-an-iterable
+            for col in self.columns
             if col.partition and col.partition.type_ == PartitionType.CATEGORICAL
         ]
 
@@ -980,18 +970,18 @@ class NodeRevision(
         return None
 
 
-class NodeColumns(Base):  # pylint: disable=too-few-public-methods
+class NodeColumns(Base):
     """
     Join table for node columns.
     """
 
     __tablename__ = "nodecolumns"
 
-    node_id: Mapped[int] = mapped_column(  # pylint: disable=unsubscriptable-object
+    node_id: Mapped[int] = mapped_column(
         ForeignKey("noderevision.id", name="fk_nodecolumns_node_id_noderevision"),
         primary_key=True,
     )
-    column_id: Mapped[int] = mapped_column(  # pylint: disable=unsubscriptable-object
+    column_id: Mapped[int] = mapped_column(
         ForeignKey("column.id", name="fk_nodecolumns_column_id_column"),
         primary_key=True,
     )

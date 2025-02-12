@@ -44,7 +44,7 @@ async def capture_queries(
 @pytest.mark.asyncio
 async def test_get_common_dimensions(
     module__client_with_roads: AsyncClient,
-    capture_queries: AsyncGenerator[  # pylint: disable=redefined-outer-name
+    capture_queries: AsyncGenerator[
         list[str],
         None,
     ],
@@ -101,7 +101,7 @@ async def test_get_common_dimensions(
 @pytest.mark.asyncio
 async def test_get_common_dimensions_with_full_dim_node(
     module__client_with_roads: AsyncClient,
-    capture_queries: AsyncGenerator[  # pylint: disable=redefined-outer-name
+    capture_queries: AsyncGenerator[
         list[str],
         None,
     ],

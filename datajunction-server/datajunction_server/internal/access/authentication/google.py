@@ -22,7 +22,7 @@ from datajunction_server.utils import get_session, get_settings
 _logger = logging.getLogger(__name__)
 
 settings = get_settings()
-flow = (  # pylint: disable=invalid-name
+flow = (
     google_auth_oauthlib.flow.Flow.from_client_secrets_file(
         settings.google_oauth_client_secret_file,
         scopes=[
@@ -83,7 +83,7 @@ def get_google_user(token: str) -> User:
             http_status_code=HTTPStatus.FORBIDDEN,
             message=f"Error retrieving Google user: {response.text}",
         )
-    session = next(get_session())  # type: ignore  # pylint: disable=no-value-for-parameter
+    session = next(get_session())  # type: ignore
     existing_user = session.execute(
         select(User).where(User.email == user_data["login"]),
     ).scalar()
