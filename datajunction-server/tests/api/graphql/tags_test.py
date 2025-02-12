@@ -69,7 +69,7 @@ async def client_with_tags(
 
 @pytest.mark.asyncio
 async def test_list_tags(
-    client_with_tags: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_tags: AsyncClient,
 ) -> None:
     """
     Test listing tags
@@ -126,7 +126,7 @@ async def test_list_tags(
 
 @pytest.mark.asyncio
 async def test_list_tag_types(
-    client_with_tags: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_tags: AsyncClient,
 ) -> None:
     """
     Test listing tag types
@@ -144,7 +144,7 @@ async def test_list_tag_types(
 
 @pytest.mark.asyncio
 async def test_find_tags_by_type(
-    client_with_tags: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_tags: AsyncClient,
 ) -> None:
     """
     Test finding tags by tag type
@@ -190,7 +190,7 @@ async def test_find_tags_by_type(
 
 @pytest.mark.asyncio
 async def test_find_tags_by_name(
-    client_with_tags: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_tags: AsyncClient,
 ) -> None:
     """
     Test finding tags by tag type
@@ -210,7 +210,7 @@ async def test_find_tags_by_name(
 
 @pytest.mark.asyncio
 async def test_tag_get_nodes(
-    client_with_tags: AsyncClient,  # pylint: disable=redefined-outer-name
+    client_with_tags: AsyncClient,
 ) -> None:
     """
     Test listing tags

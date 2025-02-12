@@ -9,7 +9,7 @@ from datajunction_server.api.graphql.utils import extract_fields
 
 
 @strawberry.type
-class Tag(TagBase):  # pylint: disable=too-few-public-methods
+class Tag(TagBase):
     """
     A DJ node tag with nodes
     """

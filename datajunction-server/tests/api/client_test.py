@@ -33,7 +33,7 @@ def trim_trailing_whitespace(string: str) -> str:
 @pytest.mark.asyncio
 async def test_generated_python_client_code_new_source(
     module__client_with_roads: AsyncClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
+    load_expected_file,
 ):
     """
     Test generating Python client code for creating a new source
@@ -54,7 +54,7 @@ async def test_generated_python_client_code_new_source(
 @pytest.mark.asyncio
 async def test_generated_python_client_code_new_transform(
     module__client_with_roads: AsyncClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
+    load_expected_file,
 ):
     """
     Test generating Python client code for creating a new transform
@@ -82,7 +82,7 @@ async def test_generated_python_client_code_new_transform(
 @pytest.mark.asyncio
 async def test_generated_python_client_code_new_dimension(
     module__client_with_roads: AsyncClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
+    load_expected_file,
 ):
     """
     Test generating Python client code for creating a new dimension
@@ -109,7 +109,7 @@ async def test_generated_python_client_code_new_dimension(
 @pytest.mark.asyncio
 async def test_generated_python_client_code_new_metric(
     module__client_with_roads: AsyncClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
+    load_expected_file,
 ):
     """
     Test generating Python client code for creating a new metric
@@ -136,7 +136,7 @@ async def test_generated_python_client_code_new_metric(
 @pytest.mark.asyncio
 async def test_generated_python_client_code_new_cube(
     module__client_with_roads: AsyncClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
+    load_expected_file,
 ):
     """
     Test generating Python client code for creating a new cube
@@ -177,7 +177,7 @@ async def test_generated_python_client_code_new_cube(
 @pytest.mark.asyncio
 async def test_generated_python_client_code_link_dimension(
     module__client_with_roads: AsyncClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
+    load_expected_file,
 ):
     """
     Test generating Python client code for creating a new dimension
@@ -207,7 +207,7 @@ async def test_generated_python_client_code_link_dimension(
 @pytest.mark.asyncio
 async def test_include_client_setup(
     module__client_with_roads: AsyncClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
+    load_expected_file,
 ):
     """
     Generate create new node python client code with client setup included.
@@ -225,7 +225,7 @@ async def test_include_client_setup(
 @pytest.mark.asyncio
 async def test_export_namespace_as_notebook(
     module__client_with_roads: AsyncClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
+    load_expected_file,
 ):
     """
     Verify exporting all nodes in a namespace as a notebook.
@@ -304,7 +304,7 @@ NAMESPACE_MAPPING = {
 @pytest.mark.asyncio
 async def test_export_cube_as_notebook(
     module__client_with_roads: AsyncClient,
-    load_expected_file,  # pylint: disable=redefined-outer-name
+    load_expected_file,
 ):
     """
     Verify exporting all nodes relevant for a cube as a notebook.

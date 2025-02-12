@@ -73,7 +73,7 @@ class RequestsSessionWithEndpoint(requests.Session):
         return urljoin(self.endpoint, url)
 
 
-class QueryServiceClient:  # pylint: disable=too-few-public-methods
+class QueryServiceClient:
     """
     Client for the query service.
     """
@@ -148,7 +148,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             for idx, column in enumerate(table_columns)
         ]
 
-    def create_view(  # pylint: disable=too-many-arguments
+    def create_view(
         self,
         view_name: str,
         query_create: QueryCreate,
@@ -179,7 +179,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             )
         return f"View '{view_name}' created successfully."
 
-    def submit_query(  # pylint: disable=too-many-arguments
+    def submit_query(
         self,
         query_create: QueryCreate,
         request_headers: Optional[Dict[str, str]] = None,

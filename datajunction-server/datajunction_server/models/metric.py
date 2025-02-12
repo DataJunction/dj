@@ -90,7 +90,7 @@ class TranslatedSQL(BaseModel):
     Class for SQL generated from a given metric.
     """
 
-    # TODO: once type-inference is added to /query/ endpoint  # pylint: disable=fixme
+    # TODO: once type-inference is added to /query/ endpoint
     # columns attribute can be required
     sql: str
     columns: Optional[List[ColumnMetadata]] = None  # pragma: no-cover
@@ -98,7 +98,7 @@ class TranslatedSQL(BaseModel):
     upstream_tables: Optional[List[str]] = None
 
     @root_validator(pre=False)
-    def transpile_sql(  # pylint: disable=no-self-argument
+    def transpile_sql(
         cls,
         values,
     ) -> "TranslatedSQL":

@@ -41,7 +41,7 @@ JoinCardinality = strawberry.enum(JoinCardinality_)
 
 
 @strawberry.type
-class CubeElement:  # pylint: disable=too-few-public-methods
+class CubeElement:
     """
     An element in a cube, either a metric or dimension
     """
@@ -53,7 +53,7 @@ class CubeElement:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class DimensionLink:  # pylint: disable=too-few-public-methods
+class DimensionLink:
     """
     A dimension link between a dimension and a node
     """
@@ -67,7 +67,7 @@ class DimensionLink:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class DimensionAttribute:  # pylint: disable=too-few-public-methods
+class DimensionAttribute:
     """
     A dimensional column attribute
     """
@@ -88,7 +88,6 @@ class DimensionAttribute:  # pylint: disable=too-few-public-methods
         if self._dimension_node:
             return self._dimension_node
 
-        # pylint: disable=import-outside-toplevel
         from datajunction_server.api.graphql.resolvers.nodes import get_node_by_name
 
         dimension_node_name = self.name.rsplit(".", 1)[0]
@@ -121,7 +120,7 @@ class NodeRevision:
         """
         Catalog for the node
         """
-        return Catalog.from_pydantic(root.catalog)  # type: ignore  # pylint: disable=no-member
+        return Catalog.from_pydantic(root.catalog)  # type: ignore
 
     query: Optional[str] = None
     columns: List[Column]
@@ -227,7 +226,7 @@ class NodeRevision:
 
 
 @strawberry.type
-class TagBase:  # pylint: disable=too-few-public-methods
+class TagBase:
     """
     A DJ node tag without any referential fields
     """
@@ -240,7 +239,7 @@ class TagBase:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class Node:  # pylint: disable=too-few-public-methods
+class Node:
     """
     A DJ node
     """

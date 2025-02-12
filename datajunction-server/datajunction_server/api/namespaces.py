@@ -104,7 +104,7 @@ async def create_node_namespace(
 async def list_namespaces(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> List[NamespaceOutput]:

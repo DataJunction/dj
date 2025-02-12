@@ -3,7 +3,6 @@ test parsing tpcds queries into DJ ASTs
 """
 
 # mypy: ignore-errors
-# pylint: skip-file
 from difflib import SequenceMatcher
 
 import pytest

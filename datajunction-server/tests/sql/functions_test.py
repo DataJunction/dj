@@ -1,4 +1,3 @@
-# pylint: disable=line-too-long,too-many-lines
 """
 Tests for ``datajunction_server.sql.functions``.
 """
@@ -43,7 +42,7 @@ async def test_missing_functions() -> None:
     Test missing functions.
     """
     with pytest.raises(DJNotImplementedException) as excinfo:
-        function_registry["INVALID_FUNCTION"]  # pylint: disable=pointless-statement
+        function_registry["INVALID_FUNCTION"]
     assert (
         str(excinfo.value) == "The function `INVALID_FUNCTION` hasn't been implemented "
         "in DJ yet. You can file an issue at https://github.com/"
@@ -1809,7 +1808,7 @@ async def test_format_string_func(session: AsyncSession):
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-# TODO: Fix these two  # pylint: disable=fixme
+# TODO: Fix these two
 # @pytest.mark.asyncio
 # async def test_from_csv_func(session: AsyncSession):
 #     """
@@ -3064,7 +3063,7 @@ async def test_octet_length_func(session: AsyncSession):
 async def test_overlay_func(session: AsyncSession):
     """
     Test the `overlay` function
-    TODO: support syntax like:  # pylint: disable=fixme
+    TODO: support syntax like:
         SELECT overlay(encode('Spark SQL', 'utf-8') PLACING encode('_', 'utf-8') FROM 6);
     """
     query = parse("SELECT overlay('Hello World', 'J', 7)")

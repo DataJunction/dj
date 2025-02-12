@@ -21,9 +21,7 @@ class ColumnYAML(TypedDict, total=False):
     dimension: str
 
 
-class ColumnTypeDecorator(
-    TypeDecorator,
-):  # pylint: disable=abstract-method, too-many-ancestors
+class ColumnTypeDecorator(TypeDecorator):
     """
     Converts a column type from the database to a `ColumnType` class
     """
@@ -35,9 +33,7 @@ class ColumnTypeDecorator(
         return str(value)
 
     def process_result_value(self, value, dialect):
-        from datajunction_server.sql.parsing.backends.antlr4 import (  # pylint: disable=import-outside-toplevel
-            parse_rule,
-        )
+        from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
 
         if not value:
             return value

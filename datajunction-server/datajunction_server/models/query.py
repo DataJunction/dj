@@ -23,7 +23,7 @@ class BaseQuery(BaseModel):
     engine_name: Optional[str] = None
     engine_version: Optional[str] = None
 
-    class Config:  # pylint: disable=too-few-public-methods, missing-class-docstring
+    class Config:
         allow_population_by_field_name = True
 
 
@@ -114,21 +114,21 @@ class QueryWithResults(BaseModel):
     links: Optional[List[AnyHttpUrl]] = None
 
     @validator("scheduled", pre=True)
-    def parse_scheduled_date_string(cls, value):  # pylint: disable=no-self-argument
+    def parse_scheduled_date_string(cls, value):
         """
         Convert string date values to datetime
         """
         return datetime.fromisoformat(value) if isinstance(value, str) else value
 
     @validator("started", pre=True)
-    def parse_started_date_string(cls, value):  # pylint: disable=no-self-argument
+    def parse_started_date_string(cls, value):
         """
         Convert string date values to datetime
         """
         return datetime.fromisoformat(value) if isinstance(value, str) else value
 
     @validator("finished", pre=True)
-    def parse_finisheddate_string(cls, value):  # pylint: disable=no-self-argument
+    def parse_finisheddate_string(cls, value):
         """
         Convert string date values to datetime
         """

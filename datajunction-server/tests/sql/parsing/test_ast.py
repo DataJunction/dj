@@ -1,4 +1,3 @@
-# pylint: disable=too-many-lines,too-many-statements
 """
 testing ast Nodes and their methods
 """
@@ -18,7 +17,7 @@ from tests.sql.utils import compare_query_strings
 @pytest.mark.asyncio
 async def test_ast_compile_table(
     session: AsyncSession,
-    client_with_roads: AsyncClient,  # pylint: disable=unused-argument
+    client_with_roads: AsyncClient,
 ):
     """
     Test compiling the primary table from a query
@@ -31,7 +30,7 @@ async def test_ast_compile_table(
     await query.select.from_.relations[0].primary.compile(ctx)  # type: ignore
     assert not exc.errors
 
-    node = query.select.from_.relations[  # type: ignore  # pylint: disable=protected-access
+    node = query.select.from_.relations[  # type: ignore
         0
     ].primary._dj_node
     assert node
@@ -83,7 +82,7 @@ async def test_ast_compile_table_missing_node(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_ast_compile_query(
     session: AsyncSession,
-    client_with_roads: AsyncClient,  # pylint: disable=unused-argument
+    client_with_roads: AsyncClient,
 ):
     """
     Test compiling an entire query
@@ -94,7 +93,7 @@ async def test_ast_compile_query(
     await query.compile(ctx)
     assert not exc.errors
 
-    node = query.select.from_.relations[  # type: ignore  # pylint: disable=protected-access
+    node = query.select.from_.relations[  # type: ignore
         0
     ].primary._dj_node
     assert node
@@ -104,7 +103,7 @@ async def test_ast_compile_query(
 @pytest.mark.asyncio
 async def test_ast_compile_query_missing_columns(
     session: AsyncSession,
-    client_with_roads: AsyncClient,  # pylint: disable=unused-argument
+    client_with_roads: AsyncClient,
 ):
     """
     Test compiling a query with missing columns
@@ -122,7 +121,7 @@ async def test_ast_compile_query_missing_columns(
         in exc.errors[1].message
     )
 
-    node = query.select.from_.relations[  # type: ignore  # pylint: disable=protected-access
+    node = query.select.from_.relations[  # type: ignore
         0
     ].primary._dj_node
     assert node
@@ -145,7 +144,7 @@ async def test_ast_compile_missing_references(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_ast_compile_raise_on_ambiguous_column(
     session: AsyncSession,
-    client_with_basic: AsyncClient,  # pylint: disable=unused-argument
+    client_with_basic: AsyncClient,
 ):
     """
     Test raising on ambiguous column
@@ -166,7 +165,7 @@ async def test_ast_compile_raise_on_ambiguous_column(
 @pytest.mark.asyncio
 async def test_ast_compile_having(
     session: AsyncSession,
-    client_with_dbt: AsyncClient,  # pylint: disable=unused-argument
+    client_with_dbt: AsyncClient,
 ):
     """
     Test using having
@@ -180,7 +179,7 @@ async def test_ast_compile_having(
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
 
-    node = query.select.from_.relations[0].primary._dj_node  # type: ignore  # pylint: disable=protected-access
+    node = query.select.from_.relations[0].primary._dj_node  # type: ignore
     assert node
     assert node.name == "dbt.source.jaffle_shop.orders"
 

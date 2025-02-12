@@ -49,7 +49,7 @@ class QueryBuildType(StrEnum):
     NODE = "node"
 
 
-class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-methods
+class QueryRequest(Base):  # type: ignore
     """
     A query request represents a request for DJ to build a query.
 
@@ -272,7 +272,7 @@ class QueryRequest(Base):  # type: ignore  # pylint: disable=too-few-public-meth
         return query_request
 
     @classmethod
-    async def to_versioned_query_request(  # pylint: disable=too-many-locals
+    async def to_versioned_query_request(
         cls,
         session: AsyncSession,
         nodes: List[str],

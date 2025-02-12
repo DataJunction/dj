@@ -59,7 +59,7 @@ def test_get_settings(mocker: MockerFixture) -> None:
     Test ``get_settings``.
     """
     mocker.patch("datajunction_server.utils.load_dotenv")
-    Settings = mocker.patch(  # pylint: disable=invalid-name, redefined-outer-name
+    Settings = mocker.patch(
         "datajunction_server.utils.Settings",
     )
 

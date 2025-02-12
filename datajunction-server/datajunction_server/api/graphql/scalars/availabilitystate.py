@@ -6,7 +6,7 @@ import strawberry
 
 
 @strawberry.type
-class PartitionAvailability:  # pylint: disable=too-few-public-methods
+class PartitionAvailability:
     """
     Partition-level availability
     """
@@ -24,7 +24,7 @@ class PartitionAvailability:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class AvailabilityState:  # pylint: disable=too-few-public-methods
+class AvailabilityState:
     """
     A materialized table that is available for the node
     """

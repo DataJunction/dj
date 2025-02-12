@@ -27,7 +27,7 @@ router = SecureAPIRouter(tags=["DJSQL"])
 
 
 @router.get("/djsql/data", response_model=QueryWithResults)
-async def get_data_for_djsql(  # pylint: disable=R0914, R0913
+async def get_data_for_djsql(
     query: str,
     async_: bool = False,
     *,
@@ -37,7 +37,7 @@ async def get_data_for_djsql(  # pylint: disable=R0914, R0913
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> QueryWithResults:
@@ -77,7 +77,6 @@ async def get_data_for_djsql(  # pylint: disable=R0914, R0913
     return result
 
 
-# pylint: disable=R0914, R0913
 @router.get("/djsql/stream/", response_model=QueryWithResults)
 async def get_data_stream_for_djsql(
     query: str,
@@ -88,7 +87,7 @@ async def get_data_stream_for_djsql(
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> QueryWithResults:  # pragma: no cover

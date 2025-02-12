@@ -10,7 +10,7 @@ PartitionType = strawberry.enum(PartitionType_)
 
 
 @strawberry.type
-class AttributeTypeName:  # pylint: disable=too-few-public-methods
+class AttributeTypeName:
     """
     Attribute type name.
     """
@@ -20,7 +20,7 @@ class AttributeTypeName:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class Attribute:  # pylint: disable=too-few-public-methods
+class Attribute:
     """
     Column attribute
     """
@@ -29,7 +29,7 @@ class Attribute:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class NodeName:  # pylint: disable=too-few-public-methods
+class NodeName:
     """
     Node name
     """
@@ -38,7 +38,7 @@ class NodeName:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class Partition:  # pylint: disable=too-few-public-methods
+class Partition:
     """
     A partition configuration for a column
     """
@@ -50,7 +50,7 @@ class Partition:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class Column:  # pylint: disable=too-few-public-methods
+class Column:
     """
     A column on a node
     """
@@ -61,4 +61,3 @@ class Column:  # pylint: disable=too-few-public-methods
     attributes: Optional[List[Attribute]]
     dimension: Optional[NodeName]
     partition: Optional[Partition]
-    # order: Optional[int]

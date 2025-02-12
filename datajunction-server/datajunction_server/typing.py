@@ -2,8 +2,6 @@
 Custom types for annotations.
 """
 
-# pylint: disable=missing-class-docstring
-
 from __future__ import annotations
 
 import datetime
@@ -16,7 +14,7 @@ from typing_extensions import Protocol
 from datajunction_server.enum import StrEnum
 
 
-class SQLADialect(Protocol):  # pylint: disable=too-few-public-methods
+class SQLADialect(Protocol):
     """
     A SQLAlchemy dialect.
     """

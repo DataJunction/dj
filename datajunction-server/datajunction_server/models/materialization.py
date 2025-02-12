@@ -126,7 +126,7 @@ class MaterializationConfigOutput(BaseModel):
     backfills: List[BackfillOutput]
     strategy: Optional[str]
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
@@ -290,7 +290,7 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         """
         Returns the Druid metrics spec for ingestion
         """
-        self.dimensions += [  # type: ignore  # pylint: disable=no-member
+        self.dimensions += [  # type: ignore
             measure.field_name
             for measure_group in self.measures.values()  # type: ignore
             for measure in measure_group.measures
@@ -346,7 +346,6 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
                         "format": "parquet",
                         "dimensionsSpec": {
                             "dimensions": sorted(
-                                # pylint: disable=no-member
                                 list(set(self.dimensions)),  # type: ignore
                             ),
                         },
@@ -383,9 +382,7 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         return druid_spec
 
 
-class DruidMetricsCubeConfig(
-    DruidMeasuresCubeConfig,
-):  # pylint: disable=too-many-ancestors
+class DruidMetricsCubeConfig(DruidMeasuresCubeConfig):
     """
     Specific cube materialization implementation with Spark and Druid ingestion and
     optional prefix and/or suffix to include with the materialized entity's name.
@@ -494,7 +491,7 @@ class UpsertMaterialization(BaseModel):
     strategy: MaterializationStrategy
 
     @validator("job", pre=True)
-    def validate_job(  # pylint: disable=no-self-argument
+    def validate_job(
         cls,
         job: Union[str, MaterializationJobTypeEnum],
     ) -> MaterializationJobTypeEnum:
@@ -503,9 +500,7 @@ class UpsertMaterialization(BaseModel):
         """
         if isinstance(job, str):
             job_name = job.upper()
-            options = (
-                MaterializationJobTypeEnum._member_names_  # pylint: disable=protected-access,no-member
-            )
+            options = MaterializationJobTypeEnum._member_names_
             if job_name not in options:
                 raise DJInvalidInputException(
                     http_status_code=404,

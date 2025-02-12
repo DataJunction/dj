@@ -29,7 +29,7 @@ def connection(postgres_container: PostgresContainer) -> Connection:
         transaction.rollback()
 
 
-def test_migrations_are_current(connection):  # pylint: disable=redefined-outer-name
+def test_migrations_are_current(connection):
     """
     Verify that the alembic migrations are in line with the models.
     """
@@ -42,7 +42,7 @@ def test_migrations_are_current(connection):  # pylint: disable=redefined-outer-
     context = EnvironmentContext(
         config,
         script,
-        fn=lambda rev, _: script._upgrade_revs("head", rev),  # pylint: disable=W0212
+        fn=lambda rev, _: script._upgrade_revs("head", rev),
     )
     context.configure(connection=connection)
     context.run_migrations()

@@ -31,7 +31,7 @@ class CreatedNode(BaseModel):
     current_version: str
     missing_table: Optional[bool] = False
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
@@ -48,7 +48,7 @@ class UserOutput(BaseModel):
     created_nodes: Optional[List[CreatedNode]] = []
     created_tags: Optional[List[TagOutput]] = []
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
@@ -59,7 +59,7 @@ class UserNameOnly(BaseModel):
 
     username: str
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 

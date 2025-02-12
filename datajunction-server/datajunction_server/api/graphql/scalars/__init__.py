@@ -28,7 +28,7 @@ class DateTimeJSONEncoder(json.JSONEncoder):
     JSON encoder that handles datetime objects
     """
 
-    def default(self, obj):  # pylint: disable=arguments-renamed
+    def default(self, obj):
         """
         Check if there are datetime objects and serialize them as ISO
         format strings.
@@ -46,7 +46,7 @@ class DateTimeJSONDecoder(json.JSONDecoder):
     def __init__(self, *args, **kwargs):
         json.JSONDecoder.__init__(self, object_hook=self.object_hook, *args, **kwargs)
 
-    def object_hook(self, source):  # pylint: disable=method-hidden
+    def object_hook(self, source):
         """
         Check if the string is in ISO 8601 format and convert to a datetime
         object if it is.
@@ -80,7 +80,7 @@ class Cursor:
 
 
 @strawberry.type
-class PageInfo:  # pylint: disable=too-few-public-methods
+class PageInfo:
     """Metadata about a page in a connection."""
 
     has_next_page: bool = field(
@@ -98,14 +98,14 @@ class PageInfo:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class Edge(Generic[GenericItemNode]):  # pylint: disable=too-few-public-methods
+class Edge(Generic[GenericItemNode]):
     """Metadata about an item in a connection."""
 
     node: GenericItemNode
 
 
 @strawberry.type
-class Connection(Generic[GenericItemNode]):  # pylint: disable=too-few-public-methods
+class Connection(Generic[GenericItemNode]):
     """
     Pagination for a list of items.
     """

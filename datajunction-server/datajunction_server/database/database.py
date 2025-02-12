@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from datajunction_server.database.column import Column
 
 
-class Database(Base):  # pylint: disable=too-few-public-methods
+class Database(Base):
     """
     A database.
 
@@ -103,7 +103,7 @@ class Table(Base):
         """
         # Catalogs will soon be required and this return can be simplified
         return (
-            self.catalog.name if self.catalog else None,  # pylint: disable=no-member
+            self.catalog.name if self.catalog else None,
             self.schema_,
             self.table,
         )
@@ -112,7 +112,7 @@ class Table(Base):
         return hash(self.id)
 
 
-class TableColumns(Base):  # pylint: disable=too-few-public-methods
+class TableColumns(Base):
     """
     Join table for table columns.
     """

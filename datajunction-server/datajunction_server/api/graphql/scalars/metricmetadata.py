@@ -18,7 +18,7 @@ Aggregability = strawberry.enum(Aggregability_)
 
 
 @strawberry.type
-class Unit:  # pylint: disable=too-few-public-methods
+class Unit:
     """
     Metric unit
     """
@@ -30,17 +30,15 @@ class Unit:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.experimental.pydantic.type(model=AggregationRule_, all_fields=True)
-class AggregationRule:  # pylint: disable=missing-class-docstring,too-few-public-methods
-    ...
+class AggregationRule: ...
 
 
 @strawberry.experimental.pydantic.type(model=Measure_, all_fields=True)
-class Measure:  # pylint: disable=missing-class-docstring,too-few-public-methods
-    ...
+class Measure: ...
 
 
 @strawberry.type
-class ExtractedMeasures:  # pylint: disable=too-few-public-methods
+class ExtractedMeasures:
     """
     extracted measures from metric
     """
@@ -51,7 +49,7 @@ class ExtractedMeasures:  # pylint: disable=too-few-public-methods
 
 
 @strawberry.type
-class MetricMetadata:  # pylint: disable=too-few-public-methods
+class MetricMetadata:
     """
     Metric metadata output
     """

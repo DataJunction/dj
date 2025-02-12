@@ -114,8 +114,7 @@ class Column(Base):  # type: ignore
         Whether the given attribute is set on this column.
         """
         return any(
-            attr.attribute_type.name == attribute_name
-            for attr in self.attributes  # pylint: disable=not-an-iterable
+            attr.attribute_type.name == attribute_name for attr in self.attributes
         )
 
     def attribute_names(self) -> list[str]:
@@ -129,8 +128,7 @@ class Column(Base):  # type: ignore
         Whether the column has any attribute besides the one specified.
         """
         return any(
-            attr.attribute_type.name != attribute_name
-            for attr in self.attributes  # pylint: disable=not-an-iterable
+            attr.attribute_type.name != attribute_name for attr in self.attributes
         )
 
     def __hash__(self) -> int:

@@ -1,4 +1,3 @@
-# pylint: disable=too-many-lines
 """
 Dimension linking related tests.
 
@@ -31,7 +30,7 @@ async def dimensions_link_client(client: AsyncClient) -> AsyncClient:
 
 @pytest.mark.asyncio
 async def test_link_dimension_with_errors(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
 ):
     """
     Test linking dimensions with errors
@@ -77,7 +76,7 @@ async def test_link_dimension_with_errors(
 
 @pytest.fixture
 def link_events_to_users_without_role(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
 ):
     """
     Link events with the users dimension without a role
@@ -103,7 +102,7 @@ def link_events_to_users_without_role(
 
 @pytest.fixture
 def link_events_to_users_with_role_direct(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
 ):
     """
     Link events with the users dimension with the role "user_direct",
@@ -132,7 +131,7 @@ def link_events_to_users_with_role_direct(
 
 @pytest.fixture
 def link_events_to_users_with_role_windowed(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
 ):
     """
     Link events with the users dimension with the role "user_windowed",
@@ -159,7 +158,7 @@ def link_events_to_users_with_role_windowed(
 
 @pytest.fixture
 def link_users_to_countries_with_role_registration(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
 ):
     """
     Link users to the countries dimension with role "registration_country".
@@ -183,7 +182,7 @@ def link_users_to_countries_with_role_registration(
 
 @pytest.fixture
 def reference_link_events_user_registration_country(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
 ):
     """
     Link users to the countries dimension with role "registration_country".
@@ -205,8 +204,8 @@ def reference_link_events_user_registration_country(
 
 @pytest.mark.asyncio
 async def test_link_complex_dimension_without_role(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name,
-    link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
+    link_events_to_users_without_role,
 ):
     """
     Test linking complex dimension without role
@@ -338,10 +337,10 @@ async def test_link_complex_dimension_without_role(
 
 @pytest.mark.asyncio
 async def test_link_complex_dimension_with_role(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
-    link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
-    link_events_to_users_with_role_windowed,  # pylint: disable=redefined-outer-name
-    link_users_to_countries_with_role_registration,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
+    link_events_to_users_with_role_direct,
+    link_events_to_users_with_role_windowed,
+    link_users_to_countries_with_role_registration,
 ):
     """
     Testing linking complex dimension with roles.
@@ -569,7 +568,6 @@ FROM default_DOT_events_metrics
 
     # Get SQL for the downstream metric grouped by the user's registration country and
     # filtered by the user's residence country
-    # TODO  # pylint: disable=fixme
     response = await dimensions_link_client.get(
         "/sql/default.elapsed_secs?",
         params={
@@ -633,9 +631,9 @@ FROM default_DOT_events_metrics
 
 @pytest.mark.asyncio
 async def test_remove_dimension_link(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
-    link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
-    link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
+    link_events_to_users_with_role_direct,
+    link_events_to_users_without_role,
 ):
     """
     Test removing complex dimension links
@@ -703,10 +701,10 @@ async def test_remove_dimension_link(
 
 @pytest.mark.asyncio
 async def test_measures_sql_with_dimension_roles(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
-    link_events_to_users_with_role_direct,  # pylint: disable=redefined-outer-name
-    link_events_to_users_with_role_windowed,  # pylint: disable=redefined-outer-name
-    link_users_to_countries_with_role_registration,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
+    link_events_to_users_with_role_direct,
+    link_events_to_users_with_role_windowed,
+    link_users_to_countries_with_role_registration,
 ):
     """
     Test measures SQL with dimension roles
@@ -758,7 +756,7 @@ LEFT JOIN default_DOT_users
 INNER JOIN default_DOT_countries
   ON default_DOT_users.registration_country = default_DOT_countries.country_code"""
     assert str(parse(query)) == str(parse(expected))
-    # TODO Implement caching for v2 measures SQL endpoint  # pylint: disable=fixme
+    # TODO Implement caching for v2 measures SQL endpoint
     # query_request = (
     #     (
     #         await session.execute(
@@ -788,8 +786,8 @@ INNER JOIN default_DOT_countries
 
 @pytest.mark.asyncio
 async def test_reference_dimension_links_errors(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
-    reference_link_events_user_registration_country,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
+    reference_link_events_user_registration_country,
 ):
     """
     Test various reference dimension link errors
@@ -843,9 +841,9 @@ async def test_reference_dimension_links_errors(
 
 @pytest.mark.asyncio
 async def test_measures_sql_with_reference_dimension_links(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
-    reference_link_events_user_registration_country,  # pylint: disable=redefined-outer-name
-    link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
+    reference_link_events_user_registration_country,
+    link_events_to_users_without_role,
 ):
     """
     Test measures SQL generation with reference dimension links
@@ -966,7 +964,7 @@ FROM default_DOT_events"""
 
 @pytest.mark.asyncio
 async def test_dimension_link_cross_join(
-    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+    dimensions_link_client: AsyncClient,
 ):
     """
     Testing linking complex dimension with CROSS JOIN as the join type.

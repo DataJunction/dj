@@ -1,5 +1,3 @@
-# pylint: disable=too-many-lines,C0301
-
 """
 Post requests for all example entities
 """

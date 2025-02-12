@@ -1,6 +1,5 @@
 """Test type inference."""
 
-# pylint: disable=W0621,C0325
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,7 +68,7 @@ def test_raise_on_invalid_infer_binary_op():
     Test raising when trying to infer types from an invalid binary op
     """
     with pytest.raises(DJParseException) as exc_info:
-        ast.BinaryOp(  # pylint: disable=expression-not-assigned
+        ast.BinaryOp(
             op=ast.BinaryOpKind.Modulo,
             left=ast.String(value="foo"),
             right=ast.String(value="bar"),
@@ -123,7 +122,7 @@ def test_raising_when_table_has_no_dj_node():
     col = ast.Column(ast.Name("status"), _table=table)
 
     with pytest.raises(DJParseException) as exc_info:
-        col.type  # pylint: disable=pointless-statement
+        col.type
 
     assert ("Cannot resolve type of column orders.status") in str(exc_info.value)
 
@@ -133,7 +132,7 @@ def test_raising_when_select_has_multiple_expressions_in_projection():
     Test raising when a select has more than one in projection
     """
     with pytest.raises(DJParseException) as exc_info:
-        parse("select 1, 2").select.type  # pylint: disable=expression-not-assigned
+        parse("select 1, 2").select.type
 
     assert ("single expression in its projection") in str(exc_info.value)
 
@@ -143,7 +142,7 @@ def test_raising_when_between_different_types():
     Test raising when a between has multiple types
     """
     with pytest.raises(DJParseException) as exc_info:
-        parse(  # pylint: disable=expression-not-assigned
+        parse(
             "select 1 between 'hello' and TRUE",
         ).select.type
 
@@ -155,7 +154,7 @@ def test_raising_when_unop_bad_type():
     Test raising when a unop gets a bad type
     """
     with pytest.raises(DJParseException) as exc_info:
-        parse(  # pylint: disable=expression-not-assigned
+        parse(
             "select not 'hello'",
         ).select.type
 
@@ -169,7 +168,7 @@ def test_raising_when_expression_has_no_parent():
     col = ast.Column(ast.Name("status"), _table=None)
 
     with pytest.raises(DJParseException) as exc_info:
-        col.type  # pylint: disable=pointless-statement
+        col.type
 
     assert "Cannot resolve type of column status that has no parent" in str(
         exc_info.value,
@@ -331,7 +330,7 @@ async def test_infer_bad_case_types(construction_session: AsyncSession):
             exception=DJException(),
         )
         await query.compile(ctx)
-        [  # pylint: disable=pointless-statement
+        [
             exp.type  # type: ignore
             for exp in query.select.projection
         ]
@@ -505,7 +504,7 @@ async def test_infer_types_array_map(construction_session: AsyncSession):
     ctx = CompileContext(session=construction_session, exception=exc)
     await query.compile(ctx)
     with pytest.raises(DJParseException) as exc_info:
-        query.select.projection[0].type  # type: ignore  # pylint: disable=pointless-statement
+        query.select.projection[0].type  # type: ignore
     assert "Multiple types int, string passed to array" in str(exc_info)
 
 
@@ -528,7 +527,7 @@ async def test_infer_types_if(construction_session: AsyncSession):
     await query.compile(ctx)
     assert query.select.projection[0].type == IntegerType()  # type: ignore
     with pytest.raises(DJException) as exc_info:
-        query.select.projection[1].type  # type: ignore  # pylint: disable=pointless-statement
+        query.select.projection[1].type  # type: ignore
     assert (
         "The then result and else result must match in type! Got string and int"
         in str(exc_info)

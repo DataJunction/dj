@@ -17,9 +17,7 @@ if TYPE_CHECKING:
     pass
 
 
-class Settings(
-    BaseSettings,
-):  # pylint: disable=too-few-public-methods #pragma: no cover
+class Settings(BaseSettings):  # pragma: no cover
     """
     DataJunction configuration.
     """

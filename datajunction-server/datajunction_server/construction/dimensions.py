@@ -22,7 +22,7 @@ from datajunction_server.sql.parsing.types import IntegerType
 from datajunction_server.utils import SEPARATOR
 
 
-async def build_dimensions_from_cube_query(  # pylint: disable=too-many-arguments,too-many-locals
+async def build_dimensions_from_cube_query(
     session: AsyncSession,
     cube: NodeRevision,
     dimensions: List[str],
