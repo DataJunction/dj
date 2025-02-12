@@ -417,7 +417,7 @@ class Node(Base):
         limit: Optional[int] = 100,
         before: Optional[str] = None,
         after: Optional[str] = None,
-        *options: ExecutableOption,
+        options: list[ExecutableOption] = None,
     ) -> List["Node"]:
         """
         Finds a list of nodes by prefix
@@ -483,7 +483,7 @@ class Node(Base):
 
         limit = limit if limit and limit > 0 else 100
         statement = statement.limit(limit)
-        result = await session.execute(statement.options(*options))
+        result = await session.execute(statement.options(*(options or [])))
         nodes = result.unique().scalars().all()
 
         # Reverse for backward pagination
