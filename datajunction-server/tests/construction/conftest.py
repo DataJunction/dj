@@ -1,6 +1,4 @@
 """fixtures for testing construction"""
-# noqa: W191,E101
-# pylint: disable=line-too-long,too-many-statements
 
 from typing import Dict, List, Optional, Tuple
 
