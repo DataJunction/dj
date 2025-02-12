@@ -1,4 +1,5 @@
 """Node materialization helper functions"""
+
 import logging
 import zlib
 from typing import Dict, List, Optional, Tuple, Union
