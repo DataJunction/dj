@@ -1,4 +1,3 @@
-# pylint: disable=line-too-long,too-many-lines
 """
 Tests for the engine API.
 """
