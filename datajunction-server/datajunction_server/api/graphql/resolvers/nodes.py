@@ -53,7 +53,7 @@ async def find_nodes_by(
         limit,
         before,
         after,
-        *options,
+        options=options,
     )
 
 
