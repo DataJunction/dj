@@ -1,4 +1,3 @@
-# pylint: disable=unsubscriptable-object
 """Backfill database schema."""
 
 from typing import TYPE_CHECKING, List, Optional
@@ -13,7 +12,7 @@ if TYPE_CHECKING:
     from datajunction_server.database.materialization import Materialization
 
 
-class Backfill(Base):  # type: ignore  # pylint: disable=too-few-public-methods
+class Backfill(Base):  # type: ignore
     """
     A backfill run is linked to a materialization config, where users provide the range
     (of a temporal partition) to backfill for the node.

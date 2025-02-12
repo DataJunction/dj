@@ -19,9 +19,7 @@ async def get_nodes_by_tag(
     Retrieves all nodes with the given tag. A list of fields must be requested on the node,
     or this will not return any data.
     """
-    from datajunction_server.api.graphql.resolvers.nodes import (  # pylint: disable=import-outside-toplevel
-        load_node_options,
-    )
+    from datajunction_server.api.graphql.resolvers.nodes import load_node_options
 
     options = load_node_options(
         fields["nodes"]

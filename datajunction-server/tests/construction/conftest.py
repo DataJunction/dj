@@ -1,6 +1,4 @@
 """fixtures for testing construction"""
-# noqa: W191,E101
-# pylint: disable=line-too-long,too-many-statements
 
 from typing import Dict, List, Optional, Tuple
 
@@ -194,7 +192,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
 
 
 @pytest_asyncio.fixture
-async def construction_session(  # pylint: disable=too-many-locals
+async def construction_session(
     session: AsyncSession,
     current_user: User,
 ) -> AsyncSession:
@@ -412,8 +410,8 @@ async def construction_session(  # pylint: disable=too-many-locals
             Column(name="cnt", type=IntegerType(), order=0),
         ],
         required_dimensions=[
-            comments_src.columns[0],  # pylint: disable=E1136
-            comments_src.columns[-1],  # pylint: disable=E1136
+            comments_src.columns[0],
+            comments_src.columns[-1],
         ],
         created_by_id=current_user.id,
     )

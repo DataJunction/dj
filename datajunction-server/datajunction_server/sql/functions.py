@@ -1,5 +1,3 @@
-# pylint: disable=too-many-lines, abstract-method, unused-argument, missing-function-docstring,
-# pylint: disable=arguments-differ, too-many-return-statements, function-redefined
 # mypy: ignore-errors
 
 """
@@ -76,7 +74,7 @@ class DispatchMeta(type):
     Dispatch abstract class for function registry
     """
 
-    def __getattribute__(cls, func_name):  # pylint: disable=redefined-outer-name
+    def __getattribute__(cls, func_name):
         if func_name in type.__getattribute__(cls, "registry").get(cls, {}):
 
             def dynamic_dispatch(*args: "Expression"):
@@ -94,7 +92,7 @@ class Dispatch(metaclass=DispatchMeta):
     registry: ClassVar[Dict[str, Dict[Tuple[Tuple[int, Type]], Callable]]] = {}
 
     @classmethod
-    def register(cls, func):  # pylint: disable=redefined-outer-name
+    def register(cls, func):
         func_name = func.__name__
         params = inspect.signature(func).parameters
         spread_types = [[]]
@@ -129,9 +127,7 @@ class Dispatch(metaclass=DispatchMeta):
         return func
 
     @classmethod
-    def dispatch(  # pylint: disable=redefined-outer-name
-        cls, func_name, *args: "Expression"
-    ):
+    def dispatch(cls, func_name, *args: "Expression"):
         type_registry = cls.registry[cls].get(func_name)  # type: ignore
         if not type_registry:
             raise ValueError(
@@ -160,7 +156,7 @@ class Dispatch(metaclass=DispatchMeta):
         )
 
 
-class Function(Dispatch):  # pylint: disable=too-few-public-methods
+class Function(Dispatch):
     """
     A DJ function.
     """
@@ -182,7 +178,7 @@ class Function(Dispatch):  # pylint: disable=too-few-public-methods
         """
 
 
-class TableFunction(Dispatch):  # pylint: disable=too-few-public-methods
+class TableFunction(Dispatch):
     """
     A DJ table-valued function.
     """
@@ -274,9 +270,7 @@ class Aggregate(Function):
         Compiles the lambda function used by the `aggregate` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
+        from datajunction_server.sql.parsing import ast
 
         # aggregate's lambda function can take three or four arguments, depending on whether
         # an optional finish function is provided
@@ -1694,7 +1688,7 @@ def infer_type(
     return ct.DoubleType()
 
 
-class E(Function):  # pylint: disable=invalid-name
+class E(Function):
     """
     e() - Returns the mathematical constant e.
     """
@@ -1797,9 +1791,7 @@ class Exists(Function):
         Compiles the lambda function used by the `filter` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
+        from datajunction_server.sql.parsing import ast
 
         expr, func = args
         if len(func.identifiers) != 1:
@@ -1920,9 +1912,7 @@ class Filter(Function):
         Compiles the lambda function used by the `filter` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
+        from datajunction_server.sql.parsing import ast
 
         expr, func = args
         if len(func.identifiers) > 2:
@@ -2063,7 +2053,7 @@ def infer_type(
     _target_scale: ct.IntegerType,
 ) -> ct.DecimalType:
     target_scale = _target_scale.value
-    if isinstance(args.type, ct.DecimalType):  # pylint: disable=R1705
+    if isinstance(args.type, ct.DecimalType):
         precision = max(args.type.precision - args.type.scale + 1, -target_scale + 1)
         scale = min(args.type.scale, max(0, target_scale))
         return ct.DecimalType(precision, scale)
@@ -2104,9 +2094,7 @@ class Forall(Function):
         Compiles the lambda function used by the `filter` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
+        from datajunction_server.sql.parsing import ast
 
         expr, func = args
         if len(func.identifiers) != 1:
@@ -2167,11 +2155,10 @@ def infer_type(
     schema: ct.StringType,
     arg3: Optional[ct.MapType] = None,
 ) -> ct.ColumnType:
-    # TODO: Handle options?  # pylint: disable=fixme
-    # pylint: disable=import-outside-toplevel
+    # TODO: Handle options?
     from datajunction_server.sql.parsing.backends.antlr4 import (
-        parse_rule,  # pragma: no cover
-    )
+        parse_rule,
+    )  # pragma: no cover
 
     return ct.StructType(
         *parse_rule(schema.value, "complexColTypeList")
@@ -2190,7 +2177,6 @@ def infer_type(
     schema: ct.StringType,
     options: Optional[Function] = None,
 ) -> ct.StructType:
-    # pylint: disable=import-outside-toplevel
     from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
 
     schema_type = re.sub(r"^'(.*)'$", r"\1", schema.value)
@@ -2335,9 +2321,7 @@ class HistogramNumeric(Function):
 @HistogramNumeric.register  # type: ignore
 def infer_type(arg1: ct.ColumnType, arg2: ct.IntegerType) -> ct.ColumnType:
     # assuming that there's a StructType for the bin and frequency
-    from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-        ast,
-    )
+    from datajunction_server.sql.parsing import ast
 
     return ct.ListType(
         element_type=ct.StructType(
@@ -2955,7 +2939,7 @@ class MakeTimestamp(Function):
 
 
 @MakeTimestamp.register  # type: ignore
-def infer_type(  # pylint: disable=too-many-arguments
+def infer_type(
     year: ct.IntegerType,
     month: ct.IntegerType,
     day: ct.IntegerType,
@@ -2974,7 +2958,7 @@ class MakeTimestampLtz(Function):
 
 
 @MakeTimestampLtz.register  # type: ignore
-def infer_type(  # pylint: disable=too-many-arguments
+def infer_type(
     year: ct.IntegerType,
     month: ct.IntegerType,
     day: ct.IntegerType,
@@ -2994,7 +2978,7 @@ class MakeTimestampNtz(Function):
 
 
 @MakeTimestampNtz.register  # type: ignore
-def infer_type(  # pylint: disable=too-many-arguments
+def infer_type(
     year: ct.IntegerType,
     month: ct.IntegerType,
     day: ct.IntegerType,
@@ -3082,9 +3066,7 @@ class MapFilter(Function):
         Compiles the lambda function used by the `map_filter` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
+        from datajunction_server.sql.parsing import ast
 
         expr, func = args
         if len(func.identifiers) != 2:
@@ -3170,9 +3152,7 @@ class MapZipWith(Function):
         Compiles the lambda function used by the `map_zip_with` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
+        from datajunction_server.sql.parsing import ast
 
         map1, map2, func = args
         available_identifiers = {
@@ -3303,7 +3283,7 @@ def infer_type(arg: ct.NumberType) -> ct.ColumnType:
     return ct.DoubleType()
 
 
-# TODO: fix parsing of:  # pylint: disable=fixme
+# TODO: fix parsing of:
 #   SELECT median(col) FROM VALUES (INTERVAL '0' MONTH),
 #   (INTERVAL '10' MONTH) AS tab(col)
 #   in order to test this
@@ -4165,7 +4145,7 @@ def infer_type(
     return ct.DoubleType()
 
 
-class ToDate(Function):  # pragma: no cover # pylint: disable=abstract-method
+class ToDate(Function):  # pragma: no cover
     """
     Converts a date string to a date value.
     """
@@ -4179,7 +4159,7 @@ def infer_type(
     return ct.DateType()
 
 
-class ToTimestamp(Function):  # pragma: no cover # pylint: disable=abstract-method
+class ToTimestamp(Function):  # pragma: no cover
     """
     Parses the timestamp_str expression with the fmt expression to a timestamp.
     """
@@ -4205,9 +4185,7 @@ class Transform(Function):
         Compiles the lambda function used by the `transform` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
+        from datajunction_server.sql.parsing import ast
 
         expr, func = args
         available_identifiers = {
@@ -4248,9 +4226,7 @@ class TransformKeys(Function):
         Compiles the lambda function used by the `transform_keys` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
+        from datajunction_server.sql.parsing import ast
 
         expr, func = args
         available_identifiers = {
@@ -4291,9 +4267,7 @@ class TransformValues(Function):
         Compiles the lambda function used by the `transform_values` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
+        from datajunction_server.sql.parsing import ast
 
         expr, func = args
         available_identifiers = {

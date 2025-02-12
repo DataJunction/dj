@@ -44,7 +44,7 @@ class MetricType(TypedDict, total=False):
     extra: Optional[str]
 
 
-class DJEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
+class DJEngineSpec(BaseEngineSpec):
     """
     Engine spec for the DataJunction metric repository
 
@@ -69,7 +69,7 @@ class DJEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
     }
 
     @classmethod
-    def select_star(  # pylint: disable=unused-argument
+    def select_star(
         cls,
         *args: Any,
         **kwargs: Any,
@@ -83,7 +83,7 @@ class DJEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
         return f"SELECT '{message}' AS warning"
 
     @classmethod
-    def get_metrics(  # pylint: disable=unused-argument
+    def get_metrics(
         cls,
         database: "Database",
         inspector: Inspector,
@@ -125,7 +125,7 @@ class DJEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
         return super().execute(cursor, query, **kwargs)
 
     @classmethod
-    def get_view_names(  # pylint: disable=unused-argument
+    def get_view_names(
         cls,
         database: "Database",
         inspector: Inspector,

@@ -1,5 +1,3 @@
-# pylint: disable=R0401,C0302
-# pylint: skip-file
 # mypy: ignore-errors
 import collections
 import decimal
@@ -95,7 +93,7 @@ class CompileContext:
 
 # typevar used for node methods that return self
 # so the typesystem can correlate the self type with the return type
-TNode = TypeVar("TNode", bound="Node")  # pylint: disable=C0103
+TNode = TypeVar("TNode", bound="Node")
 
 
 class Node(ABC):
@@ -231,7 +229,6 @@ class Node(ABC):
         """
         return self.filter(lambda _: True)
 
-    # pylint: disable=R0913
     def fields(
         self,
         flat: bool = True,
@@ -296,7 +293,7 @@ class Node(ABC):
                     else (child[1] is not None),
                     child_generator,
                 ),
-            )  # pylint: disable=C0301
+            )
 
         return child_generator
 
@@ -314,7 +311,7 @@ class Node(ABC):
             named=False,
         )
 
-    def replace(  # pylint: disable=invalid-name
+    def replace(
         self,
         from_: "Node",
         to: "Node",
@@ -383,7 +380,7 @@ class Node(ABC):
         """
         Compare two ASTs for deep equality
         """
-        if type(self) != type(other):  # pylint: disable=unidiomatic-typecheck
+        if type(self) != type(other):
             return False
         if id(self) == id(other):
             return True
@@ -433,10 +430,8 @@ class Node(ABC):
         Compares all others for type equality only. No recursing.
         Note: Does not check (sub)AST. See `Node.compare` for comparing (sub)ASTs.
         """
-        return type(self) == type(other) and all(  # pylint: disable=C0123
-            s == o
-            if type(s) in PRIMITIVES  # pylint: disable=C0123
-            else type(s) == type(o)  # pylint: disable=C0123
+        return type(self) == type(other) and all(
+            s == o if type(s) in PRIMITIVES else type(s) == type(o)
             for s, o in zip(
                 (self.fields(False, False, False, True)),
                 (other.fields(False, False, False, True)),
@@ -540,7 +535,7 @@ class Aliasable(Node):
             raise DJParseException("Node has no alias or name.")
 
 
-AliasedType = TypeVar("AliasedType", bound=Node)  # pylint: disable=C0103
+AliasedType = TypeVar("AliasedType", bound=Node)
 
 
 @dataclass(eq=False)
@@ -570,7 +565,7 @@ class Alias(Aliasable, Generic[AliasedType]):
         return [self]
 
 
-TExpression = TypeVar("TExpression", bound="Expression")  # pylint: disable=C0103
+TExpression = TypeVar("TExpression", bound="Expression")
 
 
 @dataclass(eq=False)
@@ -651,10 +646,10 @@ class Name(Node):
         """
         quote_style = "" if not quotes else self.quote_style
         namespace = str(self.namespace) + "." if self.namespace else ""
-        return f"{namespace}{quote_style}{self.name}{quote_style}"  # pylint: disable=C0301
+        return f"{namespace}{quote_style}{self.name}{quote_style}"
 
 
-TNamed = TypeVar("TNamed", bound="Named")  # pylint: disable=C0103
+TNamed = TypeVar("TNamed", bound="Named")
 
 
 @dataclass(eq=False)  # type: ignore
@@ -1411,7 +1406,6 @@ class Operation(Expression):
     """
 
 
-# pylint: disable=C0103
 class UnaryOpKind(DJEnum):
     """
     The accepted unary operations
@@ -1460,7 +1454,6 @@ class UnaryOp(Operation):
         raise DJParseException(f"Unary operation {self.op} not supported!")
 
 
-# pylint: disable=C0103
 class BinaryOpKind(DJEnum):
     """
     The DJ AST accepted binary operations
@@ -1501,7 +1494,7 @@ class BinaryOp(Operation):
     use_alias_as_name: Optional[bool] = False
 
     @classmethod
-    def And(  # pylint: disable=invalid-name,keyword-arg-before-vararg
+    def And(
         cls,
         left: Expression,
         right: Optional[Expression] = None,
@@ -1522,7 +1515,7 @@ class BinaryOp(Operation):
         )
 
     @classmethod
-    def Eq(  # pylint: disable=invalid-name
+    def Eq(
         cls,
         left: Expression,
         right: Optional[Expression],
@@ -1591,7 +1584,7 @@ class BinaryOp(Operation):
                 return left
             return left
 
-        BINOP_TYPE_COMBO_LOOKUP: Dict[  # pylint: disable=C0103
+        BINOP_TYPE_COMBO_LOOKUP: Dict[
             BinaryOpKind,
             Callable[[ColumnType, ColumnType], ColumnType],
         ] = {
@@ -1694,7 +1687,6 @@ class Over(Expression):
         return f"OVER ({consolidated_by}{window_frame})"
 
 
-# pylint: disable=C0103
 class SetQuantifier(DJEnum):
     """
     The accepted set quantifiers
@@ -1781,7 +1773,7 @@ class Function(Named, Operation):
                 await arg.compile(ctx)
                 arg._is_compiled = True
 
-        # FIXME: We currently catch this exception because we are unable  # pylint: disable=fixme
+        # FIXME: We currently catch this exception because we are unable
         # to infer types for nested lambda functions. For the time being, an easy workaround is to
         # add a CAST(...) wrapper around the nested lambda function so that the type hard-coded by
         # the argument to CAST

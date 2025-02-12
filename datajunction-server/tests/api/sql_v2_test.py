@@ -1,6 +1,5 @@
 """Tests for all /sql endpoints that use node SQL build v2"""
 
-# pylint: disable=line-too-long,too-many-lines
 from unittest import mock
 
 import duckdb
@@ -501,7 +500,7 @@ async def fix_dimension_links(module__client_with_roads: AsyncClient):
     ],
 )
 @pytest.mark.asyncio
-async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-arguments
+async def test_measures_sql_with_filters__v2(
     metrics,
     dimensions,
     filters,
@@ -510,7 +509,7 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
     columns,
     rows,
     module__client_with_roads: AsyncClient,
-    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+    duckdb_conn: duckdb.DuckDBPyConnection,
 ):
     """
     Test ``GET /sql/measures`` with various metrics, filters, and dimensions.
@@ -988,7 +987,7 @@ async def test_measures_sql_with_filters__v2(  # pylint: disable=too-many-argume
     ],
 )
 @pytest.mark.asyncio
-async def test_measures_sql_preaggregate(  # pylint: disable=too-many-arguments
+async def test_measures_sql_preaggregate(
     metrics,
     dimensions,
     filters,
@@ -997,7 +996,7 @@ async def test_measures_sql_preaggregate(  # pylint: disable=too-many-arguments
     columns,
     rows,
     module__client_with_roads: AsyncClient,
-    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+    duckdb_conn: duckdb.DuckDBPyConnection,
 ):
     """
     Test ``GET /sql/measures`` with various metrics, filters, and dimensions.
@@ -1026,7 +1025,7 @@ async def test_measures_sql_preaggregate(  # pylint: disable=too-many-arguments
 @pytest.mark.asyncio
 async def test_measures_sql_include_all_columns(
     module__client_with_roads: AsyncClient,
-    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+    duckdb_conn: duckdb.DuckDBPyConnection,
 ):
     """
     Test ``GET /sql/measures/v2`` with include_all_columns set to true.
@@ -1178,9 +1177,9 @@ async def test_measures_sql_errors(
 
 
 @pytest.mark.asyncio
-async def test_measures_sql_preagg_incompatible(  # pylint: disable=too-many-arguments
+async def test_measures_sql_preagg_incompatible(
     module__client_with_roads: AsyncClient,
-    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+    duckdb_conn: duckdb.DuckDBPyConnection,
 ):
     """
     Test ``GET /sql/measures`` with incompatible metrics vs compatible metrics.
@@ -1345,7 +1344,7 @@ async def test_measures_sql_preagg_incompatible(  # pylint: disable=too-many-arg
 @pytest.mark.asyncio
 async def test_metrics_sql_different_parents(
     module__client_with_roads: AsyncClient,
-    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+    duckdb_conn: duckdb.DuckDBPyConnection,
 ):
     """
     Test ``GET /sql`` for metrics from different parents.
@@ -1460,7 +1459,7 @@ SELECT  default_DOT_hard_hat_metrics.default_DOT_hard_hat_DOT_last_name,
 @pytest.mark.asyncio
 async def test_measures_sql_local_dimensions(
     module__client_with_roads: AsyncClient,
-    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+    duckdb_conn: duckdb.DuckDBPyConnection,
 ):
     """
     Test measures SQL for metrics that reference local dimensions

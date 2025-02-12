@@ -64,5 +64,5 @@ class LinkDimensionOutput(BaseModel):
     role: Optional[str]
     foreign_keys: Dict[str, str]
 
-    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+    class Config:
         orm_mode = True

@@ -2,7 +2,6 @@
 Tests for building nodes and extracting dependencies
 """
 
-# pylint: disable=too-many-lines
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,10 +36,7 @@ async def test_get_dj_node_raise_unknown_node_exception(session: AsyncSession):
         # test that the event_type raises because it's a dimension and not a transform
         await get_dj_node(session, "event_type", kinds={NodeType.TRANSFORM})
 
-    assert (
-        "No node `event_type` exists of kind transform"  # pylint: disable=C0301
-        in str(exc_info.value)
-    )
+    assert "No node `event_type` exists of kind transform" in str(exc_info.value)
 
     # test that the event_type raises because it's a dimension and not a transform
     with pytest.raises(DJErrorException) as exc_info:

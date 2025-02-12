@@ -30,7 +30,7 @@ def selects_only_metrics(select: ast.Select) -> bool:
     )
 
 
-async def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
+async def resolve_metric_queries(
     session: AsyncSession,
     tree: ast.Query,
     ctx: ast.CompileContext,
@@ -197,7 +197,7 @@ def find_all_other(
         node.apply(lambda n: find_all_other(n, touched_nodes, node_map))
 
 
-async def resolve_all(  # pylint: disable=R0914,W0640
+async def resolve_all(
     session: AsyncSession,
     ctx: ast.CompileContext,
     tree: ast.Query,

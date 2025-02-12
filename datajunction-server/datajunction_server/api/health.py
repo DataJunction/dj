@@ -45,7 +45,7 @@ async def database_health(session: AsyncSession) -> HealthcheckStatus:
             HealthcheckStatus.OK if result == (1,) else HealthcheckStatus.FAILED
         )
         return health_status
-    except Exception:  # pylint: disable=broad-except  # pragma: no cover
+    except Exception:  # pragma: no cover
         return HealthcheckStatus.FAILED  # pragma: no cover
 
 

@@ -1,4 +1,3 @@
-# pylint: disable=too-many-lines,too-many-arguments
 """
 Node materialization related APIs.
 """
@@ -80,7 +79,7 @@ def materialization_jobs_info() -> JSONResponse:
     status_code=201,
     name="Insert or Update a Materialization for a Node",
 )
-async def upsert_materialization(  # pylint: disable=too-many-locals
+async def upsert_materialization(
     node_name: str,
     data: UpsertMaterialization | UpsertCubeMaterialization,
     *,
@@ -88,7 +87,7 @@ async def upsert_materialization(  # pylint: disable=too-many-locals
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> JSONResponse:
@@ -375,7 +374,7 @@ async def deactivate_node_materializations(
     status_code=201,
     name="Kick off a backfill run for a configured materialization",
 )
-async def run_materialization_backfill(  # pylint: disable=too-many-locals
+async def run_materialization_backfill(
     node_name: str,
     materialization_name: str,
     backfill_partitions: List[PartitionBackfill],

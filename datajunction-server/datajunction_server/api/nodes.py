@@ -1,4 +1,3 @@
-# pylint: disable=too-many-lines,too-many-arguments
 """
 Node related APIs.
 """
@@ -236,7 +235,7 @@ async def list_nodes(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> List[str]:
@@ -267,7 +266,7 @@ async def list_all_nodes_with_details(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> List[NodeIndexItem]:
@@ -420,7 +419,7 @@ async def create_source(
     current_user: User = Depends(get_and_update_current_user),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
     background_tasks: BackgroundTasks,
@@ -533,7 +532,7 @@ async def create_node(
     current_user: User = Depends(get_and_update_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> NodeOutput:
@@ -639,7 +638,7 @@ async def create_cube(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
     background_tasks: BackgroundTasks,
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> NodeOutput:
@@ -756,7 +755,7 @@ async def register_table(
     response_model=NodeOutput,
     status_code=201,
 )
-async def register_view(  # pylint: disable=too-many-locals
+async def register_view(
     catalog: str,
     schema_: str,
     view: str,
@@ -842,7 +841,7 @@ async def link_dimension(
     name: str,
     column: str,
     dimension: str,
-    dimension_column: Optional[str] = None,  # pylint: disable=unused-argument
+    dimension_column: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
@@ -1042,7 +1041,7 @@ async def remove_reference_dimension_link(
 
 
 @router.post("/nodes/{node_name}/link/", status_code=201)
-async def add_complex_dimension_link(  # pylint: disable=too-many-locals
+async def add_complex_dimension_link(
     node_name: str,
     link_input: JoinLinkInput,
     session: AsyncSession = Depends(get_session),
@@ -1075,7 +1074,7 @@ async def add_complex_dimension_link(  # pylint: disable=too-many-locals
 
 
 @router.delete("/nodes/{node_name}/link/", status_code=201)
-async def remove_complex_dimension_link(  # pylint: disable=too-many-locals
+async def remove_complex_dimension_link(
     node_name: str,
     link_identifier: LinkDimensionIdentifier,
     session: AsyncSession = Depends(get_session),
@@ -1095,9 +1094,9 @@ async def remove_complex_dimension_link(  # pylint: disable=too-many-locals
 @router.delete("/nodes/{name}/columns/{column}/", status_code=201)
 async def delete_dimension_link(
     name: str,
-    column: str,  # pylint: disable=unused-argument
+    column: str,
     dimension: str,
-    dimension_column: Optional[str] = None,  # pylint: disable=unused-argument
+    dimension_column: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
@@ -1168,7 +1167,7 @@ async def tags_node(
     response_model=NodeOutput,
     status_code=201,
 )
-async def refresh_source_node(  # pylint: disable=too-many-locals
+async def refresh_source_node(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
@@ -1334,7 +1333,7 @@ async def update_node(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
     background_tasks: BackgroundTasks,
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
 ) -> NodeOutput:
@@ -1579,7 +1578,7 @@ async def set_column_display_name(
     status_code=201,
     name="Set Node Column as Partition",
 )
-async def set_column_partition(  # pylint: disable=too-many-locals
+async def set_column_partition(
     node_name: str,
     column_name: str,
     input_partition: PartitionInput,

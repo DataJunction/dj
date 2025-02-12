@@ -10,7 +10,7 @@ from datajunction_server.models.sql import GeneratedSQL, NodeNameVersion
 from datajunction_server.transpilation import get_transpilation_plugin
 
 
-class MockSettings:  # pylint: disable=too-few-public-methods
+class MockSettings:
     """
     Mock settings object
     """

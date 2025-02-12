@@ -45,7 +45,7 @@ def get_github_user(access_token: str) -> User:  # pragma: no cover
         raise DJAuthenticationException(
             "Cannot authorize user via GitHub, bad credentials",
         )
-    session = next(get_session())  # type: ignore  # pylint: disable=no-value-for-parameter
+    session = next(get_session())  # type: ignore
     existing_user = None
     try:
         existing_user = session.execute(

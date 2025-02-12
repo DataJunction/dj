@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from datajunction_server.database.node import Node
 
 
-class Tag(Base):  # pylint: disable=too-few-public-methods
+class Tag(Base):
     """
     A tag.
     """
@@ -102,7 +102,7 @@ class Tag(Base):  # pylint: disable=too-few-public-methods
         )
 
 
-class TagNodeRelationship(Base):  # pylint: disable=too-few-public-methods
+class TagNodeRelationship(Base):
     """
     Join table between tags and nodes
     """

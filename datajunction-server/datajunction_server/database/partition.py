@@ -14,7 +14,7 @@ from datajunction_server.sql.functions import Function, function_registry
 from datajunction_server.sql.parsing.types import TimestampType
 
 
-class Partition(Base):  # type: ignore  # pylint: disable=too-few-public-methods
+class Partition(Base):  # type: ignore
     """
     A partition specification consists of a reference to a partition column and a partition type
     (either temporal or categorical). Both partition types indicate how to partition the
@@ -64,11 +64,7 @@ class Partition(Base):  # type: ignore  # pylint: disable=too-few-public-methods
         CAST(FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS <column type>). Includes the interval
         offset in the expression if provided.
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
-
-        # pylint: disable=import-outside-toplevel
+        from datajunction_server.sql.parsing import ast
         from datajunction_server.sql.parsing.backends.antlr4 import parse
 
         timestamp_expression = ast.Cast(
@@ -95,7 +91,7 @@ class Partition(Base):  # type: ignore  # pylint: disable=too-few-public-methods
                         ast.String(f"'{self.format}'"),
                     ],
                 ),
-                data_type=self.column.type,  # pylint: disable=no-member
+                data_type=self.column.type,
             )
         return None  # pragma: no cover
 
@@ -103,9 +99,7 @@ class Partition(Base):  # type: ignore  # pylint: disable=too-few-public-methods
         """
         Expression for the categorical partition
         """
-        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
-            ast,
-        )
+        from datajunction_server.sql.parsing import ast
 
         # Register a DJ function (inherits the `datajunction_server.sql.functions.Function` class)
         # that has the partition column name as the function name. This will be substituted at

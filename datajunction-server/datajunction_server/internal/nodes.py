@@ -1,4 +1,3 @@
-# pylint: disable=too-many-lines,too-many-arguments
 """Nodes endpoint helper functions"""
 
 import logging
@@ -63,6 +62,7 @@ from datajunction_server.models.materialization import (
     MaterializationJobTypeEnum,
     UpsertMaterialization,
 )
+from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -278,7 +278,6 @@ async def create_node_revision(
         (
             await session.execute(
                 select(Node).where(
-                    # pylint: disable=no-member
                     Node.name.in_(  # type: ignore
                         new_parents,
                     ),
@@ -305,7 +304,7 @@ async def create_node_revision(
     return node_revision
 
 
-async def create_cube_node_revision(  # pylint: disable=too-many-locals
+async def create_cube_node_revision(
     session: AsyncSession,
     data: CreateCubeNode,
     current_user: User,
@@ -418,7 +417,7 @@ async def save_node(
     await propagate_valid_status(
         session=session,
         valid_nodes=newly_valid_nodes,
-        catalog_id=node.current.catalog_id,  # pylint: disable=no-member
+        catalog_id=node.current.catalog_id,
         current_user=current_user,
     )
     await session.refresh(node.current)
@@ -479,7 +478,7 @@ async def copy_to_new_node(
             for missing_parent in old_revision.missing_parents
         ],
         columns=[col.copy() for col in old_revision.columns],
-        # TODO: availability and materializations are missing here  # pylint: disable=fixme
+        # TODO: availability and materializations are missing here
         lineage=old_revision.lineage,
         created_by_id=current_user.id,
         custom_metadata=old_revision.custom_metadata,
@@ -539,7 +538,7 @@ async def copy_to_new_node(
     await propagate_valid_status(
         session=session,
         valid_nodes=newly_valid_nodes,
-        catalog_id=node.current.catalog_id,  # type: ignore  # pylint: disable=no-member
+        catalog_id=node.current.catalog_id,  # type: ignore
         current_user=current_user,
     )
     await session.refresh(node.current)  # type: ignore
@@ -666,16 +665,25 @@ async def update_node_with_query(
     await session.refresh(new_revision, ["materializations"])
     if active_materializations and new_revision.query != old_revision.query:
         for old in active_materializations:
-            new_revision.materializations.append(  # pylint: disable=no-member
+            new_revision.materializations.append(
                 await create_new_materialization(
                     session,
                     new_revision,
-                    UpsertMaterialization(
+                    UpsertMaterialization(  # type: ignore
                         name=old.name,
                         config=old.config,
                         schedule=old.schedule,
                         strategy=old.strategy,
                         job=MaterializationJobTypeEnum.find_match(old.job),
+                    )
+                    if old.job != MaterializationJobTypeEnum.DRUID_CUBE.value.job_class
+                    else (
+                        UpsertCubeMaterialization(
+                            job=MaterializationJobTypeEnum.find_match(old.job),
+                            strategy=old.strategy,
+                            schedule=old.schedule,
+                            lookback_window=old.lookback_window,
+                        )
                     ),
                     validate_access,
                     current_user=current_user,
@@ -701,7 +709,7 @@ async def update_node_with_query(
             session=session,
             node_revision=new_revision,
         )
-        # TODO: Do not save this until:  # pylint: disable=fixme
+        # TODO: Do not save this until:
         #   1. We get to the bottom of why there are query building discrepancies
         #   2. We audit our database calls to defer pulling the query_ast in most cases
         # background_tasks.add_task(
@@ -771,7 +779,7 @@ def node_update_history_event(new_revision: NodeRevision, current_user: User):
     )
 
 
-async def update_cube_node(  # pylint: disable=too-many-locals
+async def update_cube_node(
     session: AsyncSession,
     node_revision: NodeRevision,
     data: UpdateNode,
@@ -843,7 +851,7 @@ async def update_cube_node(  # pylint: disable=too-many-locals
     ]
     if major_changes and active_materializations:
         for old in active_materializations:
-            new_cube_revision.materializations.append(  # pylint: disable=no-member
+            new_cube_revision.materializations.append(
                 await create_new_materialization(
                     session,
                     new_cube_revision,
@@ -900,7 +908,7 @@ async def update_cube_node(  # pylint: disable=too-many-locals
     return new_cube_revision
 
 
-async def propagate_update_downstream(  # pylint: disable=too-many-locals
+async def propagate_update_downstream(
     session: AsyncSession,
     node: Node,
     *,
@@ -1009,7 +1017,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
     )
 
 
-async def create_node_from_inactive(  # pylint: disable=too-many-arguments
+async def create_node_from_inactive(
     new_node_type: NodeType,
     data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
     session: AsyncSession,
@@ -1036,7 +1044,7 @@ async def create_node_from_inactive(  # pylint: disable=too-many-arguments
     if previous_inactive_node and previous_inactive_node.deactivated_at:
         if previous_inactive_node.type != new_node_type:
             raise DJInvalidInputException(  # pragma: no cover
-                message=f"A node with name `{data.name}` of a `{previous_inactive_node.type.value}` "  # pylint: disable=line-too-long
+                message=f"A node with name `{data.name}` of a `{previous_inactive_node.type.value}` "
                 "type existed before. If you want to re-create it with a different type, "
                 "you need to remove all traces of the previous node with a hard delete call: "
                 "DELETE /nodes/{node_name}/hard",
@@ -1095,7 +1103,7 @@ async def create_node_from_inactive(  # pylint: disable=too-many-arguments
     return None
 
 
-async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
+async def create_new_revision_from_existing(
     session: AsyncSession,
     old_revision: NodeRevision,
     node: Node,
@@ -1250,7 +1258,6 @@ async def create_new_revision_from_existing(  # pylint: disable=too-many-locals,
                 await session.execute(
                     select(Node)
                     .where(
-                        # pylint: disable=no-member
                         Node.name.in_(  # type: ignore
                             new_parents,
                         ),
@@ -1938,7 +1945,7 @@ async def activate_node(
     await session.commit()
 
 
-async def revalidate_node(  # pylint: disable=too-many-locals,too-many-statements,too-many-branches
+async def revalidate_node(
     name: str,
     session: AsyncSession,
     current_user: User,

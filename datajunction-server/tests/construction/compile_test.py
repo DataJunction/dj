@@ -2,7 +2,6 @@
 Tests for compiling nodes
 """
 
-# pylint: disable=too-many-lines
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -90,7 +90,7 @@ class TestRequestsSessionWithEndpoint:
         )
 
 
-class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
+class TestQueryServiceClient:
     """
     Test using the query service client.
     """

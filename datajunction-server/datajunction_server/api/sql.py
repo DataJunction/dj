@@ -1,4 +1,3 @@
-# pylint: disable=too-many-arguments
 """
 SQL related APIs.
 """
@@ -67,12 +66,12 @@ async def get_measures_sql_for_cube_v2(
             "for the metrics and dimensions in the cube"
         ),
     ),
-    settings: Settings = Depends(get_settings),  # pylint: disable=redefined-outer-name
+    settings: Settings = Depends(get_settings),
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
     use_materialized: bool = True,
@@ -88,7 +87,7 @@ async def get_measures_sql_for_cube_v2(
     and others are aggregations on measures in parent node B, this endpoint will generate
     two measures queries, one for A and one for B.
     """
-    from datajunction_server.construction.build_v2 import (  # pylint: disable=import-outside-toplevel,line-too-long
+    from datajunction_server.construction.build_v2 import (
         get_measures_query,
     )
 
@@ -111,7 +110,7 @@ async def get_measures_sql_for_cube_v2(
     return measures_query
 
 
-async def build_and_save_node_sql(  # pylint: disable=too-many-locals
+async def build_and_save_node_sql(
     node_name: str,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
@@ -228,7 +227,7 @@ async def build_and_save_node_sql(  # pylint: disable=too-many-locals
     return query_request
 
 
-async def get_node_sql(  # pylint: disable=too-many-locals
+async def get_node_sql(
     node_name: str,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
@@ -239,7 +238,7 @@ async def get_node_sql(  # pylint: disable=too-many-locals
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: User,
-    validate_access: access.ValidateAccessFn,  # pylint: disable=redefined-outer-name
+    validate_access: access.ValidateAccessFn,
     background_tasks: BackgroundTasks,
     ignore_errors: bool = True,
     use_materialized: bool = True,
@@ -321,7 +320,7 @@ async def get_node_sql(  # pylint: disable=too-many-locals
     response_model=TranslatedSQL,
     name="Get SQL For A Node",
 )
-async def get_sql(  # pylint: disable=too-many-locals
+async def get_sql(
     node_name: str,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
@@ -332,7 +331,7 @@ async def get_sql(  # pylint: disable=too-many-locals
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
     background_tasks: BackgroundTasks,
@@ -361,7 +360,7 @@ async def get_sql(  # pylint: disable=too-many-locals
 
 
 @router.get("/sql/", response_model=TranslatedSQL, name="Get SQL For Metrics")
-async def get_sql_for_metrics(  # pylint: disable=too-many-locals
+async def get_sql_for_metrics(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
@@ -372,7 +371,7 @@ async def get_sql_for_metrics(  # pylint: disable=too-many-locals
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: User = Depends(get_and_update_current_user),
-    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+    validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
     ignore_errors: Optional[bool] = True,
@@ -455,7 +454,7 @@ async def get_sql_for_metrics(  # pylint: disable=too-many-locals
     )
 
 
-async def build_and_save_sql_for_metrics(  # pylint: disable=too-many-arguments,too-many-locals
+async def build_and_save_sql_for_metrics(
     session: AsyncSession,
     metrics: List[str],
     dimensions: List[str],

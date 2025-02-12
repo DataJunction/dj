@@ -1,4 +1,3 @@
-# pylint: disable=too-many-instance-attributes,too-many-lines,too-many-ancestors
 """
 Model for nodes.
 """
@@ -283,11 +282,11 @@ class AvailabilityStateBase(TemporalPartitionRange):
     # Partition-level availabilities
     partitions: Optional[List[PartitionAvailability]] = Field(default=[])
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
     @validator("partitions")
-    def validate_partitions(cls, partitions):  # pylint: disable=no-self-argument
+    def validate_partitions(cls, partitions):
         """
         Validator for partitions
         """
@@ -381,7 +380,7 @@ class Unit(BaseModel):
         return self.name
 
     @validator("label", always=True)
-    def get_label(  # pylint: disable=no-self-argument
+    def get_label(
         cls,
         label: str,
         values: Dict[str, Any],
@@ -391,14 +390,14 @@ class Unit(BaseModel):
             return labelize(values["name"])
         return label
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
 class MetricUnit(enum.Enum):
     """
     Available units of measure for metrics
-    TODO: Eventually this can be recorded in a database,   # pylint: disable=fixme
+    TODO: Eventually this can be recorded in a database,
     since measurement units can be customized depending on the metric
     (i.e., clicks/hour). For the time being, this enum provides some basic units.
     """
@@ -465,7 +464,7 @@ class MetricMetadataOutput(BaseModel):
     direction: Optional[MetricDirection]
     unit: Optional[Unit]
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
@@ -542,7 +541,7 @@ class NodeMinimumDetail(BaseModel):
     tags: Optional[List[TagMinimum]]
     edited_by: Optional[List[str]]
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
@@ -554,7 +553,7 @@ class AttributeTypeName(BaseModel):
     namespace: str
     name: str
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
@@ -565,7 +564,7 @@ class AttributeOutput(BaseModel):
 
     attribute_type: AttributeTypeName
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
@@ -595,7 +594,7 @@ class ColumnOutput(BaseModel):
     dimension: Optional[NodeNameOutput]
     partition: Optional[PartitionOutput]
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         """
         Should perform validation on assignment
         """
@@ -604,7 +603,7 @@ class ColumnOutput(BaseModel):
         validate_assignment = True
 
     _extract_type = validator("type", pre=True, allow_reuse=True)(
-        lambda raw: str(raw),  # pylint: disable=unnecessary-lambda
+        lambda raw: str(raw),
     )
 
 
@@ -618,7 +617,7 @@ class SourceColumnOutput(BaseModel):
     attributes: Optional[List[AttributeOutput]]
     dimension: Optional[str]
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         """
         Should perform validation on assignment
         """
@@ -626,7 +625,7 @@ class SourceColumnOutput(BaseModel):
         validate_assignment = True
 
     @root_validator
-    def type_string(cls, values):  # pylint: disable=no-self-argument
+    def type_string(cls, values):
         """
         Extracts the type as a string
         """
@@ -713,14 +712,14 @@ class UpdateNode(
     __annotations__ = {
         k: Optional[v]
         for k, v in {
-            **SourceNodeFields.__annotations__,  # pylint: disable=E1101
-            **MutableNodeFields.__annotations__,  # pylint: disable=E1101
-            **MutableNodeQueryField.__annotations__,  # pylint: disable=E1101
-            **CubeNodeFields.__annotations__,  # pylint: disable=E1101
+            **SourceNodeFields.__annotations__,
+            **MutableNodeFields.__annotations__,
+            **MutableNodeQueryField.__annotations__,
+            **CubeNodeFields.__annotations__,
         }.items()
     }
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         """
         Do not allow fields other than the ones defined here.
         """
@@ -740,7 +739,7 @@ class GenericNodeOutputModel(BaseModel):
     """
 
     @root_validator(pre=True)
-    def flatten_current(  # pylint: disable=no-self-argument
+    def flatten_current(
         cls,
         values: GetterDict,
     ) -> Union[GetterDict, Dict[str, Any]]:
@@ -806,7 +805,7 @@ class NodeRevisionOutput(BaseModel):
     dimension_links: Optional[List[LinkDimensionOutput]]
     custom_metadata: Optional[Dict] = None
 
-    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+    class Config:
         orm_mode = True
 
 
@@ -843,7 +842,7 @@ class NodeOutput(GenericNodeOutputModel):
     missing_table: Optional[bool] = False
     custom_metadata: Optional[Dict] = None
 
-    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+    class Config:
         orm_mode = True
 
     @classmethod
@@ -851,7 +850,7 @@ class NodeOutput(GenericNodeOutputModel):
         """
         ORM options to successfully load this object
         """
-        from datajunction_server.database.node import (  # pylint: disable=import-outside-toplevel
+        from datajunction_server.database.node import (
             Node,
             NodeRevision,
         )
@@ -885,7 +884,7 @@ class DAGNodeRevisionOutput(BaseModel):
     parents: List[NodeNameOutput]
     dimension_links: List[LinkDimensionOutput]
 
-    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+    class Config:
         allow_population_by_field_name = True
         orm_mode = True
 
@@ -916,7 +915,7 @@ class DAGNodeOutput(GenericNodeOutputModel):
     tags: List[TagOutput] = []
     current_version: str
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 

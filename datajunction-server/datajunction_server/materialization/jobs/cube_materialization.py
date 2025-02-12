@@ -31,9 +31,7 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 _logger = logging.getLogger(__name__)
 
 
-class DefaultCubeMaterialization(
-    MaterializationJob,
-):  # pylint: disable=too-few-public-methods
+class DefaultCubeMaterialization(MaterializationJob):
     """
     Dummy job that is not meant to be executed but contains all the
     settings needed for to materialize a generic cube.

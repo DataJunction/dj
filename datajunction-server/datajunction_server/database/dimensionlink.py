@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from datajunction_server.sql.parsing.backends.antlr4 import ast
 
 
-class DimensionLink(Base):  # pylint: disable=too-few-public-methods
+class DimensionLink(Base):
     """
     The join definition between a given node (source, dimension, or transform)
     and a dimension node.
@@ -90,7 +90,6 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
         """
         The join query AST for this dimension link
         """
-        # pylint: disable=import-outside-toplevel
         from datajunction_server.sql.parsing.backends.antlr4 import parse
 
         return parse(
@@ -113,7 +112,6 @@ class DimensionLink(Base):  # pylint: disable=too-few-public-methods
         returns a mapping between the foreign keys on the node and the primary keys of
         the dimension based on the join SQL.
         """
-        # pylint: disable=import-outside-toplevel
         from datajunction_server.sql.parsing.backends.antlr4 import ast
 
         # Find equality comparions (i.e., fact.order_id = dim.order_id)

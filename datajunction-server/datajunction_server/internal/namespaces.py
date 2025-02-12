@@ -68,7 +68,7 @@ async def get_nodes_in_namespace_detailed(
         select(Node)
         .where(
             or_(
-                Node.namespace.like(f"{namespace}.%"),  # pylint: disable=no-member
+                Node.namespace.like(f"{namespace}.%"),
                 Node.namespace == namespace,
             ),
             Node.current_version == NodeRevision.version,
@@ -85,7 +85,7 @@ async def get_nodes_in_namespace_detailed(
     return (await session.execute(list_nodes_query)).unique().scalars().all()
 
 
-async def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
+async def list_namespaces_in_hierarchy(
     session: AsyncSession,
     namespace: str,
 ) -> List[NodeNamespace]:
@@ -94,7 +94,7 @@ async def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
     """
     statement = select(NodeNamespace).where(
         or_(
-            NodeNamespace.namespace.like(  # pylint: disable=no-member
+            NodeNamespace.namespace.like(
                 f"{namespace}.%",
             ),
             NodeNamespace.namespace == namespace,
@@ -240,7 +240,7 @@ async def hard_delete_namespace(
                     or_(
                         Node.namespace.like(
                             f"{namespace}.%",
-                        ),  # pylint: disable=no-member
+                        ),
                         Node.namespace == namespace,
                     ),
                 )

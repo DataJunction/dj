@@ -168,7 +168,7 @@ class DJException(Exception):
     # status code that should be returned when ``DJException`` is caught by the API layer
     http_status_code: int = 500
 
-    def __init__(  # pylint: disable=too-many-arguments
+    def __init__(
         self,
         message: Optional[str] = None,
         errors: Optional[List[DJError]] = None,

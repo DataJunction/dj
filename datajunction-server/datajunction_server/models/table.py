@@ -19,7 +19,7 @@ class TableYAML(TypedDict, total=False):
     cost: float
 
 
-class TableBase(BaseModel):  # pylint: disable=too-few-public-methods
+class TableBase(BaseModel):
     """
     A base table.
     """

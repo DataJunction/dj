@@ -88,7 +88,7 @@ async def list_measures(
     statement = select(Measure.name)
     if prefix:
         statement = statement.where(
-            Measure.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
+            Measure.name.like(f"{prefix}%"),  # type: ignore
         )
     return (await session.execute(statement)).scalars().all()
 

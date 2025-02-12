@@ -31,7 +31,7 @@ class HistoryOutput(BaseModel):
     details: Dict[str, Any]
     created_at: UTCDatetime
 
-    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+    class Config:
         orm_mode = True
 
 
