@@ -1,6 +1,7 @@
 """
 Tests for the namespaces API.
 """
+
 from unittest import mock
 
 import pytest
@@ -417,7 +418,7 @@ async def test_hard_delete_namespace(client_with_namespaced_roads: AsyncClient):
             ],
             "foo.bar.hard_hat_state": [
                 {
-                    "effect": "downstream node is now " "invalid",
+                    "effect": "downstream node is now invalid",
                     "name": "foo.bar.local_hard_hats",
                     "status": "invalid",
                 },
@@ -432,7 +433,7 @@ async def test_hard_delete_namespace(client_with_namespaced_roads: AsyncClient):
             "foo.bar.local_hard_hats": [],
             "foo.bar.municipality": [
                 {
-                    "effect": "downstream node is now " "invalid",
+                    "effect": "downstream node is now invalid",
                     "name": "foo.bar.municipality_dim",
                     "status": "invalid",
                 },
@@ -491,12 +492,12 @@ async def test_hard_delete_namespace(client_with_namespaced_roads: AsyncClient):
             ],
             "foo.bar.repair_order_details": [
                 {
-                    "effect": "downstream node is " "now invalid",
+                    "effect": "downstream node is now invalid",
                     "name": "foo.bar.total_repair_cost",
                     "status": "invalid",
                 },
                 {
-                    "effect": "downstream node is " "now invalid",
+                    "effect": "downstream node is now invalid",
                     "name": "foo.bar.total_repair_order_discounts",
                     "status": "invalid",
                 },

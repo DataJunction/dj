@@ -114,10 +114,6 @@ Repository = "https://github.com/DataJunction/dj"
 source = ['datajunction_server/']
 concurrency = ["thread,greenlet"]
 
-[tool.isort]
-src_paths = ["datajunction_server/", "tests/"]
-profile = 'black'
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = [
@@ -145,3 +141,7 @@ test = [
     "gevent>=24.2.1",
     "sqlparse<1.0.0,>=0.4.3",
 ]
+
+[tool.ruff.lint]
+ignore = ["F811"]
+exclude = ["datajunction_server/sql/parsing/backends/antlr4.py"]

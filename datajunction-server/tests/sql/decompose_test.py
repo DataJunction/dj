@@ -1,6 +1,7 @@
 """
 Tests for ``datajunction_server.sql.decompose``.
 """
+
 import pytest
 
 from datajunction_server.models.cube_materialization import (

@@ -1,6 +1,7 @@
 """
 Tests for GitHub OAuth helper functions
 """
+
 from datajunction_server.internal.access.authentication import github
 
 

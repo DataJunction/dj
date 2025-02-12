@@ -1,4 +1,5 @@
 """User database schema."""
+
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import BigInteger, Enum, Integer, String, select

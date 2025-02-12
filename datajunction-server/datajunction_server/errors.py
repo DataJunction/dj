@@ -1,6 +1,7 @@
 """
 Errors and warnings.
 """
+
 from http import HTTPStatus
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 

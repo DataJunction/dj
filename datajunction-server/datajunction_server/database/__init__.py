@@ -1,4 +1,5 @@
 """All database schemas."""
+
 __all__ = [
     "AttributeType",
     "ColumnAttribute",

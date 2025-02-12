@@ -1,6 +1,7 @@
 """
 Models for collections
 """
+
 from typing import Optional
 
 from pydantic.main import BaseModel

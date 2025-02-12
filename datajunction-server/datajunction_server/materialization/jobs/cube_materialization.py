@@ -1,6 +1,7 @@
 """
 Cube materialization jobs
 """
+
 import logging
 from typing import Dict, Optional
 

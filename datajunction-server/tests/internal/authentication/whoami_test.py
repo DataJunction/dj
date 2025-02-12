@@ -1,6 +1,7 @@
 """
 Tests for whoami router
 """
+
 import pytest
 from httpx import AsyncClient
 

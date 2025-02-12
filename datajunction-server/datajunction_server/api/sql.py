@@ -2,6 +2,7 @@
 """
 SQL related APIs.
 """
+
 import logging
 from collections import OrderedDict
 from http import HTTPStatus

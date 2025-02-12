@@ -3,7 +3,6 @@
 Tests for ``datajunction_server.sql.functions``.
 """
 
-
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -262,7 +261,9 @@ async def test_approx_percentile(session: AsyncSession):
     ctx = ast.CompileContext(session=session, exception=exc)
     await query_with_list.compile(ctx)
     assert not exc.errors
-    assert query_with_list.select.projection[0].type == ct.ListType(element_type=ct.FloatType())  # type: ignore
+    assert query_with_list.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.FloatType(),
+    )
 
     query_with_list = parse("SELECT approx_percentile(10.0, 0.5, 100)")
     exc = DJException()
@@ -2581,7 +2582,10 @@ async def test_map_concat_func(session: AsyncSession):
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
     assert not exc.errors
-    assert query.select.projection[0].type == ct.MapType(key_type=ct.IntegerType(), value_type=ct.StringType())  # type: ignore
+    assert query.select.projection[0].type == ct.MapType(  # type: ignore
+        key_type=ct.IntegerType(),
+        value_type=ct.StringType(),
+    )
 
 
 @pytest.mark.asyncio
@@ -3364,7 +3368,9 @@ async def test_sequence(session: AsyncSession):
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)
     assert not exc.errors
-    assert query.select.projection[0].type == ct.ListType(element_type=ct.TimestampType())  # type: ignore
+    assert query.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.TimestampType(),
+    )
 
 
 @pytest.mark.asyncio

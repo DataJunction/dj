@@ -1,6 +1,7 @@
 """
 Tests for ``datajunction_server.service_clients``.
 """
+
 from unittest.mock import ANY, MagicMock
 
 import pytest

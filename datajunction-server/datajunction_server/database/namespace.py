@@ -1,4 +1,5 @@
 """Namespace database schema."""
+
 from typing import List, Optional
 
 from sqlalchemy import DateTime, func, select

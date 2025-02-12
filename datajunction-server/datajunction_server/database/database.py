@@ -1,4 +1,5 @@
 """Database schema"""
+
 from datetime import datetime, timezone
 from functools import partial
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple

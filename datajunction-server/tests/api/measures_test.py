@@ -1,6 +1,7 @@
 """
 Tests for the namespaces API.
 """
+
 from typing import Dict
 
 import pytest

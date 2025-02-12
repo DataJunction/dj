@@ -2,6 +2,7 @@
 """
 Node related APIs.
 """
+
 import logging
 import os
 from http import HTTPStatus
@@ -889,8 +890,7 @@ async def link_dimension(
         dimension_node=dimension,
         join_type=JoinType.LEFT,
         join_on=(
-            f"{name}.{column} = "
-            f"{dimension_node.name}.{primary_key_columns[0].name}"  # type: ignore
+            f"{name}.{column} = {dimension_node.name}.{primary_key_columns[0].name}"  # type: ignore
         ),
     )
     activity_type = await upsert_complex_dimension_link(
@@ -1482,16 +1482,14 @@ async def list_all_dimension_attributes(
     """
     List all available dimension attributes for the given node.
     """
-    node = await (
-        Node.get_by_name(
-            session,
-            name,
-            options=[
-                joinedload(Node.current).options(
-                    joinedload(NodeRevision.parents).options(joinedload(Node.current)),
-                ),
-            ],
-        )
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.current).options(
+                joinedload(NodeRevision.parents).options(joinedload(Node.current)),
+            ),
+        ],
     )
     dimensions = await get_dimensions(
         session,

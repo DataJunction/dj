@@ -1,4 +1,5 @@
 """Materialization database schema."""
+
 from typing import TYPE_CHECKING, List, Optional, Union
 
 import sqlalchemy as sa
@@ -70,11 +71,11 @@ class Materialization(Base):  # pylint: disable=too-few-public-methods
     schedule: Mapped[str]
 
     # Arbitrary config relevant to the materialization job
-    config: Mapped[
-        Union[GenericMaterializationConfig, DruidMeasuresCubeConfig]
-    ] = mapped_column(
-        JSON,
-        default={},
+    config: Mapped[Union[GenericMaterializationConfig, DruidMeasuresCubeConfig]] = (
+        mapped_column(
+            JSON,
+            default={},
+        )
     )
 
     # The name of the plugin that handles materialization, if any

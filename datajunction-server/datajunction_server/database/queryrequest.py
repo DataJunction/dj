@@ -1,4 +1,5 @@
 """Query request schema."""
+
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus

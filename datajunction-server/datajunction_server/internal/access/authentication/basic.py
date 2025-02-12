@@ -1,6 +1,7 @@
 """
 Basic OAuth and JWT helper functions
 """
+
 import logging
 
 from passlib.context import CryptContext

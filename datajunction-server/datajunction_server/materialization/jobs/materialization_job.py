@@ -1,6 +1,7 @@
 """
 Available materialization jobs.
 """
+
 import abc
 from typing import Dict, List, Optional
 
@@ -29,8 +30,7 @@ class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
 
     dialect: Optional[Dialect] = None
 
-    def __init__(self):
-        ...
+    def __init__(self): ...
 
     def run_backfill(
         self,

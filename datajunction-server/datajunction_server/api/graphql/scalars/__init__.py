@@ -1,6 +1,7 @@
 """
 GraphQL scalars
 """
+
 import dataclasses
 import datetime
 import json

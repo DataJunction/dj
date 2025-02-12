@@ -1,4 +1,5 @@
 """Node validation functions."""
+
 from dataclasses import dataclass, field
 from typing import Dict, List, Set, Union
 
@@ -137,9 +138,9 @@ async def validate_node_data(  # pylint: disable=too-many-locals,too-many-statem
             type_inference_failures[column_name] = parse_exc.message
             node_validator.status = NodeStatus.INVALID
         except TypeError:  # pragma: no cover
-            type_inference_failures[
-                column_name
-            ] = f"Unknown TypeError on column {column_name}."
+            type_inference_failures[column_name] = (
+                f"Unknown TypeError on column {column_name}."
+            )
             node_validator.status = NodeStatus.INVALID
         if column:
             node_validator.columns.append(column)

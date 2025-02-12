@@ -9,26 +9,7 @@ from logging.config import fileConfig
 import alembic
 from sqlalchemy import create_engine
 
-from datajunction_server.database import (
-    AttributeType,
-    Catalog,
-    Collection,
-    ColumnAttribute,
-    Database,
-    DimensionLink,
-    Engine,
-    History,
-    Measure,
-    Node,
-    NodeNamespace,
-    NodeRevision,
-    Partition,
-    Table,
-    Tag,
-    User,
-)
 from datajunction_server.database.base import Base
-from datajunction_server.database.column import Column
 
 DEFAULT_URI = os.getenv(
     "DATABASE_URI",

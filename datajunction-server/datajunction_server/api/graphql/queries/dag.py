@@ -1,6 +1,7 @@
 """
 DAG-related queries.
 """
+
 from typing import Annotated
 
 import strawberry
