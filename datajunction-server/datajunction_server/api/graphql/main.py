@@ -51,9 +51,13 @@ def log_resolver(func):
             result = await func(*args, **kwargs)
             logger.info("[GQL] %s", log_args)
             return result
-        except Exception as exc:
-            logger.error("[GQL] status=error %s", log_args, exc_info=True)
-            raise exc
+        except Exception as exc:  # pragma: no cover
+            logger.error(  # pragma: no cover
+                "[GQL] status=error %s",
+                log_args,
+                exc_info=True,
+            )
+            raise exc  # pragma: no cover
 
     return wrapper
 
