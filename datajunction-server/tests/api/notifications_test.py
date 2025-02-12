@@ -71,7 +71,8 @@ async def test_notification_preferences(
     )
     assert response.status_code == 201
     response = await module__client.get(
-        "/notifications/", params={"entity_name": "some_node_name2"},
+        "/notifications/",
+        params={"entity_name": "some_node_name2"},
     )
     assert response.status_code == 200
     assert len(response.json()) > 0
