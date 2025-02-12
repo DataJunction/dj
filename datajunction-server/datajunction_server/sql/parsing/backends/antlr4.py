@@ -1,4 +1,3 @@
-# pylint: skip-file
 # mypy: ignore-errors
 import copy
 import inspect
@@ -34,14 +33,14 @@ logger = logging.getLogger(__name__)
 
 class RemoveIdentifierBackticks(antlr4.ParseTreeListener):
     @staticmethod
-    def exitQuotedIdentifier(ctx):  # pylint: disable=invalid-name,unused-argument
+    def exitQuotedIdentifier(ctx):
         def identity(token):
             return token
 
         return identity
 
     @staticmethod
-    def enterNonReserved(ctx):  # pylint: disable=invalid-name,unused-argument
+    def enterNonReserved(ctx):
         def add_backtick(token):
             return "`{0}`".format(token)
 
@@ -57,7 +56,7 @@ class ParseErrorListener(ErrorListener):
         column,
         msg,
         e,
-    ):  # pylint: disable=invalid-name,no-self-use,too-many-arguments
+    ):
         raise SqlSyntaxError(f"Parse error {line}:{column}:", msg)
 
 
@@ -70,12 +69,12 @@ class UpperCaseCharStream:
     def __init__(self, wrapped):
         self.wrapped = wrapped
 
-    def getText(self, interval, *args):  # pylint: disable=invalid-name
+    def getText(self, interval, *args):
         if args or (self.size() > 0 and (interval.b - interval.a >= 0)):
             return self.wrapped.getText(interval, *args)
         return ""
 
-    def LA(self, i: int):  # pylint: disable=invalid-name
+    def LA(self, i: int):
         token = self.wrapped.LA(i)
         if token in (0, -1):
             return token
