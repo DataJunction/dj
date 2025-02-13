@@ -36,6 +36,7 @@ from datajunction_server.api import (
     metrics,
     namespaces,
     nodes,
+    notifications,
     sql,
     tags,
     users,
@@ -102,6 +103,7 @@ app.include_router(graphql_app, prefix="/graphql")
 app.include_router(whoami.router)
 app.include_router(users.router)
 app.include_router(basic.router)
+app.include_router(notifications.router)
 
 
 @app.on_event("startup")
