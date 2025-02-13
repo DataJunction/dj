@@ -13,6 +13,8 @@ on:
       - datajunction-clients/javascript/package.json
       - datajunction-ui/package.json
       # java: TODO
+  push:
+    branches: [ main ]
 
 concurrency:
   group: ${{ github.ref }}
