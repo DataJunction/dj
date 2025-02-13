@@ -12,6 +12,9 @@ from datajunction_server.enum import StrEnum
 if TYPE_CHECKING:
     from datajunction_server.database.collection import Collection
     from datajunction_server.database.node import Node, NodeRevision
+    from datajunction_server.database.notification_preference import (
+        NotificationPreference,
+    )
     from datajunction_server.database.tag import Tag
 
 
@@ -64,6 +67,10 @@ class User(Base):
         back_populates="created_by",
         foreign_keys="Tag.created_by_id",
         lazy="joined",
+    )
+    notification_preferences: Mapped[list["NotificationPreference"]] = relationship(
+        "NotificationPreference",
+        back_populates="user",
     )
 
     @classmethod
