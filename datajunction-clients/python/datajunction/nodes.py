@@ -82,7 +82,7 @@ class DimensionLink(SerializableMixin):
     join_sql: str
     join_cardinality: str
     role: str | None
-    foreign_keys: dict[str, str]
+    foreign_keys: dict[str, str | None]
 
 
 @dataclass
