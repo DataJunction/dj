@@ -5,7 +5,7 @@
 import * as React from 'react';
 import { lazyLoad } from '../../../utils/loadable';
 
-export const AddEditNodePage = () => {
+export const LazyAddEditNodePage = () => {
   return lazyLoad(
     () => import('./index'),
     module => module.AddEditNodePage,
@@ -13,4 +13,8 @@ export const AddEditNodePage = () => {
       fallback: <div></div>,
     },
   )();
+};
+
+export const AddEditNodePage = (props) => {
+  return <LazyAddEditNodePage {...props} />;
 };
