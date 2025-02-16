@@ -3,8 +3,7 @@
  * node types is largely the same, with minor differences handled server-side. For the `query`
  * field, this page will render a CodeMirror SQL editor with autocompletion and syntax highlighting.
  */
-import { ErrorMessage, Field, Form, Formik } from 'formik';
-
+import { ErrorMessage, Form, Formik } from 'formik';
 import NamespaceHeader from '../../components/NamespaceHeader';
 import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
@@ -13,7 +12,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { FullNameField } from './FullNameField';
 import { MetricQueryField } from './MetricQueryField';
 import { displayMessageAfterSubmit } from '../../../utils/form';
-import { PrimaryKeySelect } from './PrimaryKeySelect';
 import { NodeQueryField } from './NodeQueryField';
 import { MetricMetadataFields } from './MetricMetadataFields';
 import { UpstreamNodeField } from './UpstreamNodeField';
@@ -25,6 +23,7 @@ import { DescriptionField } from './DescriptionField';
 import { NodeModeField } from './NodeModeField';
 import { RequiredDimensionsSelect } from './RequiredDimensionsSelect';
 import LoadingIcon from '../../icons/LoadingIcon';
+import { ColumnsSelect } from './ColumnsSelect';
 
 class Action {
   static Add = new Action('add');
@@ -35,7 +34,7 @@ class Action {
   }
 }
 
-export function AddEditNodePage() {
+export function AddEditNodePage({ extensions = {} }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const navigate = useNavigate();
 
@@ -77,6 +76,7 @@ export function AddEditNodePage() {
       });
     }
   };
+  const submitHandlers = [handleSubmit];
 
   const pageTitle =
     action === Action.Add ? (
@@ -288,10 +288,11 @@ export function AddEditNodePage() {
       />,
     );
     setSelectPrimaryKey(
-      <PrimaryKeySelect
-        defaultValue={primaryKey.map(col => {
-          return { value: col, label: col };
-        })}
+      <ColumnsSelect
+        defaultValue={primaryKey}
+        fieldName="primary_key"
+        label="Primary Key"
+        isMulti={true}
       />,
     );
     setSelectRequiredDims(
@@ -329,7 +330,17 @@ export function AddEditNodePage() {
             <Formik
               initialValues={initialValues}
               validate={validator}
-              onSubmit={handleSubmit}
+              onSubmit={
+                (values, { setSubmitting, setStatus }) => {
+                  try {
+                    submitHandlers.map(handler => handler(values, { setSubmitting, setStatus }));
+                  } catch (error) {
+                    console.error("Error in submission", error);
+                  } finally {
+                    setSubmitting(false);
+                  }
+                }
+              }
             >
               {function Render({ isSubmitting, status, setFieldValue }) {
                 const [node, setNode] = useState([]);
@@ -407,13 +418,22 @@ export function AddEditNodePage() {
                           action === Action.Edit ? (
                             selectPrimaryKey
                           ) : (
-                            <PrimaryKeySelect />
+                            <ColumnsSelect />
                           )
                         ) : action === Action.Edit ? (
                           selectRequiredDims
                         ) : (
                           <RequiredDimensionsSelect />
                         )}
+                        {Object.entries(extensions).map(([key, ExtensionComponent]) => (
+                          <div key={key} className="mt-4 border-t pt-4">
+                            <ExtensionComponent
+                              node={node}
+                              action={action}
+                              registerSubmitHandler={onSubmit => submitHandlers.indexOf(onSubmit) === -1 ? submitHandlers.push(onSubmit) : null}
+                            />
+                          </div>
+                        ))}
                         {action === Action.Edit ? selectTags : <TagsField />}
                         <NodeModeField />
 
