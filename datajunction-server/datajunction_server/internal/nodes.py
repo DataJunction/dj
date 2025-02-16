@@ -1150,8 +1150,8 @@ async def create_new_revision_from_existing(
     )
     pk_changes = (
         data
-        and data.primary_key
-        and {col.name for col in old_revision.primary_key()} != set(data.primary_key)
+        and (data.primary_key == [] and len(old_revision.primary_key())
+        or {col.name for col in old_revision.primary_key()} != set(data.primary_key))
     )
     required_dim_changes = (
         data
@@ -1282,7 +1282,7 @@ async def create_new_revision_from_existing(
             new_revision.columns[0].display_name = new_revision.display_name
 
         # Update the primary key if one was set in the input
-        if data is not None and data.primary_key:
+        if data is not None and (data.primary_key or data.primary_key == []):
             pk_attribute = (
                 await session.execute(
                     select(AttributeType).where(
