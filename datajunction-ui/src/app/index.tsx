@@ -52,7 +52,7 @@ export function App() {
                         <Route
                           path=":name/edit"
                           key="edit"
-                          element={<AddEditNodePage />}
+                          element={<AddEditNodePage extensions={{ exp: ExperimentationExtension }}/>}
                         />
                         <Route
                           path=":name/edit-cube"
