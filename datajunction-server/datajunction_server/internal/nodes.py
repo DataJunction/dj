@@ -1148,10 +1148,11 @@ async def create_new_revision_from_existing(
         and data.columns
         and ({col.identifier() for col in old_revision.columns} != data.columns)
     )
-    pk_changes = (
-        data
-        and (data.primary_key == [] and len(old_revision.primary_key())
-        or {col.name for col in old_revision.primary_key()} != set(data.primary_key))
+    pk_changes = data and (
+        data.primary_key == []
+        and len(old_revision.primary_key())
+        or {col.name for col in old_revision.primary_key()}
+        != set(data.primary_key or [])
     )
     required_dim_changes = (
         data
