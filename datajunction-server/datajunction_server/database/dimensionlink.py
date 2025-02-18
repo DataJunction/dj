@@ -140,15 +140,29 @@ class DimensionLink(Base):
         return mapping
 
     @hybrid_property
-    def foreign_keys(self) -> Dict[str, str]:
+    def foreign_keys(self) -> Dict[str, str | None]:
         """
         Returns a mapping from the foreign key column(s) on the origin node to
         the primary key column(s) on the dimension node. The dict values are column names.
         """
-        return {
+        from datajunction_server.sql.parsing.backends.antlr4 import ast
+
+        # Build equality operator-based mappings
+        join_asts = self.joins()
+        mapping: dict[str, str | None] = {
             right.identifier(): left.identifier()
             for left, right in self.foreign_key_mapping().items()
         }
+
+        # Add remaining foreign key references without an equality comparison
+        columns = [col.identifier() for col in join_asts[0].find_all(ast.Column)]
+        foreign_key_refs = [
+            col for col in columns if col.startswith(self.node_revision.name)
+        ]
+        for foreign_key in foreign_key_refs:
+            if foreign_key not in mapping:
+                mapping[foreign_key] = None
+        return mapping
 
     @hybrid_property
     def foreign_key_column_names(self) -> Set[str]:

@@ -405,7 +405,10 @@ async def test_link_complex_dimension_with_role(
             "INT)",
             "join_type": "left",
             "role": "user_windowed",
-            "foreign_keys": {"default.events.user_id": "default.users.user_id"},
+            "foreign_keys": {
+                "default.events.event_start_date": None,
+                "default.events.user_id": "default.users.user_id",
+            },
         },
     ]
 
