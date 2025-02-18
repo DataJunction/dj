@@ -149,10 +149,6 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                   value={node?.name}
                   readOnly={true}
                 />
-                {console.log(
-                  'timePartitionColumns.length',
-                  timePartitionColumns.length,
-                )}
                 <span data-testid="edit-partition">
                   <label htmlFor="strategy">Strategy</label>
                   <Field as="select" name="strategy">
