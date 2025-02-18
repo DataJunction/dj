@@ -6,7 +6,12 @@ import { useContext, useMemo, useState, useEffect } from 'react';
 import DJClientContext from '../../providers/djclient';
 import { FormikSelect } from './FormikSelect';
 
-export const ColumnsSelect = ({ defaultValue, fieldName, label, isMulti = false }) => {
+export const ColumnsSelect = ({
+  defaultValue,
+  fieldName,
+  label,
+  isMulti = false,
+}) => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
   // Used to pull out current form values for node validation
@@ -32,7 +37,7 @@ export const ColumnsSelect = ({ defaultValue, fieldName, label, isMulti = false 
       );
       if (json?.columns) {
         setAvailableColumns(
-          json.columns.map(col => ({ value: col.name, label: col.name }))
+          json.columns.map(col => ({ value: col.name, label: col.name })),
         );
       }
     } catch (error) {
@@ -44,18 +49,25 @@ export const ColumnsSelect = ({ defaultValue, fieldName, label, isMulti = false 
     fetchColumns();
   }, [values.type, values.name, values.query]);
 
-  return selectableOptions === undefined ? '' : (
+  return selectableOptions === undefined ? (
+    ''
+  ) : (
     <div className="CubeCreationInput">
       <ErrorMessage name={fieldName} component="span" />
       <label htmlFor="react-select-3-input">{label}</label>
       <span data-testid={`select-${fieldName}`}>
         <FormikSelect
-          className={isMulti ? "MultiSelectInput" : "SelectInput"}
-          defaultValue={isMulti ? defaultValue.map(val => {return {
-            value: val,
-            label: val,
-          }}) : {value: defaultValue,
-            label: defaultValue,}}
+          className={isMulti ? 'MultiSelectInput' : 'SelectInput'}
+          defaultValue={
+            isMulti
+              ? defaultValue.map(val => {
+                  return {
+                    value: val,
+                    label: val,
+                  };
+                })
+              : { value: defaultValue, label: defaultValue }
+          }
           selectOptions={selectableOptions}
           formikFieldName={fieldName}
           onFocus={event => fetchColumns(event)}
