@@ -47,7 +47,7 @@ export default function Search() {
     };
     fetchNodes();
   }, []);
-  
+
   const handleChange = e => {
     setSearchValue(e.target.value);
     if (fuse) {

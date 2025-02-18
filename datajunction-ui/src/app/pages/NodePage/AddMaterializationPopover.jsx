@@ -44,23 +44,22 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
     if (!values.job_type) {
       values.job_type = 'spark_sql';
     }
-    const { status, json } = (
-      values.job_type === 'druid_cube' ?
-      await djClient.materializeCube(
-        values.node,
-        values.job_type,
-        values.strategy,
-        values.schedule,
-        values.lookback_window,
-      ) :
-      await djClient.materialize(
-        values.node,
-        values.job_type,
-        values.strategy,
-        values.schedule,
-        config,
-      )
-  );
+    const { status, json } =
+      values.job_type === 'druid_cube'
+        ? await djClient.materializeCube(
+            values.node,
+            values.job_type,
+            values.strategy,
+            values.schedule,
+            values.lookback_window,
+          )
+        : await djClient.materialize(
+            values.node,
+            values.job_type,
+            values.strategy,
+            values.schedule,
+            config,
+          );
     if (status === 200 || status === 201) {
       setStatus({ success: json.message });
       window.location.reload();
@@ -110,9 +109,9 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
         <Formik
           initialValues={{
             node: node?.name,
-            job_type:
-              node?.type === 'cube' ? 'druid_cube' : 'spark_sql',
-            strategy: timePartitionColumns.length == 1 ? 'incremental_time' : 'full',
+            job_type: node?.type === 'cube' ? 'druid_cube' : 'spark_sql',
+            strategy:
+              timePartitionColumns.length == 1 ? 'incremental_time' : 'full',
             schedule: '@daily',
             lookback_window: '1 DAY',
             spark_config: {
@@ -133,10 +132,7 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
 
                     <Field as="select" name="job_type">
                       <>
-                        <option
-                          key={'druid_cube'}
-                          value={'druid_cube'}
-                        >
+                        <option key={'druid_cube'} value={'druid_cube'}>
                           Druid
                         </option>
                       </>
@@ -153,7 +149,10 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                   value={node?.name}
                   readOnly={true}
                 />
-                {console.log('timePartitionColumns.length', timePartitionColumns.length)}
+                {console.log(
+                  'timePartitionColumns.length',
+                  timePartitionColumns.length,
+                )}
                 <span data-testid="edit-partition">
                   <label htmlFor="strategy">Strategy</label>
                   <Field as="select" name="strategy">
