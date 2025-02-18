@@ -31,7 +31,7 @@ export const TagsField = ({ defaultValue }) => {
       style={{ width: '25%', margin: '1rem 0 1rem 1.2rem' }}
     >
       <ErrorMessage name="tags" component="span" />
-      <label htmlFor="react-select-3-input">Tags</label>
+      <label htmlFor="tags">Tags</label>
       <span data-testid="select-tags">
         <FormikSelect
           isMulti={true}
