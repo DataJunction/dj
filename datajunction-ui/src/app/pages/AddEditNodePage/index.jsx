@@ -330,17 +330,17 @@ export function AddEditNodePage({ extensions = {} }) {
             <Formik
               initialValues={initialValues}
               validate={validator}
-              onSubmit={
-                (values, { setSubmitting, setStatus }) => {
-                  try {
-                    submitHandlers.map(handler => handler(values, { setSubmitting, setStatus }));
-                  } catch (error) {
-                    console.error("Error in submission", error);
-                  } finally {
-                    setSubmitting(false);
-                  }
+              onSubmit={(values, { setSubmitting, setStatus }) => {
+                try {
+                  submitHandlers.map(handler =>
+                    handler(values, { setSubmitting, setStatus }),
+                  );
+                } catch (error) {
+                  console.error('Error in submission', error);
+                } finally {
+                  setSubmitting(false);
                 }
-              }
+              }}
             >
               {function Render({ isSubmitting, status, setFieldValue }) {
                 const [node, setNode] = useState([]);
@@ -425,15 +425,21 @@ export function AddEditNodePage({ extensions = {} }) {
                         ) : (
                           <RequiredDimensionsSelect />
                         )}
-                        {Object.entries(extensions).map(([key, ExtensionComponent]) => (
-                          <div key={key} className="mt-4 border-t pt-4">
-                            <ExtensionComponent
-                              node={node}
-                              action={action}
-                              registerSubmitHandler={onSubmit => submitHandlers.indexOf(onSubmit) === -1 ? submitHandlers.push(onSubmit) : null}
-                            />
-                          </div>
-                        ))}
+                        {Object.entries(extensions).map(
+                          ([key, ExtensionComponent]) => (
+                            <div key={key} className="mt-4 border-t pt-4">
+                              <ExtensionComponent
+                                node={node}
+                                action={action}
+                                registerSubmitHandler={onSubmit =>
+                                  submitHandlers.indexOf(onSubmit) === -1
+                                    ? submitHandlers.push(onSubmit)
+                                    : null
+                                }
+                              />
+                            </div>
+                          ),
+                        )}
                         {action === Action.Edit ? selectTags : <TagsField />}
                         <NodeModeField />
 
