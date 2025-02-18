@@ -62,7 +62,7 @@ class LinkDimensionOutput(BaseModel):
     join_sql: str
     join_cardinality: Optional[JoinCardinality]
     role: Optional[str]
-    foreign_keys: Dict[str, str]
+    foreign_keys: Dict[str, str | None]
 
     class Config:
         orm_mode = True
