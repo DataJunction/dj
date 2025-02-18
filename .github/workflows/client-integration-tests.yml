@@ -13,7 +13,20 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Build and launch DJ demo environment
-        run: DOTENV_FILE="/code/datajunction-server/.env.integration" docker-compose --profile demo up -d
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: "./docker-compose.yml"
+          services: |
+            dj
+            postgres_metadata
+            db-migration
+            db-seed
+            djqs
+            djqs-db-migration
+            djrs-redis
+            djrs-worker
+            djrs-beat
+            dj-trino
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
         with:
@@ -40,7 +53,20 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Build and launch DJ demo environment
-        run: docker-compose --profile demo up -d
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: "./docker-compose.yml"
+          services: |
+            dj
+            postgres_metadata
+            db-migration
+            db-seed
+            djqs
+            djqs-db-migration
+            djrs-redis
+            djrs-worker
+            djrs-beat
+            dj-trino
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v3
         with:
@@ -61,19 +87,28 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Build and launch DJ demo environment
-        run: docker-compose --profile demo up -d
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: "./docker-compose.yml"
+          services: |
+            dj
+            postgres_metadata
+            db-migration
+            db-seed
+            djqs
+            djqs-db-migration
+            djrs-redis
+            djrs-worker
+            djrs-beat
+            dj-trino
       - name: Set up JDK ${{ matrix.java-version }}
         uses: actions/setup-java@v3
         with:
           java-version: ${{ matrix.java-version }}
           distribution: ${{ matrix.distribution }}
-      - name: Official Gradle Wrapper Validation Action
-        uses: gradle/wrapper-validation-action@v1
       - name: Build with Gradle
-        uses: gradle/gradle-build-action@v2
+        uses: gradle/gradle-build-action@v3
         with:
           arguments: cleanTest test
           build-root-directory: ./datajunction-clients/java
-
-
 

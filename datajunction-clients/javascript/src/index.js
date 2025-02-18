@@ -6,7 +6,7 @@ export class DJClient extends HttpClient {
         namespace,
         engineName = null,
         engineVersion = null,
-        httpAgent = null
+        httpAgent = null,
     ) {
         super(
             {
@@ -294,5 +294,21 @@ export class DJClient extends HttpClient {
                 return data
             },
         }
+    }
+
+    get register() {
+      return {
+          table: (catalog, schema, table) =>
+              this.setHeader('Content-Type', 'application/json').post(
+                  `/register/table/${catalog}/${schema}/${table}`
+              ),
+          view: (catalog, schema, view, query, replace = false) => {
+              const replaceQuery = replace ? `?replace=${replace}` : '';
+              return this.setHeader('Content-Type', 'application/json').post(
+                  `/register/view/${catalog}/${schema}/${view}${replaceQuery}`,
+                  { query }
+              );
+          }
+      }
     }
 }

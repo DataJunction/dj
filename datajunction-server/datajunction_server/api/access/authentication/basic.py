@@ -73,7 +73,10 @@ async def login(
         password=form_data.password,
         session=session,
     )
-    response = Response(status_code=HTTPStatus.OK)
+    response = JSONResponse(
+        content={"message": "Logged in successfully"},
+        status_code=HTTPStatus.OK,
+    )
     response.set_cookie(
         AUTH_COOKIE,
         create_token(
