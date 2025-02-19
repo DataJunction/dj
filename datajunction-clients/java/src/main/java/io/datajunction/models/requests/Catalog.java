@@ -7,7 +7,7 @@ import lombok.Data;
 public class Catalog {
     private String name;
 
-    public Catalog(@JsonProperty("name") String name) {
+    public Catalog(String name) {
         this.name = name;
     }
 }
