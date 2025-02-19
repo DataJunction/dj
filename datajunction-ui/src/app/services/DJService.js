@@ -980,7 +980,13 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
-  materializeCube: async function (nodeName, jobType, strategy, schedule, lookbackWindow) {
+  materializeCube: async function (
+    nodeName,
+    jobType,
+    strategy,
+    schedule,
+    lookbackWindow,
+  ) {
     const response = await fetch(
       `${DJ_URL}/nodes/${nodeName}/materialization`,
       {
