@@ -1,6 +1,7 @@
 """
 Tests for noop cache
 """
+
 from datajunction_server.internal.caching.noop_cache import NoOpCache
 
 

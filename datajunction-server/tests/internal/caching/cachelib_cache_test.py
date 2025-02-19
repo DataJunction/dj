@@ -1,6 +1,7 @@
 """
 Tests for cachelib cache implementation
 """
+
 from starlette.requests import Headers, Request
 
 from datajunction_server.internal.caching.cachelib_cache import CachelibCache, get_cache

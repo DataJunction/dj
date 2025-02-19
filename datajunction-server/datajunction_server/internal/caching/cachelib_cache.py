@@ -1,6 +1,7 @@
 """
 Cachelib-based cache implementation
 """
+
 from typing import Any, Optional
 
 from cachelib import SimpleCache

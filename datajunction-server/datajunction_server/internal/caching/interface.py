@@ -1,6 +1,7 @@
 """
 Caching interface and logging wrapper
 """
+
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Optional
