@@ -10,6 +10,7 @@ export const ColumnsSelect = ({
   defaultValue,
   fieldName,
   label,
+  labelStyle = {},
   isMulti = false,
 }) => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -54,7 +55,7 @@ export const ColumnsSelect = ({
   ) : (
     <div className="CubeCreationInput">
       <ErrorMessage name={fieldName} component="span" />
-      <label htmlFor="react-select-3-input">{label}</label>
+      <label htmlFor={fieldName} style={labelStyle}>{label}</label>
       <span data-testid={`select-${fieldName}`}>
         <FormikSelect
           className={isMulti ? 'MultiSelectInput' : 'SelectInput'}
