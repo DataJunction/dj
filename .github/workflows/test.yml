@@ -137,6 +137,8 @@ jobs:
         run: yarn lint --fix
       - name: Run Prettier
         run: yarn prettier . --write
+      - name: Check Linters Failed
+        run: git diff --exit-code
       - name: Run Unit Tests
         run: yarn test --runInBand --ci --coverage
       - name: Build Project
