@@ -62,28 +62,16 @@ export default function NodeColumnTab({ node, djClient }) {
     if (col.partition) {
       return (
         <>
-          <span
-            className="node_type badge node_type__blank"
-            // key={`col-attr-partition-type`}
-          >
-            <span
-              className="partition_value badge"
-              // key={`col-attr-partition-type`}
-            >
+          <span className="node_type badge node_type__blank">
+            <span className="partition_value badge">
               <b>Type:</b> {col.partition.type_}
             </span>
             <br />
-            <span
-              className="partition_value badge"
-              // key={`col-attr-partition-type`}
-            >
+            <span className="partition_value badge">
               <b>Format:</b> <code>{col.partition.format}</code>
             </span>
             <br />
-            <span
-              className="partition_value badge"
-              // key={`col-attr-partition-type`}
-            >
+            <span className="partition_value badge">
               <b>Granularity:</b> <code>{col.partition.granularity}</code>
             </span>
           </span>
