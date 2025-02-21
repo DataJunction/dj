@@ -15,7 +15,9 @@ export default function NodeColumnTab({ node, djClient }) {
 
   useEffect(() => {
     const fetchData = async () => {
-      setColumns(await djClient.columns(node));
+      if (node) {
+        setColumns(await djClient.columns(node));
+      }
     };
     fetchData().catch(console.error);
   }, [djClient, node]);
@@ -62,25 +64,25 @@ export default function NodeColumnTab({ node, djClient }) {
         <>
           <span
             className="node_type badge node_type__blank"
-            key={`col-attr-partition-type`}
+            // key={`col-attr-partition-type`}
           >
             <span
               className="partition_value badge"
-              key={`col-attr-partition-type`}
+              // key={`col-attr-partition-type`}
             >
               <b>Type:</b> {col.partition.type_}
             </span>
             <br />
             <span
               className="partition_value badge"
-              key={`col-attr-partition-type`}
+              // key={`col-attr-partition-type`}
             >
               <b>Format:</b> <code>{col.partition.format}</code>
             </span>
             <br />
             <span
               className="partition_value badge"
-              key={`col-attr-partition-type`}
+              // key={`col-attr-partition-type`}
             >
               <b>Granularity:</b> <code>{col.partition.granularity}</code>
             </span>

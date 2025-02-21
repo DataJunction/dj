@@ -25,7 +25,7 @@ export const NamespaceField = ({ initialNamespace }) => {
   return (
     <div className="NamespaceInput">
       <ErrorMessage name="namespace" component="span" />
-      <label htmlFor="react-select-3-input">Namespace *</label>
+      <label htmlFor="namespace">Namespace *</label>
       <FormikSelect
         selectOptions={namespaces}
         formikFieldName="namespace"

@@ -39,6 +39,7 @@ export const FormikSelect = ({
       styles={style}
       isMulti={isMulti}
       onFocus={event => onFocus(event)}
+      id={field.name}
     />
   );
 };

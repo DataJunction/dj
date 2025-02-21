@@ -80,7 +80,7 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
               <Form>
                 {displayMessageAfterSubmit(status)}
                 <span data-testid="edit-partition">
-                  <label htmlFor="react-select-3-input">Partition Type</label>
+                  <label htmlFor="partitionType">Partition Type</label>
                   <Field
                     as="select"
                     name="partition_type"
@@ -108,9 +108,7 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
                 <br />
                 {values.partition_type === 'temporal' ? (
                   <>
-                    <label htmlFor="react-select-3-input">
-                      Partition Format
-                    </label>
+                    <label htmlFor="partitionFormat">Partition Format</label>
                     <Field
                       type="text"
                       name="format"
@@ -119,7 +117,7 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
                     />
                     <br />
                     <br />
-                    <label htmlFor="react-select-3-input">
+                    <label htmlFor="partitionGranularity">
                       Partition Granularity
                     </label>
                     <Field
