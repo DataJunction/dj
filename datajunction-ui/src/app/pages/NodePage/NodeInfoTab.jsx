@@ -47,7 +47,10 @@ export default function NodeInfoTab({ node }) {
           The following functions used in the metric definition may not be
           compatible with Druid SQL:{' '}
           {node?.incompatible_druid_functions.map(func => (
-            <li style={{ listStyleType: 'none', margin: '0.7rem 0.7rem' }} key={func}>
+            <li
+              style={{ listStyleType: 'none', margin: '0.7rem 0.7rem' }}
+              key={func}
+            >
               ⇢{' '}
               <span style={{ background: '#fff', padding: '0.3rem' }}>
                 {func}

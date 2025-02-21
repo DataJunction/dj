@@ -110,7 +110,9 @@ const NodeGraphTab = djNode => {
   };
 
   const dagFetch = async (getLayoutedElements, setNodes, setEdges) => {
-    let related_nodes = djNode.djNode ? await djClient.node_dag(djNode.djNode.name) : [];
+    let related_nodes = djNode.djNode
+      ? await djClient.node_dag(djNode.djNode.name)
+      : [];
     var djNodes = djNode.djNode ? [djNode.djNode] : [];
     for (const iterable of [related_nodes]) {
       for (const item of iterable) {

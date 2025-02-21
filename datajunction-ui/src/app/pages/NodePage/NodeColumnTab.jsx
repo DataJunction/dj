@@ -229,7 +229,7 @@ export default function NodeColumnTab({ node, djClient }) {
           <tbody>
             {node?.dimension_links.map(link => {
               return (
-                <tr>
+                <tr key={link.dimension.name}>
                   <td>
                     <a href={'/nodes/' + link.dimension.name}>
                       {link.dimension.name}
