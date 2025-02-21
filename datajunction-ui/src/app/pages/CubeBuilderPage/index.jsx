@@ -202,7 +202,7 @@ export function CubeBuilderPage() {
                       />
                     </div>
                     <div className="CubeCreationInput">
-                      <label htmlFor="react-select-3-input">Metrics *</label>
+                      <label>Metrics *</label>
                       <p>Select metrics to include in the cube.</p>
                       <span
                         data-testid="select-metrics"
@@ -218,7 +218,7 @@ export function CubeBuilderPage() {
                     <br />
                     <br />
                     <div className="CubeCreationInput">
-                      <label htmlFor="react-select-3-input">Dimensions *</label>
+                      <label>Dimensions *</label>
                       <p>
                         Select dimensions to include in the cube. As metrics are
                         selected above, the list of available dimensions will be
