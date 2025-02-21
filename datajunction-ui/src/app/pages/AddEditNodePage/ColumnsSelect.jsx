@@ -50,12 +50,12 @@ export const ColumnsSelect = ({
     fetchColumns();
   }, [values.type, values.name, values.query]);
 
-  return selectableOptions === undefined ? (
-    ''
-  ) : (
+  return (
     <div className="CubeCreationInput">
       <ErrorMessage name={fieldName} component="span" />
-      <label htmlFor={fieldName} style={labelStyle}>{label}</label>
+      <label htmlFor={fieldName} style={labelStyle}>
+        {label}
+      </label>
       <span data-testid={`select-${fieldName}`}>
         <FormikSelect
           className={isMulti ? 'MultiSelectInput' : 'SelectInput'}
