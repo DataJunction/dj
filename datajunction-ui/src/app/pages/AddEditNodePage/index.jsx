@@ -93,10 +93,10 @@ export function AddEditNodePage({ extensions = {} }) {
   const staticFieldsInEdit = node => (
     <>
       <div className="NodeNameInput NodeCreationInput">
-        <label htmlFor="name">Name</label> {name}
+        <label>Name</label> {name}
       </div>
       <div className="NodeNameInput NodeCreationInput">
-        <label htmlFor="name">Type</label> {node.type}
+        <label>Type</label> {node.type}
       </div>
     </>
   );
@@ -295,13 +295,15 @@ export function AddEditNodePage({ extensions = {} }) {
         isMulti={true}
       />,
     );
-    setSelectRequiredDims(
-      <RequiredDimensionsSelect
-        defaultValue={data.required_dimensions.map(dim => {
-          return { value: dim, label: dim };
-        })}
-      />,
-    );
+    if (data.required_dimensions) {
+      setSelectRequiredDims(
+        <RequiredDimensionsSelect
+          defaultValue={data.required_dimensions.map(dim => {
+            return { value: dim, label: dim };
+          })}
+        />,
+      );
+    }
     setSelectUpstreamNode(
       <UpstreamNodeField
         defaultValue={{
@@ -418,7 +420,12 @@ export function AddEditNodePage({ extensions = {} }) {
                           action === Action.Edit ? (
                             selectPrimaryKey
                           ) : (
-                            <ColumnsSelect />
+                            <ColumnsSelect
+                              defaultValue={[]}
+                              fieldName="primary_key"
+                              label="Primary Key"
+                              isMulti={true}
+                            />
                           )
                         ) : action === Action.Edit ? (
                           selectRequiredDims
