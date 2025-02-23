@@ -332,11 +332,11 @@ export function AddEditNodePage({ extensions = {} }) {
             <Formik
               initialValues={initialValues}
               validate={validator}
-              onSubmit={(values, { setSubmitting, setStatus }) => {
+              onSubmit={async (values, { setSubmitting, setStatus }) => {
                 try {
-                  submitHandlers.map(handler =>
-                    handler(values, { setSubmitting, setStatus }),
-                  );
+                  for (const handler of submitHandlers) {
+                    await handler(values, { setSubmitting, setStatus });
+                  }
                 } catch (error) {
                   console.error('Error in submission', error);
                 } finally {
@@ -438,11 +438,15 @@ export function AddEditNodePage({ extensions = {} }) {
                               <ExtensionComponent
                                 node={node}
                                 action={action}
-                                registerSubmitHandler={onSubmit =>
-                                  submitHandlers.indexOf(onSubmit) === -1
-                                    ? submitHandlers.push(onSubmit)
-                                    : null
-                                }
+                                registerSubmitHandler={(onSubmit, { prepend } = {}) => {
+                                  if (!submitHandlers.includes(onSubmit)) {
+                                    if (prepend) {
+                                      submitHandlers.unshift(onSubmit);
+                                    } else {
+                                      submitHandlers.push(onSubmit);
+                                    }
+                                  }
+                                }}
                               />
                             </div>
                           ),
