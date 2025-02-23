@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from functools import partial
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 import sqlalchemy as sa
 from sqlalchemy import JSON, DateTime, ForeignKey
@@ -28,12 +28,19 @@ class AvailabilityState(Base):
         primary_key=True,
     )
 
+    # Identifying where the dataset lives
     catalog: Mapped[str]
     schema_: Mapped[Optional[str]] = mapped_column(nullable=True)
     table: Mapped[str]
+
+    # Indicates data freshness
     valid_through_ts: Mapped[int] = mapped_column(sa.BigInteger())
-    url: Mapped[Optional[str]]
-    links: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default=dict)
+
+    # Arbitrary JSON metadata. This can encompass any URLs associated with the materialized dataset
+    custom_metadata: Mapped[Optional[Dict]] = mapped_column(
+        JSON,
+        default={},
+    )
 
     # The materialization that this availability is associated with, if any
     materialization_id: Mapped[Optional[int]] = mapped_column(

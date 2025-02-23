@@ -129,7 +129,7 @@ async def add_availability_state(
         schema_=data.schema_,
         table=data.table,
         valid_through_ts=data.valid_through_ts,
-        url=data.url,
+        custom_metadata=data.custom_metadata,
         min_temporal_partition=data.min_temporal_partition,
         max_temporal_partition=data.max_temporal_partition,
         partitions=[
@@ -138,7 +138,6 @@ async def add_availability_state(
         ],
         categorical_partitions=data.categorical_partitions,
         temporal_partitions=data.temporal_partitions,
-        links=data.links,
         materialization_id=data.materialization_id,
     )
     if node_revision.availability and not node_revision.availability.partitions:

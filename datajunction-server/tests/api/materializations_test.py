@@ -1071,7 +1071,9 @@ async def test_spark_sql_full(
         parse(load_expected_file("spark_sql.full.query.sql")),
     )
     del data["materializations"][0]["config"]["query"]
-    assert data["materializations"] == load_expected_file("spark_sql.full.config.json")
+    expected_config = load_expected_file("spark_sql.full.config.json")
+    expected_config[0]["id"] = mock.ANY
+    assert data["materializations"] == expected_config
 
     # Set both temporal and categorical partitions on node
     response = await module__client_with_roads.post(
@@ -1125,6 +1127,7 @@ async def test_spark_sql_full(
     materialization_with_partitions = data["materializations"][1]
     del materialization_with_partitions["config"]["query"]
     expected_config = load_expected_file("spark_sql.full.partition.config.json")
+    expected_config["id"] = mock.ANY
     assert materialization_with_partitions == expected_config
 
     # Check listing materializations of the node
@@ -1133,14 +1136,17 @@ async def test_spark_sql_full(
     )
     materializations = response.json()
     materializations[0]["config"]["query"] = mock.ANY
-    assert materializations[0] == load_expected_file(
-        "spark_sql.full.materializations.json",
-    )
+    expected_config = load_expected_file("spark_sql.full.materializations.json")
+    expected_config["id"] = mock.ANY
+    assert materializations[0] == expected_config
+
     materializations = response.json()
     materializations[1]["config"]["query"] = mock.ANY
-    assert materializations[1] == load_expected_file(
+    expected_config = load_expected_file(
         "spark_sql.full.partition.materializations.json",
     )
+    expected_config["id"] = mock.ANY
+    assert materializations[1] == expected_config
 
     # Kick off backfill for this materialization
     response = await module__client_with_roads.post(
@@ -1249,9 +1255,9 @@ async def test_spark_sql_incremental(
     data = response.json()
     assert data["version"] == "v1.0"
     del data["materializations"][0]["config"]["query"]
-    assert data["materializations"] == load_expected_file(
-        "spark_sql.incremental.config.json",
-    )
+    expected_config = load_expected_file("spark_sql.incremental.config.json")
+    expected_config[0]["id"] = mock.ANY
+    assert data["materializations"] == expected_config
 
     # Kick off backfill for this materialization
     response = await module__client_with_roads.post(
@@ -1465,6 +1471,7 @@ async def test_spark_with_availablity(
     )
     assert response.status_code in (200, 201)
     assert str(parse(response.json()[0]["config"]["query"])) == str(parse(query_one))
+    materialization_id = response.json()[0]["id"]
 
     # create a materialization on the 2nd node (w/o availability)
     response = await module__client_with_roads.post(
@@ -1511,7 +1518,10 @@ async def test_spark_with_availablity(
             "valid_through_ts": 20230125,
             "max_temporal_partition": ["2023", "01", "25"],
             "min_temporal_partition": ["2022", "01", "01"],
-            "url": "http://some.catalog.com/default.accounting.pmts",
+            "custom_metadata": {
+                "url": "http://some.catalog.com/default.accounting.pmts",
+            },
+            "materialization_id": materialization_id,
         },
     )
     assert response.status_code in (200, 201)

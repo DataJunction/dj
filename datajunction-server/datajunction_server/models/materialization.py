@@ -119,6 +119,7 @@ class MaterializationConfigOutput(BaseModel):
     Output for materialization config.
     """
 
+    id: int
     name: Optional[str]
     config: Dict
     schedule: str

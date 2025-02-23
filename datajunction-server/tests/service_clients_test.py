@@ -779,6 +779,7 @@ class TestQueryServiceClient:
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
         materialization_input = DruidCubeMaterializationInput(
+            id=1,
             name="default",
             strategy=MaterializationStrategy.INCREMENTAL_TIME,
             schedule="@daily",
