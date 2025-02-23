@@ -2,15 +2,18 @@
 
 from datetime import datetime, timezone
 from functools import partial
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import sqlalchemy as sa
 from sqlalchemy import JSON, DateTime, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
 from datajunction_server.models.node import BuildCriteria, PartitionAvailability
 from datajunction_server.typing import UTCDatetime
+
+if TYPE_CHECKING:
+    from datajunction_server.database.materialization import Materialization
 
 
 class AvailabilityState(Base):
@@ -31,6 +34,18 @@ class AvailabilityState(Base):
     valid_through_ts: Mapped[int] = mapped_column(sa.BigInteger())
     url: Mapped[Optional[str]]
     links: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default=dict)
+
+    # The materialization that this availability is associated with, if any
+    materialization_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey(
+            "materialization.id",
+            name="fk_availability_materialization_id_materialization",
+        ),
+    )
+    materialization: Mapped[Optional["Materialization"]] = relationship(
+        back_populates="availability",
+        primaryjoin="Materialization.id==AvailabilityState.materialization_id",
+    )
 
     # An ordered list of categorical partitions like ["country", "group_id"]
     # or ["region_id", "age_group"]
