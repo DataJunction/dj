@@ -265,7 +265,7 @@ class AvailabilityStateBase(TemporalPartitionRange):
     schema_: Optional[str] = Field(default=None)
     table: str
     valid_through_ts: int
-    url: Optional[str]
+    materialization_id: Optional[int] = Field(default=None)
     links: Optional[Dict[str, Any]] = Field(default={})
 
     # An ordered list of categorical partitions like ["country", "group_id"]
