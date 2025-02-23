@@ -149,6 +149,7 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
         )
         return query_service_client.materialize_cube(
             materialization_input=DruidCubeMaterializationInput(
+                id=materialization.id,
                 name=materialization.name,
                 cube=cube_config.cube,
                 dimensions=cube_config.dimensions,
