@@ -12,6 +12,7 @@ export const ColumnsSelect = ({
   label,
   labelStyle = {},
   isMulti = false,
+  isClearable = true,
 }) => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
@@ -67,12 +68,14 @@ export const ColumnsSelect = ({
                     label: val,
                   };
                 })
-              : { value: defaultValue, label: defaultValue }
+              : defaultValue ? { value: defaultValue, label: defaultValue }
+              : null
           }
           selectOptions={selectableOptions}
           formikFieldName={fieldName}
           onFocus={event => fetchColumns(event)}
           isMulti={isMulti}
+          isClearable={isClearable}
         />
       </span>
     </div>
