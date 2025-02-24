@@ -5,6 +5,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import JSON, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -38,8 +39,8 @@ class AvailabilityState(Base):
 
     # Arbitrary JSON metadata. This can encompass any URLs associated with the materialized dataset
     custom_metadata: Mapped[Optional[Dict]] = mapped_column(
-        JSON,
-        default={},
+        JSONB,
+        default=dict,
     )
 
     # The materialization that this availability is associated with, if any
