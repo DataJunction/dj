@@ -1,11 +1,12 @@
-"""
-Associate materialization with availability and change metadata
+"""Associate availability and materialization
 
-Revision ID: 0c3d8cd664b4
+Revision ID: b8ef80efd70c
 Revises: c3d5f327296c
-Create Date: 2025-02-23 07:58:08.850294+00:00
+Create Date: 2025-02-24 05:49:06.588675+00:00
+
 """
 
+# pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
 import json
 import sqlalchemy as sa
 from sqlalchemy.sql import table, column
@@ -13,7 +14,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = "0c3d8cd664b4"
+revision = "b8ef80efd70c"
 down_revision = "c3d5f327296c"
 branch_labels = None
 depends_on = None
@@ -21,7 +22,13 @@ depends_on = None
 
 def upgrade():
     with op.batch_alter_table("availabilitystate", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("custom_metadata", sa.JSON(), nullable=True))
+        batch_op.add_column(
+            sa.Column(
+                "custom_metadata",
+                postgresql.JSONB(astext_type=sa.Text()),
+                nullable=True,
+            ),
+        )
         batch_op.add_column(
             sa.Column("materialization_id", sa.BigInteger(), nullable=True),
         )
@@ -37,7 +44,7 @@ def upgrade():
         column("id", sa.BigInteger()),
         column("url", sa.String()),
         column("links", postgresql.JSON),
-        column("custom_metadata", sa.JSON),
+        column("custom_metadata", postgresql.JSONB),
     )
 
     # Move data from url and links to custom_metadata
@@ -61,7 +68,7 @@ def upgrade():
             connection.execute(
                 sa.update(availabilitystate)
                 .where(availabilitystate.c.id == row.id)
-                .values(custom_metadata=json.dumps(metadata)),
+                .values(custom_metadata=metadata),
             )
 
     with op.batch_alter_table("availabilitystate", schema=None) as batch_op:
@@ -86,14 +93,12 @@ def downgrade():
             "fk_availability_materialization_id_materialization",
             type_="foreignkey",
         )
-        batch_op.drop_column("materialization_id")
-        batch_op.drop_column("custom_metadata")
 
     # Restore `url` and `links` from `custom_metadata`
     availabilitystate = table(
         "availabilitystate",
         column("id", sa.BigInteger()),
-        column("custom_metadata", sa.JSON),
+        column("custom_metadata", postgresql.JSONB),
         column("url", sa.String()),
         column("links", postgresql.JSON),
     )
@@ -104,7 +109,7 @@ def downgrade():
     ).fetchall()
 
     for row in results:
-        metadata = row.custom_metadata or {}
+        metadata = json.loads(row.custom_metadata) if row.custom_metadata else {}
         conn.execute(
             sa.update(availabilitystate)
             .where(availabilitystate.c.id == row.id)
@@ -113,3 +118,7 @@ def downgrade():
                 links=metadata.get("links"),
             ),
         )
+
+    with op.batch_alter_table("availabilitystate", schema=None) as batch_op:
+        batch_op.drop_column("materialization_id")
+        batch_op.drop_column("custom_metadata")
