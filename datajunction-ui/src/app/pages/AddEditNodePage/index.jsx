@@ -438,7 +438,10 @@ export function AddEditNodePage({ extensions = {} }) {
                               <ExtensionComponent
                                 node={node}
                                 action={action}
-                                registerSubmitHandler={(onSubmit, { prepend } = {}) => {
+                                registerSubmitHandler={(
+                                  onSubmit,
+                                  { prepend } = {},
+                                ) => {
                                   if (!submitHandlers.includes(onSubmit)) {
                                     if (prepend) {
                                       submitHandlers.unshift(onSubmit);

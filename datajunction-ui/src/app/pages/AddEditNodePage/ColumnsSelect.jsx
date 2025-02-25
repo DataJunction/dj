@@ -68,7 +68,8 @@ export const ColumnsSelect = ({
                     label: val,
                   };
                 })
-              : defaultValue ? { value: defaultValue, label: defaultValue }
+              : defaultValue
+              ? { value: defaultValue, label: defaultValue }
               : null
           }
           selectOptions={selectableOptions}
