@@ -151,7 +151,7 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                 />
                 <span data-testid="edit-partition">
                   <label htmlFor="strategy">Strategy</label>
-                  <Field as="select" name="strategy">
+                  <Field as="select" name="strategy" id="strategy">
                     <>
                       <option key={'full'} value={'full'}>
                         Full
@@ -179,7 +179,7 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                 <br />
                 <div className="DescriptionInput">
                   <ErrorMessage name="description" component="span" />
-                  <label htmlFor="Config">Lookback Window</label>
+                  <label htmlFor="lookback_window">Lookback Window</label>
                   <Field
                     type="text"
                     name="lookback_window"
