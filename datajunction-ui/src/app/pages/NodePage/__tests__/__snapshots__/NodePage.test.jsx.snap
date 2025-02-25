@@ -70,6 +70,7 @@ exports[`<NodePage /> renders the NodeMaterialization tab with materializations 
             Strategy
           </label>
           <select
+            id="strategy"
             name="strategy"
           >
             <option
@@ -105,7 +106,7 @@ exports[`<NodePage /> renders the NodeMaterialization tab with materializations 
           class="DescriptionInput"
         >
           <label
-            for="Config"
+            for="lookback_window"
           >
             Lookback Window
           </label>
