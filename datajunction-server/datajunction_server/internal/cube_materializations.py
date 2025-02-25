@@ -4,6 +4,7 @@ import itertools
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.construction.build_v2 import get_measures_query
 from datajunction_server.database.node import Column, NodeRevision
 from datajunction_server.errors import DJInvalidInputException
@@ -253,6 +254,7 @@ async def build_cube_materialization(
                 metric=NodeNameVersion(
                     name=metric.name,
                     version=metric.current_version,
+                    display_name=metric.current.display_name,
                 ),
                 required_measures=[
                     MeasureKey(
@@ -262,6 +264,9 @@ async def build_cube_materialization(
                     for measure in metrics_mapping.get(metric.name)[1][0]  # type: ignore
                 ],
                 derived_expression=metrics_mapping.get(metric.name)[1][1],  # type: ignore
+                metric_expression=str(
+                    parse(metrics_mapping.get(metric.name)[1][1]).select.projection[0],  # type: ignore
+                ),
             )
             for metric in current_revision.cube_metrics()
         ],

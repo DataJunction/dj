@@ -207,7 +207,13 @@ class CubeMetric(BaseModel):
     )
     derived_expression: str = Field(
         description=(
-            "The expression for rewriting the original metric query "
+            "The query for rewriting the original metric query "
+            "using the materialized measures."
+        ),
+    )
+    metric_expression: str = Field(
+        description=(
+            "SQL expression for rewriting the original metric query "
             "using the materialized measures."
         ),
     )

@@ -43,6 +43,7 @@ class NodeNameVersion(BaseModel):
 
     name: str
     version: str
+    display_name: str | None
 
     class Config:
         orm_mode = True
