@@ -1,6 +1,9 @@
 export default function AddNodeDropdown({ namespace }) {
   return (
-    <span className="menu-link" style={{ margin: '0.5em 0 0 1em' }}>
+    <span
+      className="menu-link"
+      style={{ margin: '0.5em 0 0 1em', width: '130px' }}
+    >
       <span className="menu-title">
         <div className="dropdown">
           <span className="add_node">+ Add Node</span>

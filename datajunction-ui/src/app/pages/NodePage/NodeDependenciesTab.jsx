@@ -14,15 +14,17 @@ export default function NodeDependenciesTab({ node, djClient }) {
 
   useEffect(() => {
     const fetchData = async () => {
-      let upstreams = await djClient.upstreams(node.name);
-      let downstreams = await djClient.downstreams(node.name);
-      let dimensions = await djClient.nodeDimensions(node.name);
-      setNodeDAG({
-        upstreams: upstreams,
-        downstreams: downstreams,
-        dimensions: dimensions,
-      });
-      setRetrieved(true);
+      if (node) {
+        let upstreams = await djClient.upstreams(node.name);
+        let downstreams = await djClient.downstreams(node.name);
+        let dimensions = await djClient.nodeDimensions(node.name);
+        setNodeDAG({
+          upstreams: upstreams,
+          downstreams: downstreams,
+          dimensions: dimensions,
+        });
+        setRetrieved(true);
+      }
     };
     fetchData().catch(console.error);
   }, [djClient, node]);
@@ -102,12 +104,12 @@ export function NodeDimensionsList({ rawDimensions }) {
           };
         });
         return (
-          <details>
+          <details key={grouping[0]}>
             <summary style={{ marginBottom: '10px' }}>{groupHeader}</summary>
             <div className="dimensionsList">
               {dimensionGroupOptions.map(dimension => {
                 return (
-                  <div>
+                  <div key={dimension.value}>
                     {dimension.label.split('[').slice(0)[0]} ⇢{' '}
                     <code className="DimensionAttribute">
                       {dimension.value}
@@ -127,7 +129,11 @@ export function NodeList({ nodes }) {
   return nodes && nodes.length > 0 ? (
     <ul className="backfills">
       {nodes?.map(node => (
-        <li className="backfill" style={{ marginBottom: '5px' }}>
+        <li
+          className="backfill"
+          style={{ marginBottom: '5px' }}
+          key={node.name}
+        >
           <span
             className={`node_type__${node.type} badge node_type`}
             style={{ marginRight: '5px' }}

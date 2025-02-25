@@ -12,6 +12,7 @@ export const FormikSelect = ({
   style,
   className = 'SelectInput',
   isMulti = false,
+  isClearable = false,
   onFocus = event => {},
 }) => {
   // eslint-disable-next-line no-unused-vars
@@ -38,7 +39,9 @@ export const FormikSelect = ({
       onChange={selected => setValue(getValue(selected))}
       styles={style}
       isMulti={isMulti}
+      isClearable={isClearable}
       onFocus={event => onFocus(event)}
+      id={field.name}
     />
   );
 };
