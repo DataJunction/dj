@@ -262,6 +262,7 @@ async def build_cube_materialization(
         cube=NodeNameVersion(
             name=current_revision.name,
             version=current_revision.version,
+            display_name=current_revision.display_name,
         ),
         metrics=[
             CubeMetric(
