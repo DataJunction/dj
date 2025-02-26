@@ -4,6 +4,7 @@ import itertools
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.construction.build_v2 import get_measures_query
 from datajunction_server.database.node import Column, NodeRevision
 from datajunction_server.errors import DJInvalidInputException
@@ -137,6 +138,20 @@ def _combine_measures_join_criteria(left_table, right_table, query_grain):
     )
 
 
+def _extract_expression(metric_query: str) -> str:
+    """
+    Extract only the derived metric expression from a metric query.
+    """
+    expression = parse(metric_query).select.projection[0]
+    return str(
+        expression.child
+        if isinstance(expression, ast.Alias)
+        else expression.without_aliases()
+        if isinstance(expression, ast.Expression)
+        else expression,
+    )
+
+
 async def build_cube_materialization(
     session: AsyncSession,
     current_revision: NodeRevision,
@@ -247,12 +262,14 @@ async def build_cube_materialization(
         cube=NodeNameVersion(
             name=current_revision.name,
             version=current_revision.version,
+            display_name=current_revision.display_name,
         ),
         metrics=[
             CubeMetric(
                 metric=NodeNameVersion(
                     name=metric.name,
                     version=metric.current_version,
+                    display_name=metric.current.display_name,
                 ),
                 required_measures=[
                     MeasureKey(
@@ -262,6 +279,9 @@ async def build_cube_materialization(
                     for measure in metrics_mapping.get(metric.name)[1][0]  # type: ignore
                 ],
                 derived_expression=metrics_mapping.get(metric.name)[1][1],  # type: ignore
+                metric_expression=_extract_expression(
+                    metrics_mapping.get(metric.name)[1][1],  # type: ignore
+                ),
             )
             for metric in current_revision.cube_metrics()
         ],
