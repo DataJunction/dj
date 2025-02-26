@@ -2213,6 +2213,7 @@ async def test_cube_materialization_metadata(
     assert results["cube"] == {
         "name": "default.example_repairs_cube",
         "version": "v1.0",
+        "display_name": None,
     }
     assert results["job"] == "DRUID_CUBE"
     assert results["lookback_window"] == "1 DAY"
@@ -2232,9 +2233,12 @@ async def test_cube_materialization_metadata(
             "derived_expression": "SELECT  CAST(sum(discount_sum_62846f49) AS DOUBLE) / "
             "SUM(count_3389dae3) AS default_DOT_discounted_orders_rate  FROM "
             "default.repair_orders_fact",
+            "metric_expression": "CAST(sum(discount_sum_62846f49) AS DOUBLE) / "
+            "SUM(count_3389dae3)",
             "metric": {
                 "name": "default.discounted_orders_rate",
                 "version": "v1.0",
+                "display_name": "Discounted Orders Rate",
             },
             "required_measures": [
                 {
@@ -2242,6 +2246,7 @@ async def test_cube_materialization_metadata(
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": "v1.0",
+                        "display_name": "Repair Orders Fact",
                     },
                 },
                 {
@@ -2249,6 +2254,7 @@ async def test_cube_materialization_metadata(
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": "v1.0",
+                        "display_name": "Repair Orders Fact",
                     },
                 },
             ],
@@ -2256,9 +2262,11 @@ async def test_cube_materialization_metadata(
         {
             "derived_expression": "SELECT  SUM(repair_order_id_count_0b7dfba0)  FROM "
             "default.repair_orders_fact",
+            "metric_expression": "SUM(repair_order_id_count_0b7dfba0)",
             "metric": {
                 "name": "default.num_repair_orders",
                 "version": "v1.0",
+                "display_name": "Num Repair Orders",
             },
             "required_measures": [
                 {
@@ -2266,6 +2274,7 @@ async def test_cube_materialization_metadata(
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": "v1.0",
+                        "display_name": "Repair Orders Fact",
                     },
                 },
             ],
@@ -2273,9 +2282,11 @@ async def test_cube_materialization_metadata(
         {
             "derived_expression": "SELECT  SUM(price_sum_78a5eb43) / SUM(price_count_78a5eb43)  FROM "
             "default.repair_orders_fact",
+            "metric_expression": "SUM(price_sum_78a5eb43) / SUM(price_count_78a5eb43)",
             "metric": {
                 "name": "default.avg_repair_price",
                 "version": "v1.0",
+                "display_name": "Avg Repair Price",
             },
             "required_measures": [
                 {
@@ -2283,6 +2294,7 @@ async def test_cube_materialization_metadata(
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": "v1.0",
+                        "display_name": "Repair Orders Fact",
                     },
                 },
                 {
@@ -2290,6 +2302,7 @@ async def test_cube_materialization_metadata(
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": "v1.0",
+                        "display_name": "Repair Orders Fact",
                     },
                 },
             ],
@@ -2297,9 +2310,11 @@ async def test_cube_materialization_metadata(
         {
             "derived_expression": "SELECT  sum(total_repair_cost_sum_9bdaf803)  FROM "
             "default.repair_orders_fact",
+            "metric_expression": "sum(total_repair_cost_sum_9bdaf803)",
             "metric": {
                 "name": "default.total_repair_cost",
                 "version": "v1.0",
+                "display_name": "Total Repair Cost",
             },
             "required_measures": [
                 {
@@ -2307,6 +2322,7 @@ async def test_cube_materialization_metadata(
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": "v1.0",
+                        "display_name": "Repair Orders Fact",
                     },
                 },
             ],
@@ -2314,9 +2330,11 @@ async def test_cube_materialization_metadata(
         {
             "derived_expression": "SELECT  sum(price_discount_sum_017d55a8)  FROM "
             "default.repair_orders_fact",
+            "metric_expression": "sum(price_discount_sum_017d55a8)",
             "metric": {
                 "name": "default.total_repair_order_discounts",
                 "version": "v1.0",
+                "display_name": "Total Repair Order Discounts",
             },
             "required_measures": [
                 {
@@ -2324,6 +2342,7 @@ async def test_cube_materialization_metadata(
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": "v1.0",
+                        "display_name": "Repair Orders Fact",
                     },
                 },
             ],
@@ -2332,9 +2351,11 @@ async def test_cube_materialization_metadata(
             "derived_expression": "SELECT  sum(price_sum_78a5eb43) + sum(price_sum_78a5eb43) AS "
             "default_DOT_double_total_repair_cost  FROM "
             "default.repair_order_details",
+            "metric_expression": "sum(price_sum_78a5eb43) + sum(price_sum_78a5eb43)",
             "metric": {
                 "name": "default.double_total_repair_cost",
                 "version": "v1.0",
+                "display_name": "Double Total Repair Cost",
             },
             "required_measures": [
                 {
@@ -2342,6 +2363,7 @@ async def test_cube_materialization_metadata(
                     "node": {
                         "name": "default.repair_order_details",
                         "version": "v1.0",
+                        "display_name": "default.roads.repair_order_details",
                     },
                 },
             ],
@@ -2550,6 +2572,7 @@ async def test_cube_materialization_metadata(
             "node": {
                 "name": "default.repair_orders_fact",
                 "version": "v1.0",
+                "display_name": "Repair Orders Fact",
             },
             "output_table_name": "default_repair_orders_fact_v1_0_c9390406463b348e",
             "query": mock.ANY,
@@ -2666,6 +2689,7 @@ async def test_cube_materialization_metadata(
             "node": {
                 "name": "default.repair_order_details",
                 "version": "v1.0",
+                "display_name": "default.roads.repair_order_details",
             },
             "output_table_name": "default_repair_order_details_v1_0_5bf367d2fc7c255d",
             "query": mock.ANY,
@@ -3081,6 +3105,7 @@ async def test_cube_materialization_metadata(
                 },
             ],
             "node": {
+                "display_name": "Example Repairs Cube",
                 "name": "default.example_repairs_cube",
                 "version": "v1.0",
             },

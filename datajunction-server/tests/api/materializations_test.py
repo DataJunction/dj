@@ -812,37 +812,50 @@ async def test_druid_cube_incremental(
     ]
     assert mat.metrics == [
         CubeMetric(
-            metric=NodeNameVersion(name="default.num_repair_orders", version="v1.0"),
+            metric=NodeNameVersion(
+                name="default.num_repair_orders",
+                version="v1.0",
+                display_name="Num Repair Orders",
+            ),
             required_measures=[
                 MeasureKey(
                     node=NodeNameVersion(
                         name="default.repair_orders_fact",
                         version=ANY_STRING,
+                        display_name="Repair Orders Fact",
                     ),
                     measure_name="repair_order_id_count_0b7dfba0",
                 ),
             ],
             derived_expression="SELECT  SUM(repair_order_id_count_0b7dfba0)"
             "  FROM default.repair_orders_fact",
+            metric_expression="SUM(repair_order_id_count_0b7dfba0)",
         ),
         CubeMetric(
-            metric=NodeNameVersion(name="default.total_repair_cost", version="v1.0"),
+            metric=NodeNameVersion(
+                name="default.total_repair_cost",
+                version="v1.0",
+                display_name="Total Repair Cost",
+            ),
             required_measures=[
                 MeasureKey(
                     node=NodeNameVersion(
                         name="default.repair_orders_fact",
                         version=ANY_STRING,
+                        display_name="Repair Orders Fact",
                     ),
                     measure_name="total_repair_cost_sum_9bdaf803",
                 ),
             ],
             derived_expression="SELECT  sum(total_repair_cost_sum_9bdaf803)"
             "  FROM default.repair_orders_fact",
+            metric_expression="sum(total_repair_cost_sum_9bdaf803)",
         ),
     ]
     assert mat.measures_materializations[0].node == NodeNameVersion(
         name="default.repair_orders_fact",
         version=ANY_STRING,
+        display_name="Repair Orders Fact",
     )
     assert mat.measures_materializations[0].grain == [
         "default_DOT_repair_orders_fact_DOT_order_date",
@@ -942,6 +955,7 @@ async def test_druid_cube_incremental(
     assert mat.combiners[0].node == NodeNameVersion(
         name="default.repair_orders_fact",
         version=ANY_STRING,
+        display_name="Repair Orders Fact",
     )
     assert mat.combiners[0].query is None
     assert mat.combiners[0].columns == [

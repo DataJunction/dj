@@ -138,6 +138,20 @@ def _combine_measures_join_criteria(left_table, right_table, query_grain):
     )
 
 
+def _extract_expression(metric_query: str) -> str:
+    """
+    Extract only the derived metric expression from a metric query.
+    """
+    expression = parse(metric_query).select.projection[0]
+    return str(
+        expression.child
+        if isinstance(expression, ast.Alias)
+        else expression.without_aliases()
+        if isinstance(expression, ast.Expression)
+        else expression,
+    )
+
+
 async def build_cube_materialization(
     session: AsyncSession,
     current_revision: NodeRevision,
@@ -264,8 +278,8 @@ async def build_cube_materialization(
                     for measure in metrics_mapping.get(metric.name)[1][0]  # type: ignore
                 ],
                 derived_expression=metrics_mapping.get(metric.name)[1][1],  # type: ignore
-                metric_expression=str(
-                    parse(metrics_mapping.get(metric.name)[1][1]).select.projection[0],  # type: ignore
+                metric_expression=_extract_expression(
+                    metrics_mapping.get(metric.name)[1][1],  # type: ignore
                 ),
             )
             for metric in current_revision.cube_metrics()

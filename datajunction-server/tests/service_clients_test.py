@@ -790,6 +790,7 @@ class TestQueryServiceClient:
                     metric=NodeNameVersion(
                         name="default.num_repair_orders",
                         version="v1.0",
+                        display_name=None,
                     ),
                     required_measures=[
                         MeasureKey(
@@ -800,12 +801,14 @@ class TestQueryServiceClient:
                             measure_name="count",
                         ),
                     ],
-                    derived_expression="SUM(count)",
+                    derived_expression="SELECT SUM(count) FROM default.repair_orders",
+                    metric_expression="SUM(count)",
                 ),
                 CubeMetric(
                     metric=NodeNameVersion(
                         name="default.avg_repair_price",
                         version="v1.0",
+                        display_name=None,
                     ),
                     required_measures=[
                         MeasureKey(
@@ -816,7 +819,8 @@ class TestQueryServiceClient:
                             measure_name="sum_price_123abc",
                         ),
                     ],
-                    derived_expression="SUM(sum_price_123abc)",
+                    derived_expression="SELECT SUM(sum_price_123abc) FROM default.repair_orders",
+                    metric_expression="SUM(sum_price_123abc)",
                 ),
             ],
             measures_materializations=[],
