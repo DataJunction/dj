@@ -803,6 +803,7 @@ async def test_druid_cube_incremental(
     assert mat.cube == NodeNameVersion(
         name="default.repairs_cube__default_incremental",
         version="v1.0",
+        display_name="Repairs Cube  Default Incremental",
     )
     assert mat.dimensions == [
         "default.repair_orders_fact.order_date",

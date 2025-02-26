@@ -2213,7 +2213,7 @@ async def test_cube_materialization_metadata(
     assert results["cube"] == {
         "name": "default.example_repairs_cube",
         "version": "v1.0",
-        "display_name": None,
+        "display_name": "Example Repairs Cube",
     }
     assert results["job"] == "DRUID_CUBE"
     assert results["lookback_window"] == "1 DAY"
