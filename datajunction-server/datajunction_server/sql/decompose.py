@@ -25,6 +25,7 @@ class MeasureExtractor:
             dj_functions.Max: self._simple_associative_agg,
             dj_functions.Min: self._simple_associative_agg,
             dj_functions.Avg: self._avg,
+            dj_functions.AnyValue: self._simple_associative_agg,
         }
 
         # Outputs from decomposition
