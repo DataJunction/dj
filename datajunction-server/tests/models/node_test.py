@@ -167,8 +167,8 @@ def test_merging_availability_simple_no_partitions() -> None:
         "categorical_partitions": [],
         "temporal_partitions": [],
         "partitions": [],
-        "url": None,
-        "links": {},
+        "custom_metadata": {},
+        "materialization_id": None,
     }
 
 
@@ -208,8 +208,8 @@ def test_merging_availability_complex_no_partitions() -> None:
         "categorical_partitions": [],
         "temporal_partitions": [],
         "partitions": [],
-        "url": None,
-        "links": {},
+        "custom_metadata": {},
+        "materialization_id": None,
     }
 
 
@@ -289,8 +289,8 @@ def test_merging_availability_complex_with_partitions() -> None:
                 "max_temporal_partition": ["20230926"],
             },
         ],
-        "url": None,
-        "links": {},
+        "custom_metadata": {},
+        "materialization_id": None,
     }
 
 
