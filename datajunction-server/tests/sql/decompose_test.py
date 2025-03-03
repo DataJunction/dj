@@ -487,6 +487,28 @@ def test_count_distinct_rate():
     )
 
 
+def test_any_value():
+    """
+    Test decomposition for a metric definition that has ANY_VALUE as the agg function
+    """
+    extractor = MeasureExtractor.from_query_string(
+        "SELECT ANY_VALUE(sales_amount) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+    expected_measures = [
+        Measure(
+            name="sales_amount_any_value_a1b27bc7",
+            expression="sales_amount",
+            aggregation="ANY_VALUE",
+            rule=AggregationRule(type=Aggregability.FULL),
+        ),
+    ]
+    assert measures == expected_measures
+    assert str(derived_sql) == str(
+        parse("SELECT ANY_VALUE(sales_amount_any_value_a1b27bc7) FROM parent_node"),
+    )
+
+
 def test_no_aggregation():
     """
     Test behavior when there is no aggregation function in the metric query.
