@@ -884,9 +884,8 @@ class CompiledProject(Project):
                 project_tags = [tag.name for tag in self.tags]
                 if node_config.definition.tags:
                     rendered_node_config.definition.tags = [
-                        f"{prefix}.{tag}"
+                        f"{prefix}.{tag}" if tag in project_tags else tag
                         for tag in node_config.definition.tags
-                        if tag in project_tags
                     ]
                 created_node = rendered_node_config.definition.deploy(
                     name=rendered_node_config.name,
