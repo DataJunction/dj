@@ -65,7 +65,7 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
                         if isinstance(item, dict)
                         else item
                     )
-                except TypeError:  # Ignore and try the next candidate
+                except (TypeError, AttributeError):  # Ignore and try the next candidate
                     pass
             return item  # pragma: no cover
 
