@@ -776,10 +776,7 @@ class NodeRevision(
         projection_0 = tree.select.projection[0]
 
         # must have an aggregation
-        if (
-            not hasattr(projection_0, "is_aggregation")
-            or not projection_0.is_aggregation()  # type: ignore
-        ):
+        if not projection_0.is_aggregation():
             raise DJInvalidMetricQueryException(
                 f"Metric {self.name} has an invalid query, should have an aggregate expression",
             )

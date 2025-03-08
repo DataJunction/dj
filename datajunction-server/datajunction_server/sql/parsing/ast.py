@@ -593,10 +593,10 @@ class Expression(Node):
         """
         Determines whether an Expression is an aggregation or not
         """
-        for child in self.children:
-            if hasattr(child, "is_aggregation") and child.is_aggregation():
-                return True
-        return False
+        return any(
+            hasattr(child, "is_aggregation") and child.is_aggregation()
+            for child in self.children
+        )
 
     def set_alias(self: TExpression, alias: "Name") -> Alias[TExpression]:
         return Alias(child=self).set_alias(alias)
@@ -2168,11 +2168,6 @@ class Case(Expression):
         if self.parenthesized:
             return f"({ret})"
         return ret
-
-    def is_aggregation(self) -> bool:
-        return all(result.is_aggregation() for result in self.results) and (
-            self.else_result.is_aggregation() if self.else_result else True
-        )
 
     @property
     def type(self) -> ColumnType:
