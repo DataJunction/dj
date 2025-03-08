@@ -96,6 +96,16 @@ def test_extra_validation() -> None:
     )
     node_revision.extra_validation()
 
+    node = Node(name="ABC", type=NodeType.METRIC, current_version="1")
+    node_revision = NodeRevision(
+        name=node.name,
+        type=node.type,
+        node=node,
+        version="1",
+        query="SELECT CASE WHEN COUNT(repair_order_id) = 1 THEN 1 ELSE 0 END FROM repair_orders",
+    )
+    node_revision.extra_validation()
+
     node = Node(name="A", type=NodeType.TRANSFORM, current_version="1")
     node_revision = NodeRevision(
         name=node.name,
