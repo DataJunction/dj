@@ -665,7 +665,9 @@ class TestAvailabilityState:
                 "valid_through_ts": 20230125,
                 "max_temporal_partition": ["2023", "01", "25"],
                 "min_temporal_partition": ["2022", "01", "01"],
-                "url": "http://some.catalog.com/default.accounting.pmts",
+                "custom_metadata": {
+                    "url": "http://some.catalog.com/default.accounting.pmts",
+                },
             },
         )
         data = response.json()
@@ -700,8 +702,10 @@ class TestAvailabilityState:
                     "table": "pmts",
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
-                    "url": "http://some.catalog.com/default.accounting.pmts",
-                    "links": {},
+                    "custom_metadata": {
+                        "url": "http://some.catalog.com/default.accounting.pmts",
+                    },
+                    "materialization_id": None,
                 },
                 "pre": {},
                 "user": "dj",
@@ -725,8 +729,10 @@ class TestAvailabilityState:
             "schema_": "accounting",
             "categorical_partitions": [],
             "temporal_partitions": [],
-            "url": "http://some.catalog.com/default.accounting.pmts",
-            "links": {},
+            "custom_metadata": {
+                "url": "http://some.catalog.com/default.accounting.pmts",
+            },
+            "materialization_id": None,
         }
 
     @pytest.mark.asyncio
@@ -839,8 +845,8 @@ class TestAvailabilityState:
                     "table": "new_payments_table",
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
-                    "url": None,
-                    "links": {},
+                    "custom_metadata": {},
+                    "materialization_id": None,
                 },
                 "pre": {
                     "catalog": "default",
@@ -852,8 +858,8 @@ class TestAvailabilityState:
                     "table": "pmts",
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
-                    "url": None,
-                    "links": {},
+                    "custom_metadata": {},
+                    "materialization_id": None,
                 },
                 "user": "dj",
             },
@@ -875,8 +881,8 @@ class TestAvailabilityState:
                     "table": "pmts",
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
-                    "url": None,
-                    "links": {},
+                    "custom_metadata": {},
+                    "materialization_id": None,
                 },
                 "pre": {
                     "catalog": "default",
@@ -888,8 +894,8 @@ class TestAvailabilityState:
                     "table": "pmts",
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
-                    "url": None,
-                    "links": {},
+                    "custom_metadata": {},
+                    "materialization_id": None,
                 },
                 "user": "dj",
             },
@@ -911,8 +917,8 @@ class TestAvailabilityState:
                     "table": "pmts",
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
-                    "url": None,
-                    "links": {},
+                    "custom_metadata": {},
+                    "materialization_id": None,
                 },
                 "pre": {},
                 "user": "dj",
@@ -936,8 +942,8 @@ class TestAvailabilityState:
             "schema_": "new_accounting",
             "categorical_partitions": [],
             "temporal_partitions": [],
-            "url": None,
-            "links": {},
+            "custom_metadata": {},
+            "materialization_id": None,
         }
 
     @pytest.mark.asyncio
@@ -1076,8 +1082,8 @@ class TestAvailabilityState:
             "partitions": [],
             "categorical_partitions": [],
             "temporal_partitions": ["payment_id"],
-            "url": None,
-            "links": {},
+            "custom_metadata": {},
+            "materialization_id": None,
         }
 
     @pytest.fixture
@@ -1148,8 +1154,8 @@ class TestAvailabilityState:
             "schema_": "dimensions",
             "table": "local_hard_hats",
             "valid_through_ts": 20230101,
-            "url": None,
-            "links": {},
+            "custom_metadata": {},
+            "materialization_id": None,
         }
 
     @pytest.mark.asyncio
@@ -1195,8 +1201,8 @@ class TestAvailabilityState:
             "schema_": "dimensions",
             "table": "local_hard_hats",
             "valid_through_ts": 20230101,
-            "url": None,
-            "links": {},
+            "custom_metadata": {},
+            "materialization_id": None,
         }
 
     @pytest.mark.asyncio
@@ -1549,8 +1555,8 @@ class TestAvailabilityState:
             "max_temporal_partition": ["2023", "01", "01"],
             "schema_": "accounting",
             "partitions": [],
-            "url": None,
-            "links": {},
+            "custom_metadata": {},
+            "materialization_id": None,
         }
 
     @pytest.mark.asyncio
@@ -1622,8 +1628,8 @@ class TestAvailabilityState:
             "partitions": [],
             "categorical_partitions": [],
             "temporal_partitions": [],
-            "url": None,
-            "links": {},
+            "custom_metadata": {},
+            "materialization_id": None,
         }
 
     @pytest.mark.asyncio
@@ -1668,8 +1674,8 @@ class TestAvailabilityState:
             "partitions": [],
             "categorical_partitions": [],
             "temporal_partitions": [],
-            "url": None,
-            "links": {},
+            "custom_metadata": {},
+            "materialization_id": None,
         }
 
     @pytest.mark.asyncio

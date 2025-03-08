@@ -1570,6 +1570,7 @@ async def upsert_complex_dimension_link(
     node = await Node.get_by_name(
         session,
         node_name,
+        raise_if_not_exists=True,
     )
     if node.type not in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):  # type: ignore
         raise DJInvalidInputException(
