@@ -5,7 +5,7 @@ Helper methods for namespaces endpoints.
 import os
 import re
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -113,6 +113,7 @@ async def mark_namespace_deactivated(
     session: AsyncSession,
     namespace: NodeNamespace,
     current_user: User,
+    save_history: Callable,
     message: str = None,
 ):
     """
@@ -127,8 +128,8 @@ async def mark_namespace_deactivated(
         minute=now.minute,
         second=now.second,
     )
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.NAMESPACE,
             entity_name=namespace.namespace,
             node=None,
@@ -136,6 +137,7 @@ async def mark_namespace_deactivated(
             details={"message": message or ""},
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
 
@@ -144,14 +146,15 @@ async def mark_namespace_restored(
     session: AsyncSession,
     namespace: NodeNamespace,
     current_user: User,
+    save_history: Callable,
     message: str = None,
 ):
     """
     Restores the node namespace and updates history indicating so
     """
     namespace.deactivated_at = None  # type: ignore
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.NAMESPACE,
             entity_name=namespace.namespace,
             node=None,
@@ -159,6 +162,7 @@ async def mark_namespace_restored(
             details={"message": message or ""},
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
 
@@ -192,6 +196,7 @@ async def create_namespace(
     session: AsyncSession,
     namespace: str,
     current_user: User,
+    save_history: Callable,
     include_parents: bool = True,
 ) -> List[str]:
     """
@@ -210,14 +215,15 @@ async def create_namespace(
         ):
             node_namespace = NodeNamespace(namespace=parent_namespace)
             session.add(node_namespace)
-            session.add(
-                History(
+            await save_history(
+                event=History(
                     entity_type=EntityType.NAMESPACE,
                     entity_name=namespace,
                     node=None,
                     activity_type=ActivityType.CREATE,
                     user=current_user.username,
                 ),
+                session=session,
             )
     await session.commit()
     return parents
@@ -227,6 +233,7 @@ async def hard_delete_namespace(
     session: AsyncSession,
     namespace: str,
     current_user: User,
+    save_history: Callable,
     cascade: bool = False,
 ):
     """
@@ -267,6 +274,7 @@ async def hard_delete_namespace(
             node_name,
             session,
             current_user=current_user,
+            save_history=save_history,
         )
 
     namespaces = await list_namespaces_in_hierarchy(session, namespace)

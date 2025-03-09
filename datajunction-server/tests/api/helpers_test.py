@@ -61,6 +61,7 @@ async def test_propagate_valid_status(module__session: AsyncSession):
             valid_nodes=[invalid_node],
             catalog_id=1,
             current_user=example_user,
+            save_history=MagicMock(),
         )
 
     assert "Cannot propagate valid status: Node `foo` is not valid" in str(

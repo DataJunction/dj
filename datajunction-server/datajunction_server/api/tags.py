@@ -2,13 +2,14 @@
 Tag related APIs.
 """
 
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database import Node
 from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.tag import Tag
@@ -98,6 +99,7 @@ async def create_a_tag(
     data: CreateTag,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> TagOutput:
     """
     Create a tag.
@@ -117,13 +119,14 @@ async def create_a_tag(
         created_by_id=current_user.id,
     )
     session.add(tag)
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.TAG,
             entity_name=tag.name,
             activity_type=ActivityType.CREATE,
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
     await session.refresh(tag)
@@ -136,6 +139,7 @@ async def update_a_tag(
     data: UpdateTag,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> TagOutput:
     """
     Update a tag.
@@ -154,14 +158,15 @@ async def update_a_tag(
     if data.display_name:
         tag.display_name = data.display_name
     session.add(tag)
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.TAG,
             entity_name=tag.name,
             activity_type=ActivityType.UPDATE,
             details=data.dict(),
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
     await session.refresh(tag)
