@@ -70,7 +70,7 @@ app.dependency_overrides[get_notifier] = get_custom_notifier
 Here's how the `get_notifier` dependency is used within the application to send a notification:
 
 ```python
-notify = Depends(get_notifier())
+notify = Depends(get_notifier)
 event = History(
     id=1,
     entity_name="bar",
