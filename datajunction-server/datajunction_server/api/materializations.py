@@ -5,13 +5,14 @@ Node materialization related APIs.
 import logging
 from datetime import datetime
 from http import HTTPStatus
-from typing import List
+from typing import Callable, List
 
 from fastapi import Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.column import Column, ColumnAttribute
@@ -87,6 +88,7 @@ async def upsert_materialization(
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
@@ -147,8 +149,8 @@ async def upsert_materialization(
         if existing_materialization.deactivated_at is not None:
             deactivated_before = True
             existing_materialization.deactivated_at = None  # type: ignore
-            session.add(
-                History(
+            await save_history(
+                event=History(
                     entity_type=EntityType.MATERIALIZATION,
                     entity_name=existing_materialization.name,
                     node=node.name,  # type: ignore
@@ -156,6 +158,7 @@ async def upsert_materialization(
                     details={},
                     user=current_user.username,
                 ),
+                session=session,
             )
             await session.commit()
             await session.refresh(existing_materialization)
@@ -223,8 +226,8 @@ async def upsert_materialization(
     session.add(current_revision)
     session.add(node)
 
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.MATERIALIZATION,
             node=node.name,  # type: ignore
             entity_name=new_materialization.name,
@@ -239,6 +242,7 @@ async def upsert_materialization(
             },
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
     _logger.info(
@@ -320,6 +324,7 @@ async def deactivate_node_materializations(
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> List[MaterializationConfigInfoUnified]:
     """
     Deactivate the node materialization with the provided name.
@@ -348,8 +353,8 @@ async def deactivate_node_materializations(
             )
             session.add(materialization)
 
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.MATERIALIZATION,
             entity_name=materialization_name,
             node=node.name,  # type: ignore
@@ -357,6 +362,7 @@ async def deactivate_node_materializations(
             details={},
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
     await session.refresh(node.current)  # type: ignore
@@ -383,6 +389,7 @@ async def run_materialization_backfill(
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> MaterializationInfo:
     """
     Start a backfill for a configured materialization.
@@ -452,18 +459,21 @@ async def run_materialization_backfill(
     )
     materialization.backfills.append(backfill)
 
-    backfill_event = History(
-        entity_type=EntityType.BACKFILL,
-        node=node_name,
-        activity_type=ActivityType.CREATE,
-        details={
-            "materialization": materialization_name,
-            "partition": [
-                backfill_partition.dict() for backfill_partition in backfill_partitions
-            ],
-        },
-        user=current_user.username,
+    await save_history(
+        event=History(
+            entity_type=EntityType.BACKFILL,
+            node=node_name,
+            activity_type=ActivityType.CREATE,
+            details={
+                "materialization": materialization_name,
+                "partition": [
+                    backfill_partition.dict()
+                    for backfill_partition in backfill_partitions
+                ],
+            },
+            user=current_user.username,
+        ),
+        session=session,
     )
-    session.add(backfill_event)
     await session.commit()
     return materialization_output

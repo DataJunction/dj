@@ -10,13 +10,15 @@ import re
 import time
 import uuid
 from http import HTTPStatus
-from typing import Dict, List, Optional, Set, Tuple, cast
+from typing import Callable, Dict, List, Optional, Set, Tuple, cast
 
+from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, joinedload, selectinload
 from sqlalchemy.sql.operators import and_, is_
 
+from datajunction_server.api.notifications import get_notifier
 from datajunction_server.construction.build import (
     build_materialized_cube_node,
     build_metric_nodes,
@@ -254,6 +256,7 @@ async def resolve_downstream_references(
     session: AsyncSession,
     node_revision: NodeRevision,
     current_user: User,
+    save_history: Callable,
 ) -> List[NodeRevision]:
     """
     Find all node revisions with missing parent references to `node` and resolve them
@@ -329,7 +332,7 @@ async def resolve_downstream_references(
                 newly_valid_nodes.append(downstream_node_revision)
             session.add(downstream_node_revision)
             if event:
-                session.add(event)
+                await save_history(event=event, session=session)
             await session.commit()
             await session.refresh(downstream_node_revision)
 
@@ -903,3 +906,30 @@ def assemble_column_metadata(
         else None,
     )
     return metadata
+
+
+async def save_history(
+    event: History,
+    session: AsyncSession,
+    _notify: Callable[
+        [History],
+        None,
+    ],  # To use a different notify function, inject a get_notifier dependency
+) -> None:
+    """
+    Save a history event to the database and process notifications
+    """
+    session.add(event)
+    await session.commit()
+    _notify(event)
+
+
+async def get_save_history(notify: Callable = Depends(get_notifier)) -> Callable:
+    """
+    Dependency provider for save history function
+    """
+
+    async def save_history_with_notify(event, session):
+        await save_history(event, session, notify)
+
+    return save_history_with_notify

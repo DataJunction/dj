@@ -5,7 +5,7 @@ Node related APIs.
 import logging
 import os
 from http import HTTPStatus
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
@@ -22,6 +22,7 @@ from datajunction_server.api.helpers import (
     get_node_by_name,
     get_node_namespace,
     raise_if_node_exists,
+    get_save_history,
 )
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
@@ -157,6 +158,7 @@ async def revalidate(
     name: str,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
     *,
     background_tasks: BackgroundTasks,
 ) -> NodeStatusDetails:
@@ -168,6 +170,7 @@ async def revalidate(
         session=session,
         current_user=current_user,
         background_tasks=background_tasks,
+        save_history=save_history,
     )
 
     return NodeStatusDetails(
@@ -207,6 +210,7 @@ async def set_column_attributes(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> List[ColumnOutput]:
     """
     Set column attributes for the node.
@@ -224,6 +228,7 @@ async def set_column_attributes(
         column_name,
         attributes,
         current_user=current_user,
+        save_history=save_history,
     )
     return columns  # type: ignore
 
@@ -341,11 +346,17 @@ async def delete_node(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ):
     """
     Delete (aka deactivate) the specified node.
     """
-    await deactivate_node(session=session, name=name, current_user=current_user)
+    await deactivate_node(
+        session=session,
+        name=name,
+        current_user=current_user,
+        save_history=save_history,
+    )
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully deleted."},
@@ -357,6 +368,7 @@ async def hard_delete(
     name: str,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
@@ -366,6 +378,7 @@ async def hard_delete(
         name=name,
         session=session,
         current_user=current_user,
+        save_history=save_history,
     )
     return JSONResponse(
         status_code=HTTPStatus.OK,
@@ -382,11 +395,17 @@ async def restore_node(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ):
     """
     Restore (aka re-activate) the specified node.
     """
-    await activate_node(session=session, name=name, current_user=current_user)
+    await activate_node(
+        session=session,
+        name=name,
+        current_user=current_user,
+        save_history=save_history,
+    )
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully restored."},
@@ -423,6 +442,7 @@ async def create_source(
         validate_access,
     ),
     background_tasks: BackgroundTasks,
+    save_history: Callable = Depends(get_save_history),
 ) -> NodeOutput:
     """
     Create a source node. If columns are not provided, the source node's schema
@@ -441,6 +461,7 @@ async def create_source(
         query_service_client=query_service_client,
         validate_access=validate_access,
         background_tasks=background_tasks,
+        save_history=save_history,
     ):
         return recreated_node
 
@@ -494,7 +515,14 @@ async def create_source(
     node.display_name = node_revision.display_name
 
     # Point the node to the new node revision.
-    await save_node(session, node_revision, node, data.mode, current_user=current_user)
+    await save_node(
+        session,
+        node_revision,
+        node,
+        data.mode,
+        current_user=current_user,
+        save_history=save_history,
+    )
     node = await Node.get_by_name(  # type: ignore
         session,
         node.name,
@@ -535,6 +563,7 @@ async def create_node(
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
+    save_history: Callable = Depends(get_save_history),
 ) -> NodeOutput:
     """
     Create a node.
@@ -557,6 +586,7 @@ async def create_node(
         query_service_client=query_service_client,
         background_tasks=background_tasks,
         validate_access=validate_access,
+        save_history=save_history,
     ):
         return recreated_node  # pragma: no cover
 
@@ -575,7 +605,14 @@ async def create_node(
         created_by_id=current_user.id,
     )
     node_revision = await create_node_revision(data, node_type, session, current_user)
-    await save_node(session, node_revision, node, data.mode, current_user=current_user)
+    await save_node(
+        session,
+        node_revision,
+        node,
+        data.mode,
+        current_user=current_user,
+        save_history=save_history,
+    )
     background_tasks.add_task(
         save_column_level_lineage,
         session=session,
@@ -612,6 +649,7 @@ async def create_node(
                         ),
                     ],
                     current_user=current_user,
+                    save_history=save_history,
                 )
     node = await Node.get_by_name(  # type: ignore
         session,
@@ -641,6 +679,7 @@ async def create_cube(
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
+    save_history: Callable = Depends(get_save_history),
 ) -> NodeOutput:
     """
     Create a cube node.
@@ -658,6 +697,7 @@ async def create_cube(
         query_service_client=query_service_client,
         background_tasks=background_tasks,
         validate_access=validate_access,
+        save_history=save_history,
     ):
         return recreated_node  # pragma: no cover
 
@@ -680,7 +720,14 @@ async def create_cube(
         data=data,
         current_user=current_user,
     )
-    await save_node(session, node_revision, node, data.mode, current_user=current_user)
+    await save_node(
+        session,
+        node_revision,
+        node,
+        data.mode,
+        current_user=current_user,
+        save_history=save_history,
+    )
     node = await Node.get_by_name(session, data.name)  # type: ignore
     return node
 
@@ -700,6 +747,7 @@ async def register_table(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
     background_tasks: BackgroundTasks,
+    save_history: Callable = Depends(get_save_history),
 ) -> NodeOutput:
     """
     Register a table. This creates a source node in the SOURCE_NODE_NAMESPACE and
@@ -720,6 +768,7 @@ async def register_table(
         namespace=namespace,
         session=session,
         current_user=current_user,
+        save_history=save_history,
     )
 
     # Use reflection to get column names and types
@@ -746,6 +795,7 @@ async def register_table(
         session=session,
         current_user=current_user,
         background_tasks=background_tasks,
+        save_history=save_history,
         request=request,
     )
 
@@ -767,6 +817,7 @@ async def register_view(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
     background_tasks: BackgroundTasks,
+    save_history: Callable = Depends(get_save_history),
 ) -> NodeOutput:
     """
     Register a view by creating the view in the database and adding a source node for it.
@@ -815,6 +866,7 @@ async def register_view(
         namespace=namespace,
         session=session,
         current_user=current_user,
+        save_history=save_history,
     )
 
     return await create_source(
@@ -832,6 +884,7 @@ async def register_view(
         session=session,
         current_user=current_user,
         background_tasks=background_tasks,
+        save_history=save_history,
         request=request,
     )
 
@@ -844,6 +897,7 @@ async def link_dimension(
     dimension_column: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Add information to a node column
@@ -897,6 +951,7 @@ async def link_dimension(
         name,
         link_input,
         current_user,
+        save_history,
     )
 
     node = await Node.get_by_name(
@@ -929,6 +984,7 @@ async def add_reference_dimension_link(
     role: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Add reference dimension link to a node column
@@ -964,8 +1020,8 @@ async def add_reference_dimension_link(
         f"{dimension_column}[{role}]" if role else dimension_column
     )
     session.add(target_column)
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.LINK,
             entity_name=node.name,  # type: ignore
             node=node.name,  # type: ignore
@@ -979,6 +1035,7 @@ async def add_reference_dimension_link(
             },
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
     return JSONResponse(
@@ -998,6 +1055,7 @@ async def remove_reference_dimension_link(
     node_column: str,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Remove reference dimension link from a node column
@@ -1008,8 +1066,8 @@ async def remove_reference_dimension_link(
         target_column.dimension_id = None
         target_column.dimension_column = None
         session.add(target_column)
-        session.add(
-            History(
+        await save_history(
+            event=History(
                 entity_type=EntityType.LINK,
                 entity_name=node.name,  # type: ignore
                 node=node.name,  # type: ignore
@@ -1020,6 +1078,7 @@ async def remove_reference_dimension_link(
                 },
                 user=current_user.username,
             ),
+            session=session,
         )
         session.commit()
         return JSONResponse(
@@ -1046,6 +1105,7 @@ async def add_complex_dimension_link(
     link_input: JoinLinkInput,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Links a source, dimension, or transform node to a dimension with a custom join query.
@@ -1056,6 +1116,7 @@ async def add_complex_dimension_link(
         node_name,
         link_input,
         current_user,
+        save_history,
     )
     return JSONResponse(
         status_code=201,
@@ -1079,6 +1140,7 @@ async def remove_complex_dimension_link(
     link_identifier: LinkDimensionIdentifier,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Removes a complex dimension link based on the dimension node and its role (if any).
@@ -1088,6 +1150,7 @@ async def remove_complex_dimension_link(
         node_name,
         link_identifier,
         current_user,
+        save_history,
     )
 
 
@@ -1099,6 +1162,7 @@ async def delete_dimension_link(
     dimension_column: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Remove the link between a node column and a dimension node
@@ -1108,6 +1172,7 @@ async def delete_dimension_link(
         name,
         LinkDimensionIdentifier(dimension_node=dimension, role=None),
         current_user,
+        save_history,
     )
 
 
@@ -1123,6 +1188,7 @@ async def tags_node(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Add a tag to a node
@@ -1134,8 +1200,8 @@ async def tags_node(
     node.tags = tags  # type: ignore
 
     session.add(node)
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.NODE,
             entity_name=node.name,  # type: ignore
             node=node.name,  # type: ignore
@@ -1145,6 +1211,7 @@ async def tags_node(
             },
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
     await session.refresh(node)
@@ -1174,6 +1241,7 @@ async def refresh_source_node(
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> NodeOutput:
     """
     Refresh a source node with the latest columns from the query service.
@@ -1299,8 +1367,8 @@ async def refresh_source_node(
     session.add(source_node)
 
     refresh_details["version"] = new_revision.version
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.NODE,
             entity_name=source_node.name,  # type: ignore
             node=source_node.name,  # type: ignore
@@ -1308,6 +1376,7 @@ async def refresh_source_node(
             details=refresh_details,
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
 
@@ -1336,6 +1405,7 @@ async def update_node(
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
+    save_history: Callable = Depends(get_save_history),
 ) -> NodeOutput:
     """
     Update a node.
@@ -1350,6 +1420,7 @@ async def update_node(
         background_tasks=background_tasks,
         validate_access=validate_access,
         request_headers=request_headers,
+        save_history=save_history,
     )
     node = await Node.get_by_name(
         session,
@@ -1542,6 +1613,7 @@ async def set_column_display_name(
     column_name: str,
     display_name: str,
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
     *,
     session: AsyncSession = Depends(get_session),
 ) -> ColumnOutput:
@@ -1556,8 +1628,8 @@ async def set_column_display_name(
     column = await get_column(session, node.current, column_name)  # type: ignore
     column.display_name = display_name
     session.add(column)
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.COLUMN_ATTRIBUTE,
             node=node.name,  # type: ignore
             activity_type=ActivityType.UPDATE,
@@ -1567,6 +1639,7 @@ async def set_column_display_name(
             },
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
     return column
@@ -1585,6 +1658,7 @@ async def set_column_partition(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> ColumnOutput:
     """
     Add or update partition columns for the specified node.
@@ -1637,8 +1711,7 @@ async def set_column_partition(
             format=input_partition.format,
         )
         session.add(partition)
-        session.add(upsert_partition_event)
-
+    await save_history(event=upsert_partition_event, session=session)
     await session.commit()
     await session.refresh(column)
     return column
@@ -1655,6 +1728,7 @@ async def copy_node(
     new_name: str,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> DAGNodeOutput:
     """
     Copy this node to a new name.
@@ -1672,13 +1746,13 @@ async def copy_node(
     )
     if existing_new_node:
         if existing_new_node.deactivated_at:
-            await hard_delete_node(new_name, session, current_user)
+            await hard_delete_node(new_name, session, current_user, save_history)
         else:
             raise DJAlreadyExistsException(
                 f"A node with name {new_name} already exists.",
             )
 
     # Copy existing node to the new name
-    await copy_to_new_node(session, node_name, new_name, current_user)
+    await copy_to_new_node(session, node_name, new_name, current_user, save_history)
     new_node = await Node.get_by_name(session, new_name)
     return new_node  # type: ignore

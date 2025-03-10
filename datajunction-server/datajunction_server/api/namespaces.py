@@ -4,13 +4,13 @@ Node namespace related APIs.
 
 import logging
 from http import HTTPStatus
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from fastapi import Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api.helpers import get_node_namespace
+from datajunction_server.api.helpers import get_node_namespace, get_save_history
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException
@@ -50,6 +50,8 @@ async def create_node_namespace(
     include_parents: Optional[bool] = False,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    *,
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Create a node namespace
@@ -84,6 +86,7 @@ async def create_node_namespace(
         namespace=namespace,
         include_parents=include_parents,  # type: ignore
         current_user=current_user,
+        save_history=save_history,
     )
     return JSONResponse(
         status_code=HTTPStatus.CREATED,
@@ -171,6 +174,7 @@ async def deactivate_a_namespace(
     ),
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Deactivates a node namespace
@@ -196,6 +200,7 @@ async def deactivate_a_namespace(
             namespace=node_namespace,  # type: ignore
             message=message,
             current_user=current_user,
+            save_history=save_history,
         )
         return JSONResponse(
             status_code=HTTPStatus.OK,
@@ -211,6 +216,7 @@ async def deactivate_a_namespace(
                 name=node_name,
                 message=f"Cascaded from deactivating namespace `{namespace}`",
                 current_user=current_user,
+                save_history=save_history,
             )
         message = (
             f"Namespace `{namespace}` has been deactivated. The following nodes"
@@ -221,6 +227,7 @@ async def deactivate_a_namespace(
             namespace=node_namespace,  # type: ignore
             message=message,
             current_user=current_user,
+            save_history=save_history,
         )
 
         return JSONResponse(
@@ -248,6 +255,7 @@ async def restore_a_namespace(
     ),
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Restores a node namespace
@@ -277,6 +285,7 @@ async def restore_a_namespace(
                 session=session,
                 message=f"Cascaded from restoring namespace `{namespace}`",
                 current_user=current_user,
+                save_history=save_history,
             )
 
         message = (
@@ -288,6 +297,7 @@ async def restore_a_namespace(
             namespace=node_namespace,
             message=message,
             current_user=current_user,
+            save_history=save_history,
         )
 
         return JSONResponse(
@@ -304,6 +314,7 @@ async def restore_a_namespace(
         namespace=node_namespace,
         message=message,
         current_user=current_user,
+        save_history=save_history,
     )
     return JSONResponse(
         status_code=HTTPStatus.CREATED,
@@ -318,6 +329,7 @@ async def hard_delete_node_namespace(
     cascade: bool = False,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
     Hard delete a namespace, which will completely remove the namespace. Additionally,
@@ -330,6 +342,7 @@ async def hard_delete_node_namespace(
         namespace=namespace,
         cascade=cascade,
         current_user=current_user,
+        save_history=save_history,
     )
     return JSONResponse(
         status_code=HTTPStatus.OK,

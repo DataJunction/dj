@@ -4,7 +4,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime
 from http import HTTPStatus
-from typing import Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Union
 
 from fastapi import BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -148,6 +148,7 @@ async def set_node_column_attributes(
     column_name: str,
     attributes: List[AttributeTypeIdentifier],
     current_user: User,
+    save_history: Callable,
 ) -> List[Column]:
     """
     Sets the column attributes on the node if allowed.
@@ -201,8 +202,8 @@ async def set_node_column_attributes(
             )
 
     session.add(column)
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.COLUMN_ATTRIBUTE,
             node=node.name,
             activity_type=ActivityType.SET_ATTRIBUTE,
@@ -212,6 +213,7 @@ async def set_node_column_attributes(
             },
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
     await session.refresh(column)
@@ -382,6 +384,7 @@ async def save_node(
     node: Node,
     node_mode: NodeMode,
     current_user: User,
+    save_history: Callable,
 ):
     """
     Saves the newly created node revision
@@ -397,14 +400,15 @@ async def save_node(
     node_revision.extra_validation()
 
     session.add(node)
-    session.add(
-        History(
+    await save_history(
+        event=History(
             node=node.name,
             entity_type=EntityType.NODE,
             entity_name=node.name,
             activity_type=ActivityType.CREATE,
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
     await session.refresh(node, ["current"])
@@ -413,12 +417,14 @@ async def save_node(
         session=session,
         node_revision=node_revision,
         current_user=current_user,
+        save_history=save_history,
     )
     await propagate_valid_status(
         session=session,
         valid_nodes=newly_valid_nodes,
         catalog_id=node.current.catalog_id,
         current_user=current_user,
+        save_history=save_history,
     )
     await session.refresh(node.current)
 
@@ -428,6 +434,7 @@ async def copy_to_new_node(
     existing_node_name: str,
     new_name: str,
     current_user: User,
+    save_history: Callable,
 ) -> Node:
     """
     Copies the existing node to a new node with a new name.
@@ -517,8 +524,8 @@ async def copy_to_new_node(
     session.add(new_node)
 
     # Add a history event recording the copy
-    session.add(
-        History(
+    await save_history(
+        event=History(
             node=new_node.name,
             entity_type=EntityType.NODE,
             entity_name=new_node.name,
@@ -526,6 +533,7 @@ async def copy_to_new_node(
             user=current_user.username,
             details={"copied_from": node.name},  # type: ignore
         ),
+        session=session,
     )
     await session.commit()
 
@@ -534,12 +542,14 @@ async def copy_to_new_node(
         session=session,
         node_revision=new_revision,
         current_user=current_user,
+        save_history=save_history,
     )
     await propagate_valid_status(
         session=session,
         valid_nodes=newly_valid_nodes,
         catalog_id=node.current.catalog_id,  # type: ignore
         current_user=current_user,
+        save_history=save_history,
     )
     await session.refresh(node.current)  # type: ignore
     return node  # type: ignore
@@ -552,6 +562,7 @@ async def update_any_node(
     request_headers: Dict[str, str],
     query_service_client: QueryServiceClient,
     current_user: User,
+    save_history: Callable,
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn = None,
 ) -> Node:
@@ -579,6 +590,7 @@ async def update_any_node(
             current_user=current_user,
             background_tasks=background_tasks,
             validate_access=validate_access,  # type: ignore
+            save_history=save_history,
         )
         return node_revision.node if node_revision else node
     return await update_node_with_query(
@@ -590,6 +602,7 @@ async def update_any_node(
         current_user=current_user,
         background_tasks=background_tasks,
         validate_access=validate_access,  # type: ignore
+        save_history=save_history,
     )
 
 
@@ -603,6 +616,7 @@ async def update_node_with_query(
     current_user: User,
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn,
+    save_history: Callable,
 ) -> Node:
     """
     Update the named node with the changes defined in the UpdateNode object.
@@ -638,16 +652,20 @@ async def update_node_with_query(
 
     session.add(new_revision)
     session.add(node)
-    session.add(node_update_history_event(new_revision, current_user))
+    await save_history(
+        event=node_update_history_event(new_revision, current_user),
+        session=session,
+    )
 
     if new_revision.status != old_revision.status:  # type: ignore
-        session.add(
-            status_change_history(
+        await save_history(
+            event=status_change_history(
                 new_revision,  # type: ignore
                 old_revision.status,
                 new_revision.status,  # type: ignore
                 current_user=current_user,
             ),
+            session=session,
         )
     await session.commit()
 
@@ -739,6 +757,7 @@ async def update_node_with_query(
         session,
         node,
         current_user=current_user,
+        save_history=save_history,
     )
     await session.refresh(node, ["current"])
     await session.refresh(node.current, ["materializations"])  # type: ignore
@@ -789,6 +808,7 @@ async def update_cube_node(
     current_user: User,
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn,
+    save_history: Callable,
 ) -> Optional[NodeRevision]:
     """
     Update cube node based on changes
@@ -829,7 +849,10 @@ async def update_cube_node(
     new_cube_revision.node = node_revision.node
     new_cube_revision.node.current_version = new_cube_revision.version  # type: ignore
 
-    session.add(node_update_history_event(new_cube_revision, current_user))
+    await save_history(
+        event=node_update_history_event(new_cube_revision, current_user),
+        session=session,
+    )
 
     # Bring over existing partition columns, if any
     new_columns_mapping = {col.name: col for col in new_cube_revision.columns}
@@ -865,8 +888,8 @@ async def update_cube_node(
                     current_user=current_user,
                 ),
             )
-            session.add(
-                History(
+            await save_history(
+                event=History(
                     entity_type=EntityType.MATERIALIZATION,
                     entity_name=old.name,
                     node=node_revision.name,
@@ -874,6 +897,7 @@ async def update_cube_node(
                     details={},
                     user=current_user.username,
                 ),
+                session=session,
             )
     session.add(new_cube_revision)
     session.add(new_cube_revision.node)
@@ -913,6 +937,7 @@ async def propagate_update_downstream(
     node: Node,
     *,
     current_user: User,
+    save_history: Callable,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -944,6 +969,7 @@ async def propagate_update_downstream(
             downstream.name,
             session,
             current_user=current_user,
+            save_history=save_history,
         )
 
         # Record history event
@@ -951,33 +977,37 @@ async def propagate_update_downstream(
             original_node_revision.version != downstream.current_version
             or previous_status != node_validator.status
         ):
-            event = History(
-                entity_type=EntityType.NODE,
-                entity_name=downstream.name,
-                node=downstream.name,
-                activity_type=ActivityType.UPDATE,
-                details={
-                    "changes": {
-                        "updated_columns": sorted(list(node_validator.updated_columns)),
+            await save_history(
+                event=History(
+                    entity_type=EntityType.NODE,
+                    entity_name=downstream.name,
+                    node=downstream.name,
+                    activity_type=ActivityType.UPDATE,
+                    details={
+                        "changes": {
+                            "updated_columns": sorted(
+                                list(node_validator.updated_columns),
+                            ),
+                        },
+                        "upstream": {
+                            "node": node.name,
+                            "version": node.current_version,
+                        },
+                        "reason": f"Caused by update of `{node.name}` to "
+                        f"{node.current_version}",
                     },
-                    "upstream": {
-                        "node": node.name,
-                        "version": node.current_version,
+                    pre={
+                        "status": previous_status,
+                        "version": original_node_revision.version,
                     },
-                    "reason": f"Caused by update of `{node.name}` to "
-                    f"{node.current_version}",
-                },
-                pre={
-                    "status": previous_status,
-                    "version": original_node_revision.version,
-                },
-                post={
-                    "status": node_validator.status,
-                    "version": downstream.current_version,
-                },
-                user=current_user.username,
+                    post={
+                        "status": node_validator.status,
+                        "version": downstream.current_version,
+                    },
+                    user=current_user.username,
+                ),
+                session=session,
             )
-            session.add(event)
         await session.commit()
 
 
@@ -1025,6 +1055,7 @@ async def create_node_from_inactive(
     current_user: User,
     request_headers: Dict[str, str],
     query_service_client: QueryServiceClient,
+    save_history: Callable,
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn = None,
 ) -> Optional[Node]:
@@ -1076,6 +1107,7 @@ async def create_node_from_inactive(
                 current_user=current_user,
                 background_tasks=background_tasks,
                 validate_access=validate_access,  # type: ignore
+                save_history=save_history,
             )
         else:
             await update_cube_node(
@@ -1087,12 +1119,14 @@ async def create_node_from_inactive(
                 current_user=current_user,
                 background_tasks=background_tasks,
                 validate_access=validate_access,  # type: ignore
+                save_history=save_history,
             )
         try:
             await activate_node(
                 name=data.name,
                 session=session,
                 current_user=current_user,
+                save_history=save_history,
             )
             return await get_node_by_name(session, data.name, with_current=True)
         except Exception as exc:  # pragma: no cover
@@ -1559,6 +1593,7 @@ async def upsert_complex_dimension_link(
     node_name: str,
     link_input: JoinLinkInput,
     current_user: User,
+    save_history: Callable,
 ) -> ActivityType:
     """
     Create or update a node-level dimension link.
@@ -1664,8 +1699,8 @@ async def upsert_complex_dimension_link(
     # Add/update the dimension link in the database
     session.add(dimension_link)
     session.add(node.current)  # type: ignore
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.LINK,
             entity_name=node.name,  # type: ignore
             node=node.name,  # type: ignore
@@ -1678,6 +1713,7 @@ async def upsert_complex_dimension_link(
             },
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
     await session.refresh(node)
@@ -1689,6 +1725,7 @@ async def remove_dimension_link(
     node_name: str,
     link_identifier: LinkDimensionIdentifier,
     current_user: User,
+    save_history: Callable,
 ):
     """
     Removes the dimension link identified by the origin node, the dimension node, and its role.
@@ -1720,13 +1757,14 @@ async def remove_dimension_link(
         if dimension_node.name in cube_dimension_nodes:
             cube.current.status = NodeStatus.INVALID
             session.add(cube)
-            session.add(
-                status_change_history(
+            await save_history(
+                event=status_change_history(
                     cube.current,  # type: ignore
                     NodeStatus.VALID,
                     NodeStatus.INVALID,
                     current_user=current_user,
                 ),
+                session=session,
             )
         await session.commit()
 
@@ -1748,8 +1786,8 @@ async def remove_dimension_link(
             },
         )
 
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.LINK,
             entity_name=node.name,  # type: ignore
             node=node.name,  # type: ignore
@@ -1760,6 +1798,7 @@ async def remove_dimension_link(
             },
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
     await session.refresh(node.current)  # type: ignore
@@ -1787,6 +1826,7 @@ async def propagate_valid_status(
     valid_nodes: List[NodeRevision],
     catalog_id: int,
     current_user: User,
+    save_history: Callable,
 ) -> None:
     """
     Propagate a valid status by revalidating all downstream nodes
@@ -1813,13 +1853,14 @@ async def propagate_valid_status(
                     node.current.columns = node_validator.columns or []
                     node.current.status = NodeStatus.VALID
                     node.current.catalog_id = catalog_id
-                    session.add(
-                        status_change_history(
+                    await save_history(
+                        event=status_change_history(
                             node.current,
                             NodeStatus.INVALID,
                             NodeStatus.VALID,
                             current_user=current_user,
                         ),
+                        session=session,
                     )
                     newly_valid_nodes.append(node.current)
                 session.add(node.current)
@@ -1833,6 +1874,7 @@ async def deactivate_node(
     session: AsyncSession,
     name: str,
     current_user: User,
+    save_history: Callable,
     message: str = None,
 ):
     """
@@ -1845,14 +1887,15 @@ async def deactivate_node(
     for downstream in downstreams:
         if downstream.current.status != NodeStatus.INVALID:
             downstream.current.status = NodeStatus.INVALID
-            session.add(
-                status_change_history(
+            await save_history(
+                event=status_change_history(
                     downstream.current,
                     NodeStatus.VALID,
                     NodeStatus.INVALID,
                     parent_node=node.name,
                     current_user=current_user,
                 ),
+                session=session,
             )
             session.add(downstream)
 
@@ -1866,8 +1909,8 @@ async def deactivate_node(
         second=now.second,
     )
     session.add(node)
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.NODE,
             entity_name=node.name,
             node=node.name,
@@ -1875,6 +1918,7 @@ async def deactivate_node(
             details={"message": message} if message else {},
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
     await session.refresh(node, ["current"])
@@ -1884,6 +1928,7 @@ async def activate_node(
     session: AsyncSession,
     name: str,
     current_user: User,
+    save_history: Callable,
     message: str = None,
 ):
     """Restores node and revalidate all downstreams."""
@@ -1922,19 +1967,20 @@ async def activate_node(
                 downstream.current.status = NodeStatus.INVALID
         session.add(downstream)
         if old_status != downstream.current.status:
-            session.add(
-                status_change_history(
+            await save_history(
+                event=status_change_history(
                     downstream.current,
                     old_status,
                     downstream.current.status,
                     parent_node=node.name,
                     current_user=current_user,
                 ),
+                session=session,
             )
 
     session.add(node)
-    session.add(
-        History(
+    await save_history(
+        event=History(
             entity_type=EntityType.NODE,
             entity_name=node.name,
             node=node.name,
@@ -1942,6 +1988,7 @@ async def activate_node(
             details={"message": message} if message else {},
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()
 
@@ -1950,6 +1997,7 @@ async def revalidate_node(
     name: str,
     session: AsyncSession,
     current_user: User,
+    save_history: Callable,
     update_query_ast: bool = False,
     background_tasks: BackgroundTasks = None,
 ) -> NodeValidator:
@@ -1971,13 +2019,14 @@ async def revalidate_node(
     if current_node_revision.type == NodeType.SOURCE:
         if current_node_revision.status != NodeStatus.VALID:  # pragma: no cover
             current_node_revision.status = NodeStatus.VALID
-            session.add(
-                status_change_history(
+            await save_history(
+                event=status_change_history(
                     current_node_revision,
                     NodeStatus.INVALID,
                     NodeStatus.VALID,
                     current_user=current_user,
                 ),
+                session=session,
             )
             session.add(current_node_revision)
             await session.commit()
@@ -2086,6 +2135,7 @@ async def hard_delete_node(
     name: str,
     session: AsyncSession,
     current_user: User,
+    save_history: Callable,
 ):
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
@@ -2113,19 +2163,21 @@ async def hard_delete_node(
 
     # Revalidate all downstream nodes
     for node in downstream_nodes:
-        session.add(  # Capture this in the downstream node's history
-            History(
+        await save_history(  # Capture this in the downstream node's history
+            event=History(
                 entity_type=EntityType.DEPENDENCY,
                 entity_name=name,
                 node=node.name,
                 activity_type=ActivityType.DELETE,
                 user=current_user.username,
             ),
+            session=session,
         )
         node_validator = await revalidate_node(
             name=node.name,
             session=session,
             current_user=current_user,
+            save_history=save_history,
             update_query_ast=False,
         )
         impact.append(
@@ -2138,19 +2190,21 @@ async def hard_delete_node(
 
     # Revalidate all linked nodes
     for node in linked_nodes:
-        session.add(  # Capture this in the downstream node's history
-            History(
+        await save_history(  # Capture this in the downstream node's history
+            event=History(
                 entity_type=EntityType.LINK,
                 entity_name=name,
                 node=node.name,
                 activity_type=ActivityType.DELETE,
                 user=current_user.username,
             ),
+            session=session,
         )
         node_validator = await revalidate_node(
             name=node.name,
             session=session,
             current_user=current_user,
+            save_history=save_history,
             update_query_ast=False,
         )
         impact.append(
@@ -2160,8 +2214,8 @@ async def hard_delete_node(
                 "effect": "broken link",
             },
         )
-    session.add(  # Capture this in the downstream node's history
-        History(
+    await save_history(  # Capture this in the downstream node's history
+        event=History(
             entity_type=EntityType.NODE,
             entity_name=name,
             node=name,
@@ -2171,6 +2225,7 @@ async def hard_delete_node(
             },
             user=current_user.username,
         ),
+        session=session,
     )
     await session.commit()  # Commit the history events
     return impact
