@@ -1473,7 +1473,7 @@ async def column_lineage(
         col
         for col in query_ast.select.projection
         if (  # pragma: no cover
-            col != ast.Null() and col.alias_or_name.name == column_name  # type: ignore
+            col != ast.Null() and col.alias_or_name.name.lower() == column_name.lower()  # type: ignore
         )
     ][0]
     column_or_child = column.child if isinstance(column, ast.Alias) else column  # type: ignore
