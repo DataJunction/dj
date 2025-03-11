@@ -412,7 +412,7 @@ class TestNodeCRUD:
             json={
                 "description": "Title",
                 "query": (
-                    "SELECT 0 AS title_code, 'Agha' AS title "
+                    "SELECT 0 AS title_code, 'Agha' AS Title "
                     "UNION ALL SELECT 1, 'Abbot' "
                     "UNION ALL SELECT 2, 'Akhoond' "
                     "UNION ALL SELECT 3, 'Apostle'"

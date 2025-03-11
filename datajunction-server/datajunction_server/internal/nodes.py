@@ -1224,7 +1224,9 @@ async def create_new_revision_from_existing(
         type=old_revision.type,
         columns=[
             Column(
-                name=column_data.name,
+                name=column_data.name.lower()
+                if node.type != NodeType.METRIC
+                else column_data.name,
                 type=column_data.type,
                 dimension_column=column_data.dimension,
                 attributes=column_data.attributes or [],
@@ -1471,7 +1473,7 @@ async def column_lineage(
         col
         for col in query_ast.select.projection
         if (  # pragma: no cover
-            col != ast.Null() and col.alias_or_name.name == column_name  # type: ignore
+            col != ast.Null() and col.alias_or_name.name.lower() == column_name.lower()  # type: ignore
         )
     ][0]
     column_or_child = column.child if isinstance(column, ast.Alias) else column  # type: ignore
