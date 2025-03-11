@@ -1224,7 +1224,7 @@ async def create_new_revision_from_existing(
         type=old_revision.type,
         columns=[
             Column(
-                name=column_data.name,
+                name=column_data.name.lower(),
                 type=column_data.type,
                 dimension_column=column_data.dimension,
                 attributes=column_data.attributes or [],
