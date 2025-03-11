@@ -127,7 +127,9 @@ async def validate_node_data(
         try:
             column_type = str(col.type)  # type: ignore
             column = Column(
-                name=column_name.lower(),
+                name=column_name.lower()
+                if validated_node.type != NodeType.METRIC
+                else column_name,
                 display_name=labelize(column_name),
                 type=column_type,
                 attributes=existing_column.attributes if existing_column else [],
