@@ -157,9 +157,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
       - name: Official Gradle Wrapper Validation Action
-        uses: gradle/wrapper-validation-action@v1
+        uses: gradle/actions/wrapper-validation@v3
       - name: Build with Gradle
-        uses: gradle/gradle-build-action@v2
+        uses: gradle/actions/setup-gradle@v3
         with:
           arguments: build -x test
           build-root-directory: ./datajunction-clients/java
