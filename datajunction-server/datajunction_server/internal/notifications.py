@@ -28,4 +28,4 @@ async def get_notification_preferences(
     if entity_type:
         statement = statement.where(NotificationPreference.entity_type == entity_type)
     result = await session.execute(statement)
-    return result.scalar().all()
+    return result.scalars().all()
