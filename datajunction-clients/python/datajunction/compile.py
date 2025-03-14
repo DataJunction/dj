@@ -219,6 +219,7 @@ class ColumnYAML(SerializableMixin):
     name: str
     type: str
     display_name: str | None = None
+    description: str | None = None
     attributes: list[str] | None = None
 
 
@@ -256,6 +257,12 @@ class LinkableNodeYAML(NodeYAML):
                 node.set_column_display_name(
                     column_name=column.name,
                     display_name=column.display_name,
+                )
+            # Deploy description if present
+            if column.description:
+                node.set_column_description(
+                    column_name=column.name,
+                    description=column.description,
                 )
 
     def _deploy_dimension_links(  # pylint: disable=too-many-locals

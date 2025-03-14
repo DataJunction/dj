@@ -75,6 +75,7 @@ export default function EditColumnDescriptionPopover({ column, node, onSubmit })
                     name="description"
                     className="form-control"
                     rows="3"
+                    onChange={e => setFieldValue('description', e.target.value)}
                     defaultValue={column.description || ''}
                   />
                 </div>
