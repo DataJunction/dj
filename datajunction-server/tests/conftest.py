@@ -30,7 +30,7 @@ from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from httpx import AsyncClient
 from pytest_mock import MockerFixture
-from sqlalchemy import StaticPool, insert
+from sqlalchemy import StaticPool, insert, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
@@ -178,6 +178,7 @@ async def session(
         poolclass=StaticPool,
     )
     async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
         await conn.run_sync(Base.metadata.create_all)
     async_session_factory = async_sessionmaker(
         bind=engine,
@@ -774,6 +775,7 @@ async def module__session(
         poolclass=StaticPool,
     )
     async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
         await conn.run_sync(Base.metadata.create_all)
     async_session_factory = async_sessionmaker(
         bind=engine,

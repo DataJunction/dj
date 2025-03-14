@@ -105,10 +105,10 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "foo.bar.avg_repair_order_discounts",
             "foo.bar.avg_time_to_dispatch",
         }
-        assert client.namespace("foo.bar").transforms() == [
+        assert set(client.namespace("foo.bar").transforms()) == {
             "foo.bar.with_custom_metadata",
             "foo.bar.repair_orders_thin",
-        ]
+        }
         assert client.namespace("foo.bar").cubes() == ["foo.bar.cube_one"]
 
     def test_all_nodes(self, client):

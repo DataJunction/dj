@@ -29,7 +29,7 @@ from datajunction_server.utils import (
 from fastapi import Request
 from httpx import AsyncClient
 from pytest_mock import MockerFixture
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -149,6 +149,7 @@ async def module__session(
         poolclass=StaticPool,
     )
     async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
         await conn.run_sync(Base.metadata.create_all)
     async_session_factory = async_sessionmaker(
         bind=engine,
