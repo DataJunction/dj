@@ -14,6 +14,7 @@ from datajunction_server.database.notification_preference import NotificationPre
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.notifications import get_notification_preferences
 from datajunction_server.utils import get_and_update_current_user, get_session
 
 router = SecureAPIRouter(tags=["notifications"])
@@ -95,22 +96,20 @@ async def unsubscribe(
 
 
 @router.get("/notifications/")
-async def get_notification_preferences(
+async def get_user_notification_preferences(
     entity_name: Optional[str] = None,
     entity_type: Optional[EntityType] = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
     """Subscribes to notificaitons by upserting a notification preference"""
-    statement = select(NotificationPreference).where(
-        NotificationPreference.user == current_user,
+    notification_preferences = await get_notification_preferences(
+        session=session,
+        user=current_user,
+        entity_name=entity_name,
+        entity_type=entity_type,
     )
-    if entity_name:
-        statement = statement.where(NotificationPreference.entity_name == entity_name)
-    if entity_type:
-        statement = statement.where(NotificationPreference.entity_type == entity_type)
-    result = await session.execute(statement)
-    notification_preferences = [
+    response = [
         {
             "entity_type": pref.entity_type,
             "entity_name": pref.entity_name,
@@ -119,6 +118,6 @@ async def get_notification_preferences(
             "username": pref.user.username,
             "alert_types": pref.alert_types,
         }
-        for pref in result.scalars().all()
+        for pref in notification_preferences
     ]
-    return JSONResponse(content=notification_preferences)
+    return JSONResponse(content=response)

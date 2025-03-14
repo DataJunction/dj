@@ -67,10 +67,9 @@ app.dependency_overrides[get_notifier] = get_custom_notifier
 
 ## Example Usage
 
-Here's how the `get_notifier` dependency is used within the application to send a notification:
+Here's an illustrative example to help understand how the `get_notifier` dependency is used within the application to send a notification:
 
 ```python
-notify = Depends(get_notifier)
 event = History(
     id=1,
     entity_name="bar",
@@ -81,4 +80,33 @@ notify(event)
 ```
 
 By customizing the `get_notifier` dependency, you can tailor the notification system to suit your specific needs, such
-as integrating with third-party services or implementing advanced notification configuration or logic.
+as integrating with third-party services or implementing advanced notification configuration or logic. Below are the different
+types of entities and activities that DataJunction will pass through the notification dependency.
+
+### Entity types
+
+- ATTRIBUTE
+- AVAILABILITY
+- BACKFILL
+- CATALOG
+- COLUMN_ATTRIBUTE
+- DEPENDENCY
+- ENGINE
+- LINK
+- MATERIALIZATION
+- NAMESPACE
+- NODE
+- PARTITION
+- QUERY
+- TAG
+
+### Activity types
+
+- CREATE
+- DELETE
+- RESTORE
+- UPDATE
+- REFRESH
+- TAG
+- SET_ATTRIBUTE
+- STATUS_CHANGE
