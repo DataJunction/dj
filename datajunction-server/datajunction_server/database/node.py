@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship, selectinload
 from sqlalchemy.sql.base import ExecutableOption
-from sqlalchemy.sql.operators import is_
+from sqlalchemy.sql.operators import is_, or_
 
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.availabilitystate import AvailabilityState
@@ -449,9 +449,13 @@ class Node(Base):
                 Node.name.in_(names),  # type: ignore
             )
         if fragment:
-            statement = statement.where(
-                Node.name.like(f"%{fragment}%"),  # type: ignore
+            statement = statement.join(NodeRevision, Node.current).where(
+                or_(
+                    Node.name.like(f"%{fragment}%"),  # type: ignore
+                    NodeRevision.display_name.ilike(f"%{fragment}%"),  # type: ignore
+                ),
             )
+
         if node_types:
             statement = statement.where(Node.type.in_(node_types))
         if edited_by:
@@ -542,7 +546,15 @@ class NodeRevision(
     """
 
     __tablename__ = "noderevision"
-    __table_args__ = (UniqueConstraint("version", "node_id"),)
+    __table_args__ = (
+        UniqueConstraint("version", "node_id"),
+        Index(
+            "ix_noderevision_display_name",
+            "display_name",
+            postgresql_using="gin",
+            postgresql_ops={"display_name": "gin_trgm_ops"},
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         sa.BigInteger().with_variant(sa.Integer, "sqlite"),
