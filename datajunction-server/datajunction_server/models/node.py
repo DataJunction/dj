@@ -590,7 +590,7 @@ class ColumnOutput(BaseModel):
     name: str
     display_name: Optional[str]
     type: str
-    description: Optional[str] = ""
+    description: Optional[str]
     attributes: Optional[List[AttributeOutput]]
     dimension: Optional[NodeNameOutput]
     partition: Optional[PartitionOutput]
