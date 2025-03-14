@@ -19,6 +19,7 @@ class ColumnYAML(TypedDict, total=False):
 
     type: str
     dimension: str
+    description: str
 
 
 class ColumnTypeDecorator(TypeDecorator):
