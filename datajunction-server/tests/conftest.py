@@ -775,6 +775,7 @@ async def module__session(
         poolclass=StaticPool,
     )
     async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
         await conn.run_sync(Base.metadata.create_all)
     async_session_factory = async_sessionmaker(
         bind=engine,
