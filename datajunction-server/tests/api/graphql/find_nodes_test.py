@@ -290,6 +290,52 @@ async def test_find_by_fragment(
         },
     ]
 
+    query = """
+    {
+        findNodes(fragment: "Repair Ord") {
+            name
+            current {
+                displayName
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodes"] == [
+        {
+            "current": {
+                "displayName": "Avg Repair Order Discounts",
+            },
+            "name": "default.avg_repair_order_discounts",
+        },
+        {
+            "current": {
+                "displayName": "Total Repair Order Discounts",
+            },
+            "name": "default.total_repair_order_discounts",
+        },
+        {
+            "current": {
+                "displayName": "Num Repair Orders",
+            },
+            "name": "default.num_repair_orders",
+        },
+        {
+            "current": {
+                "displayName": "Repair Orders Fact",
+            },
+            "name": "default.repair_orders_fact",
+        },
+        {
+            "current": {
+                "displayName": "Repair Order",
+            },
+            "name": "default.repair_order",
+        },
+    ]
+
 
 @pytest.mark.asyncio
 async def test_find_by_names(
