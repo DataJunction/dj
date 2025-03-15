@@ -39,7 +39,7 @@ class Column(Base):  # type: ignore
         insert_default=lambda context: labelize(context.current_parameters.get("name")),
     )
     type: Mapped[Optional[ColumnType]] = mapped_column(ColumnTypeDecorator)
-    description: Mapped[str] = mapped_column(String, default="")
+    description: Mapped[Optional[str]] = mapped_column()
 
     dimension_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("node.id", ondelete="SET NULL", name="fk_column_dimension_id_node"),
