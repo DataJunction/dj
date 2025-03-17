@@ -1001,6 +1001,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "attributes": [
                 {"attribute_type": {"namespace": "system", "name": "primary_key"}},
             ],
+            "description": None,
             "dimension": None,
             "partition": None,
         } in response["columns"]
@@ -1011,6 +1012,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "attributes": [
                 {"attribute_type": {"namespace": "system", "name": "primary_key"}},
             ],
+            "description": None,
             "dimension": None,
             "partition": None,
         } in response["columns"]
@@ -1046,6 +1048,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert response["columns"] == [
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "State Id",
                 "name": "state_id",
@@ -1054,6 +1057,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Name",
                 "name": "name",
@@ -1062,6 +1066,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Abbr",
                 "name": "abbr",
@@ -1070,6 +1075,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Region",
                 "name": "region",
@@ -1112,6 +1118,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "attributes": [
                     {"attribute_type": {"name": "dimension", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "Contact Title",
                 "name": "contact_title",
@@ -1130,6 +1137,17 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             "My Contact's Title",
         )
         assert response["display_name"] == "My Contact's Title"
+
+    def test_set_column_description(self, client):
+        """
+        Verify setting a column's description
+        """
+        dim = client.source(node_name="default.contractors")
+        response = dim.set_column_description(
+            "contact_title",
+            "The title of my contact",
+        )
+        assert response["description"] == "The title of my contact"
 
     #
     # Tags

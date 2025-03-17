@@ -1087,6 +1087,7 @@ async def test_metric_expression_auto_aliased(module__client_with_roads: AsyncCl
     assert data["columns"] == [
         {
             "attributes": [],
+            "description": None,
             "dimension": None,
             "display_name": "Dream Count 4",
             "name": "basic_DOT_dream_count_4",

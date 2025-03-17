@@ -425,6 +425,7 @@ class TestNodeCRUD:
         assert response.json()["columns"] == [
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Title Code",
                 "name": "title_code",
@@ -435,6 +436,7 @@ class TestNodeCRUD:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "Title",
                 "name": "title",
@@ -452,6 +454,7 @@ class TestNodeCRUD:
         response = await client_with_roads.get("/nodes/default.hard_hats/")
         assert {
             "attributes": [],
+            "description": None,
             "dimension": None,
             "display_name": "Title",
             "name": "title",
@@ -1611,6 +1614,7 @@ class TestNodeCRUD:
                 "type": "int",
                 "display_name": "One",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -1619,6 +1623,7 @@ class TestNodeCRUD:
                 "type": "string",
                 "display_name": "Two",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -1653,6 +1658,7 @@ class TestNodeCRUD:
                 "type": "int",
                 "display_name": "Id",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -1661,6 +1667,7 @@ class TestNodeCRUD:
                 "type": "int",
                 "display_name": "User Id",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -1669,6 +1676,7 @@ class TestNodeCRUD:
                 "type": "timestamp",
                 "display_name": "Timestamp",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -1677,6 +1685,7 @@ class TestNodeCRUD:
                 "type": "string",
                 "display_name": "Text",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -1702,6 +1711,7 @@ class TestNodeCRUD:
         new_columns = [
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Repair Order Id",
                 "name": "repair_order_id",
@@ -1710,6 +1720,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Municipality Id",
                 "name": "municipality_id",
@@ -1718,6 +1729,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Hard Hat Id",
                 "name": "hard_hat_id",
@@ -1726,6 +1738,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Order Date",
                 "name": "order_date",
@@ -1734,6 +1747,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Required Date",
                 "name": "required_date",
@@ -1742,6 +1756,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Dispatched Date",
                 "name": "dispatched_date",
@@ -1750,6 +1765,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Dispatcher Id",
                 "name": "dispatcher_id",
@@ -1758,6 +1774,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Rating",
                 "name": "rating",
@@ -1943,6 +1960,7 @@ class TestNodeCRUD:
         new_columns = [
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Repair Order Id",
                 "name": "repair_order_id",
@@ -1951,6 +1969,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Municipality Id",
                 "name": "municipality_id",
@@ -1959,6 +1978,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Hard Hat Id",
                 "name": "hard_hat_id",
@@ -1967,6 +1987,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Order Date",
                 "name": "order_date",
@@ -1975,6 +1996,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Required Date",
                 "name": "required_date",
@@ -1983,6 +2005,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Dispatched Date",
                 "name": "dispatched_date",
@@ -1991,6 +2014,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Dispatcher Id",
                 "name": "dispatcher_id",
@@ -1999,6 +2023,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Rating",
                 "name": "rating",
@@ -2104,6 +2129,7 @@ class TestNodeCRUD:
         assert data["columns"] == [
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Id",
                 "name": "id",
@@ -2112,6 +2138,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "User Id",
                 "name": "user_id",
@@ -2120,6 +2147,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Timestamp",
                 "name": "timestamp",
@@ -2128,6 +2156,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Text V2",
                 "name": "text_v2",
@@ -2352,6 +2381,7 @@ class TestNodeCRUD:
         assert data["columns"] == [
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Country",
                 "name": "country",
@@ -2360,6 +2390,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Num Users",
                 "name": "num_users",
@@ -2420,6 +2451,7 @@ class TestNodeCRUD:
         assert data["columns"] == [
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Country",
                 "name": "country",
@@ -2428,6 +2460,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Num Users",
                 "name": "num_users",
@@ -2436,6 +2469,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Num Entries",
                 "name": "num_entries",
@@ -2465,6 +2499,7 @@ class TestNodeCRUD:
             "v1.0": [
                 {
                     "attributes": [],
+                    "description": None,
                     "dimension": None,
                     "display_name": "Country",
                     "name": "country",
@@ -2473,6 +2508,7 @@ class TestNodeCRUD:
                 },
                 {
                     "attributes": [],
+                    "description": None,
                     "dimension": None,
                     "display_name": "Num Users",
                     "name": "num_users",
@@ -2483,6 +2519,7 @@ class TestNodeCRUD:
             "v1.1": [
                 {
                     "attributes": [],
+                    "description": None,
                     "dimension": None,
                     "display_name": "Country",
                     "name": "country",
@@ -2491,6 +2528,7 @@ class TestNodeCRUD:
                 },
                 {
                     "attributes": [],
+                    "description": None,
                     "dimension": None,
                     "display_name": "Num Users",
                     "name": "num_users",
@@ -2501,6 +2539,7 @@ class TestNodeCRUD:
             "v2.0": [
                 {
                     "attributes": [],
+                    "description": None,
                     "dimension": None,
                     "display_name": "Country",
                     "name": "country",
@@ -2509,6 +2548,7 @@ class TestNodeCRUD:
                 },
                 {
                     "attributes": [],
+                    "description": None,
                     "dimension": None,
                     "display_name": "Num Users",
                     "name": "num_users",
@@ -2517,6 +2557,7 @@ class TestNodeCRUD:
                 },
                 {
                     "attributes": [],
+                    "description": None,
                     "dimension": None,
                     "display_name": "Num Entries",
                     "name": "num_entries",
@@ -2661,6 +2702,7 @@ class TestNodeCRUD:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "Country",
                 "name": "country",
@@ -2669,6 +2711,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "User Cnt",
                 "name": "user_cnt",
@@ -2692,6 +2735,7 @@ class TestNodeCRUD:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "Country",
                 "name": "country",
@@ -2715,6 +2759,7 @@ class TestNodeCRUD:
         assert data["columns"] == [
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Country",
                 "name": "country",
@@ -2725,6 +2770,7 @@ class TestNodeCRUD:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "Sum Age",
                 "name": "sum_age",
@@ -2733,6 +2779,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Num Users",
                 "name": "num_users",
@@ -2753,6 +2800,7 @@ class TestNodeCRUD:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "Country",
                 "name": "country",
@@ -2761,6 +2809,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Sum Age",
                 "name": "sum_age",
@@ -2769,6 +2818,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Num Users",
                 "name": "num_users",
@@ -2833,6 +2883,7 @@ class TestNodeCRUD:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "Country",
                 "name": "country",
@@ -2841,6 +2892,7 @@ class TestNodeCRUD:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "User Cnt",
                 "name": "user_cnt",
@@ -2974,6 +3026,7 @@ GROUP BY
         )
         assert {
             "attributes": [],
+            "description": None,
             "dimension": None,
             "name": "measures",
             "type": "struct<completed_repairs bigint,"
@@ -3429,6 +3482,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             "attributes": [
                 {"attribute_type": {"name": "primary_key", "namespace": "system"}},
             ],
+            "description": None,
             "dimension": None,
             "display_name": "test",
             "name": "hard_hat_id",
@@ -3547,6 +3601,7 @@ class TestNodeColumnsAttributes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -3585,6 +3640,7 @@ class TestNodeColumnsAttributes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -3602,6 +3658,7 @@ class TestNodeColumnsAttributes:
                 "type": "int",
                 "display_name": "Id",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -3628,6 +3685,7 @@ class TestNodeColumnsAttributes:
                 "attributes": [
                     {"attribute_type": {"name": "hidden", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -3723,6 +3781,7 @@ class TestNodeColumnsAttributes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": {"name": "basic.dimension.users"},
                 "partition": None,
             },
@@ -3783,6 +3842,7 @@ class TestNodeColumnsAttributes:
                 "type": "int",
                 "display_name": "Id",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -3794,6 +3854,7 @@ class TestNodeColumnsAttributes:
                     {"attribute_type": {"namespace": "system", "name": "primary_key"}},
                 ],
                 "dimension": {"name": "basic.dimension.users"},
+                "description": None,
                 "partition": None,
             },
             {
@@ -3801,6 +3862,7 @@ class TestNodeColumnsAttributes:
                 "type": "timestamp",
                 "display_name": "Timestamp",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -3809,6 +3871,7 @@ class TestNodeColumnsAttributes:
                 "type": "string",
                 "display_name": "Text",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -3817,6 +3880,7 @@ class TestNodeColumnsAttributes:
                 "type": "timestamp",
                 "display_name": "Event Timestamp",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -3825,6 +3889,7 @@ class TestNodeColumnsAttributes:
                 "type": "timestamp",
                 "display_name": "Created At",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -3833,6 +3898,7 @@ class TestNodeColumnsAttributes:
                 "type": "timestamp",
                 "display_name": "Post Processing Timestamp",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -3868,6 +3934,7 @@ class TestValidateNodes:
         assert data["columns"] == [
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Payment Id",
                 "name": "payment_id",
@@ -3976,6 +4043,7 @@ class TestValidateNodes:
             "columns": [
                 {
                     "attributes": [],
+                    "description": None,
                     "dimension": None,
                     "display_name": "Col0",
                     "name": "col0",
@@ -4021,6 +4089,7 @@ class TestValidateNodes:
         assert data["columns"] == [
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Col0",
                 "name": "col0",
@@ -4226,6 +4295,7 @@ class TestValidateNodes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "Hard Hat Id",
                 "name": "hard_hat_id",
@@ -4234,6 +4304,7 @@ class TestValidateNodes:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Title",
                 "name": "title",
@@ -4242,6 +4313,7 @@ class TestValidateNodes:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "State",
                 "name": "state",
@@ -4602,6 +4674,7 @@ class TestValidateNodes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "Us Region Id",
                 "name": "us_region_id",
@@ -4612,6 +4685,7 @@ class TestValidateNodes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "State Name",
                 "name": "state_name",
@@ -4620,6 +4694,7 @@ class TestValidateNodes:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Location Hierarchy",
                 "name": "location_hierarchy",
@@ -4630,6 +4705,7 @@ class TestValidateNodes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "Order Year",
                 "name": "order_year",
@@ -4640,6 +4716,7 @@ class TestValidateNodes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "Order Month",
                 "name": "order_month",
@@ -4650,6 +4727,7 @@ class TestValidateNodes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "description": None,
                 "dimension": None,
                 "display_name": "Order Day",
                 "name": "order_day",
@@ -4658,6 +4736,7 @@ class TestValidateNodes:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Completed Repairs",
                 "name": "completed_repairs",
@@ -4666,6 +4745,7 @@ class TestValidateNodes:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Total Repairs Dispatched",
                 "name": "total_repairs_dispatched",
@@ -4674,6 +4754,7 @@ class TestValidateNodes:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Total Amount In Region",
                 "name": "total_amount_in_region",
@@ -4682,6 +4763,7 @@ class TestValidateNodes:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Avg Repair Amount In Region",
                 "name": "avg_repair_amount_in_region",
@@ -4690,6 +4772,7 @@ class TestValidateNodes:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Avg Dispatch Delay",
                 "name": "avg_dispatch_delay",
@@ -4698,6 +4781,7 @@ class TestValidateNodes:
             },
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Unique Contractors",
                 "name": "unique_contractors",
@@ -4714,6 +4798,7 @@ class TestValidateNodes:
         assert response["columns"] == [
             {
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "display_name": "Regional Repair Efficiency",
                 "name": "default_DOT_regional_repair_efficiency",
@@ -5428,6 +5513,7 @@ async def test_set_column_partition(client_with_roads: AsyncClient):
     )
     assert response.json() == {
         "attributes": [],
+        "description": None,
         "dimension": None,
         "display_name": "Hire Date",
         "name": "hire_date",
@@ -5449,6 +5535,7 @@ async def test_set_column_partition(client_with_roads: AsyncClient):
     )
     assert response.json() == {
         "attributes": [],
+        "description": None,
         "dimension": None,
         "display_name": "State",
         "name": "state",
@@ -5508,6 +5595,7 @@ async def test_set_column_partition(client_with_roads: AsyncClient):
     )
     assert response.json() == {
         "attributes": [],
+        "description": None,
         "dimension": None,
         "display_name": "Country",
         "name": "country",
