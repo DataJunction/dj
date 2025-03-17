@@ -161,10 +161,13 @@ async def get_measures_query(
     # Find any dimensions referenced in the metric definitions and add to requested dimensions
     dimensions.extend(
         ref.identifier()
-        for metrics in common_parents.values()
-        for metric in metrics
-        for ref in parse(metric.query).find_all(ast.Column)
-        if SEPARATOR in ref.identifier().rsplit(SEPARATOR, 1)[0]
+        for metric in metric_nodes
+        for ref in parse(metric.current.query).find_all(ast.Column)
+        if (
+            (parts := ref.identifier().rsplit(SEPARATOR, 1))
+            and len(parts) > 1
+            and SEPARATOR in parts[0]
+        )
     )
 
     dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
@@ -743,7 +746,7 @@ class QueryBuilder:
                     ast.Column(
                         ast.Name(col.alias_or_name.name),  # type: ignore
                         _table=node_ast,
-                        _type=type(col),  # type: ignore
+                        _type=col.type,  # type: ignore
                     )
                     for col in node_ast.select.projection
                 ],
@@ -1109,7 +1112,7 @@ class CubeQueryBuilder:
         for metric in self.metric_nodes:
             metric_ast = parse(metric.current.query)
             for ref in metric_ast.find_all(ast.Column):
-                if SEPARATOR in ref.identifier():
+                if SEPARATOR in ref.identifier().rsplit(SEPARATOR, 1)[0]:
                     self.add_dimension(ref.identifier())
 
         measures_queries = await self.build_measures_queries()
@@ -1124,7 +1127,7 @@ class CubeQueryBuilder:
                 projection=[
                     ast.Column(
                         name=ast.Name(proj.alias, namespace=initial_cte.alias),  # type: ignore
-                        _type=type(proj),  # type: ignore
+                        _type=proj.type,  # type: ignore
                         semantic_entity=proj.semantic_entity,  # type: ignore
                         semantic_type=proj.semantic_type,  # type: ignore
                     )
