@@ -745,7 +745,9 @@ export const DataJunctionAPI = {
 
   setColumnDescription: async function (nodeName, columnName, description) {
     const response = await fetch(
-      `${DJ_URL}/nodes/${nodeName}/columns/${columnName}/description?description=${encodeURIComponent(description)}`,
+      `${DJ_URL}/nodes/${nodeName}/columns/${columnName}/description?description=${encodeURIComponent(
+        description,
+      )}`,
       {
         method: 'PATCH',
         credentials: 'include',
