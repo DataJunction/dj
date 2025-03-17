@@ -12,17 +12,17 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision = '135fa5833fed'
-down_revision = 'ae9eba981a2d'
+revision = "135fa5833fed"
+down_revision = "ae9eba981a2d"
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
-    with op.batch_alter_table('column', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('description', sa.String(), nullable=True))
+    with op.batch_alter_table("column", schema=None) as batch_op:
+        batch_op.add_column(sa.Column("description", sa.String(), nullable=True))
 
 
 def downgrade():
-    with op.batch_alter_table('column', schema=None) as batch_op:
-        batch_op.drop_column('description')
+    with op.batch_alter_table("column", schema=None) as batch_op:
+        batch_op.drop_column("description")
