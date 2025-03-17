@@ -1628,6 +1628,7 @@ async def set_column_display_name(
     column = await get_column(session, node.current, column_name)  # type: ignore
     column.display_name = display_name
     session.add(column)
+    await session.commit()
     await save_history(
         event=History(
             entity_type=EntityType.COLUMN_ATTRIBUTE,
@@ -1641,7 +1642,6 @@ async def set_column_display_name(
         ),
         session=session,
     )
-    await session.commit()
     return column
 
 
@@ -1670,6 +1670,7 @@ async def set_column_description(
     column = await get_column(session, node.current, column_name)  # type: ignore
     column.description = description
     session.add(column)
+    await session.commit()
     await save_history(
         event=History(
             entity_type=EntityType.COLUMN_ATTRIBUTE,
@@ -1683,7 +1684,6 @@ async def set_column_description(
         ),
         session=session,
     )
-    await session.commit()
     return column
 
 
