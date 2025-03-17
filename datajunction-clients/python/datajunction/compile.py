@@ -258,8 +258,8 @@ class LinkableNodeYAML(NodeYAML):
                     column_name=column.name,
                     display_name=column.display_name,
                 )
-            # Deploy description if present
-            if column.description:
+            # Deploy description if present (empty string counts as present)
+            if column.description is not None:
                 node.set_column_description(
                     column_name=column.name,
                     description=column.description,
