@@ -323,6 +323,7 @@ def test_compile_deploying_a_project(
         "/nodes/projects.project1.roads.regional_level_agg",
     ).json()
     assert response["columns"][2]["display_name"] == "Location (Hierarchy)"
+    assert response["columns"][2]["description"] == "The hierarchy of the location"
     assert response["columns"][2]["attributes"] == [
         {"attribute_type": {"namespace": "system", "name": "dimension"}},
     ]
