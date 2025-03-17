@@ -3491,6 +3491,28 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         }
 
     @pytest.mark.asyncio
+    async def test_update_column_description(self, client_with_roads: AsyncClient):
+        """
+        Test that updating a column description works.
+        """
+        response = await client_with_roads.patch(
+            url="/nodes/default.hard_hat/columns/hard_hat_id/description",
+            params={"description": "test description"},
+        )
+        assert response.status_code == 201
+        assert response.json() == {
+            "attributes": [
+                {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+            ],
+            "description": "test description",
+            "dimension": None,
+            "display_name": "Hard Hat Id",
+            "name": "hard_hat_id",
+            "type": "int",
+            "partition": None,
+        }
+
+    @pytest.mark.asyncio
     async def test_backfill_failures(self, client_with_query_service):
         """Run backfill failure modes"""
 
