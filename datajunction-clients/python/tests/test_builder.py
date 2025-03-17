@@ -1131,6 +1131,17 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         )
         assert response["display_name"] == "My Contact's Title"
 
+    def test_set_column_description(self, client):
+        """
+        Verify setting a column's description
+        """
+        dim = client.source(node_name="default.contractors")
+        response = dim.set_column_description(
+            "contact_description",
+            "My Contact's Description",
+        )
+        assert response["display_name"] == "My Contact's Description"
+
     #
     # Tags
     #
