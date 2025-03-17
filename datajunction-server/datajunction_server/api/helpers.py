@@ -878,6 +878,13 @@ async def build_sql_for_dj_query(  # pragma: no cover
     )
 
 
+def try_column_type(col):
+    try:
+        return col.type
+    except:  # noqa: E722
+        return None
+
+
 def assemble_column_metadata(
     column: ast.Column,
     # node_name: Union[List[str], str],
@@ -887,7 +894,7 @@ def assemble_column_metadata(
     """
     metadata = ColumnMetadata(
         name=column.alias_or_name.name,
-        type=str(type(column)),
+        type=str(try_column_type(column)),
         column=(
             column.semantic_entity.split(SEPARATOR)[-1]
             if hasattr(column, "semantic_entity") and column.semantic_entity
