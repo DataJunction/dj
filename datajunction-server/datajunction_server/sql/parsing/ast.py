@@ -2730,6 +2730,16 @@ class Query(TableExpression, UnNamed):
                     if result:
                         matching_origin_tables += 1
                         col._is_compiled = True
+                elif SEPARATOR in col.identifier():
+                    dimension_node = col.identifier().rsplit(SEPARATOR, 1)[0]
+                    if (
+                        SEPARATOR in dimension_node
+                        and dimension_node == option.identifier()
+                    ):
+                        result = option.add_column_reference(col)
+                        if result:
+                            matching_origin_tables += 1
+                            col._is_compiled = True
             if matching_origin_tables > 1:
                 ctx.exception.errors.append(
                     DJError(
@@ -2746,6 +2756,11 @@ class Query(TableExpression, UnNamed):
             cte.alias_or_name.name: cte
             for cte in (nearest_query.ctes if nearest_query else [])
         }
+        referenced_dimension_options = [
+            Table(Name(col.identifier().rsplit(SEPARATOR, 1)[0]))
+            for col in self.select.find_all(Column)
+            if SEPARATOR in col.identifier().rsplit(SEPARATOR, 1)[0]
+        ]
         table_options = (
             [
                 tbl
@@ -2754,7 +2769,7 @@ class Query(TableExpression, UnNamed):
             ]
             if self.select.from_
             else []
-        )
+        ) + referenced_dimension_options
         if table_options:
             for idx, option in enumerate(table_options):
                 if isinstance(option, Table):

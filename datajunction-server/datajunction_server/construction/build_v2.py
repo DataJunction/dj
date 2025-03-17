@@ -157,6 +157,15 @@ async def get_measures_query(
 
     column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
     matcher = re.compile(column_name_regex)
+
+    # Find any dimensions referenced in the metric definitions and add to requested dimensions
+    for parent_node, children in common_parents.items():  # type: ignore
+        for metric in children:
+            metric_ast = parse(metric.query)
+            for ref in metric_ast.find_all(ast.Column):
+                if "." in ref.identifier():
+                    dimensions.append(ref.identifier())
+
     dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
 
     measures_queries = []
@@ -370,6 +379,13 @@ def build_preaggregate_query(
             final_query.select.projection.extend(component_ast.select.projection)
             final_query.select.group_by.extend(component_ast.select.group_by or [])
     return final_query
+
+
+def try_column_type(col):
+    try:
+        return col.type
+    except:  # noqa: E722
+        return None
 
 
 class QueryBuilder:
@@ -733,7 +749,7 @@ class QueryBuilder:
                     ast.Column(
                         ast.Name(col.alias_or_name.name),  # type: ignore
                         _table=node_ast,
-                        _type=col.type,  # type: ignore
+                        _type=try_column_type(col),  # type: ignore
                     )
                     for col in node_ast.select.projection
                 ],
@@ -1096,6 +1112,12 @@ class CubeQueryBuilder:
         Builds SQL for multiple metrics with the requested set of dimensions,
         filter expressions, order by, and limit clauses.
         """
+        for metric in self.metric_nodes:
+            metric_ast = parse(metric.current.query)
+            for ref in metric_ast.find_all(ast.Column):
+                if "." in ref.identifier():
+                    self.add_dimension(ref.identifier())
+
         measures_queries = await self.build_measures_queries()
 
         # Join together the transforms on the shared dimensions and select all
@@ -1108,7 +1130,7 @@ class CubeQueryBuilder:
                 projection=[
                     ast.Column(
                         name=ast.Name(proj.alias, namespace=initial_cte.alias),  # type: ignore
-                        _type=proj.type,  # type: ignore
+                        _type=try_column_type(proj),  # type: ignore
                         semantic_entity=proj.semantic_entity,  # type: ignore
                         semantic_type=proj.semantic_type,  # type: ignore
                     )
@@ -1261,8 +1283,14 @@ class CubeQueryBuilder:
             SemanticType.METRIC,
         )
         for col in metric_query.ctes[-1].select.find_all(ast.Column):
+            column_identifier = SEPARATOR.join(name.name for name in col.namespace)
+            node_name = (
+                column_identifier.rsplit(SEPARATOR, 1)[0]
+                if SEPARATOR in column_identifier
+                else parent_node.name
+            )
             col._table = ast.Table(
-                name=ast.Name(name=amenable_name(parent_node.name)),
+                name=ast.Name(name=amenable_name(node_name)),
             )
         return metric_query.ctes[-1].select.projection
 
