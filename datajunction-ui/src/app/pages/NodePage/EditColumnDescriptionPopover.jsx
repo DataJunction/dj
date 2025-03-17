@@ -5,7 +5,11 @@ import { Form, Formik } from 'formik';
 import EditIcon from '../../icons/EditIcon';
 import { displayMessageAfterSubmit } from '../../../utils/form';
 
-export default function EditColumnDescriptionPopover({ column, node, onSubmit }) {
+export default function EditColumnDescriptionPopover({
+  column,
+  node,
+  onSubmit,
+}) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [popoverAnchor, setPopoverAnchor] = useState(false);
   const ref = useRef(null);
@@ -27,7 +31,11 @@ export default function EditColumnDescriptionPopover({ column, node, onSubmit })
     { setSubmitting, setStatus },
   ) => {
     setSubmitting(false);
-    const response = await djClient.setColumnDescription(node, column, description);
+    const response = await djClient.setColumnDescription(
+      node,
+      column,
+      description,
+    );
     if (response.status === 200 || response.status === 201) {
       setStatus({ success: 'Saved!' });
     } else {
