@@ -159,12 +159,13 @@ async def get_measures_query(
     matcher = re.compile(column_name_regex)
 
     # Find any dimensions referenced in the metric definitions and add to requested dimensions
-    for parent_node, children in common_parents.items():  # type: ignore
-        for metric in children:
-            metric_ast = parse(metric.query)
-            for ref in metric_ast.find_all(ast.Column):
-                if "." in ref.identifier():
-                    dimensions.append(ref.identifier())
+    dimensions.extend(
+        ref.identifier()
+        for metrics in common_parents.values()
+        for metric in metrics
+        for ref in parse(metric.query).find_all(ast.Column)
+        if SEPARATOR in ref.identifier().rsplit(SEPARATOR, 1)[0]
+    )
 
     dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
 
@@ -1108,7 +1109,7 @@ class CubeQueryBuilder:
         for metric in self.metric_nodes:
             metric_ast = parse(metric.current.query)
             for ref in metric_ast.find_all(ast.Column):
-                if "." in ref.identifier():
+                if SEPARATOR in ref.identifier():
                     self.add_dimension(ref.identifier())
 
         measures_queries = await self.build_measures_queries()
