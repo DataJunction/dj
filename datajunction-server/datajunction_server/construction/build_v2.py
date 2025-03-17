@@ -381,13 +381,6 @@ def build_preaggregate_query(
     return final_query
 
 
-def try_column_type(col):
-    try:
-        return col.type
-    except:  # noqa: E722
-        return None
-
-
 class QueryBuilder:
     """
     This class allows users to configure building node SQL by incrementally building out
@@ -749,7 +742,7 @@ class QueryBuilder:
                     ast.Column(
                         ast.Name(col.alias_or_name.name),  # type: ignore
                         _table=node_ast,
-                        _type=try_column_type(col),  # type: ignore
+                        _type=type(col),  # type: ignore
                     )
                     for col in node_ast.select.projection
                 ],
@@ -1130,7 +1123,7 @@ class CubeQueryBuilder:
                 projection=[
                     ast.Column(
                         name=ast.Name(proj.alias, namespace=initial_cte.alias),  # type: ignore
-                        _type=try_column_type(proj),  # type: ignore
+                        _type=type(proj),  # type: ignore
                         semantic_entity=proj.semantic_entity,  # type: ignore
                         semantic_type=proj.semantic_type,  # type: ignore
                     )
