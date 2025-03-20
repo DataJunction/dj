@@ -1,5 +1,11 @@
 import React from 'react';
-import { render, fireEvent, waitFor, screen, within } from '@testing-library/react';
+import {
+  render,
+  fireEvent,
+  waitFor,
+  screen,
+  within,
+} from '@testing-library/react';
 import EditColumnDescriptionPopover from '../EditColumnDescriptionPopover';
 import DJClientContext from '../../../providers/djclient';
 
@@ -43,18 +49,18 @@ describe('<EditColumnDescriptionPopover />', () => {
     // Update the description
     const dialog = screen.getByRole('dialog', { name: /edit-description/i });
     const descriptionTextarea = within(dialog).getByRole('textbox');
-    fireEvent.change(descriptionTextarea, { target: { value: 'Updated description' } });
+    fireEvent.change(descriptionTextarea, {
+      target: { value: 'Updated description' },
+    });
 
     // Submit the form
     fireEvent.click(screen.getByText('Save'));
 
     // Expect setColumnDescription to be called
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.setColumnDescription).toHaveBeenCalledWith(
-        'default.node1',
-        'column1',
-        'Updated description',
-      );
+      expect(
+        mockDjClient.DataJunctionAPI.setColumnDescription,
+      ).toHaveBeenCalledWith('default.node1', 'column1', 'Updated description');
       expect(screen.getByText('Saved!')).toBeInTheDocument();
       expect(onSubmitMock).toHaveBeenCalled();
     });
@@ -93,18 +99,18 @@ describe('<EditColumnDescriptionPopover />', () => {
     // Update the description
     const dialog = screen.getByRole('dialog', { name: /edit-description/i });
     const descriptionTextarea = within(dialog).getByRole('textbox');
-    fireEvent.change(descriptionTextarea, { target: { value: 'Updated description' } });
+    fireEvent.change(descriptionTextarea, {
+      target: { value: 'Updated description' },
+    });
 
     // Submit the form
     fireEvent.click(screen.getByText('Save'));
 
     // Expect setColumnDescription to be called and the failure message to show up
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.setColumnDescription).toHaveBeenCalledWith(
-        'default.node1',
-        'column1',
-        'Updated description',
-      );
+      expect(
+        mockDjClient.DataJunctionAPI.setColumnDescription,
+      ).toHaveBeenCalledWith('default.node1', 'column1', 'Updated description');
       expect(screen.getByText('Server error')).toBeInTheDocument();
       expect(onSubmitMock).toHaveBeenCalled();
     });
