@@ -154,6 +154,19 @@ async def get_measures_query(
 
     column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
     matcher = re.compile(column_name_regex)
+
+    # Find any dimensions referenced in the metric definitions and add to requested dimensions
+    dimensions.extend(
+        ref.identifier()
+        for metric in metric_nodes
+        for ref in parse(metric.current.query).find_all(ast.Column)
+        if (
+            (parts := ref.identifier().rsplit(SEPARATOR, 1))
+            and len(parts) > 1
+            and SEPARATOR in parts[0]
+        )
+    )
+
     dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
 
     measures_queries = []
@@ -994,6 +1007,12 @@ class CubeQueryBuilder:
         Builds SQL for multiple metrics with the requested set of dimensions,
         filter expressions, order by, and limit clauses.
         """
+        for metric in self.metric_nodes:
+            metric_ast = parse(metric.current.query)
+            for ref in metric_ast.find_all(ast.Column):
+                if SEPARATOR in ref.identifier().rsplit(SEPARATOR, 1)[0]:
+                    self.add_dimension(ref.identifier())
+
         measures_queries = await self.build_measures_queries()
 
         # Join together the transforms on the shared dimensions and select all
@@ -1158,8 +1177,14 @@ class CubeQueryBuilder:
             SemanticType.METRIC,
         )
         for col in metric_query.ctes[-1].select.find_all(ast.Column):
+            column_identifier = SEPARATOR.join(name.name for name in col.namespace)
+            node_name = (
+                column_identifier.rsplit(SEPARATOR, 1)[0]
+                if SEPARATOR in column_identifier
+                else parent_node.name
+            )
             col._table = ast.Table(
-                name=ast.Name(name=amenable_name(parent_node.name)),
+                name=ast.Name(name=amenable_name(node_name)),
             )
         return metric_query.ctes[-1].select.projection
 
