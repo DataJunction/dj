@@ -407,6 +407,20 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
             display_name,
         )
 
+    def set_column_description(
+        self,
+        column_name: str,
+        description: str,
+    ):
+        """
+        Set the description for a column on the node
+        """
+        return self.dj_client._set_column_description(
+            self.name,
+            column_name,
+            description,
+        )
+
 
 @dataclass
 class Source(Node):

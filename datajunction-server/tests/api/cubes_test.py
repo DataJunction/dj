@@ -1541,6 +1541,7 @@ async def test_updating_cube(
                 "display_name": "Discounted Orders Rate",
                 "type": "double",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -1549,6 +1550,7 @@ async def test_updating_cube(
                 "display_name": "City",
                 "type": "string",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": None,
             },
@@ -1557,6 +1559,7 @@ async def test_updating_cube(
                 "display_name": "Hire Date",
                 "type": "timestamp",
                 "attributes": [],
+                "description": None,
                 "dimension": None,
                 "partition": {
                     "type_": "temporal",

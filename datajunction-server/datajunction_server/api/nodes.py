@@ -1628,6 +1628,7 @@ async def set_column_display_name(
     column = await get_column(session, node.current, column_name)  # type: ignore
     column.display_name = display_name
     session.add(column)
+    await session.commit()
     await save_history(
         event=History(
             entity_type=EntityType.COLUMN_ATTRIBUTE,
@@ -1641,7 +1642,48 @@ async def set_column_display_name(
         ),
         session=session,
     )
+    return column
+
+
+@router.patch(
+    "/nodes/{node_name}/columns/{column_name}/description",
+    response_model=ColumnOutput,
+    status_code=201,
+)
+async def set_column_description(
+    node_name: str,
+    column_name: str,
+    description: str,
+    current_user: User = Depends(get_and_update_current_user),
+    save_history: Callable = Depends(get_save_history),
+    *,
+    session: AsyncSession = Depends(get_session),
+) -> ColumnOutput:
+    """
+    Set column description for the node
+    """
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[joinedload(Node.current)],
+    )
+    column = await get_column(session, node.current, column_name)  # type: ignore
+    column.description = description
+    session.add(column)
     await session.commit()
+    await save_history(
+        event=History(
+            entity_type=EntityType.COLUMN_ATTRIBUTE,
+            node=node.name,  # type: ignore
+            activity_type=ActivityType.UPDATE,
+            details={
+                "column": column.name,
+                "description": description,
+            },
+            user=current_user.username,
+        ),
+        session=session,
+    )
     return column
 
 

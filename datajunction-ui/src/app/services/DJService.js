@@ -742,6 +742,19 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
+
+  setColumnDescription: async function (nodeName, columnName, description) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/columns/${columnName}/description?description=${encodeURIComponent(
+        description,
+      )}`,
+      {
+        method: 'PATCH',
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
   dimensions: async function () {
     return await (
       await fetch(`${DJ_URL}/dimensions`, {
