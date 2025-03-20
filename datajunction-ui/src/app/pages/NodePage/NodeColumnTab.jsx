@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import * as React from 'react';
 import EditColumnPopover from './EditColumnPopover';
+import EditColumnDescriptionPopover from './EditColumnDescriptionPopover';
 import LinkDimensionPopover from './LinkDimensionPopover';
 import { labelize } from '../../../utils/form';
 import PartitionColumnPopover from './PartitionColumnPopover';
@@ -115,6 +116,24 @@ export default function NodeColumnTab({ node, djClient }) {
           </td>
           <td>
             <span
+              className=""
+              role="columnheader"
+              aria-label="ColumnDescription"
+              aria-hidden="false"
+            >
+              {col.description || ''}
+              <EditColumnDescriptionPopover
+                column={col}
+                node={node}
+                onSubmit={async () => {
+                  const res = await djClient.node(node.name);
+                  setColumns(res.columns);
+                }}
+              />
+            </span>
+          </td>
+          <td>
+            <span
               className={`node_type__${
                 node.type === 'cube' ? col.type : 'transform'
               } badge node_type`}
@@ -188,6 +207,7 @@ export default function NodeColumnTab({ node, djClient }) {
             <tr>
               <th className="text-start">Column</th>
               <th>Display Name</th>
+              <th>Description</th>
               <th>Type</th>
               {node?.type !== 'cube' ? (
                 <>

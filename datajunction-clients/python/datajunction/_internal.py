@@ -572,6 +572,21 @@ class DJClient:
         )
         return response.json()
 
+    def _set_column_description(
+        self,
+        node_name,
+        column_name,
+        description: str,
+    ):
+        """
+        Sets description for the column on the node
+        """
+        response = self._session.patch(
+            f"/nodes/{node_name}/columns/{column_name}/description/",
+            params={"description": description},
+        )
+        return response.json()
+
     def _find_nodes_with_dimension(
         self,
         node_name,

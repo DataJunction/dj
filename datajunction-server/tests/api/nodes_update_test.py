@@ -165,6 +165,7 @@ async def test_update_source_node(
     assert data["columns"] == [
         {
             "attributes": [],
+            "description": None,
             "dimension": None,
             "display_name": "Total Amount",
             "name": "total_amount",
