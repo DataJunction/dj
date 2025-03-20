@@ -72,7 +72,7 @@ def rename_columns(
             and not (hasattr(expression, "alias") and expression.alias)  # type: ignore
         ):
             alias_name = expression.alias_or_name.identifier(False)  # type: ignore
-            if expression.alias_or_name.name in node_columns:  # type: ignore  # pragma: no cover
+            if expression.alias_or_name.name.lower() in node_columns:  # type: ignore  # pragma: no cover
                 alias_name = node.name + SEPARATOR + expression.alias_or_name.name  # type: ignore
             expression = expression.copy()
             expression.set_semantic_entity(alias_name)  # type: ignore
