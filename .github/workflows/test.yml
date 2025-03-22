@@ -150,16 +150,14 @@ jobs:
       run:
         working-directory: ./datajunction-clients/java
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up JDK 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-      - name: Official Gradle Wrapper Validation Action
-        uses: gradle/actions/wrapper-validation@v3
       - name: Build with Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
         with:
           arguments: build -x test
           build-root-directory: ./datajunction-clients/java
