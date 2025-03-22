@@ -88,27 +88,25 @@ class MeasureExtractor:
         Handles measures decomposition for a single-argument associative aggregation function.
         Examples: SUM, MAX, MIN, COUNT
         """
-        measures = []
-        for arg in func.args:
-            measure_name = "_".join(
-                [str(col) for col in arg.find_all(ast.Column)]
-                + [func.name.name.lower()],
-            )
-            expression = f"{func.quantifier} {arg}" if func.quantifier else str(arg)
-            short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
-            measures.append(
-                Measure(
-                    name=f"{measure_name}_{short_hash}",
-                    expression=expression,
-                    aggregation=func.name.name.upper(),
-                    rule=AggregationRule(
-                        type=Aggregability.FULL
-                        if func.quantifier != ast.SetQuantifier.Distinct
-                        else Aggregability.LIMITED,
-                    ),
+        arg = func.args[0]
+        measure_name = "_".join(
+            [str(col) for col in arg.find_all(ast.Column)] + [func.name.name.lower()],
+        )
+        expression = f"{func.quantifier} {arg}" if func.quantifier else str(arg)
+        short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
+
+        return [
+            Measure(
+                name=f"{measure_name}_{short_hash}",
+                expression=expression,
+                aggregation=func.name.name.upper(),
+                rule=AggregationRule(
+                    type=Aggregability.FULL
+                    if func.quantifier != ast.SetQuantifier.Distinct
+                    else Aggregability.LIMITED,
                 ),
-            )
-        return measures
+            ),
+        ]
 
     def _avg(self, func) -> list[Measure]:
         """

@@ -618,6 +618,38 @@ def test_unsupported_aggregation_function():
     )
 
 
+def test_count_if():
+    """
+    Test decomposition for count_if.
+    """
+    extractor = MeasureExtractor.from_query_string(
+        "SELECT CAST(COUNT_IF(ARRAY_CONTAINS(field_a, 'xyz')) AS FLOAT) / COUNT(*) "
+        "FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+    expected_measures = [
+        Measure(
+            name="field_a_count_if_c1f2ed10",
+            expression="ARRAY_CONTAINS(field_a, 'xyz')",
+            aggregation="COUNT_IF",
+            rule=AggregationRule(type=Aggregability.FULL),
+        ),
+        Measure(
+            name="count_3389dae3",
+            expression="*",
+            aggregation="COUNT",
+            rule=AggregationRule(type=Aggregability.FULL),
+        ),
+    ]
+    assert measures == expected_measures
+    assert str(derived_sql) == str(
+        parse(
+            "SELECT CAST(COUNT_IF(field_a_count_if_c1f2ed10) AS FLOAT) / SUM(count_3389dae3) "
+            "FROM parent_node",
+        ),
+    )
+
+
 def test_metric_query_with_aliases():
     """
     Test behavior when the query contains unsupported aggregation functions. We just return an
