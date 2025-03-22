@@ -22,8 +22,11 @@ class MeasureExtractor:
         self.handlers = {
             dj_functions.Sum: self._simple_associative_agg,
             dj_functions.Count: self._simple_associative_agg,
+            dj_functions.CountIf: self._simple_associative_agg,
             dj_functions.Max: self._simple_associative_agg,
+            dj_functions.MaxBy: self._simple_associative_agg,
             dj_functions.Min: self._simple_associative_agg,
+            dj_functions.MinBy: self._simple_associative_agg,
             dj_functions.Avg: self._avg,
             dj_functions.AnyValue: self._simple_associative_agg,
         }
@@ -85,25 +88,27 @@ class MeasureExtractor:
         Handles measures decomposition for a single-argument associative aggregation function.
         Examples: SUM, MAX, MIN, COUNT
         """
-        arg = func.args[0]
-        measure_name = "_".join(
-            [str(col) for col in arg.find_all(ast.Column)] + [func.name.name.lower()],
-        )
-        expression = f"{func.quantifier} {arg}" if func.quantifier else str(arg)
-        short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
-
-        return [
-            Measure(
-                name=f"{measure_name}_{short_hash}",
-                expression=expression,
-                aggregation=func.name.name.upper(),
-                rule=AggregationRule(
-                    type=Aggregability.FULL
-                    if func.quantifier != ast.SetQuantifier.Distinct
-                    else Aggregability.LIMITED,
+        measures = []
+        for arg in func.args:
+            measure_name = "_".join(
+                [str(col) for col in arg.find_all(ast.Column)]
+                + [func.name.name.lower()],
+            )
+            expression = f"{func.quantifier} {arg}" if func.quantifier else str(arg)
+            short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
+            measures.append(
+                Measure(
+                    name=f"{measure_name}_{short_hash}",
+                    expression=expression,
+                    aggregation=func.name.name.upper(),
+                    rule=AggregationRule(
+                        type=Aggregability.FULL
+                        if func.quantifier != ast.SetQuantifier.Distinct
+                        else Aggregability.LIMITED,
+                    ),
                 ),
-            ),
-        ]
+            )
+        return measures
 
     def _avg(self, func) -> list[Measure]:
         """
