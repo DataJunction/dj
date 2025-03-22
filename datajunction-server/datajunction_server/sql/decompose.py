@@ -161,7 +161,7 @@ class MeasureExtractor:
                 ),
             )
         elif (
-            func.function() == dj_functions.Count
+            func.function() in (dj_functions.Count, dj_functions.CountIf)
             and func.quantifier != ast.SetQuantifier.Distinct
         ):
             func.name.name = "SUM"
