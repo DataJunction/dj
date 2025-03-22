@@ -1222,6 +1222,8 @@ class CountIf(Function):
     count_if(expr) - Returns the number of true values in expr.
     """
 
+    is_aggregation = True
+
 
 @CountIf.register  # type: ignore
 def infer_type(arg: ct.BooleanType) -> ct.IntegerType:
@@ -3244,6 +3246,8 @@ class MaxBy(Function):
     max_by(val, key) - Returns the value of val corresponding to the maximum value of key.
     """
 
+    is_aggregation = True
+
 
 @MaxBy.register  # type: ignore
 def infer_type(val: ct.ColumnType, key: ct.ColumnType) -> ct.ColumnType:
@@ -3333,6 +3337,8 @@ class MinBy(Function):
     """
     min_by(val, key) - Returns the value of val corresponding to the minimum value of key.
     """
+
+    is_aggregation = True
 
 
 @MinBy.register  # type: ignore
