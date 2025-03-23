@@ -644,7 +644,7 @@ def test_count_if():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT CAST(COUNT_IF(field_a_count_if_c1f2ed10) AS FLOAT) / SUM(count_3389dae3) "
+            "SELECT  CAST(SUM(field_a_count_if_c1f2ed10) AS FLOAT) / SUM(count_3389dae3) "
             "FROM parent_node",
         ),
     )
