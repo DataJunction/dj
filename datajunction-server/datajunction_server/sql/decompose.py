@@ -22,8 +22,11 @@ class MeasureExtractor:
         self.handlers = {
             dj_functions.Sum: self._simple_associative_agg,
             dj_functions.Count: self._simple_associative_agg,
+            dj_functions.CountIf: self._simple_associative_agg,
             dj_functions.Max: self._simple_associative_agg,
+            dj_functions.MaxBy: self._simple_associative_agg,
             dj_functions.Min: self._simple_associative_agg,
+            dj_functions.MinBy: self._simple_associative_agg,
             dj_functions.Avg: self._avg,
             dj_functions.AnyValue: self._simple_associative_agg,
         }
@@ -158,7 +161,7 @@ class MeasureExtractor:
                 ),
             )
         elif (
-            func.function() == dj_functions.Count
+            func.function() in (dj_functions.Count, dj_functions.CountIf)
             and func.quantifier != ast.SetQuantifier.Distinct
         ):
             func.name.name = "SUM"
