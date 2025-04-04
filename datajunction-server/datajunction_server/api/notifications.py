@@ -14,7 +14,10 @@ from datajunction_server.database.notification_preference import NotificationPre
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.notifications import get_notification_preferences
+from datajunction_server.internal.notifications import (
+    get_entity_notification_preferences,
+    get_user_notification_preferences,
+)
 from datajunction_server.utils import get_and_update_current_user, get_session
 
 router = SecureAPIRouter(tags=["notifications"])
@@ -96,14 +99,14 @@ async def unsubscribe(
 
 
 @router.get("/notifications/")
-async def get_user_notification_preferences(
+async def get_preferences(
     entity_name: Optional[str] = None,
     entity_type: Optional[EntityType] = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
-    """Subscribes to notificaitons by upserting a notification preference"""
-    notification_preferences = await get_notification_preferences(
+    """Gets notification preferences for the current user"""
+    notification_preferences = await get_user_notification_preferences(
         session=session,
         user=current_user,
         entity_name=entity_name,
@@ -121,3 +124,19 @@ async def get_user_notification_preferences(
         for pref in notification_preferences
     ]
     return JSONResponse(content=response)
+
+
+@router.get("/notifications/users")
+async def get_users_for_notification(
+    entity_name: str,
+    entity_type: EntityType,
+    session: AsyncSession = Depends(get_session),
+) -> JSONResponse:
+    """Get users for the given notification preference"""
+    notification_preferences = await get_entity_notification_preferences(
+        session=session,
+        entity_name=entity_name,
+        entity_type=entity_type,
+    )
+    users = [perf.user.username for perf in notification_preferences]
+    return JSONResponse(content=users)

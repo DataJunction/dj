@@ -174,3 +174,29 @@ async def test_notification_unsubscribe_not_found(
         },
     )
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_notification_list_users(
+    module__client: AsyncClient,
+) -> None:
+    """
+    Test listing all users subscribed to a specific notification
+    """
+    response = await module__client.post(
+        "/notifications/subscribe",
+        json={
+            "entity_type": EntityType.NODE,
+            "entity_name": "some_node_name4",
+            "activity_types": [ActivityType.REFRESH],
+            "alert_types": ["slack", "email"],
+        },
+    )
+    assert response.status_code == 201
+    response = await module__client.get(
+        "/notifications/users",
+        params={"entity_name": "some_node_name4", "entity_type": EntityType.NODE},
+    )
+    assert response.status_code == 200
+    assert len(response.json()) > 0
+    assert response.json()[0] == "dj"
