@@ -1,6 +1,7 @@
 """
 Roads database examples loaded into DJ test session
 """
+
 from typing import Dict, Union
 
 from datajunction_server.database.column import Column
@@ -442,7 +443,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Number of repair orders",
-            "query": ("SELECT count(repair_order_id) " "FROM default.repair_orders"),
+            "query": ("SELECT count(repair_order_id) FROM default.repair_orders"),
             "mode": "published",
             "name": "default.num_repair_orders",
         },
@@ -487,9 +488,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total repair order discounts",
-            "query": (
-                "SELECT sum(price * discount) " "FROM default.repair_order_details"
-            ),
+            "query": ("SELECT sum(price * discount) FROM default.repair_order_details"),
             "mode": "published",
             "name": "default.total_repair_order_discounts",
         },
@@ -498,9 +497,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total repair order discounts",
-            "query": (
-                "SELECT avg(price * discount) " "FROM default.repair_order_details"
-            ),
+            "query": ("SELECT avg(price * discount) FROM default.repair_order_details"),
             "mode": "published",
             "name": "default.avg_repair_order_discounts",
         },
@@ -510,7 +507,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Average time to dispatch a repair order",
             "query": (
-                "SELECT avg(dispatched_date - order_date) " "FROM default.repair_orders"
+                "SELECT avg(dispatched_date - order_date) FROM default.repair_orders"
             ),
             "mode": "published",
             "name": "default.avg_time_to_dispatch",
@@ -968,7 +965,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Number of repair orders",
-            "query": ("SELECT count(repair_order_id) " "FROM foo.bar.repair_orders"),
+            "query": ("SELECT count(repair_order_id) FROM foo.bar.repair_orders"),
             "mode": "published",
             "name": "foo.bar.num_repair_orders",
         },
@@ -995,7 +992,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Average length of employment",
-            "query": ("SELECT avg(NOW() - hire_date) " "FROM foo.bar.hard_hats"),
+            "query": ("SELECT avg(NOW() - hire_date) FROM foo.bar.hard_hats"),
             "mode": "published",
             "name": "foo.bar.avg_length_of_employment",
         },
@@ -1004,9 +1001,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total repair order discounts",
-            "query": (
-                "SELECT sum(price * discount) " "FROM foo.bar.repair_order_details"
-            ),
+            "query": ("SELECT sum(price * discount) FROM foo.bar.repair_order_details"),
             "mode": "published",
             "name": "foo.bar.total_repair_order_discounts",
         },
@@ -1015,9 +1010,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total repair order discounts",
-            "query": (
-                "SELECT avg(price * discount) " "FROM foo.bar.repair_order_details"
-            ),
+            "query": ("SELECT avg(price * discount) FROM foo.bar.repair_order_details"),
             "mode": "published",
             "name": "foo.bar.avg_repair_order_discounts",
         },
@@ -1027,7 +1020,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Average time to dispatch a repair order",
             "query": (
-                "SELECT avg(dispatched_date - order_date) " "FROM foo.bar.repair_orders"
+                "SELECT avg(dispatched_date - order_date) FROM foo.bar.repair_orders"
             ),
             "mode": "published",
             "name": "foo.bar.avg_time_to_dispatch",

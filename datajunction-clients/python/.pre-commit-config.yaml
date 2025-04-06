@@ -7,32 +7,25 @@ repos:
   hooks:
   - id: trailing-whitespace
   - id: check-ast
-  - id: check-json
+    exclude: ^templates/
   - id: check-merge-conflict
-  - id: check-xml
-  - id: check-yaml
   - id: debug-statements
-  - id: end-of-file-fixer
+    exclude: ^templates/
   - id: requirements-txt-fixer
-  - id: mixed-line-ending
-    args: ['--fix=auto']  # replace 'auto' with 'lf' to enforce Linux/Mac line endings or 'crlf' for Windows
-- repo: https://github.com/pycqa/isort
-  rev: 5.12.0
+    exclude: ^templates/
+
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.9.4
   hooks:
-  - id: isort
-- repo: https://github.com/psf/black
-  rev: 22.8.0
-  hooks:
-  - id: black
-    language_version: python3
-- repo: https://github.com/PyCQA/flake8
-  rev: 3.9.2
-  hooks:
-  - id: flake8
+    - id: ruff
+      args: [ --fix ]
+    - id: ruff-format
+
 - repo: https://github.com/pre-commit/mirrors-mypy
   rev: 'v0.981'  # Use the sha / tag you want to point at
   hooks:
   - id: mypy
+    exclude: ^templates/
     additional_dependencies:
     - types-requests
     - types-freezegun
@@ -40,24 +33,22 @@ repos:
     - types-setuptools
     - types-PyYAML
     - types-tabulate
+
 - repo: https://github.com/asottile/add-trailing-comma
   rev: v2.2.1
   hooks:
   - id: add-trailing-comma
-- repo: https://github.com/pycqa/isort
-  rev: 5.12.0
+
+- repo: https://github.com/kynan/nbstripout
+  rev: 0.6.1
   hooks:
-  - id: isort
-## Removing this for now due to this bug: https://github.com/hadialqattan/pycln/issues/249
-# - repo: https://github.com/hadialqattan/pycln
-#   rev: v2.4.0 # Possible releases: https://github.com/hadialqattan/pycln/tags
-#   hooks:
-#   - id: pycln
-#     args: [--config=pyproject.toml]
-- repo: local
+    - id: nbstripout
+- repo: https://github.com/tomcatling/black-nb
+  rev: "0.7"
   hooks:
-  - id: pylint
-    name: pylint
-    entry: pylint --disable=duplicate-code,use-implicit-booleaness-not-comparison,wrong-import-order
-    language: system
-    types: [python]
+    - id: black-nb
+      files: '\.ipynb$'
+- repo: https://github.com/pdm-project/pdm
+  rev: 2.6.1
+  hooks:
+    - id: pdm-lock-check

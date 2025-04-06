@@ -1,4 +1,5 @@
 """DJ client exceptions"""
+
 from typing import List
 
 
