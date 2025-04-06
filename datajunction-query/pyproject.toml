@@ -73,6 +73,7 @@ test = [
     "httpx>=0.24.1",
     "psycopg[async,pool]>=3.2.1",
     "testcontainers[postgres]>=4.8.1",
+    "types-toml",
 ]
 
 [tool.pdm.scripts]

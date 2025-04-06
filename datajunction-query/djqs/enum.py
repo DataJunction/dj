@@ -1,6 +1,7 @@
 """
 Backwards-compatible StrEnum for both Python >= and < 3.11
 """
+
 import enum
 import sys
 

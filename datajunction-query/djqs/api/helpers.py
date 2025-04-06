@@ -1,6 +1,7 @@
 """
 Helper functions for API
 """
+
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import create_engine, inspect

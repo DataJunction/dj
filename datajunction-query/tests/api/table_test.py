@@ -1,6 +1,7 @@
 """
 Tests for the catalog API.
 """
+
 from fastapi.testclient import TestClient
 
 
