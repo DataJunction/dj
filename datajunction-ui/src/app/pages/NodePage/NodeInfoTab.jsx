@@ -181,6 +181,18 @@ export default function NodeInfoTab({ node }) {
                 : 'None'}
             </p>
           </div>
+          {console.log('node?.metric_metadata', node?.metric_metadata)}
+          <div style={{ marginRight: '2rem' }}>
+            <h6 className="mb-0 w-100">Significant Digits</h6>
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label="SignificantDigits"
+            >
+              {node?.metric_metadata?.significantDigits || 'None'}
+            </p>
+          </div>
         </div>
       </div>
     ) : (

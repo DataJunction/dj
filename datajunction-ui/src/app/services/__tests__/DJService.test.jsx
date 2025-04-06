@@ -203,6 +203,7 @@ describe('DataJunctionAPI', () => {
         metric_metadata: {
           direction: 'neutral',
           unit: '',
+          significant_digits: null,
         },
       }),
       credentials: 'include',
