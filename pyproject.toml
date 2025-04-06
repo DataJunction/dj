@@ -1,6 +1,4 @@
 [project]
-name = "datajunction"
-dynamic = ["version"]
 dependencies = []
 requires-python = ">=3.10,<4.0"
 
