@@ -708,7 +708,6 @@ class NodeRevision(
         JSON,
         default={},
     )
-    # Anything
 
     def __hash__(self) -> int:
         return hash(self.id)
