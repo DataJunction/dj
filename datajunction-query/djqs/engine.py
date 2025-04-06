@@ -1,6 +1,7 @@
 """
 Query related functions.
 """
+
 import json
 import logging
 import os
