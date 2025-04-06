@@ -54,8 +54,8 @@ class MetricMetadata(SerializableMixin):
     Metric metadata output
     """
 
-    direction: Optional[MetricDirection]
-    unit: Optional[MetricUnit]
+    direction: MetricDirection | None
+    unit: MetricUnit | None
     significant_digits: int | None
     min_decimal_exponent: int | None
     max_decimal_exponent: int | None
