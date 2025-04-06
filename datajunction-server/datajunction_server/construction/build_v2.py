@@ -1560,6 +1560,7 @@ async def build_ast(
     (filters are only applied if they don't require dimension node joins).
     """
     context = CompileContext(session=session, exception=DJException())
+    await refresh_if_needed(session, node, ["query_ast"])
     cached_query_ast = node.query_ast
     if use_pickled and cached_query_ast:
         try:  # pragma: no cover
