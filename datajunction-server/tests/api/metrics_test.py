@@ -401,6 +401,9 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
             "label": "Dollar",
             "name": "DOLLAR",
         },
+        "max_decimal_exponent": None,
+        "min_decimal_exponent": None,
+        "significant_digits": None,
     }
     assert data["upstream_node"] == "default.repair_orders_fact"
     assert data["expression"] == "count(repair_order_id)"
