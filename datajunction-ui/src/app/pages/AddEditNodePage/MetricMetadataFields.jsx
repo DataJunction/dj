@@ -34,7 +34,7 @@ export const MetricMetadataFields = () => {
         display: 'flex',
       }}
     >
-      <div style={{margin: '15px 25px'}}>
+      <div style={{ margin: '15px 25px' }}>
         <ErrorMessage name="metric_direction" component="span" />
         <label htmlFor="MetricDirection">Metric Direction</label>
         <Field as="select" name="metric_direction" id="MetricDirection">
@@ -46,7 +46,7 @@ export const MetricMetadataFields = () => {
           ))}
         </Field>
       </div>
-      <div style={{margin: '15px 25px'}}>
+      <div style={{ margin: '15px 25px' }}>
         <ErrorMessage name="metric_unit" component="span" />
         <label htmlFor="MetricUnit">Metric Unit</label>
         <Field as="select" name="metric_unit" id="MetricUnit">
@@ -58,7 +58,7 @@ export const MetricMetadataFields = () => {
           ))}
         </Field>
       </div>
-      <div style={{margin: '15px 25px'}}>
+      <div style={{ margin: '15px 25px' }}>
         <ErrorMessage name="significant_digits" component="span" />
         <label htmlFor="SignificantDigits">Significant Digits</label>
         <Field as="select" name="significant_digits" id="SignificantDigits">
