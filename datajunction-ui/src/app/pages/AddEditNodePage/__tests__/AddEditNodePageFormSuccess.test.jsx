@@ -192,6 +192,7 @@ describe('AddEditNodePage submission succeeded', () => {
         undefined,
         undefined,
         undefined,
+        undefined,
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
@@ -251,6 +252,7 @@ describe('AddEditNodePage submission succeeded', () => {
         [],
         'neutral',
         'unitless',
+        4,
         undefined,
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
