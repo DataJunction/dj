@@ -54,7 +54,10 @@ class MetricMetadata:
     Metric metadata output
     """
 
-    direction: Optional[MetricDirection]  # type: ignore
-    unit: Optional[Unit]
+    direction: MetricDirection | None  # type: ignore
+    unit: Unit | None
+    significant_digits: int | None
+    min_decimal_exponent: int | None
+    max_decimal_exponent: int | None
     expression: str
     incompatible_druid_functions: list[str]

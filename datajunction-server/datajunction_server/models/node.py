@@ -461,8 +461,11 @@ class MetricMetadataOutput(BaseModel):
     Metric metadata output
     """
 
-    direction: Optional[MetricDirection]
-    unit: Optional[Unit]
+    direction: MetricDirection | None
+    unit: Unit | None
+    significant_digits: int | None
+    min_decimal_exponent: int | None
+    max_decimal_exponent: int | None
 
     class Config:
         orm_mode = True
@@ -473,8 +476,11 @@ class MetricMetadataInput(BaseModel):
     Metric metadata output
     """
 
-    direction: Optional[MetricDirection]
-    unit: Optional[str]
+    direction: MetricDirection | None
+    unit: str | None
+    significant_digits: int | None
+    min_decimal_exponent: int | None
+    max_decimal_exponent: int | None
 
 
 class ImmutableNodeFields(BaseModel):

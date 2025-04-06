@@ -37,6 +37,23 @@ class MetricMetadata(Base):
         nullable=True,
     )
 
+    # Formatting fields
+    significant_digits: Mapped[int | None] = mapped_column(
+        sa.Integer,
+        nullable=True,
+        comment="Number of significant digits to display (if set).",
+    )
+    min_decimal_exponent: Mapped[int | None] = mapped_column(
+        sa.Integer,
+        nullable=True,
+        comment="Minimum exponent to still use decimal formatting; below this, use scientific notation.",
+    )
+    max_decimal_exponent: Mapped[int | None] = mapped_column(
+        sa.Integer,
+        nullable=True,
+        comment="Maximum exponent to still use decimal formatting; above this, use scientific notation.",
+    )
+
     @classmethod
     def from_input(cls, input_data: "MetricMetadataInput") -> "MetricMetadata":
         """
@@ -45,4 +62,7 @@ class MetricMetadata(Base):
         return MetricMetadata(
             direction=input_data.direction,
             unit=MetricUnit[input_data.unit.upper()] if input_data.unit else None,
+            significant_digits=input_data.significant_digits,
+            min_decimal_exponent=input_data.min_decimal_exponent,
+            max_decimal_exponent=input_data.max_decimal_exponent,
         )
