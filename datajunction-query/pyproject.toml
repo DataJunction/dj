@@ -46,13 +46,9 @@ classifiers = [
 [tool.hatch.build.targets.wheel]
 packages = ["djqs"]
 
-
-
-
-
 [tool.pdm]
 [tool.pdm.build]
-includes = ["djqs"]
+includes = ["dj"]
 
 [tool.pdm.dev-dependencies]
 test = [
@@ -84,10 +80,6 @@ uvicorn = [
     "uvicorn[standard]>=0.21.1",
 ]
 
-
-
-
-
 [tool.hatch.version]
 path = "djqs/__about__.py"
 
@@ -104,6 +96,5 @@ omit = [
     "djqs/exceptions.py"
 ]
 
-[tool.isort]
-src_paths = ["djqs/", "tests/"]
-profile = 'black'
+[tool.ruff.lint]
+ignore = ["F811"]
