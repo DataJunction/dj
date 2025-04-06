@@ -421,6 +421,9 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         required_dimensions: Optional[List[str]] = None,
         direction: Optional[models.MetricDirection] = None,
         unit: Optional[models.MetricUnit] = None,
+        significant_digits: int | None = None,
+        min_decimal_exponent: int | None = None,
+        max_decimal_exponent: int | None = None,
         tags: Optional[List[str]] = None,
         mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
         update_if_exists: bool = False,
@@ -442,6 +445,9 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                         "metric_metadata": models.MetricMetadata(
                             direction=direction,
                             unit=unit,
+                            significant_digits=significant_digits,
+                            min_decimal_exponent=min_decimal_exponent,
+                            max_decimal_exponent=max_decimal_exponent,
                         ),
                     }
                     if direction or unit
