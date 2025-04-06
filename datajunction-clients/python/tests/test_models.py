@@ -1,4 +1,5 @@
 """Tests for models."""
+
 from datajunction.models import QueryState
 
 

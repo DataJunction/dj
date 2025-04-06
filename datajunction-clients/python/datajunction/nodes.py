@@ -1,4 +1,5 @@
 """DataJunction base client setup."""
+
 import abc
 
 # pylint: disable=redefined-outer-name, import-outside-toplevel, too-many-lines, protected-access
@@ -14,7 +15,7 @@ from datajunction.exceptions import DJClientException
 from datajunction.tags import Tag
 
 if TYPE_CHECKING:  # pragma: no cover
-    from datajunction.client import DJClient
+    pass
 
 
 @dataclass

@@ -1,6 +1,7 @@
 """
 Test YAML project related things
 """
+
 # pylint: disable=unused-argument
 import os
 from typing import Callable
@@ -215,8 +216,7 @@ def test_compile_raising_when_not_in_a_project_dir():
     with pytest.raises(DJClientException) as exc_info:
         Project.load_current()
     assert (
-        "Cannot find project root, make sure you've defined "
-        "a project in a dj.yaml file"
+        "Cannot find project root, make sure you've defined a project in a dj.yaml file"
     ) in str(exc_info.value)
 
 
