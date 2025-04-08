@@ -464,6 +464,24 @@ def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
             if node.current.metric_metadata and node.current.metric_metadata.unit
             else None
         ),
+        "significant_digits": (
+            node.current.metric_metadata.significant_digits
+            if node.current.metric_metadata
+            and node.current.metric_metadata.significant_digits
+            else None
+        ),
+        "min_decimal_exponent": (
+            node.current.metric_metadata.min_decimal_exponent
+            if node.current.metric_metadata
+            and node.current.metric_metadata.min_decimal_exponent
+            else None
+        ),
+        "max_decimal_exponent": (
+            node.current.metric_metadata.max_decimal_exponent
+            if node.current.metric_metadata
+            and node.current.metric_metadata.max_decimal_exponent
+            else None
+        ),
     }
 
 

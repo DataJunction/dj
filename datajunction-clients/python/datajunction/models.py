@@ -54,8 +54,11 @@ class MetricMetadata(SerializableMixin):
     Metric metadata output
     """
 
-    direction: Optional[MetricDirection]
-    unit: Optional[MetricUnit]
+    direction: MetricDirection | None
+    unit: MetricUnit | None
+    significant_digits: int | None
+    min_decimal_exponent: int | None
+    max_decimal_exponent: int | None
 
     @classmethod
     def from_dict(
@@ -70,6 +73,9 @@ class MetricMetadata(SerializableMixin):
         return cls(
             direction=MetricDirection(data["direction"].lower()),
             unit=MetricUnit(data["unit"]["name"].lower()),
+            significant_digits=data["significant_digits"],
+            min_decimal_exponent=data["min_decimal_exponent"],
+            max_decimal_exponent=data["max_decimal_exponent"],
         )
 
 
