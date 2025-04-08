@@ -2,8 +2,9 @@
 
 import logging
 from http import HTTPStatus
-from typing import Annotated, Optional
+from typing import Annotated, List, Optional
 
+from datajunction_server.models.notifications import NotificationPreferenceModel
 from fastapi import Body, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,7 @@ from datajunction_server.internal.notifications import (
     get_entity_notification_preferences,
     get_user_notification_preferences,
 )
+from datajunction_server.models.notifications import NotificationPreferenceModel
 from datajunction_server.utils import get_and_update_current_user, get_session
 
 router = SecureAPIRouter(tags=["notifications"])
@@ -104,7 +106,7 @@ async def get_preferences(
     entity_type: Optional[EntityType] = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
-) -> JSONResponse:
+) -> List[NotificationPreferenceModel]:
     """Gets notification preferences for the current user"""
     notification_preferences = await get_user_notification_preferences(
         session=session,
@@ -113,17 +115,17 @@ async def get_preferences(
         entity_type=entity_type,
     )
     response = [
-        {
-            "entity_type": pref.entity_type,
-            "entity_name": pref.entity_name,
-            "activity_types": pref.activity_types,
-            "user_id": pref.user.id,
-            "username": pref.user.username,
-            "alert_types": pref.alert_types,
-        }
+        NotificationPreferenceModel(
+            entity_type=pref.entity_type,
+            entity_name=pref.entity_name,
+            activity_types=pref.activity_types,
+            user_id=pref.user.user_id,
+            username=pref.user.username,
+            alert_types=pref.alert_types,
+        )
         for pref in notification_preferences
     ]
-    return JSONResponse(content=response)
+    return response
 
 
 @router.get("/notifications/users")
@@ -131,7 +133,7 @@ async def get_users_for_notification(
     entity_name: str,
     entity_type: EntityType,
     session: AsyncSession = Depends(get_session),
-) -> JSONResponse:
+) -> list[str]:
     """Get users for the given notification preference"""
     notification_preferences = await get_entity_notification_preferences(
         session=session,
@@ -139,4 +141,4 @@ async def get_users_for_notification(
         entity_type=entity_type,
     )
     users = [perf.user.username for perf in notification_preferences]
-    return JSONResponse(content=users)
+    return users
