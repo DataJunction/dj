@@ -119,7 +119,7 @@ async def get_preferences(
             entity_type=pref.entity_type,
             entity_name=pref.entity_name,
             activity_types=pref.activity_types,
-            user_id=pref.user.user_id,
+            user_id=pref.user.id,
             username=pref.user.username,
             alert_types=pref.alert_types,
         )
