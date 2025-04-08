@@ -153,6 +153,15 @@ class NodeRevision:
         return MetricMetadata(  # type: ignore
             direction=root.metric_metadata.direction if root.metric_metadata else None,
             unit=root.metric_metadata.unit if root.metric_metadata else None,
+            significant_digits=root.metric_metadata.significant_digits
+            if root.metric_metadata
+            else None,
+            min_decimal_exponent=root.metric_metadata.min_decimal_exponent
+            if root.metric_metadata
+            else None,
+            max_decimal_exponent=root.metric_metadata.max_decimal_exponent
+            if root.metric_metadata
+            else None,
             expression=str(query_ast.select.projection[0]),
             incompatible_druid_functions={
                 func.__name__.upper()

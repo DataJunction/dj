@@ -139,6 +139,7 @@ export const DataJunctionAPI = {
               direction
               unit { name }
               expression
+              significantDigits
               incompatibleDruidFunctions
             }
             requiredDimensions {
@@ -267,6 +268,7 @@ export const DataJunctionAPI = {
     primary_key,
     metric_direction,
     metric_unit,
+    significant_digits,
     required_dimensions,
   ) {
     try {
@@ -275,6 +277,7 @@ export const DataJunctionAPI = {
           ? {
               direction: metric_direction,
               unit: metric_unit,
+              significant_digits: significant_digits || null,
             }
           : null;
       const response = await fetch(`${DJ_URL}/nodes/${name}`, {

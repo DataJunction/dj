@@ -152,6 +152,7 @@ export function AddEditNodePage({ extensions = {} }) {
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
       values.metric_direction,
       values.metric_unit,
+      values.significant_digits,
       values.required_dimensions,
     );
     const tagsResponse = await djClient.tagsNode(
@@ -268,6 +269,12 @@ export function AddEditNodePage({ extensions = {} }) {
       setFieldValue(
         'metric_unit',
         data.metric_metadata.unit.name.toLowerCase(),
+      );
+    }
+    if (data.metric_metadata?.significant_digits) {
+      setFieldValue(
+        'significant_digits',
+        data.metric_metadata.significant_digits,
       );
     }
     if (data.expression) {

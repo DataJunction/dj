@@ -24,11 +24,17 @@ export const MetricMetadataFields = () => {
   }, [djClient]);
 
   return (
-    <>
-      <div
-        className="MetricDirectionInput NodeCreationInput"
-        style={{ width: '25%' }}
-      >
+    <div
+      style={{
+        borderRadius: '8px',
+        padding: '10px 10px 20px 10px',
+        margin: '32px 0',
+        background: '#f9f9f9',
+        width: 'max-content',
+        display: 'flex',
+      }}
+    >
+      <div style={{ margin: '15px 25px' }}>
         <ErrorMessage name="metric_direction" component="span" />
         <label htmlFor="MetricDirection">Metric Direction</label>
         <Field as="select" name="metric_direction" id="MetricDirection">
@@ -40,10 +46,7 @@ export const MetricMetadataFields = () => {
           ))}
         </Field>
       </div>
-      <div
-        className="MetricUnitInput NodeCreationInput"
-        style={{ width: '25%' }}
-      >
+      <div style={{ margin: '15px 25px' }}>
         <ErrorMessage name="metric_unit" component="span" />
         <label htmlFor="MetricUnit">Metric Unit</label>
         <Field as="select" name="metric_unit" id="MetricUnit">
@@ -55,6 +58,18 @@ export const MetricMetadataFields = () => {
           ))}
         </Field>
       </div>
-    </>
+      <div style={{ margin: '15px 25px' }}>
+        <ErrorMessage name="significant_digits" component="span" />
+        <label htmlFor="SignificantDigits">Significant Digits</label>
+        <Field as="select" name="significant_digits" id="SignificantDigits">
+          <option value=""></option>
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(val => (
+            <option value={val} key={val}>
+              {val}
+            </option>
+          ))}
+        </Field>
+      </div>
+    </div>
   );
 };

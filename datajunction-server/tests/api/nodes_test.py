@@ -2585,6 +2585,8 @@ class TestNodeCRUD:
                     "kind": "count",
                     "direction": "higher_is_better",
                     "unit": "dollar",
+                    "significant_digits": 6,
+                    "min_decimal_exponent": 2,
                 },
             },
         )
@@ -2604,6 +2606,9 @@ class TestNodeCRUD:
                 "label": "Dollar",
                 "name": "DOLLAR",
             },
+            "significant_digits": 6,
+            "min_decimal_exponent": 2,
+            "max_decimal_exponent": None,
         }
 
         response = await client_with_roads.get("/nodes/default.total_repair_cost")
