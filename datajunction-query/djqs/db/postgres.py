@@ -1,6 +1,7 @@
 """
 Dependency for getting the postgres pool and running backend DB queries
 """
+
 # pylint: disable=too-many-arguments
 from datetime import datetime
 from typing import List

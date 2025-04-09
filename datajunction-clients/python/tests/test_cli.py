@@ -1,4 +1,5 @@
 """Tests DJ CLI"""
+
 import os
 import sys
 from io import StringIO

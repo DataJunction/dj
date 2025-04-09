@@ -1,6 +1,7 @@
 """
 Fixtures for testing.
 """
+
 # pylint: disable=redefined-outer-name, invalid-name
 import logging
 from typing import Iterator

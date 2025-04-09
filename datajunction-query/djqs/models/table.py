@@ -1,6 +1,7 @@
 """
 Models for use in table API requests and responses
 """
+
 from typing import Dict, List
 
 from pydantic import BaseModel

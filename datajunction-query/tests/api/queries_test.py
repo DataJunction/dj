@@ -1,6 +1,7 @@
 """
 Tests for the queries API.
 """
+
 import datetime
 import json
 from dataclasses import asdict

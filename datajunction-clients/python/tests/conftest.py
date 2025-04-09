@@ -1,6 +1,7 @@
 """
 Fixtures for testing DJ client.
 """
+
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 import asyncio
 import os
@@ -27,11 +28,9 @@ from datajunction_server.utils import (
     get_settings,
 )
 from fastapi import Request
-from httpx import AsyncClient
 from pytest_mock import MockerFixture
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
 from testcontainers.core.waiting_utils import wait_for_logs
@@ -299,12 +298,11 @@ def module__server(  # pylint: disable=too-many-statements
 
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
-    app.dependency_overrides[
-        get_query_service_client
-    ] = get_query_service_client_override
+    app.dependency_overrides[get_query_service_client] = (
+        get_query_service_client_override
+    )
 
     with TestClient(app) as test_client:
-
         test_client.post(
             "/basic/user/",
             data={
