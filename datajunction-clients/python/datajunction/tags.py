@@ -1,6 +1,7 @@
 """
 Models related to tags
 """
+
 # pylint: disable=protected-access
 from dataclasses import dataclass
 from typing import Dict, Optional

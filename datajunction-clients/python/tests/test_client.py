@@ -1,4 +1,5 @@
 """Tests DJ client"""
+
 import pandas
 import pytest
 

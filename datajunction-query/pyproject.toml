@@ -46,13 +46,9 @@ classifiers = [
 [tool.hatch.build.targets.wheel]
 packages = ["djqs"]
 
-
-
-
-
 [tool.pdm]
 [tool.pdm.build]
-includes = ["djqs"]
+includes = ["dj"]
 
 [tool.pdm.dev-dependencies]
 test = [
@@ -73,6 +69,7 @@ test = [
     "httpx>=0.24.1",
     "psycopg[async,pool]>=3.2.1",
     "testcontainers[postgres]>=4.8.1",
+    "types-toml",
 ]
 
 [tool.pdm.scripts]
@@ -82,10 +79,6 @@ pytest = { cmd = "pytest", env = { "CONFIGURATION_FILE" = "./tests/config.djqs.y
 uvicorn = [
     "uvicorn[standard]>=0.21.1",
 ]
-
-
-
-
 
 [tool.hatch.version]
 path = "djqs/__about__.py"
@@ -103,6 +96,5 @@ omit = [
     "djqs/exceptions.py"
 ]
 
-[tool.isort]
-src_paths = ["djqs/", "tests/"]
-profile = 'black'
+[tool.ruff.lint]
+ignore = ["F811"]

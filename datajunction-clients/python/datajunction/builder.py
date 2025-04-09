@@ -1,4 +1,5 @@
 """DataJunction builder client module."""
+
 # pylint: disable=protected-access
 import re
 from dataclasses import fields
@@ -157,7 +158,9 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 if "name" in cube_dict:
                     existing_node_dict["metrics"] = cube_dict["cube_node_metrics"]
                     existing_node_dict["dimensions"] = cube_dict["cube_node_dimensions"]
-        except DJClientException as e:  # pragma: no cover # pytest fixture doesn't raise
+        except (
+            DJClientException
+        ) as e:  # pragma: no cover # pytest fixture doesn't raise
             if re.search(r"node .* does not exist", str(e)):
                 existing_node_dict = None
             else:

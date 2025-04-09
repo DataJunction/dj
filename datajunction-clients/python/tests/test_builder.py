@@ -1,5 +1,6 @@
 # pylint: disable=too-many-lines,too-many-statements
 """Tests DJ client"""
+
 from unittest.mock import MagicMock, patch
 
 import pytest

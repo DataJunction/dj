@@ -10,6 +10,7 @@ This will:
     4. Save everything to the DB.
 
 """
+
 import asyncio
 import logging
 import os
@@ -231,9 +232,9 @@ class LinkableNodeYAML(NodeYAML):
     """
 
     columns: list[ColumnYAML] | None = None
-    dimension_links: list[
-        DimensionJoinLinkYAML | DimensionReferenceLinkYAML
-    ] | None = None
+    dimension_links: list[DimensionJoinLinkYAML | DimensionReferenceLinkYAML] | None = (
+        None
+    )
 
     def _deploy_column_settings(self, node):
         """

@@ -1,4 +1,5 @@
 """Tests DJ client"""
+
 import pytest
 
 from datajunction import DJAdmin
