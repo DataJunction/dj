@@ -189,6 +189,9 @@ export function AddEditNodePage({ extensions = {} }) {
 
   const getExistingNodeData = async name => {
     const node = await djClient.getNodeForEditing(name);
+    if (node === null) {
+      return { message: `Node ${name} does not exist` };
+    }
     const baseData = {
       name: node.name,
       type: node.type.toLowerCase(),
@@ -223,7 +226,7 @@ export function AddEditNodePage({ extensions = {} }) {
       setMessage(`Node ${name} does not exist!`);
       return;
     }
-
+    console.log('data!!', data);
     // Check if node type can be edited
     if (!nodeCanBeEdited(data.type)) {
       setNode(null);
