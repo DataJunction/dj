@@ -24,7 +24,7 @@ from datajunction_server.construction.build_v2 import compile_node_ast
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.history import History
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.node import MissingParent, Node, NodeRevision
@@ -42,6 +42,7 @@ from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
 )
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.validation import NodeValidator, validate_node_data
 from datajunction_server.models import access
 from datajunction_server.models.attribute import (
