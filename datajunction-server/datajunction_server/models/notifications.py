@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from pydantic.main import BaseModel
 
-from datajunction_server.database.history import ActivityType, EntityType
+from datajunction_server.internal.history import ActivityType, EntityType
 
 
 class NotificationPreferenceModel(BaseModel):

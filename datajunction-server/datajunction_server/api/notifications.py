@@ -10,11 +10,12 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from datajunction_server.database.history import ActivityType, EntityType, History
 from datajunction_server.database.notification_preference import NotificationPreference
 from datajunction_server.database.user import User
+from datajunction_server.database.history import History
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.notifications import (
     get_entity_notification_preferences,
     get_user_notification_preferences,

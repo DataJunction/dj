@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from pydantic.main import BaseModel
 
-from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.history import History
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:

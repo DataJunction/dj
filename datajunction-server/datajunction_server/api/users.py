@@ -10,10 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.database.column import Column
-from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.history import History
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.user import UserActivity
 from datajunction_server.utils import get_session, get_settings
