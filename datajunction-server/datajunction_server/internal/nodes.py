@@ -860,12 +860,12 @@ async def update_cube_node(
                 "version": new_cube_revision.version,  # type: ignore
             },
             pre={
-                "metrics": node_revision.cube_metrics(),
-                "dimensions": node_revision.cube_dimensions(),
+                "metrics": old_metrics,
+                "dimensions": old_dimensions,
             },
             post={
-                "metrics": new_cube_revision.cube_metrics(),
-                "dimensions": new_cube_revision.cube_dimensions(),
+                "metrics": new_cube_revision.cube_node_metrics,
+                "dimensions": new_cube_revision.cube_node_dimensions,
             },
             user=current_user.username,
         ),
