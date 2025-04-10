@@ -175,6 +175,9 @@ export const DataJunctionAPI = {
         }),
       })
     ).json();
+    if (results.data.findNodes.length === 0) {
+      return null;
+    }
     return results.data.findNodes[0];
   },
 
