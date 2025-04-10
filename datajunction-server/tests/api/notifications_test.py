@@ -7,7 +7,8 @@ import pytest
 from httpx import AsyncClient
 
 from datajunction_server.api.notifications import get_notifier
-from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.history import History
+from datajunction_server.internal.history import ActivityType, EntityType
 
 
 class TestNotification(unittest.TestCase):

@@ -29,7 +29,7 @@ from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.database import DimensionLink
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
-from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.history import History
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.user import User
@@ -46,6 +46,7 @@ from datajunction_server.internal.access.authorization import (
     validate_access,
     validate_access_requests,
 )
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.nodes import (
     activate_node,
     copy_to_new_node,
