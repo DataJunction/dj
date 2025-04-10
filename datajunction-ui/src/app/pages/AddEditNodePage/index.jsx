@@ -226,7 +226,6 @@ export function AddEditNodePage({ extensions = {} }) {
       setMessage(`Node ${name} does not exist!`);
       return;
     }
-    console.log('data!!', data);
     // Check if node type can be edited
     if (!nodeCanBeEdited(data.type)) {
       setNode(null);
