@@ -67,7 +67,9 @@ describe('AddEditNodePage submission failed', () => {
 
   it('for editing a node', async () => {
     const mockDjClient = initializeMockDJClient();
-    mockDjClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
+    mockDjClient.DataJunctionAPI.getNodeForEditing.mockReturnValue(
+      mocks.mockGetMetricNode,
+    );
     mockDjClient.DataJunctionAPI.patchNode.mockReturnValue({
       status: 500,
       json: { message: 'Update failed' },

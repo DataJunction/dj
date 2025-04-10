@@ -152,7 +152,9 @@ describe('AddEditNodePage submission succeeded', () => {
   it('for editing a transform or dimension node', async () => {
     const mockDjClient = initializeMockDJClient();
 
-    mockDjClient.DataJunctionAPI.node.mockReturnValue(mocks.mockTransformNode);
+    mockDjClient.DataJunctionAPI.getNodeForEditing.mockReturnValue(
+      mocks.mockGetTransformNode,
+    );
     mockDjClient.DataJunctionAPI.patchNode = jest.fn();
     mockDjClient.DataJunctionAPI.patchNode.mockReturnValue({
       status: 201,
@@ -189,9 +191,9 @@ describe('AddEditNodePage submission succeeded', () => {
         'SELECT repair_order_id, municipality_id, hard_hat_id, dispatcher_id FROM default.repair_orders',
         'published',
         [],
-        undefined,
-        undefined,
-        undefined,
+        '',
+        '',
+        '',
         undefined,
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
@@ -212,8 +214,9 @@ describe('AddEditNodePage submission succeeded', () => {
   it('for editing a metric node', async () => {
     const mockDjClient = initializeMockDJClient();
 
-    mockDjClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
-    mockDjClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
+    mockDjClient.DataJunctionAPI.getNodeForEditing.mockReturnValue(
+      mocks.mockGetMetricNode,
+    );
     mockDjClient.DataJunctionAPI.patchNode = jest.fn();
     mockDjClient.DataJunctionAPI.patchNode.mockReturnValue({
       status: 201,
@@ -249,10 +252,10 @@ describe('AddEditNodePage submission succeeded', () => {
         'Number of repair orders!!!',
         'SELECT count(repair_order_id) FROM default.repair_orders',
         'published',
-        [],
+        ['repair_order_id', 'country'],
         'neutral',
         'unitless',
-        4,
+        5,
         undefined,
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
