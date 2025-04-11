@@ -874,11 +874,17 @@ async def update_cube_node(
     ]
     if major_changes and active_materializations:
         for old in active_materializations:
+            # Once we've migrated all materializations to the new format, we should only
+            # be using UpsertCubeMaterialization for cube nodes
+            job_type = MaterializationJobTypeEnum.find_match(old.job)
+            materialization_upsert_class = UpsertMaterialization
+            if job_type == MaterializationJobTypeEnum.DRUID_CUBE:
+                materialization_upsert_class = UpsertCubeMaterialization
             new_cube_revision.materializations.append(
                 await create_new_materialization(
                     session,
                     new_cube_revision,
-                    UpsertCubeMaterialization(
+                    materialization_upsert_class(
                         **MaterializationConfigOutput.from_orm(old).dict(
                             exclude={"job"},
                         ),
