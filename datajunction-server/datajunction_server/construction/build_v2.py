@@ -151,6 +151,7 @@ async def get_measures_query(
 
     common_parents = group_metrics_by_parent(metric_nodes)
     parents_to_measures, metrics2measures = metrics_to_measures(metric_nodes)
+    print("parents_to_measures", parents_to_measures)
 
     column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
     matcher = re.compile(column_name_regex)
@@ -191,6 +192,9 @@ async def get_measures_query(
 
         # Select only columns that were one of the necessary measures
         if not include_all_columns:
+            print("coolll2", [
+                expr.alias_or_name.identifier(False)
+                for expr in parent_ast.select.projection])
             parent_ast.select.projection = [
                 expr
                 for expr in parent_ast.select.projection
@@ -198,6 +202,7 @@ async def get_measures_query(
                     SEPARATOR,
                 )[-1]
                 in parents_to_measures[parent_node.name]
+                or expr.alias_or_name.identifier(False) in parents_to_measures[parent_node.name]
                 or from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
                 in dimensions_without_roles
             ]
