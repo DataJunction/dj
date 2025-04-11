@@ -1610,6 +1610,68 @@ async def test_updating_cube(
 
 
 @pytest.mark.asyncio
+async def test_updating_cube_with_existing_cube_materialization(
+    client_with_repairs_cube: AsyncClient,
+    module__query_service_client: QueryServiceClient,
+):
+    """
+    Verify updating a cube with an existing new-style cube materialization
+    """
+    cube_name = "default.repairs_cube__default_incremental_11"
+    await make_a_test_cube(
+        client_with_repairs_cube,
+        cube_name,
+    )
+    response = await client_with_repairs_cube.post(
+        f"/nodes/{cube_name}/columns/default.hard_hat.hire_date/partition",
+        json={
+            "type_": "temporal",
+            "granularity": "day",
+            "format": "yyyyMMdd",
+        },
+    )
+    assert response.status_code in (200, 201)
+    response = await client_with_repairs_cube.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={
+            "job": "druid_cube",
+            "strategy": "incremental_time",
+            "schedule": "@daily",
+            "lookback_window": "1 DAY",
+        },
+    )
+    # Update the cube, but keep the temporal partition column. This should succeed
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={
+            "metrics": ["default.discounted_orders_rate"],
+            "dimensions": ["default.hard_hat.city", "default.hard_hat.hire_date"],
+        },
+    )
+    result = response.json()
+    assert result["version"] == "v2.0"
+
+    # Check that the configured materialization was updated
+    response = await client_with_repairs_cube.get(f"/cubes/{cube_name}/")
+    data = response.json()
+    assert [
+        col["semantic_entity"]
+        for col in data["materializations"][0]["config"]["columns"]
+    ] == [
+        "default.hard_hat.city",
+        "default.hard_hat.hire_date",
+        "default.discounted_orders_rate.default_DOT_discounted_orders_rate",
+    ]
+    assert data["materializations"][0]["job"] == "DruidMetricsCubeMaterializationJob"
+    assert (
+        data["materializations"][0]["name"]
+        == "druid_metrics_cube__incremental_time__default.hard_hat.hire_date"
+    )
+    assert data["materializations"][0]["strategy"] == "incremental_time"
+    assert data["materializations"][0]["schedule"] == "@daily"
+
+
+@pytest.mark.asyncio
 async def test_updating_cube_with_existing_materialization(
     client_with_repairs_cube: AsyncClient,
     module__query_service_client: QueryServiceClient,
