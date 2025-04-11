@@ -878,7 +878,7 @@ async def update_cube_node(
                 await create_new_materialization(
                     session,
                     new_cube_revision,
-                    UpsertMaterialization(
+                    UpsertCubeMaterialization(
                         **MaterializationConfigOutput.from_orm(old).dict(
                             exclude={"job"},
                         ),
