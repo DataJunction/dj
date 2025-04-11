@@ -184,7 +184,6 @@ async def build_cube_materialization_config(
             )
         return generic_config
     except (KeyError, ValidationError, AttributeError) as exc:  # pragma: no cover
-        print("exc!!!!", exc)
         raise DJInvalidInputException(  # pragma: no cover
             message=(
                 "No change has been made to the materialization config for "
