@@ -592,6 +592,7 @@ async def test_find_transform(
                         name
                     }
                 }
+                primaryKey
             }
         }
     }
@@ -617,6 +618,7 @@ async def test_find_transform(
                 ],
                 "extractedMeasures": None,
                 "metricMetadata": None,
+                "primaryKey": [],
             },
             "name": "default.repair_orders_fact",
             "type": "TRANSFORM",

@@ -287,6 +287,73 @@ export const mocks = {
     aggregate_expression: 'count(repair_order_id)',
     required_dimensions: [],
   },
+
+  mockGetSourceNode: {
+    name: 'default.num_repair_orders',
+    type: 'SOURCE',
+    current: {
+      displayName: 'source.prodhive.dse.playback_f',
+      description:
+        'This source node was automatically created as a registered table.',
+      primaryKey: [],
+      parents: [],
+      metricMetadata: null,
+      requiredDimensions: [],
+      mode: 'PUBLISHED',
+    },
+    tags: [],
+  },
+
+  mockGetMetricNode: {
+    name: 'default.num_repair_orders',
+    type: 'METRIC',
+    current: {
+      displayName: 'Default: Num Repair Orders',
+      description: 'Number of repair orders',
+      primaryKey: ['repair_order_id', 'country'],
+      query:
+        'SELECT count(repair_order_id) default_DOT_num_repair_orders FROM default.repair_orders',
+      parents: [
+        {
+          name: 'default.repair_orders',
+        },
+      ],
+      metricMetadata: {
+        direction: 'NEUTRAL',
+        unit: {
+          name: 'UNITLESS',
+        },
+        expression: 'count(repair_order_id)',
+        significantDigits: 5,
+        incompatibleDruidFunctions: ['IF'],
+      },
+      requiredDimensions: [],
+      mode: 'PUBLISHED',
+    },
+    tags: [{ name: 'purpose', displayName: 'Purpose' }],
+  },
+
+  mockGetTransformNode: {
+    name: 'default.repair_order_transform',
+    type: 'TRANSFORM',
+    current: {
+      displayName: 'Default: Repair Order Transform',
+      description: 'Repair order dimension',
+      primaryKey: [],
+      query:
+        'SELECT repair_order_id, municipality_id, hard_hat_id, dispatcher_id FROM default.repair_orders',
+      parents: [
+        {
+          name: 'default.repair_orders',
+        },
+      ],
+      metricMetadata: null,
+      requiredDimensions: [],
+      mode: 'PUBLISHED',
+    },
+    tags: [],
+  },
+
   attributes: [
     {
       uniqueness_scope: [],

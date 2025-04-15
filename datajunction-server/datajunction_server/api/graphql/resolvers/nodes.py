@@ -115,7 +115,11 @@ def load_node_revision_options(node_revision_fields):
         "cube_metrics" in node_revision_fields
         or "cube_dimensions" in node_revision_fields
     )
-    if "columns" in node_revision_fields or is_cube_request:
+    if (
+        "columns" in node_revision_fields
+        or is_cube_request
+        or "primary_key" in node_revision_fields
+    ):
         options.append(
             selectinload(DBNodeRevision.columns).options(
                 joinedload(Column.attributes).joinedload(
