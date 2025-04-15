@@ -14,8 +14,6 @@ services:
     networks:
       - core
     environment:
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
-      - OTEL_RESOURCE_ATTRIBUTES=service.name=datajunction.server
       - DOTENV_FILE=${DOTENV_FILE:-/code/.env}
       - OAUTHLIB_INSECURE_TRANSPORT=1
     build:
@@ -204,19 +202,6 @@ services:
       fi && \
       start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''
       "
-
-  jaeger:
-    container_name: jaeger
-    profiles: ["demo"]
-    image: jaegertracing/all-in-one:latest
-    ports:
-      - "16686:16686"
-      - "14268:14268"
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
-      - LOG_LEVEL=debug
-    networks:
-      - core
 
   dj-trino:
     container_name: dj-trino
