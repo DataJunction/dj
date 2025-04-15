@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from datajunction_server.api.helpers import get_node_namespace
-from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.history import History
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Column, Node, NodeRevision
 from datajunction_server.database.user import User
@@ -21,6 +21,7 @@ from datajunction_server.errors import (
     DJDoesNotExistException,
     DJInvalidInputException,
 )
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.nodes import (
     get_cube_revision_metadata,
     hard_delete_node,

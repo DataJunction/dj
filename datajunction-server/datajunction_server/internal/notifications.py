@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from datajunction_server.database.notification_preference import NotificationPreference
-from datajunction_server.database.history import EntityType
+from datajunction_server.internal.history import EntityType
 
 
 async def get_user_notification_preferences(

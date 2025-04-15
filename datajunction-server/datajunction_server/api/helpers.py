@@ -31,7 +31,7 @@ from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
-from datajunction_server.database.history import EntityType, History
+from datajunction_server.database.history import History
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import (
     MissingParent,
@@ -49,6 +49,7 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.internal.engines import get_engine
+from datajunction_server.internal.history import EntityType
 from datajunction_server.models import access
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from datajunction_server.models.history import status_change_history
