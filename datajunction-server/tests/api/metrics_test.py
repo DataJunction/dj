@@ -3,7 +3,7 @@ Tests for the metrics API.
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from pytest_mock import MockerFixture
 from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1338,27 +1338,29 @@ async def test_create_invalid_metric(module__client_with_roads: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_read_metrics_when_cached(module__client_with_roads: AsyncClient) -> None:
+async def test_read_metrics_when_cached(
+    module__client_with_roads: AsyncClient,
+    mocker: MockerFixture,
+) -> None:
     """
     Test ``GET /metrics/`` with mocked cache returning a list of strings.
     """
-    with patch(
+    mock_list_nodes = mocker.patch(
         "datajunction_server.api.metrics.list_nodes",
-        new_callable=AsyncMock,
-    ) as mock_list_nodes:
-        mock_list_nodes.return_value = ["metric1", "metric2", "metric3"]
+        return_value=["metric1", "metric2", "metric3"],
+    )
 
-        # Should be a cache miss, triggering a cache in a background task
-        response1 = await module__client_with_roads.get("/metrics/")
-        data1 = response1.json()
-        assert response1.status_code == 200
-        assert data1 == ["metric1", "metric2", "metric3"]
+    # Should be a cache miss, triggering a cache in a background task
+    response1 = await module__client_with_roads.get("/metrics/")
+    data1 = response1.json()
+    assert response1.status_code == 200
+    assert data1 == ["metric1", "metric2", "metric3"]
 
-        # Should be a cache hit
-        response2 = await module__client_with_roads.get("/metrics/")
-        data2 = response2.json()
-        assert response2.status_code == 200
-        assert data2 == ["metric1", "metric2", "metric3"]
+    # Should be a cache hit
+    response2 = await module__client_with_roads.get("/metrics/")
+    data2 = response2.json()
+    assert response2.status_code == 200
+    assert data2 == ["metric1", "metric2", "metric3"]
 
-        # list_nodes should only be called once since the second used the cache
-        mock_list_nodes.assert_called_once()
+    # list_nodes should only be called once since the second used the cache
+    mock_list_nodes.assert_called_once()
