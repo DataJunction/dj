@@ -46,23 +46,41 @@ async def subscribe(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
-    """Subscribes to notificaitons by upserting a notification preference"""
-    session.add(
-        NotificationPreference(
-            entity_type=entity_type,
-            entity_name=entity_name,
-            activity_types=activity_types,
-            alert_types=alert_types,
-            user=current_user,
-        ),
+    """
+    Subscribes to notifications by upserting a notification preference.
+    If one exists, update it. Otherwise, create a new one.
+    """
+    result = await session.execute(
+        select(NotificationPreference).where(
+            NotificationPreference.entity_type == entity_type,
+            NotificationPreference.entity_name == entity_name,
+            NotificationPreference.user_id == current_user.id,
+        )
     )
+    existing = result.scalars().first()
+
+    if existing:
+        existing.activity_types = activity_types
+        existing.alert_types = alert_types
+    else:
+        session.add(
+            NotificationPreference(
+                entity_type=entity_type,
+                entity_name=entity_name,
+                activity_types=activity_types,
+                alert_types=alert_types,
+                user=current_user,
+            )
+        )
+
     await session.commit()
+
     return JSONResponse(
         status_code=201,
         content={
             "message": (
                 f"Notification preferences successfully saved for {entity_name}"
-            ),
+            )
         },
     )
 
