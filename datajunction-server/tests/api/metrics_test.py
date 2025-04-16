@@ -3,6 +3,7 @@ Tests for the metrics API.
 """
 
 import pytest
+from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1334,3 +1335,30 @@ async def test_create_invalid_metric(module__client_with_roads: AsyncClient):
     assert response.json()["message"] == (
         "Metric has an invalid query. The following are not allowed: GROUP BY, HAVING, ORDER BY"
     )
+
+
+@pytest.mark.asyncio
+async def test_read_metrics_when_cached(module__client_with_roads: AsyncClient) -> None:
+    """
+    Test ``GET /metrics/`` with mocked cache returning a list of strings.
+    """
+    with patch(
+        "datajunction_server.api.metrics.list_nodes",
+        new_callable=AsyncMock,
+    ) as mock_list_nodes:
+        mock_list_nodes.return_value = ["metric1", "metric2", "metric3"]
+
+        response1 = await module__client_with_roads.get("/metrics/")
+        data1 = response1.json()
+
+        assert response1.status_code == 200
+        assert data1 == ["metric1", "metric2", "metric3"]
+
+        response2 = await module__client_with_roads.get("/metrics/")
+        data2 = response2.json()
+
+        assert response2.status_code == 200
+        assert data2 == ["metric1", "metric2", "metric3"]
+
+        # Make sure list_nodes was only called once even though /metrics/ was called twice
+        mock_list_nodes.assert_called_once()
