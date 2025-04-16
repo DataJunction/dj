@@ -846,7 +846,11 @@ class Column(Aliasable, Named, Expression):
         return column_namespace, column_name, subscript_name
 
     @classmethod
-    def from_existing(cls, col: Aliasable | Expression, table: "TableExpression"):
+    def from_existing(
+        cls,
+        col: Union[Aliasable, Expression, "Column"],
+        table: "TableExpression",
+    ):
         """
         Build a selectable column from an existing one
         """
