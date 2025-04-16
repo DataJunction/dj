@@ -2,8 +2,6 @@
 Tests for the metrics API.
 """
 
-from time import sleep
-
 import pytest
 from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient
@@ -1350,19 +1348,17 @@ async def test_read_metrics_when_cached(module__client_with_roads: AsyncClient) 
     ) as mock_list_nodes:
         mock_list_nodes.return_value = ["metric1", "metric2", "metric3"]
 
+        # Should be a cache miss, triggering a cache in a background task
         response1 = await module__client_with_roads.get("/metrics/")
         data1 = response1.json()
-
         assert response1.status_code == 200
         assert data1 == ["metric1", "metric2", "metric3"]
 
-        # Sleep for a few seconds to make sure background task has finished caching
-        sleep(5)
+        # Should be a cache hit
         response2 = await module__client_with_roads.get("/metrics/")
         data2 = response2.json()
-
         assert response2.status_code == 200
         assert data2 == ["metric1", "metric2", "metric3"]
 
-        # Make sure list_nodes was only called once even though /metrics/ was called twice
+        # list_nodes should only be called once since the second used the cache
         mock_list_nodes.assert_called_once()
