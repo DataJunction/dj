@@ -16,11 +16,12 @@ from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.column import Column, ColumnAttribute
-from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.history import History
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException, DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
