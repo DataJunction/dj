@@ -18,7 +18,7 @@ from datajunction_server.api.helpers import (
 from datajunction_server.api.sql import get_node_sql
 from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database.availabilitystate import AvailabilityState
-from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.history import History
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
@@ -31,6 +31,7 @@ from datajunction_server.internal.access.authorization import (
     validate_access_requests,
 )
 from datajunction_server.internal.engines import get_engine
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models import access
 from datajunction_server.models.node import AvailabilityStateBase
 from datajunction_server.models.node_type import NodeType

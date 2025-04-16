@@ -194,13 +194,17 @@ async def get_measures_query(
             parent_ast.select.projection = [
                 expr
                 for expr in parent_ast.select.projection
-                if from_amenable_name(expr.alias_or_name.identifier(False)).split(  # type: ignore
-                    SEPARATOR,
-                )[-1]
-                in parents_to_measures[parent_node.name]
-                or from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
-                in dimensions_without_roles
+                if (
+                    (identifier := expr.alias_or_name.identifier(False))
+                    and (
+                        from_amenable_name(identifier).split(SEPARATOR)[-1]
+                        in parents_to_measures[parent_node.name]
+                        or identifier in parents_to_measures[parent_node.name]
+                        or from_amenable_name(identifier) in dimensions_without_roles
+                    )
+                )
             ]
+
         await refresh_if_needed(session, parent_node.current, ["columns"])
         parent_ast = rename_columns(parent_ast, parent_node.current, preaggregate)
 

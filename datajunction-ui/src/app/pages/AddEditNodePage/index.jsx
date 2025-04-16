@@ -188,26 +188,35 @@ export function AddEditNodePage({ extensions = {} }) {
   };
 
   const getExistingNodeData = async name => {
-    const data = await djClient.node(name);
-    if (data.type === 'metric') {
-      const metric = await djClient.metric(name);
-      data.upstream_node = metric.upstream_node;
-      data.expression = metric.expression;
-      data.required_dimensions = metric.required_dimensions;
+    const node = await djClient.getNodeForEditing(name);
+    if (node === null) {
+      return { message: `Node ${name} does not exist` };
     }
-    return data;
-  };
+    const baseData = {
+      name: node.name,
+      type: node.type.toLowerCase(),
+      display_name: node.current.displayName,
+      description: node.current.description,
+      primary_key: node.current.primaryKey,
+      query: node.current.query,
+      tags: node.tags,
+      mode: node.current.mode.toLowerCase(),
+    };
 
-  const primaryKeyFromNode = node => {
-    return node.columns
-      .filter(
-        col =>
-          col.attributes &&
-          col.attributes.filter(
-            attr => attr.attribute_type.name === 'primary_key',
-          ).length > 0,
-      )
-      .map(col => col.name);
+    if (node.type === 'METRIC') {
+      return {
+        ...baseData,
+        metric_direction: node.current.metricMetadata?.direction?.toLowerCase(),
+        metric_unit: node.current.metricMetadata?.unit?.name?.toLowerCase(),
+        significant_digits: node.current.metricMetadata?.significantDigits,
+        required_dimensions: node.current.requiredDimensions.map(
+          dim => dim.name,
+        ),
+        upstream_node: node.current.parents[0]?.name,
+        aggregate_expression: node.current.metricMetadata?.expression,
+      };
+    }
+    return baseData;
   };
 
   const runValidityChecks = (data, setNode, setMessage) => {
@@ -217,7 +226,6 @@ export function AddEditNodePage({ extensions = {} }) {
       setMessage(`Node ${name} does not exist!`);
       return;
     }
-
     // Check if node type can be edited
     if (!nodeCanBeEdited(data.type)) {
       setNode(null);
@@ -246,14 +254,14 @@ export function AddEditNodePage({ extensions = {} }) {
       'primary_key',
       'mode',
       'tags',
-      'expression',
+      'aggregate_expression',
       'upstream_node',
+      'metric_unit',
+      'metric_direction',
+      'significant_digits',
     ];
-    const primaryKey = primaryKeyFromNode(data);
     fields.forEach(field => {
-      if (field === 'primary_key') {
-        setFieldValue(field, primaryKey);
-      } else if (field === 'tags') {
+      if (field === 'tags') {
         setFieldValue(
           field,
           data[field].map(tag => tag.name),
@@ -262,27 +270,6 @@ export function AddEditNodePage({ extensions = {} }) {
         setFieldValue(field, data[field] || '', false);
       }
     });
-    if (data.metric_metadata?.direction) {
-      setFieldValue('metric_direction', data.metric_metadata.direction);
-    }
-    if (data.metric_metadata?.unit) {
-      setFieldValue(
-        'metric_unit',
-        data.metric_metadata.unit.name.toLowerCase(),
-      );
-    }
-    if (data.metric_metadata?.significant_digits) {
-      setFieldValue(
-        'significant_digits',
-        data.metric_metadata.significant_digits,
-      );
-    }
-    if (data.expression) {
-      setFieldValue('aggregate_expression', data.expression);
-    }
-    if (data.upstream_node) {
-      setFieldValue('upstream_node', data.upstream_node);
-    }
     setNode(data);
 
     // For react-select fields, we have to explicitly set the entire
@@ -290,13 +277,13 @@ export function AddEditNodePage({ extensions = {} }) {
     setSelectTags(
       <TagsField
         defaultValue={data.tags.map(t => {
-          return { value: t.name, label: t.display_name };
+          return { value: t.name, label: t.displayName };
         })}
       />,
     );
     setSelectPrimaryKey(
       <ColumnsSelect
-        defaultValue={primaryKey}
+        defaultValue={data.primary_key}
         fieldName="primary_key"
         label="Primary Key"
         isMulti={true}
@@ -409,7 +396,11 @@ export function AddEditNodePage({ extensions = {} }) {
                         {nodeType === 'metric' || node.type === 'metric' ? (
                           <MetricQueryField
                             djClient={djClient}
-                            value={node.expression ? node.expression : ''}
+                            value={
+                              node.aggregate_expression
+                                ? node.aggregate_expression
+                                : ''
+                            }
                           />
                         ) : (
                           <NodeQueryField

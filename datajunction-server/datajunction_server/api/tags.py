@@ -11,11 +11,12 @@ from sqlalchemy.orm import joinedload
 
 from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database import Node
-from datajunction_server.database.history import ActivityType, EntityType, History
+from datajunction_server.database.history import History
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.tag import CreateTag, TagOutput, UpdateTag

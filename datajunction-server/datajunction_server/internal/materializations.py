@@ -173,9 +173,14 @@ async def build_cube_materialization_config(
                     if col.semantic_type == SemanticType.DIMENSION
                 ],
                 measures=metrics_expressions,
-                spark=upsert_input.config.spark,
+                spark=upsert_input.config.spark.__root__
+                if hasattr(upsert_input, "config") and upsert_input.config.spark
+                else {},
                 upstream_tables=measures_query.upstream_tables,
                 columns=measures_query.columns,
+                lookback_window=upsert_input.lookback_window
+                if hasattr(upsert_input, "lookback_window")
+                else "",
             )
         return generic_config
     except (KeyError, ValidationError, AttributeError) as exc:  # pragma: no cover

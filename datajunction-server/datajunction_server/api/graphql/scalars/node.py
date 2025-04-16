@@ -138,7 +138,14 @@ class NodeRevision:
     table: Optional[str]
 
     # Only metrics will have these fields
-    required_dimensions: Optional[List[Column]] = None
+    required_dimensions: List[Column] | None = None
+
+    @strawberry.field
+    def primary_key(self, root: "DBNodeRevision") -> list[str]:
+        """
+        The primary key of the node
+        """
+        return [col.name for col in root.primary_key()]
 
     @strawberry.field
     def metric_metadata(self, root: "DBNodeRevision") -> MetricMetadata | None:
