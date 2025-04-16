@@ -4,7 +4,7 @@ import EyeIcon from '../../icons/EyeIcon';
 import ExpandedIcon from '../../icons/ExpandedIcon';
 import CollapsedIcon from '../../icons/CollapsedIcon';
 
-const EVENT_TYPES = ['create', 'delete', 'refresh', 'update'];
+const EVENT_TYPES = ['tag', 'delete', 'refresh', 'update'];
 
 export default function WatchButton({ node }) {
   if (!node || !node.name || !node.type) {
