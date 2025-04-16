@@ -55,7 +55,7 @@ async def subscribe(
             NotificationPreference.entity_type == entity_type,
             NotificationPreference.entity_name == entity_name,
             NotificationPreference.user_id == current_user.id,
-        )
+        ),
     )
     existing = result.scalars().first()
 
@@ -70,7 +70,7 @@ async def subscribe(
                 activity_types=activity_types,
                 alert_types=alert_types,
                 user=current_user,
-            )
+            ),
         )
 
     await session.commit()
@@ -80,7 +80,7 @@ async def subscribe(
         content={
             "message": (
                 f"Notification preferences successfully saved for {entity_name}"
-            )
+            ),
         },
     )
 
