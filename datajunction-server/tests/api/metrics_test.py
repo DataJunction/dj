@@ -2,6 +2,8 @@
 Tests for the metrics API.
 """
 
+from time import sleep
+
 import pytest
 from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient
@@ -1354,6 +1356,8 @@ async def test_read_metrics_when_cached(module__client_with_roads: AsyncClient) 
         assert response1.status_code == 200
         assert data1 == ["metric1", "metric2", "metric3"]
 
+        # Sleep for a few seconds to make sure background task has finished caching
+        sleep(5)
         response2 = await module__client_with_roads.get("/metrics/")
         data2 = response2.json()
 
