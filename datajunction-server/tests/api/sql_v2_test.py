@@ -1208,7 +1208,7 @@ async def test_measures_sql_preagg_incompatible(
     )
     data = response.json()
     translated_sql = data[0]
-    assert translated_sql["grain"] == []
+    assert translated_sql["grain"] == ["default_DOT_dispatcher_DOT_company_name"]
     expected_sql = """
     WITH default_DOT_repair_orders_fact AS (
       SELECT
@@ -1236,43 +1236,42 @@ async def test_measures_sql_preagg_incompatible(
         default_DOT_dispatchers.company_name,
         default_DOT_dispatchers.phone
       FROM roads.dispatchers AS default_DOT_dispatchers
+    ),
+    default_DOT_repair_orders_fact_built AS (
+      SELECT
+        default_DOT_repair_orders_fact.hard_hat_id,
+        default_DOT_repair_orders_fact.price,
+        default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name
+      FROM default_DOT_repair_orders_fact LEFT JOIN default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
     )
     SELECT
-      default_DOT_repair_orders_fact.hard_hat_id default_DOT_repair_orders_fact_DOT_hard_hat_id,
-      default_DOT_repair_orders_fact.price default_DOT_repair_orders_fact_DOT_price,
-      default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name
-    FROM default_DOT_repair_orders_fact
-    LEFT JOIN default_DOT_dispatcher
-      ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+      default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
+      COUNT(price) AS price_count_78a5eb43,
+      SUM(price) AS price_sum_78a5eb43,
+      COUNT( DISTINCT hard_hat_id) AS hard_hat_id_count_2673ee49
+    FROM default_DOT_repair_orders_fact_built
+    GROUP BY  default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name, default_DOT_repair_orders_fact_built.hard_hat_id
     """
     assert str(parse(str(expected_sql))) == str(parse(str(translated_sql["sql"])))
     result = duckdb_conn.sql(translated_sql["sql"])
     assert set(result.fetchall()) == {
-        (3, 67253.0, "Pothole Pete"),
-        (6, 65114.0, "Asphalts R Us"),
-        (3, 87858.0, "Asphalts R Us"),
-        (1, 92366.0, "Pothole Pete"),
-        (1, 63708.0, "Federal Roads Group"),
-        (4, 73600.0, "Pothole Pete"),
-        (2, 48919.0, "Federal Roads Group"),
-        (5, 21083.0, "Federal Roads Group"),
-        (5, 47857.0, "Asphalts R Us"),
-        (4, 63918.0, "Asphalts R Us"),
-        (3, 74555.0, "Asphalts R Us"),
-        (2, 29684.0, "Federal Roads Group"),
-        (4, 51594.0, "Pothole Pete"),
-        (5, 87289.0, "Pothole Pete"),
-        (7, 53374.0, "Federal Roads Group"),
-        (8, 76463.0, "Asphalts R Us"),
-        (8, 54901.0, "Federal Roads Group"),
-        (6, 68745.0, "Asphalts R Us"),
-        (5, 66808.0, "Asphalts R Us"),
-        (4, 27222.0, "Federal Roads Group"),
-        (6, 62928.0, "Pothole Pete"),
-        (1, 18497.0, "Pothole Pete"),
-        (1, 44120.0, "Pothole Pete"),
-        (5, 97916.0, "Federal Roads Group"),
-        (9, 70418.0, "Federal Roads Group"),
+        ("Federal Roads Group", 1, 63708.0, 1),
+        ("Pothole Pete", 1, 67253.0, 1),
+        ("Asphalts R Us", 2, 114665.0, 1),
+        ("Pothole Pete", 3, 154983.0, 1),
+        ("Asphalts R Us", 1, 76463.0, 1),
+        ("Asphalts R Us", 2, 162413.0, 1),
+        ("Asphalts R Us", 1, 63918.0, 1),
+        ("Federal Roads Group", 2, 118999.0, 1),
+        ("Federal Roads Group", 1, 27222.0, 1),
+        ("Pothole Pete", 2, 125194.0, 1),
+        ("Federal Roads Group", 1, 54901.0, 1),
+        ("Asphalts R Us", 2, 133859.0, 1),
+        ("Federal Roads Group", 2, 78603.0, 1),
+        ("Federal Roads Group", 1, 70418.0, 1),
+        ("Pothole Pete", 1, 62928.0, 1),
+        ("Federal Roads Group", 1, 53374.0, 1),
+        ("Pothole Pete", 1, 87289.0, 1),
     }
 
     response = await module__client_with_roads.get(
