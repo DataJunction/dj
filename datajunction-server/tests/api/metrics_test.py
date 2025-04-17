@@ -1339,7 +1339,7 @@ async def test_create_invalid_metric(module__client_with_roads: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_read_metrics_when_cached(
-    module__client_with_roads: AsyncClient,
+    module__client: AsyncClient,
     mocker: MockerFixture,
 ) -> None:
     """
@@ -1351,13 +1351,13 @@ async def test_read_metrics_when_cached(
     )
 
     # Should be a cache miss, triggering a cache in a background task
-    response1 = await module__client_with_roads.get("/metrics/")
+    response1 = await module__client.get("/metrics/")
     data1 = response1.json()
     assert response1.status_code == 200
     assert data1 == ["metric1", "metric2", "metric3"]
 
     # Should be a cache hit
-    response2 = await module__client_with_roads.get("/metrics/")
+    response2 = await module__client.get("/metrics/")
     data2 = response2.json()
     assert response2.status_code == 200
     assert data2 == ["metric1", "metric2", "metric3"]
