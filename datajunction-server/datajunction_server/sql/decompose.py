@@ -104,6 +104,11 @@ class MeasureExtractor:
                     type=Aggregability.FULL
                     if func.quantifier != ast.SetQuantifier.Distinct
                     else Aggregability.LIMITED,
+                    level=(
+                        [str(arg) for arg in func.args]
+                        if func.quantifier == ast.SetQuantifier.Distinct
+                        else None
+                    ),
                 ),
             ),
         ]
@@ -126,6 +131,11 @@ class MeasureExtractor:
                     type=Aggregability.FULL
                     if func.quantifier != ast.SetQuantifier.Distinct
                     else Aggregability.LIMITED,
+                    level=(
+                        [str(arg) for arg in func.args]
+                        if func.quantifier == ast.SetQuantifier.Distinct
+                        else None
+                    ),
                 ),
             ),
             Measure(
@@ -136,6 +146,11 @@ class MeasureExtractor:
                     type=Aggregability.FULL
                     if func.quantifier != ast.SetQuantifier.Distinct
                     else Aggregability.LIMITED,
+                    level=(
+                        [str(arg) for arg in func.args]
+                        if func.quantifier == ast.SetQuantifier.Distinct
+                        else None
+                    ),
                 ),
             ),
         ]

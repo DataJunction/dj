@@ -469,7 +469,10 @@ def test_count_distinct_rate():
             name="user_id_count_5deb6d4f",
             expression="DISTINCT user_id",
             aggregation="COUNT",
-            rule=AggregationRule(type=Aggregability.LIMITED),
+            rule=AggregationRule(
+                type=Aggregability.LIMITED,
+                level=["user_id"],
+            ),
         ),
         Measure(
             name="action_count_418c5509",
@@ -542,7 +545,10 @@ def test_multiple_aggregations_with_conditions():
             name="region_account_id_count_04a6925b",
             expression="DISTINCT IF(region = 'US', account_id, NULL)",
             aggregation="COUNT",
-            rule=AggregationRule(type=Aggregability.LIMITED),
+            rule=AggregationRule(
+                type=Aggregability.LIMITED,
+                level=["IF(region = 'US', account_id, NULL)"],
+            ),
         ),
     ]
     assert measures == expected_measures
