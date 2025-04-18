@@ -12,6 +12,7 @@ import DJClientContext from '../../providers/djclient';
 import NodeValidateTab from './NodeValidateTab';
 import NodeMaterializationTab from './NodeMaterializationTab';
 import ClientCodePopover from './ClientCodePopover';
+import WatchButton from './WatchNodeButton';
 import NodesWithDimension from './NodesWithDimension';
 import NodeColumnLineage from './NodeLineageTab';
 import EditIcon from '../../icons/EditIcon';
@@ -150,44 +151,66 @@ export function NodePage() {
     case 'dependencies':
       tabToDisplay = <NodeDependenciesTab node={node} djClient={djClient} />;
       break;
-    default: /* istanbul ignore next */
+    default:
+      /* istanbul ignore next */
       tabToDisplay = <NodeInfoTab node={node} />;
   }
+
+  const NodeButtons = () => {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <button
+          className="button-3"
+          onClick={() => navigate(`/nodes/${node?.name}/edit`)}
+        >
+          <EditIcon /> Edit
+        </button>
+
+        <WatchButton node={node} />
+
+        <ClientCodePopover code={node?.createNodeClientCode} />
+        {node?.type === 'cube' && <NotebookDownload node={node} />}
+      </div>
+    );
+  };
+
   // @ts-ignore
   return (
     <div className="node__header">
       <NamespaceHeader namespace={name.split('.').slice(0, -1).join('.')} />
       <div className="card">
         {node?.message === undefined ? (
-          <div className="card-header">
-            <h3
-              className="card-title align-items-start flex-column"
-              style={{ display: 'inline-block' }}
+          <div className="card-header" style={{}}>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+              }}
             >
-              <span
-                className="card-label fw-bold text-gray-800"
-                role="dialog"
-                aria-hidden="false"
-                aria-label="DisplayName"
+              <h3
+                className="card-title align-items-start flex-column"
+                style={{ display: 'inline-block' }}
               >
-                {node?.display_name}{' '}
                 <span
-                  className={'node_type__' + node?.type + ' badge node_type'}
+                  className="card-label fw-bold text-gray-800"
                   role="dialog"
                   aria-hidden="false"
-                  aria-label="NodeType"
+                  aria-label="DisplayName"
                 >
-                  {node?.type}
+                  {node?.display_name}{' '}
+                  <span
+                    className={'node_type__' + node?.type + ' badge node_type'}
+                    role="dialog"
+                    aria-hidden="false"
+                    aria-label="NodeType"
+                  >
+                    {node?.type}
+                  </span>
                 </span>
-              </span>
-            </h3>
-            <a
-              href={`/nodes/${node?.name}/edit`}
-              style={{ marginLeft: '0.5rem' }}
-            >
-              <EditIcon />
-            </a>
-            <ClientCodePopover code={node?.createNodeClientCode} />
+              </h3>
+              <NodeButtons />
+            </div>
             <div>
               <a
                 href={'/nodes/' + node?.name}
@@ -204,7 +227,6 @@ export function NodePage() {
               >
                 {node?.version}
               </span>
-              {node?.type === 'cube' ? <NotebookDownload node={node} /> : <></>}
             </div>
             <div className="align-items-center row">
               {tabsList(node).map(buildTabs)}
