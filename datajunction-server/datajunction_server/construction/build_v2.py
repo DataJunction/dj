@@ -166,7 +166,7 @@ async def get_measures_query(
         preaggregate = preagg_requested and all(
             len(metrics2measures[metric.name][0]) > 0
             and all(
-                measure.rule.type == Aggregability.FULL
+                measure.rule.type in (Aggregability.FULL, Aggregability.LIMITED)
                 for measure in metrics2measures[metric.name][0]
             )
             for metric in children
@@ -293,19 +293,35 @@ def build_preaggregate_query(
     built_parent_ref = parent_node.name + "_built"
     parent_node_cte = parent_ast.to_cte(ast.Name(amenable_name(built_parent_ref)))
     from_table = ast.Table(ast.Name(amenable_name(built_parent_ref)))
+
+    # Find all required GROUP BY columns based on each of the measure's aggregation rules.
+    # If the measure supports full aggregation, there are no required group-by columns, but if it
+    # supports limited aggregation, we need to aggregate to the specified level.
+    required_group_by_columns = [
+        ast.Column.from_existing(
+            parent_ast.select.column_mapping[group_by_col],
+            table=from_table,
+        )
+        for metric in metrics2measures
+        for measures in metrics2measures[metric][0]
+        if measures.rule.level
+        for group_by_col in measures.rule.level
+    ]
+
     final_query = ast.Query(
         ctes=existing_ctes + [parent_node_cte],
         select=ast.Select(
             projection=[
                 ast.Column.from_existing(col, table=from_table)
                 for col in parent_ast.select.projection
-                if col.semantic_type == SemanticType.DIMENSION  # type: ignore
+                if col and col.semantic_type == SemanticType.DIMENSION  # type: ignore
             ],
             from_=ast.From(relations=[ast.Relation(primary=from_table)]),
             group_by=[
                 ast.Column(dim.alias_or_name, _table=from_table)
                 for dim in dimensional_columns
-            ],
+            ]
+            + required_group_by_columns,
         ),
     )
 
