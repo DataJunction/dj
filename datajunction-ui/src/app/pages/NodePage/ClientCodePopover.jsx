@@ -8,7 +8,7 @@ export default function ClientCodePopover({ code }) {
   const modalRef = useRef(null);
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
+    const handleClickOutside = event => {
       if (modalRef.current && !modalRef.current.contains(event.target)) {
         setShowModal(false);
       }
@@ -27,7 +27,11 @@ export default function ClientCodePopover({ code }) {
 
   return (
     <>
-      <button className="button-3" onClick={() => setShowModal(true)} style={{height: "2.5rem"}}>
+      <button
+        className="button-3"
+        onClick={() => setShowModal(true)}
+        style={{ height: '2.5rem' }}
+      >
         <PythonIcon /> See Python
       </button>
 

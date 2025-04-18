@@ -22,11 +22,11 @@ export default function WatchButton({ node }) {
     const loadPreferences = async () => {
       try {
         const preferences = await djClient.getNotificationPreferences({
-          entity_name: node.name
+          entity_name: node.name,
         });
 
-        const matched = preferences.find(
-          (item) => item.alert_types.includes("web")
+        const matched = preferences.find(item =>
+          item.alert_types.includes('web'),
         );
 
         if (matched) {
@@ -42,7 +42,7 @@ export default function WatchButton({ node }) {
 
   // Close dropdown on outside click
   useEffect(() => {
-    const handleClickOutside = (event) => {
+    const handleClickOutside = event => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setDropdownOpen(false);
       }
@@ -51,19 +51,19 @@ export default function WatchButton({ node }) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-  const toggleEvent = async (event) => {
+  const toggleEvent = async event => {
     const isSelected = selectedEvents.includes(event);
-  
+
     try {
       setLoading(true);
       let updatedEvents;
-  
+
       if (!isSelected) {
         updatedEvents = Array.from(new Set([...selectedEvents, event]));
       } else {
-        updatedEvents = selectedEvents.filter((e) => e !== event);
+        updatedEvents = selectedEvents.filter(e => e !== event);
       }
-  
+
       if (updatedEvents.length === 0) {
         await djClient.unsubscribeFromNotifications({
           entity_type: 'node',
@@ -77,7 +77,7 @@ export default function WatchButton({ node }) {
           alert_types: ['web'],
         });
       }
-  
+
       setSelectedEvents(updatedEvents);
     } catch (err) {
       console.error('Failed to update preference', err);
@@ -85,14 +85,13 @@ export default function WatchButton({ node }) {
       setLoading(false);
     }
   };
-  
 
   const handleWatchClick = async () => {
     try {
       setLoading(true);
       if (selectedEvents.length === 0) {
         await djClient.subscribeToNotifications({
-          entity_type: "node",
+          entity_type: 'node',
           entity_name: node.name,
           activity_types: EVENT_TYPES,
           alert_types: ['web'],
@@ -100,7 +99,7 @@ export default function WatchButton({ node }) {
         setSelectedEvents(EVENT_TYPES);
       } else {
         await djClient.unsubscribeFromNotifications({
-          entity_type: "node",
+          entity_type: 'node',
           entity_name: node.name,
         });
         setSelectedEvents([]);
@@ -157,7 +156,7 @@ export default function WatchButton({ node }) {
 
       <button
         className="button-3"
-        onClick={() => setDropdownOpen((prev) => !prev)}
+        onClick={() => setDropdownOpen(prev => !prev)}
         disabled={loading}
         style={{
           borderTopLeftRadius: 0,
@@ -188,7 +187,7 @@ export default function WatchButton({ node }) {
             padding: '0.5rem 0',
           }}
         >
-          {EVENT_TYPES.map((event) => {
+          {EVENT_TYPES.map(event => {
             const isSelected = selectedEvents.includes(event);
             return (
               <li
@@ -203,7 +202,9 @@ export default function WatchButton({ node }) {
                   fontWeight: isSelected ? '600' : '400',
                   fontSize: '0.9rem',
                   color: '#333',
-                  borderLeft: isSelected ? '4px solid #7983ff' : '4px solid transparent',
+                  borderLeft: isSelected
+                    ? '4px solid #7983ff'
+                    : '4px solid transparent',
                   transition: 'background 0.2s',
                 }}
               >
