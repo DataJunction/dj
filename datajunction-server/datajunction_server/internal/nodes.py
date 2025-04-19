@@ -851,7 +851,24 @@ async def update_cube_node(
     new_cube_revision.node.current_version = new_cube_revision.version  # type: ignore
 
     await save_history(
-        event=node_update_history_event(new_cube_revision, current_user),
+        event=History(
+            entity_type=EntityType.NODE,
+            entity_name=new_cube_revision.name,
+            node=new_cube_revision.name,
+            activity_type=ActivityType.UPDATE,
+            details={
+                "version": new_cube_revision.version,  # type: ignore
+            },
+            pre={
+                "metrics": old_metrics,
+                "dimensions": old_dimensions,
+            },
+            post={
+                "metrics": new_cube_revision.cube_node_metrics,
+                "dimensions": new_cube_revision.cube_node_dimensions,
+            },
+            user=current_user.username,
+        ),
         session=session,
     )
 
@@ -1322,7 +1339,7 @@ async def create_new_revision_from_existing(
         if catalogs:
             new_revision.catalog_id = catalogs[0]
         new_revision.columns = node_validator.columns or []
-        if new_revision.type == NodeType.METRIC:
+        if new_revision.type == NodeType.METRIC and new_revision.columns:
             new_revision.columns[0].display_name = new_revision.display_name
 
         # Update the primary key if one was set in the input
