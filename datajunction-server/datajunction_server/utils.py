@@ -16,7 +16,7 @@ from fastapi import Depends
 from rich.logging import RichHandler
 from sqlalchemy import AsyncAdaptedQueuePool
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import MissingGreenlet
+from sqlalchemy.exc import MissingGreenlet, OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -24,6 +24,8 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.sql import Select
+
 from starlette.requests import Request
 from yarl import URL
 
@@ -32,6 +34,7 @@ from datajunction_server.database.user import User
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import (
     DJAuthenticationException,
+    DJDatabaseException,
     DJInternalErrorException,
     DJInvalidInputException,
     DJUninitializedResourceException,
@@ -183,6 +186,30 @@ async def refresh_if_needed(session: AsyncSession, obj, attributes: list[str]):
 
     if attributes_to_refresh:
         await session.refresh(obj, attributes_to_refresh)
+
+
+async def execute_with_retry(
+    session: AsyncSession,
+    statement: Select,
+    retries: int = 3,
+    base_delay: float = 1.0,
+):
+    """
+    Execute a SQLAlchemy statement with retry logic for transient errors.
+    """
+    attempt = 0
+    while True:
+        try:
+            result = await session.execute(statement)
+            return result.unique().scalars().all()
+        except OperationalError as exc:
+            attempt += 1
+            if attempt > retries:
+                raise DJDatabaseException(
+                    "Database operation failed after retries",
+                ) from exc
+            delay = base_delay * (2 ** (attempt - 1))
+            await asyncio.sleep(delay)
 
 
 def get_query_service_client(
