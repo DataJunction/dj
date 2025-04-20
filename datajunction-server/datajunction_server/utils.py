@@ -200,8 +200,7 @@ async def execute_with_retry(
     attempt = 0
     while True:
         try:
-            result = await session.execute(statement)
-            return result.unique().scalars().all()
+            return await session.execute(statement)
         except OperationalError as exc:
             attempt += 1
             if attempt > retries:

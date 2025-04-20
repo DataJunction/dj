@@ -195,7 +195,8 @@ async def test_execute_with_retry_success_after_flaky_connection():
     ]
 
     result = await execute_with_retry(session, statement, retries=5, base_delay=0.01)
-    assert result == ["node1", "node2"]
+    values = result.unique().scalars().all()
+    assert values == ["node1", "node2"]
     assert session.execute.call_count == 3
 
 
