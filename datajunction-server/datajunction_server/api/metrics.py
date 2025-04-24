@@ -5,7 +5,7 @@ Metric related APIs.
 from http import HTTPStatus
 from typing import List, Optional
 
-from fastapi import Depends, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -15,6 +15,8 @@ from datajunction_server.api.nodes import list_nodes
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
@@ -69,17 +71,23 @@ async def list_metrics(
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
+    cache: Cache = Depends(get_cache),
+    background_tasks: BackgroundTasks,
 ) -> List[str]:
     """
     List all available metrics.
     """
-    return await list_nodes(
-        node_type=NodeType.METRIC,
-        prefix=prefix,
-        session=session,
-        current_user=current_user,
-        validate_access=validate_access,
-    )
+    metrics = cache.get("metrics")
+    if metrics is None:
+        metrics = await list_nodes(
+            node_type=NodeType.METRIC,
+            prefix=prefix,
+            session=session,
+            current_user=current_user,
+            validate_access=validate_access,
+        )
+        background_tasks.add_task(cache.set, "metrics", metrics)
+    return metrics
 
 
 @router.get("/metrics/metadata")
