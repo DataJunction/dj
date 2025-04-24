@@ -255,6 +255,15 @@ class DJNotImplementedException(DJException):
     http_status_code: int = 500
 
 
+class DJDatabaseException(DJException):
+    """
+    Exception raised when the database returns an error.
+    """
+
+    dbapi_exception: DBAPIExceptions = "DatabaseError"
+    http_status_code: int = 500
+
+
 class DJInternalErrorException(DJException):
     """
     Exception raised when we do something wrong in the code.
