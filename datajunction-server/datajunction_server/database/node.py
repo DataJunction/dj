@@ -56,7 +56,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
 from datajunction_server.naming import amenable_name
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import SEPARATOR
+from datajunction_server.utils import SEPARATOR, execute_with_retry
 
 if TYPE_CHECKING:
     from datajunction_server.database.dimensionlink import DimensionLink
@@ -487,7 +487,7 @@ class Node(Base):
 
         limit = limit if limit and limit > 0 else 100
         statement = statement.limit(limit)
-        result = await session.execute(statement.options(*(options or [])))
+        result = await execute_with_retry(session, statement.options(*(options or [])))
         nodes = result.unique().scalars().all()
 
         # Reverse for backward pagination
