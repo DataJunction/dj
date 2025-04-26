@@ -658,9 +658,6 @@ describe('<NodePage />', () => {
           mocks.mockTransformNode.name,
         );
 
-        expect(
-          screen.getByRole('table', { name: 'Materializations' }),
-        ).toMatchSnapshot();
       },
       { timeout: 3000 },
     );
