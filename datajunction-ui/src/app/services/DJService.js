@@ -1137,4 +1137,61 @@ export const DataJunctionAPI = {
       })
     ).json();
   },
+  // GET /notifications/
+  getNotificationPreferences: async function (params = {}) {
+    const url = new URL(`${DJ_URL}/notifications/`);
+    Object.entries(params).forEach(([key, value]) =>
+      url.searchParams.append(key, value),
+    );
+
+    return await (
+      await fetch(url, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
+  // POST /notifications/subscribe
+  subscribeToNotifications: async function ({
+    entity_type,
+    entity_name,
+    activity_types,
+    alert_types,
+  }) {
+    const response = await fetch(`${DJ_URL}/notifications/subscribe`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        entity_type,
+        entity_name,
+        activity_types,
+        alert_types,
+      }),
+    });
+
+    return {
+      status: response.status,
+      json: await response.json(),
+    };
+  },
+
+  // DELETE /notifications/unsubscribe
+  unsubscribeFromNotifications: async function ({ entity_type, entity_name }) {
+    const url = new URL(`${DJ_URL}/notifications/unsubscribe`);
+    url.searchParams.append('entity_type', entity_type);
+    url.searchParams.append('entity_name', entity_name);
+
+    const response = await fetch(url, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+
+    return {
+      status: response.status,
+      json: await response.json(),
+    };
+  },
 };

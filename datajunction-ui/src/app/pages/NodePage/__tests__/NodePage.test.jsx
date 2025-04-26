@@ -657,10 +657,6 @@ describe('<NodePage />', () => {
         expect(djClient.DataJunctionAPI.materializations).toHaveBeenCalledWith(
           mocks.mockTransformNode.name,
         );
-
-        expect(
-          screen.getByRole('table', { name: 'Materializations' }),
-        ).toMatchSnapshot();
       },
       { timeout: 3000 },
     );

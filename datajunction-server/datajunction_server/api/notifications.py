@@ -9,7 +9,7 @@ from fastapi import Body, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-
+from sqlalchemy.dialects.postgresql import insert
 from datajunction_server.database.notification_preference import NotificationPreference
 from datajunction_server.database.user import User
 from datajunction_server.database.history import History
@@ -46,17 +46,31 @@ async def subscribe(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
 ) -> JSONResponse:
-    """Subscribes to notificaitons by upserting a notification preference"""
-    session.add(
-        NotificationPreference(
+    """
+    Subscribes to notifications by upserting a notification preference.
+    If one exists, update it. Otherwise, create a new one.
+    """
+    stmt = (
+        insert(NotificationPreference)
+        .values(
+            user_id=current_user.id,
             entity_type=entity_type,
             entity_name=entity_name,
             activity_types=activity_types,
             alert_types=alert_types,
-            user=current_user,
-        ),
+        )
+        .on_conflict_do_update(
+            index_elements=["user_id", "entity_type", "entity_name"],
+            set_={
+                "activity_types": activity_types,
+                "alert_types": alert_types,
+            },
+        )
     )
+
+    await session.execute(stmt)
     await session.commit()
+
     return JSONResponse(
         status_code=201,
         content={
