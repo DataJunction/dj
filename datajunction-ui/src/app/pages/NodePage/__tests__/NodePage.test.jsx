@@ -657,7 +657,6 @@ describe('<NodePage />', () => {
         expect(djClient.DataJunctionAPI.materializations).toHaveBeenCalledWith(
           mocks.mockTransformNode.name,
         );
-
       },
       { timeout: 3000 },
     );
