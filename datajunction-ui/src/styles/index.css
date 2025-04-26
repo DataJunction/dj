@@ -939,7 +939,7 @@ pre {
 }
 
 .centerPopover {
-  position: absolute !important;
+  position: fixed !important;
   top: 1%;
   left: 25%;
 

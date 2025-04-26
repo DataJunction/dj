@@ -28,7 +28,12 @@ class NotificationPreference(Base):  # pylint: disable=too-few-public-methods
 
     __tablename__ = "notificationpreferences"
     __table_args__ = (
-        UniqueConstraint("entity_name", "entity_type", name="uix_entity_type_name"),
+        UniqueConstraint(
+            "user_id",
+            "entity_type",
+            "entity_name",
+            name="uix_user_entity_type_name",
+        ),
     )
 
     id: Mapped[int] = mapped_column(
