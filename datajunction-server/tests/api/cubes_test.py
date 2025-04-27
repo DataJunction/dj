@@ -1590,8 +1590,34 @@ async def test_updating_cube(
             "entity_type": "node",
             "id": mock.ANY,
             "node": "default.repairs_cube_6",
-            "post": {},
-            "pre": {},
+            "post": {
+                "dimensions": [
+                    "default.hard_hat.city",
+                    "default.hard_hat.hire_date",
+                ],
+                "metrics": [
+                    "default.discounted_orders_rate",
+                ],
+            },
+            "pre": {
+                "dimensions": [
+                    "default.hard_hat.country",
+                    "default.hard_hat.postal_code",
+                    "default.hard_hat.city",
+                    "default.hard_hat.hire_date",
+                    "default.hard_hat.state",
+                    "default.dispatcher.company_name",
+                    "default.municipality_dim.local_region",
+                ],
+                "metrics": [
+                    "default.discounted_orders_rate",
+                    "default.num_repair_orders",
+                    "default.avg_repair_price",
+                    "default.total_repair_cost",
+                    "default.total_repair_order_discounts",
+                    "default.double_total_repair_cost",
+                ],
+            },
             "user": mock.ANY,
         },
         {
@@ -1602,8 +1628,44 @@ async def test_updating_cube(
             "entity_type": "node",
             "id": mock.ANY,
             "node": "default.repairs_cube_6",
-            "post": {},
-            "pre": {},
+            "post": {
+                "dimensions": [
+                    "default.hard_hat.country",
+                    "default.hard_hat.postal_code",
+                    "default.hard_hat.city",
+                    "default.hard_hat.hire_date",
+                    "default.hard_hat.state",
+                    "default.dispatcher.company_name",
+                    "default.municipality_dim.local_region",
+                ],
+                "metrics": [
+                    "default.discounted_orders_rate",
+                    "default.num_repair_orders",
+                    "default.avg_repair_price",
+                    "default.total_repair_cost",
+                    "default.total_repair_order_discounts",
+                    "default.double_total_repair_cost",
+                ],
+            },
+            "pre": {
+                "dimensions": [
+                    "default.hard_hat.country",
+                    "default.hard_hat.postal_code",
+                    "default.hard_hat.city",
+                    "default.hard_hat.hire_date",
+                    "default.hard_hat.state",
+                    "default.dispatcher.company_name",
+                    "default.municipality_dim.local_region",
+                ],
+                "metrics": [
+                    "default.discounted_orders_rate",
+                    "default.num_repair_orders",
+                    "default.avg_repair_price",
+                    "default.total_repair_cost",
+                    "default.total_repair_order_discounts",
+                    "default.double_total_repair_cost",
+                ],
+            },
             "user": mock.ANY,
         },
     ]
@@ -1850,8 +1912,34 @@ async def test_updating_cube_with_existing_materialization(
             "entity_type": "node",
             "id": mock.ANY,
             "node": "default.repairs_cube_2",
-            "post": {},
-            "pre": {},
+            "post": {
+                "dimensions": [
+                    "default.hard_hat.city",
+                    "default.hard_hat.hire_date",
+                ],
+                "metrics": [
+                    "default.discounted_orders_rate",
+                ],
+            },
+            "pre": {
+                "dimensions": [
+                    "default.hard_hat.country",
+                    "default.hard_hat.postal_code",
+                    "default.hard_hat.city",
+                    "default.hard_hat.hire_date",
+                    "default.hard_hat.state",
+                    "default.dispatcher.company_name",
+                    "default.municipality_dim.local_region",
+                ],
+                "metrics": [
+                    "default.discounted_orders_rate",
+                    "default.num_repair_orders",
+                    "default.avg_repair_price",
+                    "default.total_repair_cost",
+                    "default.total_repair_order_discounts",
+                    "default.double_total_repair_cost",
+                ],
+            },
             "user": "dj",
         },
         {
