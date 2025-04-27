@@ -30,31 +30,23 @@ export default function LinkDimensionPopover({
     };
   }, [setPopoverAnchor]);
 
-  const configureMaterialization = async (
-    values,
-    { setSubmitting, setStatus },
-  ) => {
-    await materialize(values, setStatus).then(_ => {
-      window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
-      setSubmitting(false);
-    });
-  };
-
   const handleSubmit = async (
     { node, column, updatedDimensionNodes },
     { setSubmitting, setStatus },
   ) => {
     const oldSet = new Set(dimensionNodes);
     const newSet = new Set(updatedDimensionNodes);
-    const toLink = Array.from(newSet.difference(oldSet));
-    const toUnlink = Array.from(oldSet.difference(newSet));
     try {
-      const linkPromises = toLink.map(dimension => {
-        return linkDimension(node, column, dimension, setStatus);
-      });
-      const unlinkPromises = toUnlink.map(dimension => {
-        return unlinkDimension(node, column, dimension, setStatus);
-      });
+      const linkPromises = Array.from(newSet.difference(oldSet)).map(
+        dimension => {
+          return linkDimension(node, column, dimension, setStatus);
+        },
+      );
+      const unlinkPromises = Array.from(oldSet.difference(newSet)).map(
+        dimension => {
+          return unlinkDimension(node, column, dimension, setStatus);
+        },
+      );
       await Promise.all([...linkPromises, ...unlinkPromises]);
     } catch (error) {
       console.error('Error in editing linked dimensions:', error);
