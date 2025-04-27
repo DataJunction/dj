@@ -9,7 +9,7 @@ import LoadingIcon from '../../icons/LoadingIcon';
 
 export default function LinkDimensionPopover({
   column,
-  referencedDimensionNode,
+  dimensionNodes,
   node,
   options,
   onSubmit,
@@ -30,25 +30,39 @@ export default function LinkDimensionPopover({
     };
   }, [setPopoverAnchor]);
 
-  const columnDimension = referencedDimensionNode;
-
-  const handleSubmit = async (
-    { node, column, dimension },
+  const configureMaterialization = async (
+    values,
     { setSubmitting, setStatus },
   ) => {
-    if (referencedDimensionNode && dimension === 'Remove') {
-      await unlinkDimension(
-        node,
-        column,
-        referencedDimensionNode,
-        setStatus,
-      ).then(_ => setSubmitting(false));
-    } else {
-      await linkDimension(node, column, dimension, setStatus).then(_ =>
-        setSubmitting(false),
-      );
+    await materialize(values, setStatus).then(_ => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+      setSubmitting(false);
+    });
+  };
+
+  const handleSubmit = async (
+    { node, column, updatedDimensionNodes },
+    { setSubmitting, setStatus },
+  ) => {
+    const oldSet = new Set(dimensionNodes);
+    const newSet = new Set(updatedDimensionNodes);
+    const toLink = Array.from(newSet.difference(oldSet));
+    const toUnlink = Array.from(oldSet.difference(newSet));
+    try {
+      const linkPromises = toLink.map(dimension => {
+        return linkDimension(node, column, dimension, setStatus);
+      });
+      const unlinkPromises = toUnlink.map(dimension => {
+        return unlinkDimension(node, column, dimension, setStatus);
+      });
+      await Promise.all([...linkPromises, ...unlinkPromises]);
+    } catch (error) {
+      console.error('Error in editing linked dimensions:', error);
+      setStatus({ error: error.message });
+    } finally {
+      setSubmitting(false);
+      onSubmit();
     }
-    onSubmit();
   };
 
   const linkDimension = async (node, column, dimension, setStatus) => {
@@ -100,8 +114,7 @@ export default function LinkDimensionPopover({
           initialValues={{
             column: column.name,
             node: node.name,
-            dimension: '',
-            currentDimension: referencedDimensionNode,
+            updatedDimensionNodes: '',
           }}
           onSubmit={handleSubmit}
         >
@@ -111,20 +124,21 @@ export default function LinkDimensionPopover({
                 {displayMessageAfterSubmit(status)}
                 <span data-testid="link-dimension">
                   <FormikSelect
-                    selectOptions={[
-                      { value: 'Remove', label: '[Remove Dimension]' },
-                    ].concat(options)}
-                    formikFieldName="dimension"
+                    selectOptions={options}
+                    formikFieldName="updatedDimensionNodes"
                     placeholder="Select dimension to link"
                     className=""
                     defaultValue={
-                      referencedDimensionNode
-                        ? {
-                            value: referencedDimensionNode,
-                            label: referencedDimensionNode,
-                          }
+                      dimensionNodes.length > 0
+                        ? dimensionNodes.map(dimNode => {
+                            return {
+                              value: dimNode,
+                              label: dimNode,
+                            };
+                          })
                         : ''
                     }
+                    isMulti={true}
                   />
                 </span>
                 <input

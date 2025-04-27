@@ -7,6 +7,7 @@ import { labelize } from '../../../utils/form';
 import PartitionColumnPopover from './PartitionColumnPopover';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
+import { link } from 'fs';
 
 export default function NodeColumnTab({ node, djClient }) {
   const [attributes, setAttributes] = useState([]);
@@ -159,7 +160,7 @@ export default function NodeColumnTab({ node, djClient }) {
                 : ''}
               <LinkDimensionPopover
                 column={col}
-                referencedDimensionNode={referencedDimensionNode}
+                dimensionNodes={dimensionLinks.map(link => link[0])}
                 node={node}
                 options={dimensions}
                 onSubmit={async () => {
