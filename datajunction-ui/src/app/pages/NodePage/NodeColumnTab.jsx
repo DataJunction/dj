@@ -92,7 +92,6 @@ export default function NodeColumnTab({ node, djClient }) {
           ),
         ])
         .filter(keys => keys[1].length >= 1);
-      console.log('dimensionLinks, dimensionLinks', dimensionLinks);
       const referencedDimensionNode =
         dimensionLinks.length > 0 ? dimensionLinks[0][0] : null;
       return (
