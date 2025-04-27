@@ -147,15 +147,17 @@ export default function NodeColumnTab({ node, djClient }) {
           </td>
           {node.type !== 'cube' ? (
             <td>
-              {dimensionLinks.length > 0 ? (
-                dimensionLinks.map(link => (
-                  <span className='rounded-pill badge bg-secondary-soft' style={{fontSize: '14px'}} key={link[0]}>
-                    <a href={`/nodes/${link[0]}`}>{link[0]}</a>
-                  </span>
-                )
-              )) : (
-                ''
-              )}
+              {dimensionLinks.length > 0
+                ? dimensionLinks.map(link => (
+                    <span
+                      className="rounded-pill badge bg-secondary-soft"
+                      style={{ fontSize: '14px' }}
+                      key={link[0]}
+                    >
+                      <a href={`/nodes/${link[0]}`}>{link[0]}</a>
+                    </span>
+                  ))
+                : ''}
               <LinkDimensionPopover
                 column={col}
                 referencedDimensionNode={referencedDimensionNode}
