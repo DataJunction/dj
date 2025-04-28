@@ -298,8 +298,8 @@ async def test_deactivate_namespaces(client_with_namespaced_roads: AsyncClient) 
     ] == [
         ("restore", {"message": "Cascaded from restoring namespace `foo.bar`"}),
         ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
-        ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
         ("delete", {"message": "Cascaded from deactivating namespace `foo.bar`"}),
+        ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
         ("create", {}),
     ]
 
