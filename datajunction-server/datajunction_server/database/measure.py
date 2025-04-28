@@ -37,6 +37,7 @@ class Measure(Base):  # type: ignore
     columns: Mapped[List["Column"]] = relationship(
         back_populates="measure",
         lazy="joined",
+        order_by="Column.name",
     )
     additive: Mapped[AggregationRule] = mapped_column(
         Enum(AggregationRule),
