@@ -430,7 +430,6 @@ class Node(Base):
         limit: int | None = 100,
         before: str | None = None,
         after: str | None = None,
-        include_deactivated: bool = False,
         options: list[ExecutableOption] = None,
     ) -> List["Node"]:
         """
@@ -472,8 +471,6 @@ class Node(Base):
 
         if node_types:
             statement = statement.where(Node.type.in_(node_types))
-        if not include_deactivated:
-            statement = statement.where(is_(Node.deactivated_at, None))
         if edited_by:
             edited_node_subquery = (
                 select(History.entity_name)
