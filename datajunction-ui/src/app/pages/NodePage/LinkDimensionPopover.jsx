@@ -37,12 +37,12 @@ export default function LinkDimensionPopover({
     const oldSet = new Set(dimensionNodes);
     const newSet = new Set(updatedDimensionNodes);
     try {
-      const linkPromises = Array.from(newSet.difference(oldSet)).map(
+      const linkPromises = Array.from(newSet).filter(item => !oldSet.has(item)).map(
         dimension => {
           return linkDimension(node, column, dimension, setStatus);
         },
       );
-      const unlinkPromises = Array.from(oldSet.difference(newSet)).map(
+      const unlinkPromises = Array.from(oldSet).filter(item => !newSet.has(item)).map(
         dimension => {
           return unlinkDimension(node, column, dimension, setStatus);
         },
