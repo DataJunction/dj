@@ -37,16 +37,16 @@ export default function LinkDimensionPopover({
     const oldSet = new Set(dimensionNodes);
     const newSet = new Set(updatedDimensionNodes);
     try {
-      const linkPromises = Array.from(newSet).filter(item => !oldSet.has(item)).map(
-        dimension => {
+      const linkPromises = Array.from(newSet)
+        .filter(item => !oldSet.has(item))
+        .map(dimension => {
           return linkDimension(node, column, dimension, setStatus);
-        },
-      );
-      const unlinkPromises = Array.from(oldSet).filter(item => !newSet.has(item)).map(
-        dimension => {
+        });
+      const unlinkPromises = Array.from(oldSet)
+        .filter(item => !newSet.has(item))
+        .map(dimension => {
           return unlinkDimension(node, column, dimension, setStatus);
-        },
-      );
+        });
       await Promise.all([...linkPromises, ...unlinkPromises]);
     } catch (error) {
       console.error('Error in editing linked dimensions:', error);
