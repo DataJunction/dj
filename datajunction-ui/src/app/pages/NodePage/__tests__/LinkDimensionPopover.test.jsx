@@ -19,7 +19,6 @@ describe('<LinkDimensionPopover />', () => {
     };
     const node = { name: 'default.node1' };
     const options = [
-      { value: 'Remove', label: '[Remove dimension link]' },
       { value: 'default.dimension1', label: 'Dimension 1' },
       { value: 'default.dimension2', label: 'Dimension 2' },
     ];
@@ -42,7 +41,7 @@ describe('<LinkDimensionPopover />', () => {
       <DJClientContext.Provider value={mockDjClient}>
         <LinkDimensionPopover
           column={column}
-          referencedDimensionNode={'default.dimension1'}
+          dimensionNodes={['default.dimension1']}
           node={node}
           options={options}
           onSubmit={onSubmitMock}
@@ -56,7 +55,7 @@ describe('<LinkDimensionPopover />', () => {
     // Click on a dimension and save
     const linkDimension = getByTestId('link-dimension');
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getByText('Dimension 1'));
+    fireEvent.click(screen.getByText('Dimension 2'));
     fireEvent.click(getByText('Save'));
 
     // Expect linkDimension to be called
@@ -64,14 +63,14 @@ describe('<LinkDimensionPopover />', () => {
       expect(mockDjClient.DataJunctionAPI.linkDimension).toHaveBeenCalledWith(
         'default.node1',
         'column1',
-        'default.dimension1',
+        'default.dimension2',
       );
       expect(getByText('Saved!')).toBeInTheDocument();
     });
 
     // Click on the 'Remove' option and save
-    fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getByText('[Remove dimension link]'));
+    const removeButton = screen.getByLabelText('Remove default.dimension1');
+    fireEvent.click(removeButton);
     fireEvent.click(getByText('Save'));
 
     // Expect unlinkDimension to be called
@@ -115,7 +114,7 @@ describe('<LinkDimensionPopover />', () => {
       <DJClientContext.Provider value={mockDjClient}>
         <LinkDimensionPopover
           column={column}
-          referencedDimensionNode={'default.dimension1'}
+          dimensionNodes={['default.dimension1']}
           node={node}
           options={options}
           onSubmit={onSubmitMock}
@@ -129,7 +128,7 @@ describe('<LinkDimensionPopover />', () => {
     // Click on a dimension and save
     const linkDimension = getByTestId('link-dimension');
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getByText('Dimension 1'));
+    fireEvent.click(screen.getByText('Dimension 2'));
     fireEvent.click(getByText('Save'));
 
     // Expect linkDimension to be called
@@ -137,7 +136,7 @@ describe('<LinkDimensionPopover />', () => {
       expect(mockDjClient.DataJunctionAPI.linkDimension).toHaveBeenCalledWith(
         'default.node1',
         'column1',
-        'default.dimension1',
+        'default.dimension2',
       );
       expect(
         getByText('Failed due to nonexistent dimension'),
@@ -145,8 +144,8 @@ describe('<LinkDimensionPopover />', () => {
     });
 
     // Click on the 'Remove' option and save
-    fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getByText('[Remove Dimension]'));
+    const removeButton = screen.getByLabelText('Remove default.dimension1');
+    fireEvent.click(removeButton);
     fireEvent.click(getByText('Save'));
 
     // Expect unlinkDimension to be called

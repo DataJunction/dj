@@ -7,6 +7,7 @@ import { labelize } from '../../../utils/form';
 import PartitionColumnPopover from './PartitionColumnPopover';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
+import { link } from 'fs';
 
 export default function NodeColumnTab({ node, djClient }) {
   const [attributes, setAttributes] = useState([]);
@@ -146,16 +147,20 @@ export default function NodeColumnTab({ node, djClient }) {
           </td>
           {node.type !== 'cube' ? (
             <td>
-              {referencedDimensionNode !== null ? (
-                <a href={`/nodes/${referencedDimensionNode}`}>
-                  {referencedDimensionNode}
-                </a>
-              ) : (
-                ''
-              )}
+              {dimensionLinks.length > 0
+                ? dimensionLinks.map(link => (
+                    <span
+                      className="rounded-pill badge bg-secondary-soft"
+                      style={{ fontSize: '14px' }}
+                      key={link[0]}
+                    >
+                      <a href={`/nodes/${link[0]}`}>{link[0]}</a>
+                    </span>
+                  ))
+                : ''}
               <LinkDimensionPopover
                 column={col}
-                referencedDimensionNode={referencedDimensionNode}
+                dimensionNodes={dimensionLinks.map(link => link[0])}
                 node={node}
                 options={dimensions}
                 onSubmit={async () => {
