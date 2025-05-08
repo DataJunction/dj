@@ -3,11 +3,9 @@
 from typing import Optional
 
 import sqlalchemy as sa
-from sqlalchemy import Enum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from datajunction_server.database.base import Base
-from datajunction_server.models.engine import Dialect
 
 
 class Engine(Base):
@@ -24,6 +22,4 @@ class Engine(Base):
     name: Mapped[str]
     version: Mapped[str]
     uri: Mapped[Optional[str]]
-    dialect: Mapped[Optional[Dialect]] = mapped_column(
-        Enum(Dialect),
-    )
+    dialect: Mapped[Optional[str]] = mapped_column(sa.String)
