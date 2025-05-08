@@ -712,7 +712,7 @@ async def build_sql_for_multiple_metrics(
         ]
         engine = materialized_cube_catalog.engines[0]
         return (
-            TranslatedSQL(
+            TranslatedSQL.create(
                 sql=str(query_ast),
                 columns=query_metric_columns + query_dimension_columns,
                 dialect=materialized_cube_catalog.engines[0].dialect,
@@ -739,7 +739,7 @@ async def build_sql_for_multiple_metrics(
     for tbl in upstream_tables:
         await refresh_if_needed(session, tbl.dj_node, ["availability"])
     return (
-        TranslatedSQL(
+        TranslatedSQL.create(
             sql=str(query_ast),
             columns=columns,
             dialect=engine.dialect if engine else None,
@@ -869,7 +869,7 @@ async def build_sql_for_dj_query(  # pragma: no cover
     ]
 
     return (  # pragma: no cover
-        TranslatedSQL(
+        TranslatedSQL.create(
             sql=str(query_ast),
             columns=columns,
             dialect=engine.dialect if engine else None,

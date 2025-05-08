@@ -101,7 +101,6 @@ async def get_measures_query(
     current_user: Optional[User] = None,
     validate_access: access.ValidateAccessFn = None,
     include_all_columns: bool = False,
-    sql_transpilation_library: Optional[str] = None,
     use_materialized: bool = True,
     preagg_requested: bool = False,
 ) -> List[GeneratedSQL]:
@@ -125,9 +124,7 @@ async def get_measures_query(
     )
 
     engine = (
-        await get_engine(session, engine_name, engine_version)
-        if engine_name and engine_version
-        else None
+        await get_engine(session, engine_name, engine_version) if engine_name else None  # type: ignore
     )
     build_criteria = BuildCriteria(
         dialect=engine.dialect if engine and engine.dialect else Dialect.SPARK,
@@ -243,9 +240,8 @@ async def get_measures_query(
             for col in final_query.select.projection
         ]
         measures_queries.append(
-            GeneratedSQL(
+            GeneratedSQL.create(
                 node=parent_node.current,
-                sql_transpilation_library=sql_transpilation_library,
                 sql=str(final_query),
                 columns=columns_metadata,
                 dialect=build_criteria.dialect,

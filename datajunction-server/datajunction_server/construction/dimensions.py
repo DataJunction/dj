@@ -114,7 +114,7 @@ async def build_dimensions_from_cube_query(
         amenable_name(elem.node_revision().name + SEPARATOR + elem.name): elem.type  # type: ignore
         for elem in cube.cube_elements
     }
-    return TranslatedSQL(
+    return TranslatedSQL.create(
         sql=str(query_ast),
         columns=[
             ColumnMetadata(

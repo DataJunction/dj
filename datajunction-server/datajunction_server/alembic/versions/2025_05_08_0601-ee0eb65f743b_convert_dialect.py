@@ -1,9 +1,9 @@
-"""Convert dialect
+"""
+Convert dialect
 
 Revision ID: ee0eb65f743b
 Revises: 51547dcccb10
 Create Date: 2025-05-08 06:01:38.039079+00:00
-
 """
 # pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
 

@@ -5,18 +5,7 @@ Models for columns.
 from typing import Optional
 
 from pydantic.main import BaseModel
-
-from datajunction_server.enum import StrEnum
-
-
-class Dialect(StrEnum):
-    """
-    SQL dialect
-    """
-
-    SPARK = "spark"
-    TRINO = "trino"
-    DRUID = "druid"
+from datajunction_server.models.dialect import Dialect
 
 
 class EngineInfo(BaseModel):

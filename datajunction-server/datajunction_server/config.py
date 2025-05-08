@@ -66,8 +66,8 @@ class Settings(BaseSettings):  # pragma: no cover
     # DJ UI host, used for OAuth redirection
     frontend_host: Optional[str] = "http://localhost:3000"
 
-    # Library to use when transpiling SQL to other dialects
-    sql_transpilation_library: Optional[str] = None
+    # Enabled transpilation plugin names
+    transpilation_plugins: List[str] = ["default", "sqlglot"]
 
     # 128 bit DJ secret, used to encrypt passwords and JSON web tokens
     secret: str = "a-fake-secretkey"
