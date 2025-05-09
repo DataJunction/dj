@@ -2,6 +2,7 @@
 Find nodes GraphQL queries.
 """
 
+import logging
 from typing import Annotated
 
 import strawberry
@@ -11,6 +12,11 @@ from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
 from datajunction_server.api.graphql.scalars import Connection
 from datajunction_server.api.graphql.scalars.node import Node
 from datajunction_server.models.node import NodeCursor, NodeType
+
+DEFAULT_LIMIT = 1000
+UPPER_LIMIT = 10000
+
+logger = logging.getLogger(__name__)
 
 
 async def find_nodes(
@@ -38,13 +44,29 @@ async def find_nodes(
             description="Filter to nodes tagged with these tags",
         ),
     ] = None,
+    limit: Annotated[
+        int | None,
+        strawberry.argument(description="Limit nodes"),
+    ] = DEFAULT_LIMIT,
     *,
     info: Info,
 ) -> list[Node]:
     """
     Find nodes based on the search parameters.
     """
-    return await find_nodes_by(info, names, fragment, node_types, tags)  # type: ignore
+    if not limit or limit < 0:
+        limit = DEFAULT_LIMIT
+
+    if limit > UPPER_LIMIT:
+        logger.warning(
+            "Limit of %s is greater than the maximum limit of %s. Setting limit to %s.",
+            limit,
+            UPPER_LIMIT,
+            UPPER_LIMIT,
+        )
+        limit = UPPER_LIMIT
+
+    return await find_nodes_by(info, names, fragment, node_types, tags, limit=limit)  # type: ignore
 
 
 async def find_nodes_paginated(

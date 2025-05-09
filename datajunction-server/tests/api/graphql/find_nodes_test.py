@@ -18,7 +18,7 @@ async def test_find_by_node_type(
 
     query = """
     {
-        findNodes(nodeTypes: [TRANSFORM]) {
+        findNodes(nodeTypes: [TRANSFORM], limit: 10) {
             name
             type
             tags {
@@ -70,6 +70,44 @@ async def test_find_by_node_type(
     assert response.status_code == 200
     data = response.json()
     assert data == {"data": {"findNodes": []}}
+
+
+@pytest.mark.asyncio
+async def test_find_node_limit(
+    module__client_with_roads: AsyncClient,
+    caplog,
+) -> None:
+    """
+    Test finding nodes has a max limit
+    """
+
+    query = """
+    {
+        findNodes(nodeTypes: [TRANSFORM], limit: 100000) {
+            name
+        }
+    }
+    """
+    caplog.set_level("WARNING")
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    assert any(
+        "Limit of 100000 is greater than the maximum limit" in message
+        for message in caplog.messages
+    )
+    data = response.json()
+    assert data["data"]["findNodes"] == [
+        {
+            "name": "default.repair_orders_fact",
+        },
+        {
+            "name": "default.national_level_agg",
+        },
+        {
+            "name": "default.regional_level_agg",
+        },
+    ]
 
 
 @pytest.mark.asyncio
