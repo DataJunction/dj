@@ -18,7 +18,7 @@ async def test_find_by_node_type(
 
     query = """
     {
-        findNodes(nodeTypes: [TRANSFORM], limit: 10) {
+        findNodes(nodeTypes: [TRANSFORM]) {
             name
             type
             tags {
@@ -89,7 +89,11 @@ async def test_find_node_limit(
     }
     """
     caplog.set_level("WARNING")
-
+    expected_response = [
+        {"name": "default.repair_orders_fact"},
+        {"name": "default.national_level_agg"},
+        {"name": "default.regional_level_agg"},
+    ]
     response = await module__client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     assert any(
@@ -97,17 +101,19 @@ async def test_find_node_limit(
         for message in caplog.messages
     )
     data = response.json()
-    assert data["data"]["findNodes"] == [
-        {
-            "name": "default.repair_orders_fact",
-        },
-        {
-            "name": "default.national_level_agg",
-        },
-        {
-            "name": "default.regional_level_agg",
-        },
-    ]
+    assert data["data"]["findNodes"] == expected_response
+
+    query = """
+    {
+        findNodes(nodeTypes: [TRANSFORM], limit: -1) {
+            name
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodes"] == expected_response
 
 
 @pytest.mark.asyncio
