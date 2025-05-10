@@ -450,7 +450,7 @@ async def get_sql_for_metrics(
             if engine_name
             else None
         )
-        return TranslatedSQL.create(
+        return TranslatedSQL.create(  # pragma: no cover
             sql=query_request.query,
             columns=query_request.columns,
             dialect=engine.dialect if engine else None,

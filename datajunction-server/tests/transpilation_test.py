@@ -13,7 +13,7 @@ from datajunction_server.transpilation import (
 from datajunction_server.models.dialect import Dialect, DialectRegistry
 
 
-def test_get_transpilation_plugin() -> None:
+def test_get_transpilation_plugin(regular_settings) -> None:
     """
     Test ``get_transpilation_plugin``
     """
@@ -55,7 +55,7 @@ def test_translated_sql() -> None:
     assert generated_sql.sql == "1"
 
 
-def test_druid_sql() -> None:
+def test_druid_sql(regular_settings) -> None:
     """
     Verify that the TranslatedSQL object will call the configured transpilation plugin
     """
@@ -125,3 +125,16 @@ def test_transpile_sql():
     ):
         assert transpile_sql("1", dialect=Dialect.SPARK) == "1"
         assert transpile_sql("SELECT 1", dialect=None) == "SELECT 1"
+
+
+def test_translated_sql_no_dialect() -> None:
+    """
+    Verify that the TranslatedSQL object will call the configured transpilation plugin
+    """
+    translated_sql = TranslatedSQL.create(
+        sql="1",
+        columns=[],
+        dialect=None,
+    )
+    assert translated_sql.sql == "1"
+    assert TranslatedSQL.validate_dialect(translated_sql.dialect) is None

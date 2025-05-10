@@ -4,7 +4,6 @@ Models for metrics.
 
 from typing import List, Optional
 
-from pydantic import validator
 from pydantic.main import BaseModel
 
 from datajunction_server.database.node import Node
@@ -98,16 +97,10 @@ class TranslatedSQL(TranspiledSQL):
     upstream_tables: Optional[List[str]] = None
 
     @classmethod
-    def create(cls, *, dialect: Dialect, **kwargs):
+    def create(cls, *, dialect: Dialect | None = None, **kwargs):
         sql = transpile_sql(kwargs["sql"], dialect)
         return cls(
             sql=sql,
             dialect=dialect,
             **{k: v for k, v in kwargs.items() if k not in {"sql", "dialect"}},
         )
-
-    @validator("dialect", pre=True)
-    def validate_dialect(cls, v):
-        if v is None:
-            return None
-        return Dialect(v)

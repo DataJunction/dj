@@ -35,7 +35,7 @@ class TranspiledSQL(BaseModel):
     @validator("dialect", pre=True)
     def validate_dialect(cls, v):
         if v is None:
-            return None  # pragma: no-cover
+            return None
         return Dialect(v)
 
 

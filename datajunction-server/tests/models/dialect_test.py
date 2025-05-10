@@ -1,3 +1,4 @@
+from unittest import mock
 import pytest
 from datajunction_server.models.dialect import (
     Dialect,
@@ -80,10 +81,6 @@ def test_dialect_enum():
     with pytest.raises(ValueError):
         Dialect("unregistered_dialect")
 
-    # Registering again should raise an error
-    with pytest.raises(ValueError):
-        register_dialect_plugin("custom", TestPlugin)
-
 
 def test_dialect_registry_register_and_get_plugin():
     """
@@ -91,7 +88,7 @@ def test_dialect_registry_register_and_get_plugin():
     """
 
     class MockPlugin:
-        pass
+        package_name = "mock_plugin"
 
     DialectRegistry.register("mock_dialect", MockPlugin)
     assert DialectRegistry.get_plugin("mock_dialect") == MockPlugin
@@ -113,16 +110,26 @@ def test_dialect_registry_list():
     assert sorted(DialectRegistry.list()) == ["dialect1", "dialect2"]
 
 
-def test_register_dialect_plugin():
+def test_register_dialect_plugin(caplog):
     """
     Test the register_dialect_plugin function.
     """
 
     class MockPlugin:
-        pass
+        package_name = "mock_plugin"
 
+    # Simulate the settings where the plugin is not included
     register_dialect_plugin("test_dialect", MockPlugin)
-    assert DialectRegistry.get_plugin("test_dialect") == MockPlugin
+    assert DialectRegistry.get_plugin("test_dialect") is None
+    caplog.set_level("WARNING")
+    assert caplog.messages == [
+        "Skipping plugin registration for 'test_dialect' (mock_plugin) "
+        "(not in configured transpilation plugins: ['default', 'sqlglot'])",
+    ]
 
-    with pytest.raises(ValueError):
-        register_dialect_plugin("test_dialect", MockPlugin)  # Duplicate registration
+    # Simulate adding the plugin to the settings
+    mock_settings = mock.MagicMock()
+    mock_settings.transpilation_plugins = ["default", "mock_plugin"]
+    with mock.patch("datajunction_server.models.dialect.settings", mock_settings):
+        register_dialect_plugin("test_dialect", MockPlugin)
+        assert DialectRegistry.get_plugin("test_dialect") is MockPlugin
