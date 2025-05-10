@@ -68,4 +68,3 @@ flowchart LR
     PythonClient --> Streamlit["Streamlit"]
     JSClient --> ReactApps["React Apps"]
 {{< /mermaid >}}
-
