@@ -72,7 +72,6 @@ class GeneratedSQL:
 
     node: Node
     sql: str
-    sql_transpilation_library: str | None = None
     columns: list[ColumnMetadata]
     dialect: Dialect  # type: ignore
     upstream_tables: list[str]
@@ -91,7 +90,6 @@ class GeneratedSQL:
                 name=obj.node.name,
             ),
             sql=obj.sql,
-            sql_transpilation_library=obj.sql_transpilation_library,
             columns=[
                 ColumnMetadata(  # type: ignore
                     name=col.name,
