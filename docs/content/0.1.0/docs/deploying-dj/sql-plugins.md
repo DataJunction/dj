@@ -37,3 +37,18 @@ sql_transpilation_plugins = ["default", "sqlglot", "customdb-sql"]
 **3. Include Any Required Dependencies**
 
 Make sure the transpilation library for your dialect (e.g., customdb-sql) is listed in your requirements file and installed in the deployment setup.
+
+**4. Setup Engine + Catalogs**
+
+Once the plugin for your `customdb` dialect is registered, you can create an engine with the dialect `customdb`:
+```
+curl -X POST http://localhost:8000/engines -d '{"name": "customdb", "version": "", "uri": "", "dialect": "customdb"}'
+```
+Add this new engine to your existing catalog(s):
+```
+curl -X POST http://localhost:8000/catalogs/default/engines -d '{"name": "customdb", "version": "", "uri": "", "dialect": "customdb"}'
+```
+
+**5. Usage**
+
+Now it is ready to use -- you can request SQL in your new `customdb` dialect!
