@@ -132,6 +132,8 @@ def settings_no_qs(
     from datajunction_server.transpilation import SQLTranspilationPlugin
 
     register_dialect_plugin("spark", SQLTranspilationPlugin)
+    register_dialect_plugin("trino", SQLTranspilationPlugin)
+    register_dialect_plugin("druid", SQLTranspilationPlugin)
 
     mocker.patch(
         "datajunction_server.utils.get_settings",
@@ -828,6 +830,41 @@ def module__settings(
     from datajunction_server.transpilation import SQLTranspilationPlugin
 
     register_dialect_plugin("spark", SQLTranspilationPlugin)
+    register_dialect_plugin("trino", SQLTranspilationPlugin)
+    register_dialect_plugin("druid", SQLTranspilationPlugin)
+
+    module_mocker.patch(
+        "datajunction_server.utils.get_settings",
+        return_value=settings,
+    )
+
+    yield settings
+
+
+@pytest_asyncio.fixture(scope="module")
+def regular_settings(
+    module_mocker: MockerFixture,
+    module__postgres_container: PostgresContainer,
+) -> Iterator[Settings]:
+    """
+    Custom settings for unit tests.
+    """
+    settings = Settings(
+        index=module__postgres_container.get_connection_url(),
+        repository="/path/to/repository",
+        results_backend=SimpleCache(default_timeout=0),
+        celery_broker=None,
+        redis_cache=None,
+        query_service=None,
+        secret="a-fake-secretkey",
+    )
+
+    from datajunction_server.models.dialect import register_dialect_plugin
+    from datajunction_server.transpilation import SQLGlotTranspilationPlugin
+
+    register_dialect_plugin("spark", SQLGlotTranspilationPlugin)
+    register_dialect_plugin("trino", SQLGlotTranspilationPlugin)
+    register_dialect_plugin("druid", SQLGlotTranspilationPlugin)
 
     module_mocker.patch(
         "datajunction_server.utils.get_settings",
