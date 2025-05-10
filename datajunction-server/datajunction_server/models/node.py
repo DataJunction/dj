@@ -599,6 +599,7 @@ class ColumnOutput(BaseModel):
     description: Optional[str]
     attributes: Optional[List[AttributeOutput]]
     dimension: Optional[NodeNameOutput]
+    dimension_column: Optional[str]
     partition: Optional[PartitionOutput]
 
     class Config:
