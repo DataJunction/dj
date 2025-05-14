@@ -8,7 +8,6 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     DateTime,
-    Enum,
     Index,
     Integer,
     String,
@@ -16,7 +15,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from datajunction_server.database.base import Base
-from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.typing import UTCDatetime
 
 
@@ -35,14 +33,14 @@ class History(Base):
         BigInteger().with_variant(Integer, "sqlite"),
         primary_key=True,
     )
-    entity_type: Mapped[Optional[EntityType]] = mapped_column(
-        Enum(EntityType),
+    entity_type: Mapped[Optional[str]] = mapped_column(
+        String(20),
         default=None,
     )
     entity_name: Mapped[Optional[str]] = mapped_column(String, default=None)
     node: Mapped[Optional[str]] = mapped_column(String, default=None)
-    activity_type: Mapped[Optional[ActivityType]] = mapped_column(
-        Enum(ActivityType),
+    activity_type: Mapped[Optional[str]] = mapped_column(
+        String(20),
         default=None,
     )
     user: Mapped[Optional[str]] = mapped_column(String, default=None)
