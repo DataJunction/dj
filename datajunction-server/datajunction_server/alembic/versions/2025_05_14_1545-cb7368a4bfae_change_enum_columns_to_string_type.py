@@ -12,31 +12,91 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = 'cb7368a4bfae'
-down_revision = '51547dcccb10'
+revision = "cb7368a4bfae"
+down_revision = "51547dcccb10"
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
-    with op.batch_alter_table('history', schema=None) as batch_op:
-        batch_op.alter_column('entity_type',
-               existing_type=postgresql.ENUM('ATTRIBUTE', 'AVAILABILITY', 'BACKFILL', 'CATALOG', 'COLUMN_ATTRIBUTE', 'DEPENDENCY', 'ENGINE', 'LINK', 'MATERIALIZATION', 'NAMESPACE', 'NODE', 'PARTITION', 'QUERY', 'TAG', name='entitytype'),
-               type_=sa.String(length=20),
-               existing_nullable=True)
-        batch_op.alter_column('activity_type',
-               existing_type=postgresql.ENUM('CREATE', 'DELETE', 'RESTORE', 'UPDATE', 'REFRESH', 'TAG', 'SET_ATTRIBUTE', 'STATUS_CHANGE', name='activitytype'),
-               type_=sa.String(length=20),
-               existing_nullable=True)
+    with op.batch_alter_table("history", schema=None) as batch_op:
+        batch_op.alter_column(
+            "entity_type",
+            existing_type=postgresql.ENUM(
+                "ATTRIBUTE",
+                "AVAILABILITY",
+                "BACKFILL",
+                "CATALOG",
+                "COLUMN_ATTRIBUTE",
+                "DEPENDENCY",
+                "ENGINE",
+                "LINK",
+                "MATERIALIZATION",
+                "NAMESPACE",
+                "NODE",
+                "PARTITION",
+                "QUERY",
+                "TAG",
+                name="entitytype",
+            ),
+            type_=sa.String(length=20),
+            existing_nullable=True,
+        )
+        batch_op.alter_column(
+            "activity_type",
+            existing_type=postgresql.ENUM(
+                "CREATE",
+                "DELETE",
+                "RESTORE",
+                "UPDATE",
+                "REFRESH",
+                "TAG",
+                "SET_ATTRIBUTE",
+                "STATUS_CHANGE",
+                name="activitytype",
+            ),
+            type_=sa.String(length=20),
+            existing_nullable=True,
+        )
 
 
 def downgrade():
-    with op.batch_alter_table('history', schema=None) as batch_op:
-        batch_op.alter_column('activity_type',
-               existing_type=sa.String(length=20),
-               type_=postgresql.ENUM('CREATE', 'DELETE', 'RESTORE', 'UPDATE', 'REFRESH', 'TAG', 'SET_ATTRIBUTE', 'STATUS_CHANGE', name='activitytype'),
-               existing_nullable=True)
-        batch_op.alter_column('entity_type',
-               existing_type=sa.String(length=20),
-               type_=postgresql.ENUM('ATTRIBUTE', 'AVAILABILITY', 'BACKFILL', 'CATALOG', 'COLUMN_ATTRIBUTE', 'DEPENDENCY', 'ENGINE', 'LINK', 'MATERIALIZATION', 'NAMESPACE', 'NODE', 'PARTITION', 'QUERY', 'TAG', name='entitytype'),
-               existing_nullable=True)
+    with op.batch_alter_table("history", schema=None) as batch_op:
+        batch_op.alter_column(
+            "activity_type",
+            existing_type=sa.String(length=20),
+            type_=postgresql.ENUM(
+                "CREATE",
+                "DELETE",
+                "RESTORE",
+                "UPDATE",
+                "REFRESH",
+                "TAG",
+                "SET_ATTRIBUTE",
+                "STATUS_CHANGE",
+                name="activitytype",
+            ),
+            existing_nullable=True,
+        )
+        batch_op.alter_column(
+            "entity_type",
+            existing_type=sa.String(length=20),
+            type_=postgresql.ENUM(
+                "ATTRIBUTE",
+                "AVAILABILITY",
+                "BACKFILL",
+                "CATALOG",
+                "COLUMN_ATTRIBUTE",
+                "DEPENDENCY",
+                "ENGINE",
+                "LINK",
+                "MATERIALIZATION",
+                "NAMESPACE",
+                "NODE",
+                "PARTITION",
+                "QUERY",
+                "TAG",
+                name="entitytype",
+            ),
+            existing_nullable=True,
+        )
