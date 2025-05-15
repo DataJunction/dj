@@ -243,7 +243,10 @@ async def test_approx_count_distinct(session: AsyncSession):
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.LongType()  # type: ignore
-    assert query.select.projection[0].function().dialects == [Dialect.DRUID]  # type: ignore
+    assert query.select.projection[0].function().dialects == [  # type: ignore
+        Dialect.SPARK,
+        Dialect.DRUID,
+    ]
     assert query.select.projection[1].type == ct.LongType()  # type: ignore
     assert query.select.projection[1].function().dialects == [Dialect.DRUID]  # type: ignore
     assert query.select.projection[2].type == ct.LongType()  # type: ignore
