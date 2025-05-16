@@ -621,7 +621,7 @@ class QueryBuilder:
                     errors=[
                         DJQueryBuildError(
                             code=ErrorCode.MISSING_PARAMETER,
-                            message=f"Missing parameter: {param.name}",
+                            message=f"Missing value for parameter: {param.name}",
                         ),
                     ],
                 )
