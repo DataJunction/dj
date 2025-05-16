@@ -3898,3 +3898,15 @@ async def test_query_parameters(
             """,
         ),
     )
+
+    response = await module__client_with_roads.get(
+        "/sql/default.repair_orders_fact",
+        params={
+            "dimensions": ["default.hard_hat.hard_hat_id"],
+            "filters": [],
+        },
+    )
+    assert (
+        response.json()["message"]
+        == "Missing value for parameter: default.hard_hat.hard_hat_id"
+    )
