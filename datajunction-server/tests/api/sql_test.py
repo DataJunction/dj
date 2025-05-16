@@ -3857,3 +3857,44 @@ async def test_filter_on_source_nodes(
             """,
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_query_parameters(
+    module__client_with_roads: AsyncClient,
+):
+    """
+    Test using query parameters in the SQL query
+    """
+    response = await module__client_with_roads.patch(
+        "/nodes/default.repair_orders_fact",
+        json={
+            "query": "SELECT :`default.hard_hat.hard_hat_id` AS hard_hat_id "
+            "FROM default.repair_orders repair_orders",
+        },
+    )
+    assert response.status_code == 200
+
+    response = await module__client_with_roads.get(
+        "/sql/default.repair_orders_fact",
+        params={
+            "dimensions": ["default.hard_hat.hard_hat_id"],
+            "filters": [
+                "default.hard_hat.hard_hat_id = 123",
+            ],
+        },
+    )
+    assert str(parse(response.json()["sql"])) == str(
+        parse(
+            """
+            WITH default_DOT_repair_orders_fact AS (
+              SELECT  123 AS hard_hat_id
+              FROM roads.repair_orders AS repair_orders
+              WHERE  123 = 123
+            )
+            SELECT
+              default_DOT_repair_orders_fact.hard_hat_id default_DOT_hard_hat_DOT_hard_hat_id
+            FROM default_DOT_repair_orders_fact
+            """,
+        ),
+    )

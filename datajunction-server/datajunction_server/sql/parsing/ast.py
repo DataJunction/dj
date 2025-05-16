@@ -2605,7 +2605,7 @@ class SelectExpression(Aliasable, Expression):
 
 
 @dataclass(eq=False)
-class QueryParameter(Node):
+class QueryParameter(Expression):
     """
     Represents a query parameter that can be substituted in a query
     """
@@ -2613,6 +2613,7 @@ class QueryParameter(Node):
     name: str
     prefix: str = ":"
     quote_style: str = ""
+    _type: Optional["ColumnType"] = field(repr=False, default=None)
 
     def __str__(self) -> str:
         return self.identifier(quotes=True)
@@ -2623,6 +2624,13 @@ class QueryParameter(Node):
         """
         quote_style = "" if not quotes else self.quote_style
         return f"{self.prefix}{quote_style}{self.name}{quote_style}"
+
+    @property
+    def type(self) -> ColumnType:
+        """
+        The type of the parameter
+        """
+        return self._type if self._type else StringType()
 
 
 class Select(SelectExpression):
