@@ -380,6 +380,7 @@ class QueryBuilder:
         self.use_materialized = use_materialized
 
         self._filters: List[str] = []
+        self._parameters: dict[str, ast.Value] = {}
         self._required_dimensions: List[str] = [
             required.name for required in self.node_revision.required_dimensions
         ]
@@ -500,6 +501,24 @@ class QueryBuilder:
         return self._filters
 
     @property
+    def parameters(self) -> dict[str, ast.Value]:
+        """
+        Extracts parameters from relevant filters
+        """
+        filter_asts = [
+            filter_ast for filter_ast in to_filter_asts(self.filters) if filter_ast
+        ]
+        for filter_ast in filter_asts:
+            if (
+                isinstance(filter_ast, ast.BinaryOp)
+                and isinstance(filter_ast.left, ast.Column)
+                and filter_ast.op == ast.BinaryOpKind.Eq
+                and isinstance(filter_ast.right, ast.Value)
+            ):
+                self._parameters[filter_ast.left.identifier()] = filter_ast.right
+        return self._parameters
+
+    @property
     def filter_asts(self) -> List[ast.Expression]:
         """
         Returns a list of filter expressions rendered as ASTs
@@ -591,6 +610,20 @@ class QueryBuilder:
             if order := self.build_order_bys():
                 self.final_ast.select.organization = ast.Organization(  # type: ignore
                     order=order,
+                )
+
+        # Replace any parameters in the final AST with their values
+        for param in self.final_ast.find_all(ast.QueryParameter):  # type: ignore
+            if param.name in self.parameters and param.parent:
+                param.parent.replace(param, self.parameters[param.name])
+            else:
+                raise DJQueryBuildException(
+                    errors=[
+                        DJQueryBuildError(
+                            code=ErrorCode.MISSING_PARAMETER,
+                            message=f"Missing parameter: {param.name}",
+                        ),
+                    ],
                 )
 
         # Error validation
