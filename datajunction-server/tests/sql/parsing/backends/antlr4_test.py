@@ -128,3 +128,15 @@ def test_antlr4_parse_error():
     """
     with pytest.raises(DJParseException):
         parse("SELECT ** FROM 1_#**")
+
+
+def test_query_parameters():
+    """
+    Test query parameters
+    """
+    query = parse("SELECT * FROM person WHERE name = :param_name")
+    assert ":param_name" in str(query)
+    query = parse("SELECT * FROM person WHERE some_map[:param_name] IS NOT NULL")    
+    assert "some_map[:param_name]" in str(query)
+    query = parse("SELECT * FROM person WHERE some_map[CAST(:param_name AS INT)] IS NOT NULL")    
+    assert "some_map[CAST(:param_name AS INT)]" in str(query)

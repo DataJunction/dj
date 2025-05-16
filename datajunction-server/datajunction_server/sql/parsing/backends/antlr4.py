@@ -657,6 +657,11 @@ def _(ctx: sbp.NumericLiteralContext):
 
 
 @visit.register
+def _(ctx: sbp.ParameterLiteralContext):
+    return ctx.getText()
+
+
+@visit.register
 def _(ctx: sbp.StringLitContext):
     if string := ctx.STRING():
         return string.getSymbol().text.strip("'")
