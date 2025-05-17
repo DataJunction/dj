@@ -2,10 +2,11 @@
 SQL related APIs.
 """
 
+import json
 import logging
 from collections import OrderedDict
 from http import HTTPStatus
-from typing import List, Optional, Tuple, cast
+from typing import Any, List, Optional, Tuple, cast
 
 from fastapi import BackgroundTasks, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,6 +59,7 @@ async def get_measures_sql_for_cube_v2(
             "subsequent queries are more efficient."
         ),
     ),
+    qp: str = Query("{}", description="Query parameters"),
     *,
     include_all_columns: bool = Query(
         False,
@@ -106,6 +108,7 @@ async def get_measures_sql_for_cube_v2(
         sql_transpilation_library=settings.sql_transpilation_library,
         use_materialized=use_materialized,
         preagg_requested=preaggregate,
+        query_parameters=json.loads(qp),
     )
     return measures_query
 
@@ -122,6 +125,7 @@ async def build_and_save_node_sql(
     access_control: AccessControlStore,
     ignore_errors: bool = True,
     use_materialized: bool = True,
+    query_parameters: dict[str, Any] | None = None,
 ) -> QueryRequest:
     """
     Build node SQL and save it to query requests
@@ -152,6 +156,7 @@ async def build_and_save_node_sql(
             engine_version=engine.version if engine else None,
             access_control=access_control,
             use_materialized=use_materialized,
+            query_parameters=query_parameters,
         )
         # We save the request for both the cube and the metrics, so that if someone makes either
         # of these types of requests, they'll go to the cached query
@@ -160,6 +165,8 @@ async def build_and_save_node_sql(
             ([node_name], QueryBuildType.NODE),
         ]
         for nodes, query_type in requests_to_save:
+            if query_parameters:
+                continue
             request = await QueryRequest.save_query_request(
                 session=session,
                 nodes=nodes,
@@ -190,6 +197,7 @@ async def build_and_save_node_sql(
             access_control=access_control,
             ignore_errors=ignore_errors,
             use_materialized=use_materialized,
+            query_parameters=query_parameters,
         )
         query = translated_sql.sql
         columns = translated_sql.columns
@@ -204,6 +212,8 @@ async def build_and_save_node_sql(
             engine=engine,
             access_control=access_control,
             use_materialized=use_materialized,
+            query_parameters=query_parameters,
+            ignore_errors=ignore_errors,
         )
         columns = [
             assemble_column_metadata(col)  # type: ignore
@@ -242,6 +252,7 @@ async def get_node_sql(
     background_tasks: BackgroundTasks,
     ignore_errors: bool = True,
     use_materialized: bool = True,
+    query_parameters: dict[str, Any] | None = None,
 ) -> Tuple[TranslatedSQL, QueryRequest]:
     """
     Return SQL for a node.
@@ -283,6 +294,7 @@ async def get_node_sql(
             engine=engine,
             access_control=access_control,
             use_materialized=use_materialized,
+            query_parameters=query_parameters,
         )
         return (
             TranslatedSQL(
@@ -304,6 +316,7 @@ async def get_node_sql(
         access_control=access_control,
         ignore_errors=ignore_errors,
         use_materialized=use_materialized,
+        query_parameters=query_parameters,
     )
     return (
         TranslatedSQL(
@@ -326,6 +339,7 @@ async def get_sql(
     filters: List[str] = Query([]),
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
+    qp: str = Query("{}", description="Query parameters"),
     *,
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
@@ -355,6 +369,7 @@ async def get_sql(
         background_tasks=background_tasks,
         ignore_errors=ignore_errors,  # type: ignore
         use_materialized=use_materialized,  # type: ignore
+        query_parameters=json.loads(qp),
     )
     return translated_sql
 
@@ -366,6 +381,7 @@ async def get_sql_for_metrics(
     filters: List[str] = Query([]),
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
+    qp: str = Query("{}", description="Query parameters"),
     *,
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
@@ -402,17 +418,19 @@ async def get_sql_for_metrics(
             http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
         )
 
-    if query_request := await QueryRequest.get_query_request(
-        session,
-        nodes=metrics,
-        dimensions=dimensions,
-        filters=filters,
-        orderby=orderby,
-        limit=limit,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        query_type=QueryBuildType.METRICS,
-    ):
+    if (
+        query_request := await QueryRequest.get_query_request(
+            session,
+            nodes=metrics,
+            dimensions=dimensions,
+            filters=filters,
+            orderby=orderby,
+            limit=limit,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            query_type=QueryBuildType.METRICS,
+        )
+    ) and not qp:
         # Update the node SQL in a background task to keep it up-to-date
         background_tasks.add_task(
             build_and_save_sql_for_metrics,
@@ -427,6 +445,7 @@ async def get_sql_for_metrics(
             access_control=access_control,
             ignore_errors=ignore_errors,
             use_materialized=use_materialized,
+            query_parameters=json.loads(qp),
         )
         engine = (
             await get_engine(session, engine_name, engine_version)  # type: ignore
@@ -451,6 +470,7 @@ async def get_sql_for_metrics(
         access_control,
         ignore_errors=ignore_errors,  # type: ignore
         use_materialized=use_materialized,  # type: ignore
+        query_parameters=json.loads(qp),
     )
 
 
@@ -466,6 +486,7 @@ async def build_and_save_sql_for_metrics(
     access_control: Optional[access.AccessControlStore] = None,
     ignore_errors: bool = True,
     use_materialized: bool = True,
+    query_parameters: dict[str, Any] | None = None,
 ):
     """
     Builds and saves SQL for metrics.
@@ -482,6 +503,7 @@ async def build_and_save_sql_for_metrics(
         access_control,
         ignore_errors=ignore_errors,  # type: ignore
         use_materialized=use_materialized,  # type: ignore
+        query_parameters=query_parameters,
     )
 
     await QueryRequest.save_query_request(

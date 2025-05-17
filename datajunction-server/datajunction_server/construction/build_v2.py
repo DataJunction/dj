@@ -104,6 +104,7 @@ async def get_measures_query(
     sql_transpilation_library: Optional[str] = None,
     use_materialized: bool = True,
     preagg_requested: bool = False,
+    query_parameters: dict[str, Any] = None,
 ) -> List[GeneratedSQL]:
     """
     Builds the measures SQL for a set of metrics with dimensions and filters.
@@ -185,6 +186,7 @@ async def get_measures_query(
             .with_build_criteria(build_criteria)
             .add_dimensions(dimensions)
             .add_filters(filters)
+            .add_query_parameters(query_parameters)
             .order_by(orderby)
             .build()
         )
@@ -376,6 +378,7 @@ class QueryBuilder:
         self.use_materialized = use_materialized
 
         self._filters: List[str] = []
+        self._parameters: dict[str, ast.Value] = {}
         self._required_dimensions: List[str] = [
             required.name for required in self.node_revision.required_dimensions
         ]
@@ -433,6 +436,16 @@ class QueryBuilder:
         """Add filters to the query builder."""
         for filter_ in filters or []:
             self.filter_by(filter_)
+        return self
+
+    def add_query_parameters(
+        self, query_parameters: dict[str, ast.Value | Any] | None = None
+    ):
+        """Add parameters to the query builder."""
+        for param, value in (query_parameters or {}).items():
+            self._parameters[param] = QueryBuilder.normalize_query_param_value(
+                param, value
+            )
         return self
 
     def add_dimension(self, dimension: str):
@@ -494,6 +507,13 @@ class QueryBuilder:
     def filters(self) -> List[str]:
         """All filters"""
         return self._filters
+
+    @property
+    def parameters(self) -> dict[str, ast.Value]:
+        """
+        Extracts parameters from relevant filters
+        """
+        return self._parameters
 
     @property
     def filter_asts(self) -> List[ast.Expression]:
@@ -587,6 +607,18 @@ class QueryBuilder:
             if order := self.build_order_bys():
                 self.final_ast.select.organization = ast.Organization(  # type: ignore
                     order=order,
+                )
+
+        # Replace any parameters in the final AST with their values
+        for param in self.final_ast.find_all(ast.QueryParameter):  # type: ignore
+            if param.name in self.parameters and param.parent:
+                param.parent.replace(param, self.parameters[param.name])
+            else:
+                self.errors.append(
+                    DJQueryBuildError(
+                        code=ErrorCode.MISSING_PARAMETER,
+                        message=f"Missing value for parameter: {param.name}",
+                    )
                 )
 
         # Error validation
@@ -856,6 +888,24 @@ class QueryBuilder:
                     dimension_node_joins[dim_node].requested_dimensions.append(dim)
         return dimension_node_joins
 
+    @classmethod
+    def normalize_query_param_value(cls, param: str, value: ast.Value | Any):
+        match value:
+            case ast.Value():
+                return value
+            case int() | float():
+                return ast.Number(value)
+            case bool():
+                return ast.Boolean(value)
+            case None:
+                return ast.Null()
+            case str():
+                return ast.String(f"'{value}'")
+            case _:
+                raise TypeError(
+                    f"Unsupported parameter type: {type(value)} for param {param}"
+                )
+
 
 class CubeQueryBuilder:
     """
@@ -884,6 +934,7 @@ class CubeQueryBuilder:
         self._dimensions: List[str] = []
         self._orderby: List[str] = []
         self._limit: Optional[int] = None
+        self._parameters: dict[str, ast.Value] = {}
         self._build_criteria: Optional[BuildCriteria] = self.get_default_criteria()
         self._access_control: Optional[access.AccessControlStore] = None
         self._ignore_errors: bool = False
@@ -964,6 +1015,14 @@ class CubeQueryBuilder:
             self.add_dimension(dimension)
         return self
 
+    def add_query_parameters(self, query_parameters: dict[str, Any] | None = None):
+        """Add parameters to the query builder."""
+        for param, value in (query_parameters or {}).items():
+            self._parameters[param] = QueryBuilder.normalize_query_param_value(
+                param, value
+            )
+        return self
+
     def order_by(self, orderby: Optional[Union[str, List[str]]] = None):
         """Set order by for the query builder."""
         if isinstance(orderby, str):
@@ -1008,6 +1067,13 @@ class CubeQueryBuilder:
     def filters(self) -> List[str]:
         """All filters"""
         return self._filters
+
+    @property
+    def parameters(self) -> dict[str, ast.Value]:
+        """
+        Extracts parameters from relevant filters
+        """
+        return self._parameters
 
     async def build(self) -> ast.Query:
         """
@@ -1115,6 +1181,7 @@ class CubeQueryBuilder:
                 .with_build_criteria(self._build_criteria)
                 .add_dimensions(self.dimensions)
                 .add_filters(self.filters)
+                .add_query_parameters(self.parameters)
                 .build()
             )
             self.errors.extend(query_builder.errors)
