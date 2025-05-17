@@ -4,7 +4,7 @@ import collections
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import DefaultDict, List, Optional, Set, Tuple
+from typing import Any, DefaultDict, List, Optional, Set, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -164,6 +164,7 @@ async def build_metric_nodes(
     build_criteria: Optional[BuildCriteria] = None,
     access_control: Optional[access.AccessControlStore] = None,
     ignore_errors: bool = True,
+    query_parameters: Optional[dict[str, Any]] = None,
 ):
     """
     Build a single query for all metrics in the list, including the specified
@@ -195,6 +196,7 @@ async def build_metric_nodes(
     builder = (
         builder.add_filters(filters)
         .add_dimensions(dimensions)
+        .add_query_parameters(query_parameters)
         .order_by(orderby)
         .limit(limit)
         .with_build_criteria(build_criteria)
