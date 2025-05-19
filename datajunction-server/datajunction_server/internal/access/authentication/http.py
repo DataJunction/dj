@@ -91,7 +91,11 @@ class TrailingSlashAPIRouter(APIRouter):
     """
 
     def api_route(
-        self, path: str, *, include_in_schema: bool = True, **kwargs: Any
+        self,
+        path: str,
+        *,
+        include_in_schema: bool = True,
+        **kwargs: Any,
     ) -> Callable[[DecoratedCallable], DecoratedCallable]:
         """
         For any given API route path, we always add both the path without the trailing slash
@@ -102,12 +106,16 @@ class TrailingSlashAPIRouter(APIRouter):
             path = path[:-1]
 
         add_path = super().api_route(
-            path, include_in_schema=include_in_schema, **kwargs
+            path,
+            include_in_schema=include_in_schema,
+            **kwargs,
         )
 
         path_with_trailing_slash = path + "/"
         add_trailing_slash_path = super().api_route(
-            path_with_trailing_slash, include_in_schema=False, **kwargs
+            path_with_trailing_slash,
+            include_in_schema=False,
+            **kwargs,
         )
 
         def decorator(func: DecoratedCallable) -> DecoratedCallable:

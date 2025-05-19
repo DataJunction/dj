@@ -792,7 +792,7 @@ class CompiledProject(Project):
                         prefixed_name,
                         "[b][#3A4F6C]tag",
                         f"[green]Tag {prefixed_name} successfully created (or updated)",
-                    ]
+                    ],
                 )
             except DJClientException as exc:  # pragma: no cover
                 table.add_row(*[tag.name, "tag", f"[i][red]{str(exc)}"])
@@ -820,7 +820,7 @@ class CompiledProject(Project):
                         namespace,
                         "[b][#3A4F6C]namespace",
                         f"[green]Namespace {namespace} successfully created",
-                    ]
+                    ],
                 )
             except DJNamespaceAlreadyExists:
                 table.add_row(
@@ -828,7 +828,7 @@ class CompiledProject(Project):
                         namespace,
                         "namespace",
                         f"[i][yellow]Namespace {namespace} already exists",
-                    ]
+                    ],
                 )
             except DJClientException as exc:
                 # This is a just-in-case code for some older client versions.
@@ -838,7 +838,7 @@ class CompiledProject(Project):
                             namespace,
                             "namespace",
                             f"[i][yellow]Namespace {namespace} already exists",
-                        ]
+                        ],
                     )
                 else:
                     # pragma: no cover
@@ -905,7 +905,7 @@ class CompiledProject(Project):
                         prefixed_name,
                         f"{style}{created_node.type}",
                         f"[green]Node {created_node.name} successfully created (or updated)",
-                    ]
+                    ],
                 )
             except DJClientException as exc:
                 table.add_row(
@@ -913,7 +913,7 @@ class CompiledProject(Project):
                         prefixed_name,
                         f"{style}{node_config.definition.node_type}",
                         f"[i][red]{str(exc)}",
-                    ]
+                    ],
                 )
                 self.errors.append(
                     {"name": prefixed_name, "type": "node", "error": str(exc)},
@@ -937,7 +937,7 @@ class CompiledProject(Project):
                     )
                 except DJClientException as exc:
                     table.add_row(
-                        *[node_config.name, "[b]link[/]", f"[i][red]{str(exc)}"]
+                        *[node_config.name, "[b]link[/]", f"[i][red]{str(exc)}"],
                     )
                     self.errors.append(
                         {"name": node_config.name, "type": "link", "error": str(exc)},
@@ -1016,7 +1016,7 @@ class CompiledProject(Project):
                         prefix,
                         "[b][#3A4F6C]namespace",
                         f"[green]Namespace {prefix} successfully deleted.",
-                    ]
+                    ],
                 )
             except DJClientException as exc:
                 table.add_row(*[prefix, "namespace", f"[i][red]{str(exc)}"])
