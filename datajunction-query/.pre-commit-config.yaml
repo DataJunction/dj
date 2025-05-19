@@ -36,7 +36,7 @@ repos:
     - types-toml
 
 - repo: https://github.com/asottile/add-trailing-comma
-  rev: v2.2.1
+  rev: v3.1.0
   hooks:
   - id: add-trailing-comma
 

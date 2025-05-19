@@ -1,4 +1,5 @@
 """Test configuration."""
+
 import threading
 
 import pytest
