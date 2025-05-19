@@ -30,7 +30,7 @@ UNKNOWN_CATALOG_ID = 0
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])
 async def list_catalogs(
-    *, session: AsyncSession = Depends(get_session)
+    *, session: AsyncSession = Depends(get_session),
 ) -> List[CatalogInfo]:
     """
     List all available catalogs
@@ -44,7 +44,7 @@ async def list_catalogs(
 
 @router.get("/catalogs/{name}/", response_model=CatalogInfo, name="Get a Catalog")
 async def get_catalog(
-    name: str, *, session: AsyncSession = Depends(get_session)
+    name: str, *, session: AsyncSession = Depends(get_session),
 ) -> CatalogInfo:
     """
     Return a catalog by name

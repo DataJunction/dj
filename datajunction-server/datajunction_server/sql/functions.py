@@ -2163,7 +2163,7 @@ def infer_type(
     )  # pragma: no cover
 
     return ct.StructType(
-        *parse_rule(schema.value, "complexColTypeList")
+        *parse_rule(schema.value, "complexColTypeList"),
     )  # pragma: no cover
 
 

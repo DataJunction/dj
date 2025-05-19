@@ -131,7 +131,7 @@ async def get_downstream_nodes(
         final_select = final_select.where(max_depths.c.max_depth < depth)
 
     statement = final_select.order_by(max_depths.c.max_depth, Node.id).options(
-        *_node_output_options()
+        *_node_output_options(),
     )
     results = (await session.execute(statement)).unique().scalars().all()
     return [

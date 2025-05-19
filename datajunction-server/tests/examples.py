@@ -2526,6 +2526,6 @@ QUERY_DATA_MAPPINGS = {
                 },
             ],
             "errors": [],
-        }
+        },
     ),
 }

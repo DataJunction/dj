@@ -28,7 +28,7 @@ router = SecureAPIRouter(tags=["attributes"])
 
 @router.get("/attributes/", response_model=List[AttributeTypeBase])
 async def list_attributes(
-    *, session: AsyncSession = Depends(get_session)
+    *, session: AsyncSession = Depends(get_session),
 ) -> List[AttributeTypeBase]:
     """
     List all available attribute types.
@@ -44,7 +44,7 @@ async def list_attributes(
     name="Add an Attribute Type",
 )
 async def add_attribute_type(
-    data: MutableAttributeTypeFields, *, session: AsyncSession = Depends(get_session)
+    data: MutableAttributeTypeFields, *, session: AsyncSession = Depends(get_session),
 ) -> AttributeTypeBase:
     """
     Add a new attribute type
