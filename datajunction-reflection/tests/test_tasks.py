@@ -1,4 +1,5 @@
 """Tests the celery app."""
+
 from unittest.mock import call
 
 from datajunction_reflection.worker.tasks import reflect_source, refresh

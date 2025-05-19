@@ -1,4 +1,5 @@
 """Reflection service celery tasks."""
+
 from abc import ABC
 
 import celery

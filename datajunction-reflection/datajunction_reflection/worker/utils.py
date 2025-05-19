@@ -1,4 +1,5 @@
 """Utility functions for retrieving API clients."""
+
 import os
 
 from celery import Celery
