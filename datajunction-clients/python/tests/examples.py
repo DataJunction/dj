@@ -1213,7 +1213,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
                 },
             ],
             "errors": [],
-        }
+        },
     ),
     "WITHdefault_DOT_repair_order_detailsAS(SELECTdefault_DOT_repair_order_details."
     "repair_order_id,\tdefault_DOT_repair_order_details.repair_type_id,\tdefault_DOT_repair_order"
@@ -1243,7 +1243,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
                 "state": QueryState.FINISHED,
                 "results": [],
                 "errors": [],
-            }
+            },
         )
     ),
     "WITHdefault_DOT_repair_order_detailsAS(SELECTdefault_DOT_hard_hat.postal_codedefault_"
@@ -1299,7 +1299,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
                 },
             ],
             "errors": [],
-        }
+        },
     ),
     "WITHdefault_DOT_repair_order_detailsAS(SELECTdefault_DOT_repair_order_details."
     "repair_order_id,\tdefault_DOT_repair_order_details.repair_type_id,\tdefault_DOT"
@@ -1339,7 +1339,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
                 },
             ],
             "errors": [],
-        }
+        },
     ),
     "SELECTavg(default_DOT_repair_order_details.price)ASdefault_DOT_avg_repair_price,\tdefault"
     "_DOT_hard_hat.citydefault_DOT_hard_hat_DOT_cityFROMroads.repair_order_detailsASdefault_"
@@ -1369,6 +1369,6 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
                 },
             ],
             "errors": [],
-        }
+        },
     ),
 }

@@ -95,7 +95,9 @@ async def list_measures(
 
 @router.get("/measures/{measure_name}", response_model=MeasureOutput)
 async def get_measure(
-    measure_name: str, *, session: AsyncSession = Depends(get_session)
+    measure_name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
 ) -> MeasureOutput:
     """
     Get info on a measure.
@@ -111,7 +113,9 @@ async def get_measure(
     name="Add a Measure",
 )
 async def add_measure(
-    data: CreateMeasure, *, session: AsyncSession = Depends(get_session)
+    data: CreateMeasure,
+    *,
+    session: AsyncSession = Depends(get_session),
 ) -> MeasureOutput:
     """
     Add a measure

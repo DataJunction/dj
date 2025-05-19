@@ -205,7 +205,10 @@ class DJInvalidInputException(DJException):
 
     def __init__(self, *args, **kwargs):
         super().__init__(
-            *args, dbapi_exception="ProgrammingError", http_status_code=422, **kwargs
+            *args,
+            dbapi_exception="ProgrammingError",
+            http_status_code=422,
+            **kwargs,
         )
 
 
@@ -216,7 +219,10 @@ class DJNotImplementedException(DJException):
 
     def __init__(self, *args, **kwargs):
         super().__init__(
-            *args, dbapi_exception="NotSupportedError", http_status_code=500, **kwargs
+            *args,
+            dbapi_exception="NotSupportedError",
+            http_status_code=500,
+            **kwargs,
         )
 
 
@@ -227,7 +233,10 @@ class DJInternalErrorException(DJException):
 
     def __init__(self, *args, **kwargs):
         super().__init__(
-            *args, dbapi_exception="InternalError", http_status_code=500, **kwargs
+            *args,
+            dbapi_exception="InternalError",
+            http_status_code=500,
+            **kwargs,
         )
 
 

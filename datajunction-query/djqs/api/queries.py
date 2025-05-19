@@ -255,5 +255,9 @@ async def read_query(
     prev = next_ = None
 
     return QueryResults(
-        results=query_results, next=next_, previous=prev, errors=[], **query
+        results=query_results,
+        next=next_,
+        previous=prev,
+        errors=[],
+        **query,
     )

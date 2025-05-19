@@ -50,7 +50,9 @@ router = SecureAPIRouter(tags=["cubes"])
 
 @router.get("/cubes/{name}/", name="Get a Cube")
 async def get_cube(
-    name: str, *, session: AsyncSession = Depends(get_session)
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
 ) -> CubeRevisionMetadata:
     """
     Get information on a cube

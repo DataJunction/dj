@@ -327,7 +327,9 @@ async def list_all_nodes_with_details(
 
 @router.get("/nodes/{name}/", response_model=NodeOutput)
 async def get_node(
-    name: str, *, session: AsyncSession = Depends(get_session)
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
 ) -> NodeOutput:
     """
     Show the active version of the specified node.
@@ -415,7 +417,9 @@ async def restore_node(
 
 @router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionOutput])
 async def list_node_revisions(
-    name: str, *, session: AsyncSession = Depends(get_session)
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
 ) -> List[NodeRevisionOutput]:
     """
     List all revisions for the node.
@@ -1436,7 +1440,10 @@ async def update_node(
 
 @router.get("/nodes/similarity/{node1_name}/{node2_name}")
 async def calculate_node_similarity(
-    node1_name: str, node2_name: str, *, session: AsyncSession = Depends(get_session)
+    node1_name: str,
+    node2_name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
 ) -> JSONResponse:
     """
     Compare two nodes by how similar their queries are
@@ -1511,7 +1518,9 @@ async def list_upstream_nodes(
     name="List All Connected Nodes (Upstreams + Downstreams)",
 )
 async def list_node_dag(
-    name: str, *, session: AsyncSession = Depends(get_session)
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are part of the DAG of the given node. This means getting all upstreams,
@@ -1548,7 +1557,10 @@ async def list_node_dag(
     name="List All Dimension Attributes",
 )
 async def list_all_dimension_attributes(
-    name: str, *, depth: int = 30, session: AsyncSession = Depends(get_session)
+    name: str,
+    *,
+    depth: int = 30,
+    session: AsyncSession = Depends(get_session),
 ) -> List[DimensionAttributeOutput]:
     """
     List all available dimension attributes for the given node.
@@ -1578,7 +1590,9 @@ async def list_all_dimension_attributes(
     name="List column level lineage of node",
 )
 async def column_lineage(
-    name: str, *, session: AsyncSession = Depends(get_session)
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
 ) -> List[LineageColumn]:
     """
     List column-level lineage of a node in a graph

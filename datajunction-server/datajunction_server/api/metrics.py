@@ -104,7 +104,9 @@ async def list_metric_metadata() -> MetricMetadataOptions:
 
 @router.get("/metrics/{name}/", response_model=Metric)
 async def get_a_metric(
-    name: str, *, session: AsyncSession = Depends(get_session)
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
 ) -> Metric:
     """
     Return a metric by name.
