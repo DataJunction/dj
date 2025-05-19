@@ -824,7 +824,7 @@ async def test_ceil(types, expected) -> None:
                 *(
                     ast.Column(ast.Name("x"), _type=types[0]),
                     ast.Number(0, _type=types[1]),
-                )
+                ),
             )
             == expected
         )
@@ -1753,7 +1753,7 @@ async def test_floor(types, expected) -> None:
                 *(
                     ast.Column(ast.Name("x"), _type=types[0]),
                     ast.Number(0, _type=types[1]),
-                )
+                ),
             )
             == expected
         )

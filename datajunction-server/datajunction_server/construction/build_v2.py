@@ -1510,7 +1510,7 @@ async def needs_dimension_join(
 
 
 def combine_filter_conditions(
-    existing_condition, *new_conditions
+    existing_condition, *new_conditions,
 ) -> Optional[Union[ast.BinaryOp, ast.Expression]]:
     """
     Combines the existing where clause with new filter conditions.

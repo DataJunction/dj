@@ -134,7 +134,7 @@ def _combine_measures_join_criteria(left_table, right_table, query_grain):
                 ast.Column(name=ast.Name(grain), _table=right_table),
             )
             for grain in query_grain
-        ]
+        ],
     )
 
 

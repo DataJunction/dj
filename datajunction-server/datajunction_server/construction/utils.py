@@ -34,7 +34,7 @@ async def get_dj_node(
                 await session.execute(
                     query.options(
                         joinedload(Node.current).options(
-                            *NodeRevision.default_load_options()
+                            *NodeRevision.default_load_options(),
                         ),
                     ),
                 )

@@ -21,7 +21,7 @@ router = SecureAPIRouter(tags=["engines"])
 
 @router.get("/engines/", response_model=List[EngineInfo])
 async def list_engines(
-    *, session: AsyncSession = Depends(get_session)
+    *, session: AsyncSession = Depends(get_session),
 ) -> List[EngineInfo]:
     """
     List all available engines
@@ -34,7 +34,7 @@ async def list_engines(
 
 @router.get("/engines/{name}/{version}/", response_model=EngineInfo)
 async def get_an_engine(
-    name: str, version: str, *, session: AsyncSession = Depends(get_session)
+    name: str, version: str, *, session: AsyncSession = Depends(get_session),
 ) -> EngineInfo:
     """
     Return an engine by name and version
