@@ -19,7 +19,9 @@ class CompoundBuildException:
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             cls._instance = super(CompoundBuildException, cls).__new__(
-                cls, *args, **kwargs,
+                cls,
+                *args,
+                **kwargs,
             )
             cls.errors = []
         return cls._instance

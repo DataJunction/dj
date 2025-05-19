@@ -72,7 +72,9 @@ async def get_tag_by_name(
 
 @router.get("/tags/", response_model=List[TagOutput])
 async def list_tags(
-    tag_type: Optional[str] = None, *, session: AsyncSession = Depends(get_session),
+    tag_type: Optional[str] = None,
+    *,
+    session: AsyncSession = Depends(get_session),
 ) -> List[TagOutput]:
     """
     List all available tags.
@@ -86,7 +88,9 @@ async def list_tags(
 
 @router.get("/tags/{name}/", response_model=TagOutput)
 async def get_a_tag(
-    name: str, *, session: AsyncSession = Depends(get_session),
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
 ) -> TagOutput:
     """
     Return a tag by name.
