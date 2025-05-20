@@ -5,7 +5,7 @@ Tests for custom antlr4 parser
 
 import pytest
 
-from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.antlr4 import parse, ast
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
@@ -128,3 +128,50 @@ def test_antlr4_parse_error():
     """
     with pytest.raises(DJParseException):
         parse("SELECT ** FROM 1_#**")
+
+
+def test_query_parameters():
+    """
+    Test query parameters
+    """
+    query = parse("SELECT * FROM person WHERE name = :`param.name`")
+    assert ":`param.name`" in str(query)
+    assert [param for param in query.find_all(ast.QueryParameter)] == [
+        ast.QueryParameter(
+            prefix=":",
+            name="param.name",
+            quote_style="`",
+        ),
+    ]
+
+    query = parse('SELECT * FROM person WHERE some_map[:"param.name"] IS NOT NULL')
+    assert 'some_map[:"param.name"]' in str(query)
+    assert [param for param in query.find_all(ast.QueryParameter)] == [
+        ast.QueryParameter(
+            prefix=":",
+            name="param.name",
+            quote_style='"',
+        ),
+    ]
+
+    query = parse("SELECT * FROM person WHERE some_map[:param_name] IS NOT NULL")
+    assert "some_map[:param_name]" in str(query)
+    assert [param for param in query.find_all(ast.QueryParameter)] == [
+        ast.QueryParameter(
+            prefix=":",
+            name="param_name",
+            quote_style="",
+        ),
+    ]
+
+    query = parse(
+        "SELECT * FROM person WHERE some_map[CAST(:param_name AS INT)] IS NOT NULL",
+    )
+    assert "some_map[CAST(:param_name AS INT)]" in str(query)
+    assert [param for param in query.find_all(ast.QueryParameter)] == [
+        ast.QueryParameter(
+            prefix=":",
+            name="param_name",
+            quote_style="",
+        ),
+    ]

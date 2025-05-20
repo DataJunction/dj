@@ -1662,3 +1662,44 @@ def test_combine_filter_conditions():
         )
         == "abc = 'one' AND def = 'two'"
     )
+
+
+def test_normalize_query_param_value():
+    # case when value is already ast.Value
+    ast_value = ast.String("'blah'")  # assuming ast.Value can be instantiated like this
+    assert QueryBuilder.normalize_query_param_value("param1", ast_value) is ast_value
+
+    # int value
+    result = QueryBuilder.normalize_query_param_value("param2", 42)
+    assert isinstance(result, ast.Number)
+    assert result.value == 42  # assuming ast.Number stores value in .value attribute
+
+    # float value
+    result = QueryBuilder.normalize_query_param_value("param3", 3.14)
+    assert isinstance(result, ast.Number)
+    assert result.value == 3.14
+
+    # bool value True
+    result = QueryBuilder.normalize_query_param_value("param4", True)
+    assert isinstance(result, ast.Boolean)
+    assert result.value is True
+
+    # bool value False
+    result = QueryBuilder.normalize_query_param_value("param5", False)
+    assert isinstance(result, ast.Boolean)
+    assert result.value is False
+
+    # None value
+    result = QueryBuilder.normalize_query_param_value("param6", None)
+    assert isinstance(result, ast.Null)
+
+    # str value
+    s = "hello"
+    result = QueryBuilder.normalize_query_param_value("param7", s)
+    assert isinstance(result, ast.String)
+    assert result.value == f"'{s}'"
+
+    # unsupported type should raise TypeError
+    with pytest.raises(TypeError) as e:
+        QueryBuilder.normalize_query_param_value("param8", [1, 2, 3])
+    assert "Unsupported parameter type" in str(e.value)
