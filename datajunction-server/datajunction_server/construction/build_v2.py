@@ -899,10 +899,10 @@ class QueryBuilder:
         match value:
             case ast.Value():
                 return value
-            case int() | float():
-                return ast.Number(value)
             case bool():
                 return ast.Boolean(value)
+            case int() | float():
+                return ast.Number(value)
             case None:
                 return ast.Null()
             case str():
