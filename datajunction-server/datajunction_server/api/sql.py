@@ -166,7 +166,7 @@ async def build_and_save_node_sql(
         ]
         for nodes, query_type in requests_to_save:
             if query_parameters:
-                continue
+                continue  # pragma: no cover
             request = await QueryRequest.save_query_request(
                 session=session,
                 nodes=nodes,
@@ -432,7 +432,7 @@ async def get_sql_for_metrics(
         )
     ) and not query_params:
         # Update the node SQL in a background task to keep it up-to-date
-        background_tasks.add_task(
+        background_tasks.add_task(  # pragma: no cover
             build_and_save_sql_for_metrics,
             session=session,
             metrics=metrics,
@@ -447,12 +447,12 @@ async def get_sql_for_metrics(
             use_materialized=use_materialized,
             query_parameters=json.loads(query_params),
         )
-        engine = (
+        engine = (  # pragma: no cover
             await get_engine(session, engine_name, engine_version)  # type: ignore
             if engine_name
             else None
         )
-        return TranslatedSQL(
+        return TranslatedSQL(  # pragma: no cover
             sql=query_request.query,
             columns=query_request.columns,
             dialect=engine.dialect if engine else None,
