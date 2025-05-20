@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, fields
 from enum import Enum
 from functools import reduce
 from itertools import chain, zip_longest
+import re
 from typing import (
     Any,
     Callable,
@@ -2601,6 +2602,35 @@ class SelectExpression(Aliasable, Expression):
         Returns a dictionary with the output column names mapped to the columns
         """
         return {col.alias_or_name.name: col for col in self.projection}
+
+
+@dataclass(eq=False)
+class QueryParameter(Expression):
+    """
+    Represents a query parameter that can be substituted in a query
+    """
+
+    name: str
+    prefix: str = ":"
+    quote_style: str = ""
+    _type: Optional["ColumnType"] = field(repr=False, default=None)
+
+    def __str__(self) -> str:
+        return self.identifier(quotes=True)
+
+    def identifier(self, quotes: bool = True) -> str:
+        """
+        The full parameter name, including the prefix and quotes
+        """
+        quote_style = "" if not quotes else self.quote_style
+        return f"{self.prefix}{quote_style}{self.name}{quote_style}"
+
+    @property
+    def type(self) -> ColumnType:
+        """
+        The type of the parameter
+        """
+        return self._type if self._type else StringType()
 
 
 class Select(SelectExpression):

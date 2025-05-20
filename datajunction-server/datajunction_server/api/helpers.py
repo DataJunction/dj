@@ -201,6 +201,8 @@ async def get_query(
     engine: Optional[Engine] = None,
     access_control: Optional[access.AccessControlStore] = None,
     use_materialized: bool = True,
+    query_parameters: Optional[Dict[str, str]] = None,
+    ignore_errors: bool = True,
 ) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
@@ -214,12 +216,14 @@ async def get_query(
         node.current,  # type: ignore
         use_materialized=use_materialized,
     )
-    query_ast = await (
+    if ignore_errors:
         query_builder.ignore_errors()
-        .with_access_control(access_control)
+    query_ast = await (
+        query_builder.with_access_control(access_control)
         .with_build_criteria(build_criteria)
         .add_dimensions(dimensions)
         .add_filters(filters)
+        .add_query_parameters(query_parameters)
         .limit(limit)
         .order_by(orderby)
         .build()
@@ -605,6 +609,7 @@ async def build_sql_for_multiple_metrics(
     access_control: Optional[access.AccessControlStore] = None,
     ignore_errors: bool = True,
     use_materialized: bool = True,
+    query_parameters: Optional[Dict[str, str]] = None,
 ) -> Tuple[TranslatedSQL, Engine, Catalog]:
     """
     Build SQL for multiple metrics. Used by both /sql and /data endpoints
@@ -730,6 +735,7 @@ async def build_sql_for_multiple_metrics(
         limit=limit,
         access_control=access_control,
         ignore_errors=ignore_errors,
+        query_parameters=query_parameters,
     )
     columns = [
         assemble_column_metadata(col)  # type: ignore

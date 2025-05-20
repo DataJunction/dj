@@ -3,6 +3,7 @@ import copy
 import inspect
 import logging
 from functools import lru_cache
+import re
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union, cast
 
 import antlr4
@@ -654,6 +655,16 @@ def _(ctx: sbp.ConstantDefaultContext):
 @visit.register
 def _(ctx: sbp.NumericLiteralContext):
     return ast.Number(ctx.number().getText())
+
+
+@visit.register
+def _(ctx: sbp.ParameterLiteralContext):
+    raw = ctx.getText()
+    match = re.match(r'^:("?`?)([\w.]+)(`?"?)$', raw)
+    if not match:
+        raise ValueError(f"Invalid query parameter format: {raw}")
+    param_name = match.group(2)
+    return ast.QueryParameter(name=param_name, quote_style=match.group(3))
 
 
 @visit.register
