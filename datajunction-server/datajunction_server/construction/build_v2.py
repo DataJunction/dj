@@ -297,9 +297,13 @@ def build_preaggregate_query(
     # Find all required GROUP BY columns based on each of the measure's aggregation rules.
     # If the measure supports full aggregation, there are no required group-by columns, but if it
     # supports limited aggregation, we need to aggregate to the specified level.
+    colum_name_to_alias = {
+        col.name.identifier(): (col.alias or col.name).identifier()
+        for col in parent_ast.select.column_mapping.values()
+    }
     required_group_by_columns = [
         ast.Column.from_existing(
-            parent_ast.select.column_mapping[group_by_col],
+            parent_ast.select.column_mapping[colum_name_to_alias[group_by_col]],
             table=from_table,
         )
         for metric in metrics2measures

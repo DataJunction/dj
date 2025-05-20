@@ -342,7 +342,7 @@ class ApproxCountDistinct(Function):
     """
 
     is_aggregation = True
-    dialects = [Dialect.DRUID]
+    dialects = [Dialect.SPARK, Dialect.DRUID]
 
 
 @ApproxCountDistinct.register
