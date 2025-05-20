@@ -3878,14 +3878,14 @@ async def transform_with_query_parameters(
 
 @pytest.mark.asyncio
 async def test_query_parameters_node_sql(
-    module__client_with_roads: AsyncClient,
+    module__client_with_examples: AsyncClient,
 ):
     """
     Test using query parameters in the SQL query
     """
-    await transform_with_query_parameters(module__client_with_roads)
+    await transform_with_query_parameters(module__client_with_examples)
 
-    response = await module__client_with_roads.get(
+    response = await module__client_with_examples.get(
         "/sql/default.repair_orders_fact",
         params={
             "dimensions": ["default.hard_hat.hard_hat_id"],
@@ -3911,7 +3911,7 @@ async def test_query_parameters_node_sql(
         ),
     )
 
-    response = await module__client_with_roads.get(
+    response = await module__client_with_examples.get(
         "/sql/default.repair_orders_fact",
         params={
             "dimensions": ["default.hard_hat.hard_hat_id"],
@@ -3929,14 +3929,14 @@ async def test_query_parameters_node_sql(
 
 @pytest.mark.asyncio
 async def test_query_parameters_measures_sql(
-    module__client_with_roads: AsyncClient,
+    module__client_with_examples: AsyncClient,
 ):
     """
     Test using query parameters in the SQL query
     """
-    await transform_with_query_parameters(module__client_with_roads)
+    await transform_with_query_parameters(module__client_with_examples)
 
-    response = await module__client_with_roads.get(
+    response = await module__client_with_examples.get(
         "/sql/measures/v2",
         params={
             "metrics": ["default.num_repair_orders"],
@@ -3962,7 +3962,7 @@ async def test_query_parameters_measures_sql(
         ),
     )
 
-    response = await module__client_with_roads.get(
+    response = await module__client_with_examples.get(
         "/sql/measures/v2",
         params={
             "metrics": ["default.num_repair_orders"],
@@ -3981,13 +3981,13 @@ async def test_query_parameters_measures_sql(
 
 @pytest.mark.asyncio
 async def test_query_parameters_metrics_sql(
-    module__client_with_roads: AsyncClient,
+    module__client_with_examples: AsyncClient,
 ):
     """
     Test using query parameters in the SQL query
     """
-    await transform_with_query_parameters(module__client_with_roads)
-    response = await module__client_with_roads.get(
+    await transform_with_query_parameters(module__client_with_examples)
+    response = await module__client_with_examples.get(
         "/sql",
         params={
             "metrics": ["default.num_repair_orders"],
@@ -4020,7 +4020,7 @@ async def test_query_parameters_metrics_sql(
         ),
     )
 
-    response = await module__client_with_roads.get(
+    response = await module__client_with_examples.get(
         "/sql",
         params={
             "metrics": ["default.num_repair_orders"],
