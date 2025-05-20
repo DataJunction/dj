@@ -3889,7 +3889,7 @@ async def test_query_parameters_node_sql(
         "/sql/default.repair_orders_fact",
         params={
             "dimensions": ["default.hard_hat.hard_hat_id"],
-            "qp": '{"default.hard_hat.hard_hat_id": 123}',
+            "query_params": '{"default.hard_hat.hard_hat_id": 123}',
         },
     )
     assert str(parse(response.json()["sql"])) == str(
@@ -3941,7 +3941,7 @@ async def test_query_parameters_measures_sql(
         params={
             "metrics": ["default.num_repair_orders"],
             "dimensions": ["default.hard_hat.hard_hat_id"],
-            "qp": '{"default.hard_hat.hard_hat_id": 123}',
+            "query_params": '{"default.hard_hat.hard_hat_id": 123}',
         },
     )
     assert str(parse(response.json()[0]["sql"])) == str(
@@ -3992,7 +3992,7 @@ async def test_query_parameters_metrics_sql(
         params={
             "metrics": ["default.num_repair_orders"],
             "dimensions": ["default.hard_hat.hard_hat_id"],
-            "qp": '{"default.hard_hat.hard_hat_id": 123}',
+            "query_params": '{"default.hard_hat.hard_hat_id": 123}',
         },
     )
     assert str(parse(response.json()["sql"])) == str(

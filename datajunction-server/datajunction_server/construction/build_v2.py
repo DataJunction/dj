@@ -443,12 +443,14 @@ class QueryBuilder:
         return self
 
     def add_query_parameters(
-        self, query_parameters: dict[str, ast.Value | Any] | None = None
+        self,
+        query_parameters: dict[str, ast.Value | Any] | None = None,
     ):
         """Add parameters to the query builder."""
         for param, value in (query_parameters or {}).items():
             self._parameters[param] = QueryBuilder.normalize_query_param_value(
-                param, value
+                param,
+                value,
             )
         return self
 
@@ -622,7 +624,7 @@ class QueryBuilder:
                     DJQueryBuildError(
                         code=ErrorCode.MISSING_PARAMETER,
                         message=f"Missing value for parameter: {param.name}",
-                    )
+                    ),
                 )
 
         # Error validation
@@ -907,7 +909,7 @@ class QueryBuilder:
                 return ast.String(f"'{value}'")
             case _:
                 raise TypeError(
-                    f"Unsupported parameter type: {type(value)} for param {param}"
+                    f"Unsupported parameter type: {type(value)} for param {param}",
                 )
 
 
@@ -1023,7 +1025,8 @@ class CubeQueryBuilder:
         """Add parameters to the query builder."""
         for param, value in (query_parameters or {}).items():
             self._parameters[param] = QueryBuilder.normalize_query_param_value(
-                param, value
+                param,
+                value,
             )
         return self
 

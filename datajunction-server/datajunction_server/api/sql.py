@@ -59,7 +59,7 @@ async def get_measures_sql_for_cube_v2(
             "subsequent queries are more efficient."
         ),
     ),
-    qp: str = Query("{}", description="Query parameters"),
+    query_params: str = Query("{}", description="Query parameters"),
     *,
     include_all_columns: bool = Query(
         False,
@@ -108,7 +108,7 @@ async def get_measures_sql_for_cube_v2(
         sql_transpilation_library=settings.sql_transpilation_library,
         use_materialized=use_materialized,
         preagg_requested=preaggregate,
-        query_parameters=json.loads(qp),
+        query_parameters=json.loads(query_params),
     )
     return measures_query
 
@@ -339,7 +339,7 @@ async def get_sql(
     filters: List[str] = Query([]),
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
-    qp: str = Query("{}", description="Query parameters"),
+    query_params: str = Query("{}", description="Query parameters"),
     *,
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
@@ -369,7 +369,7 @@ async def get_sql(
         background_tasks=background_tasks,
         ignore_errors=ignore_errors,  # type: ignore
         use_materialized=use_materialized,  # type: ignore
-        query_parameters=json.loads(qp),
+        query_parameters=json.loads(query_params),
     )
     return translated_sql
 
@@ -381,7 +381,7 @@ async def get_sql_for_metrics(
     filters: List[str] = Query([]),
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
-    qp: str = Query("{}", description="Query parameters"),
+    query_params: str = Query("{}", description="Query parameters"),
     *,
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
@@ -430,7 +430,7 @@ async def get_sql_for_metrics(
             engine_version=engine_version,
             query_type=QueryBuildType.METRICS,
         )
-    ) and not qp:
+    ) and not query_params:
         # Update the node SQL in a background task to keep it up-to-date
         background_tasks.add_task(
             build_and_save_sql_for_metrics,
@@ -445,7 +445,7 @@ async def get_sql_for_metrics(
             access_control=access_control,
             ignore_errors=ignore_errors,
             use_materialized=use_materialized,
-            query_parameters=json.loads(qp),
+            query_parameters=json.loads(query_params),
         )
         engine = (
             await get_engine(session, engine_name, engine_version)  # type: ignore
@@ -470,7 +470,7 @@ async def get_sql_for_metrics(
         access_control,
         ignore_errors=ignore_errors,  # type: ignore
         use_materialized=use_materialized,  # type: ignore
-        query_parameters=json.loads(qp),
+        query_parameters=json.loads(query_params),
     )
 
 
