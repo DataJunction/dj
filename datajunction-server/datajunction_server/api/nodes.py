@@ -106,6 +106,7 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     _node_output_options,
     get_dimensions,
+    get_dimensions_graph,
     get_downstream_nodes,
     get_filter_only_dimensions,
     get_upstream_nodes,
@@ -1553,7 +1554,7 @@ async def list_node_dag(
 
 @router.get(
     "/nodes/{name}/dimensions/",
-    response_model=List[DimensionAttributeOutput],
+    response_model=List[str],
     name="List All Dimension Attributes",
 )
 async def list_all_dimension_attributes(
@@ -1561,7 +1562,7 @@ async def list_all_dimension_attributes(
     *,
     depth: int = 30,
     session: AsyncSession = Depends(get_session),
-) -> List[DimensionAttributeOutput]:
+) -> list[str]:
     """
     List all available dimension attributes for the given node.
     """
@@ -1574,14 +1575,15 @@ async def list_all_dimension_attributes(
             ),
         ],
     )
-    dimensions = await get_dimensions(
-        session,
-        node,  # type: ignore
-        with_attributes=True,
-        depth=depth,
-    )
-    filter_only_dimensions = await get_filter_only_dimensions(session, name)
-    return dimensions + filter_only_dimensions
+    dims = await get_dimensions_graph(session, name)
+    # dimensions = await get_dimensions(
+    #     session,
+    #     node,  # type: ignore
+    #     with_attributes=True,
+    #     depth=depth,
+    # )
+    # filter_only_dimensions = await get_filter_only_dimensions(session, name)
+    return [dim.name for dim in dims] # dimensions + filter_only_dimensions
 
 
 @router.get(
