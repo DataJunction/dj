@@ -248,9 +248,8 @@ async def build_reference_link(
         None,
     ):
         return DimensionAttributeOutput(
-            name=f"{col.dimension.name}.{col.dimension_column}" + f"[{'->'.join(role)}]"
-            if role
-            else "",
+            name=f"{col.dimension.name}.{col.dimension_column}"
+            + (f"[{'->'.join(role)}]" if role else ""),
             node_name=col.dimension.name,
             node_display_name=col.dimension.current.display_name,
             properties=dim_col.attribute_names(),
