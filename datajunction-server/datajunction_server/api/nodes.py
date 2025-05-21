@@ -108,7 +108,6 @@ from datajunction_server.sql.dag import (
     get_dimensions,
     get_dimensions_graph,
     get_downstream_nodes,
-    get_filter_only_dimensions,
     get_upstream_nodes,
 )
 from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
@@ -1567,7 +1566,7 @@ async def list_all_dimension_attributes(
     List all available dimension attributes for the given node.
     """
     dims = await get_dimensions_graph(session, name)
-    # DimensionAttributeOutput()
+    dimensions_map = {dim.id: dim for dim, _ in dims}
     return [
         DimensionAttributeOutput(
             name=f"{dim.name}.{col.name}",
@@ -1575,9 +1574,9 @@ async def list_all_dimension_attributes(
             node_display_name=dim.current.display_name,
             properties=[],  # attribute_types.split(",") if attribute_types else [],
             type=str(col.type),
-            path=[],
+            path=[dimensions_map[int(node_id)].name for node_id in path],
         )
-        for dim in dims
+        for dim, path in dims
         for col in dim.current.columns
     ]
     # dimensions = await get_dimensions(
@@ -1587,7 +1586,7 @@ async def list_all_dimension_attributes(
     #     depth=depth,
     # )
     # filter_only_dimensions = await get_filter_only_dimensions(session, name)
-    return [dim.name for dim in dims] # dimensions + filter_only_dimensions
+    return [dim.name for dim in dims]  # dimensions + filter_only_dimensions
 
 
 @router.get(

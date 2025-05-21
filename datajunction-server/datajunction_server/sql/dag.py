@@ -9,6 +9,7 @@ from sqlalchemy import and_, func, join, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload
 from sqlalchemy.sql.operators import is_
+from sqlalchemy.dialects.postgresql import array
 
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
@@ -231,7 +232,7 @@ async def get_dimensions_graph(
     node_name: str,
     node_type: NodeType = None,
     include_deactivated: bool = True,
-) -> List[Node]:
+) -> list[tuple[Node, list[str]]]:
     """
     Gets all upstreams of the given node, filterable by node type.
     Uses a recursive CTE query to build out all parents of the node.
@@ -260,6 +261,7 @@ async def get_dimensions_graph(
                 DimensionLink.node_revision_id,
                 NodeRevision.id,
                 NodeRevision.node_id,
+                array([NodeRevision.node_id]).label("join_path"),  # start path
             )
             .where(DimensionLink.node_revision_id == node.current.id)
             .join(Node, DimensionLink.dimension_id == Node.id)
@@ -280,6 +282,9 @@ async def get_dimensions_graph(
             dag.c.node_revision_id,
             NodeRevision.id,
             NodeRevision.node_id,
+            func.array_cat(dag.c.join_path, array([NodeRevision.node_id])).label(
+                "join_path",
+            ),
         )
         .join(DimensionLink, dag.c.id == DimensionLink.node_revision_id)
         .join(Node, DimensionLink.dimension_id == Node.id)
@@ -290,7 +295,7 @@ async def get_dimensions_graph(
         ),
     )
 
-    node_selector = select(Node)
+    node_selector = select(Node, paths.c.join_path)
     if not include_deactivated:
         node_selector = node_selector.where(is_(Node.deactivated_at, None))
     statement = (
@@ -302,12 +307,12 @@ async def get_dimensions_graph(
         )
         .options(*_node_output_options())
     )
-
-    results = (await session.execute(statement)).unique().scalars().all()
+    results = await session.execute(statement)
+    rows = results.all()
     return [
-        dim
-        for dim in results
-        if dim.type == node_type or node_type is None
+        (node, path)
+        for node, path in rows
+        if node.type == node_type or node_type is None
     ]
 
 
