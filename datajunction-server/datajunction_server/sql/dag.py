@@ -3,7 +3,7 @@ DAG related functions.
 """
 
 import itertools
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Set, Union, cast
 
 from sqlalchemy import and_, func, join, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -227,34 +227,80 @@ async def get_upstream_nodes(
     ]
 
 
-async def get_dimensions_graph(
+async def get_dimension_attributes(
     session: AsyncSession,
     node_name: str,
-    node_type: NodeType = None,
+    include_deactivated: bool = True,
+    include_reference_links: bool = True,
+):
+    """
+    Get all dimension attributes for a given node.
+    """
+    dims = await get_dimension_nodes(session, node_name, include_deactivated)
+    dimensions_map = {dim.id: dim for dim, _ in dims}
+
+    reference_links = []
+    if include_reference_links:
+        for dimension_node, path in dims:
+            for col in dimension_node.current.columns:
+                if not (col.dimension_id and col.dimension_column):
+                    continue
+
+                await session.refresh(col.dimension, ["current"])
+                await session.refresh(col.dimension.current, ["columns"])
+
+                dim_cols = col.dimension.current.columns
+                if dim_col := next(
+                    (dc for dc in dim_cols if dc.name == col.dimension_column),
+                    None,
+                ):
+                    reference_links.append(
+                        DimensionAttributeOutput(
+                            name=f"{col.dimension.name}.{col.dimension_column}",
+                            node_name=col.dimension.name,
+                            node_display_name=col.dimension.display_name,
+                            properties=dim_col.attribute_names(),
+                            type=str(col.type),
+                            path=(
+                                [node_name] if dimension_node.name != node_name else []
+                            )
+                            + [dimensions_map[int(node_id)].name for node_id in path],
+                        ),
+                    )
+
+    regular_attributes = [
+        DimensionAttributeOutput(
+            name=f"{dim.name}.{col.name}",
+            node_name=dim.name,
+            node_display_name=dim.current.display_name,
+            properties=col.attribute_names(),
+            type=str(col.type),
+            path=[node_name] + [dimensions_map[int(node_id)].name for node_id in path],
+        )
+        for dim, path in dims
+        for col in dim.current.columns
+    ]
+
+    return reference_links + regular_attributes
+
+
+async def get_dimension_nodes(
+    session: AsyncSession,
+    node_name: str,
     include_deactivated: bool = True,
 ) -> list[tuple[Node, list[str]]]:
     """
-    Gets all upstreams of the given node, filterable by node type.
-    Uses a recursive CTE query to build out all parents of the node.
+    Gets all dimension nodes in the given node's dimensions graph using a recursive
+    CTE query to build out dimension links.
     """
-    node = (
-        (
-            await session.execute(
-                select(Node)
-                .where(
-                    (Node.name == node_name) & (is_(Node.deactivated_at, None)),
-                )
-                .options(joinedload(Node.current)),
-            )
-        )
-        .unique()
-        .scalar()
+    node = cast(
+        Node,
+        await Node.get_by_name(
+            session,
+            node_name,
+            options=[joinedload(Node.current)],
+        ),
     )
-    if not node:
-        raise DJDoesNotExistException(  # pragma: no cover
-            message=f"Node with name {node_name} does not exist",
-        )
-
     dag = (
         (
             select(
@@ -307,13 +353,7 @@ async def get_dimensions_graph(
         )
         .options(*_node_output_options())
     )
-    results = await session.execute(statement)
-    rows = results.all()
-    return [
-        (node, path)
-        for node, path in rows
-        if node.type == node_type or node_type is None
-    ]
+    return [(node, path) for node, path in (await session.execute(statement)).all()]
 
 
 async def get_dimensions_dag(
