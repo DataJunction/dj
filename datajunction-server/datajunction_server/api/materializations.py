@@ -305,7 +305,7 @@ async def list_node_materializations(
     if include_all_revisions:  # Get all materializations for all node revisions
         for node_revision in node.revisions:  # type: ignore
             for materialization in node_revision.materializations:
-                if materialization.deactivated_at or show_inactive:
+                if not materialization.deactivated_at or show_inactive:
                     materializations.append(
                         get_materialization_info(
                             query_service_client=query_service_client,
