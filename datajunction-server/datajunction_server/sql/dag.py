@@ -226,6 +226,91 @@ async def get_upstream_nodes(
     ]
 
 
+async def get_dimensions_graph(
+    session: AsyncSession,
+    node_name: str,
+    node_type: NodeType = None,
+    include_deactivated: bool = True,
+) -> List[Node]:
+    """
+    Gets all upstreams of the given node, filterable by node type.
+    Uses a recursive CTE query to build out all parents of the node.
+    """
+    node = (
+        (
+            await session.execute(
+                select(Node)
+                .where(
+                    (Node.name == node_name) & (is_(Node.deactivated_at, None)),
+                )
+                .options(joinedload(Node.current)),
+            )
+        )
+        .unique()
+        .scalar()
+    )
+    if not node:
+        raise DJDoesNotExistException(  # pragma: no cover
+            message=f"Node with name {node_name} does not exist",
+        )
+
+    dag = (
+        (
+            select(
+                DimensionLink.node_revision_id,
+                NodeRevision.id,
+                NodeRevision.node_id,
+            )
+            .where(DimensionLink.node_revision_id == node.current.id)
+            .join(Node, DimensionLink.dimension_id == Node.id)
+            .join(
+                NodeRevision,
+                (Node.id == NodeRevision.node_id)
+                & (Node.current_version == NodeRevision.version),
+            )
+        )
+        .cte("dimensions", recursive=True)
+        .suffix_with(
+            "CYCLE node_id SET is_cycle USING path",
+        )
+    )
+
+    paths = dag.union_all(
+        select(
+            dag.c.node_revision_id,
+            NodeRevision.id,
+            NodeRevision.node_id,
+        )
+        .join(DimensionLink, dag.c.id == DimensionLink.node_revision_id)
+        .join(Node, DimensionLink.dimension_id == Node.id)
+        .join(
+            NodeRevision,
+            (Node.id == NodeRevision.node_id)
+            & (Node.current_version == NodeRevision.version),
+        ),
+    )
+
+    node_selector = select(Node)
+    if not include_deactivated:
+        node_selector = node_selector.where(is_(Node.deactivated_at, None))
+    statement = (
+        node_selector.join(paths, paths.c.node_id == Node.id)
+        .join(
+            NodeRevision,
+            (Node.current_version == NodeRevision.version)
+            & (Node.id == NodeRevision.node_id),
+        )
+        .options(*_node_output_options())
+    )
+
+    results = (await session.execute(statement)).unique().scalars().all()
+    return [
+        dim
+        for dim in results
+        if dim.type == node_type or node_type is None
+    ]
+
+
 async def get_dimensions_dag(
     session: AsyncSession,
     node_revision: NodeRevision,
