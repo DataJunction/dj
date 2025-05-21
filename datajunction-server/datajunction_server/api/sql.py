@@ -94,7 +94,7 @@ async def get_measures_sql_for_cube_v2(
     )
 
     metrics = list(OrderedDict.fromkeys(metrics))
-    measures_query = await get_measures_query(
+    return await get_measures_query(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
@@ -105,12 +105,10 @@ async def get_measures_sql_for_cube_v2(
         current_user=current_user,
         validate_access=validate_access,
         include_all_columns=include_all_columns,
-        sql_transpilation_library=settings.sql_transpilation_library,
         use_materialized=use_materialized,
         preagg_requested=preaggregate,
         query_parameters=json.loads(query_params),
     )
-    return measures_query
 
 
 async def build_and_save_node_sql(
@@ -297,7 +295,7 @@ async def get_node_sql(
             query_parameters=query_parameters,
         )
         return (
-            TranslatedSQL(
+            TranslatedSQL.create(
                 sql=query_request.query,
                 columns=query_request.columns,
                 dialect=engine.dialect if engine else None,
@@ -319,7 +317,7 @@ async def get_node_sql(
         query_parameters=query_parameters,
     )
     return (
-        TranslatedSQL(
+        TranslatedSQL.create(
             sql=query_request.query,
             columns=query_request.columns,
             dialect=engine.dialect if engine else None,
@@ -452,7 +450,7 @@ async def get_sql_for_metrics(
             if engine_name
             else None
         )
-        return TranslatedSQL(  # pragma: no cover
+        return TranslatedSQL.create(
             sql=query_request.query,
             columns=query_request.columns,
             dialect=engine.dialect if engine else None,

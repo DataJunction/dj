@@ -2,14 +2,10 @@
 Main DJ server app.
 """
 
-# All the models need to be imported here so that SQLModel can define their
-# relationships at runtime without causing circular imports.
-# See https://sqlmodel.tiangolo.com/tutorial/code-structure/#make-circular-imports-work.
-
 import logging
+from datajunction_server.api import setup_logging  # noqa
+
 from http import HTTPStatus
-from logging import config
-from os import path
 from typing import TYPE_CHECKING
 
 from fastapi import Depends, FastAPI, Request
@@ -41,6 +37,7 @@ from datajunction_server.api import (
     tags,
     users,
 )
+
 from datajunction_server.api.access.authentication import basic, whoami
 from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.api.catalogs import default_catalog
@@ -54,11 +51,6 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-
-config.fileConfig(
-    path.join(path.dirname(path.abspath(__file__)), "logging.conf"),
-    disable_existing_loggers=False,
-)
 
 dependencies = [Depends(default_attribute_types), Depends(default_catalog)]
 

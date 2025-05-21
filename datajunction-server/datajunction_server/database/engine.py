@@ -6,6 +6,19 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
 
 from datajunction_server.database.base import Base
+from datajunction_server.models.dialect import Dialect
+
+
+class DialectType(sa.TypeDecorator):
+    impl = sa.String
+
+    def process_bind_param(self, value, dialect):
+        if isinstance(value, Dialect):
+            return value.name
+        return value
+
+    def process_result_value(self, value, dialect):
+        return Dialect(value) if value else None
 
 
 class Engine(Base):
@@ -22,4 +35,4 @@ class Engine(Base):
     name: Mapped[str]
     version: Mapped[str]
     uri: Mapped[Optional[str]]
-    dialect: Mapped[Optional[str]] = mapped_column(sa.String)
+    dialect: Mapped[Optional[Dialect]] = mapped_column(DialectType())

@@ -93,7 +93,13 @@ def settings(
         redis_cache=None,
         query_service="query_service:8001",
         secret="a-fake-secretkey",
+        transpilation_plugins=["default"],
     )
+
+    from datajunction_server.models.dialect import register_dialect_plugin
+    from datajunction_server.transpilation import SQLTranspilationPlugin
+
+    register_dialect_plugin("spark", SQLTranspilationPlugin)
 
     mocker.patch(
         "datajunction_server.utils.get_settings",
@@ -119,7 +125,13 @@ def settings_no_qs(
         redis_cache=None,
         query_service=None,
         secret="a-fake-secretkey",
+        transpilation_plugins=["default"],
     )
+
+    from datajunction_server.models.dialect import register_dialect_plugin
+    from datajunction_server.transpilation import SQLTranspilationPlugin
+
+    register_dialect_plugin("spark", SQLTranspilationPlugin)
 
     mocker.patch(
         "datajunction_server.utils.get_settings",
@@ -809,7 +821,13 @@ def module__settings(
         redis_cache=None,
         query_service=None,
         secret="a-fake-secretkey",
+        transpilation_plugins=["default"],
     )
+
+    from datajunction_server.models.dialect import register_dialect_plugin
+    from datajunction_server.transpilation import SQLTranspilationPlugin
+
+    register_dialect_plugin("spark", SQLTranspilationPlugin)
 
     module_mocker.patch(
         "datajunction_server.utils.get_settings",
