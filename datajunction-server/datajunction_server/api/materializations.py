@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from datajunction_server.api.helpers import get_save_history
+from datajunction_server.api.helpers import get_save_history, get_materialization_info
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.column import Column, ColumnAttribute
@@ -277,7 +277,7 @@ async def upsert_materialization(
 )
 async def list_node_materializations(
     node_name: str,
-    show_deleted: bool = False,
+    include_all: bool = False,
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
@@ -288,27 +288,48 @@ async def list_node_materializations(
     like urls from the materialization service, if available.
     """
     request_headers = dict(request.headers)
-    node = await Node.get_by_name(session, node_name)
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[
+            joinedload(Node.revisions).options(*NodeRevision.default_load_options()),
+        ]
+        if include_all
+        else [],
+    )
     materializations = []
-    for materialization in node.current.materializations:  # type: ignore
-        if not materialization.deactivated_at or show_deleted:  # pragma: no cover
-            info = query_service_client.get_materialization_info(
-                node_name,
-                node.current.version,  # type: ignore
-                node.type,  # type: ignore
-                materialization.name,  # type: ignore
-                request_headers=request_headers,
-            )
-            if materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME:
-                info.urls = [info.urls[0]]
-            materialization_config_output = MaterializationConfigOutput.from_orm(
-                materialization,
-            )
-            materialization = MaterializationConfigInfoUnified(
-                **materialization_config_output.dict(),
-                **info.dict(),
-            )
-            materializations.append(materialization)
+    if include_all:  # Get all materializations for all node revisions
+        for node_revision in node.revisions:  # type: ignore
+            for materialization in node_revision.materializations:
+                materializations.append(
+                    get_materialization_info(
+                        query_service_client=query_service_client,
+                        node_revision=node_revision,
+                        materialization=materialization,
+                        request_headers=request_headers,
+                    ),
+                )
+    else:  # Get just the active materializations on the current node revision
+        for materialization in node.current.materializations:  # type: ignore
+            if not materialization.deactivated_at:  # pragma: no cover
+                info = query_service_client.get_materialization_info(
+                    node_name,
+                    node.current.version,  # type: ignore
+                    node.type,  # type: ignore
+                    materialization.name,  # type: ignore
+                    request_headers=request_headers,
+                )
+                if materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME:
+                    info.urls = [info.urls[0]]
+                materialization_config_output = MaterializationConfigOutput.from_orm(
+                    materialization,
+                )
+                materialization = MaterializationConfigInfoUnified(
+                    **materialization_config_output.dict(),
+                    **info.dict(),
+                )
+                materializations.append(materialization)
+
     return materializations
 
 

@@ -12,6 +12,7 @@ import uuid
 from http import HTTPStatus
 from typing import Callable, Dict, List, Optional, Set, Tuple, cast
 
+from datajunction_server.database.materialization import Materialization
 from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,6 +57,11 @@ from datajunction_server.models.history import status_change_history
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.materialization import (
+    MaterializationConfigInfoUnified,
+    MaterializationStrategy,
+    MaterializationConfigOutput,
+)
 from datajunction_server.models.query import ColumnMetadata, QueryWithResults
 from datajunction_server.naming import LOOKUP_CHARS
 from datajunction_server.service_clients import QueryServiceClient
@@ -940,3 +946,29 @@ async def get_save_history(notify: Callable = Depends(get_notifier)) -> Callable
         await save_history(event, session, notify)
 
     return save_history_with_notify
+
+
+def get_materialization_info(
+    query_service_client: QueryServiceClient,
+    node_revision: NodeRevision,
+    materialization: Materialization,
+    request_headers: Optional[Dict[str, str]] = None,
+) -> MaterializationConfigInfoUnified:
+    info = query_service_client.get_materialization_info(
+        node_revision.name,
+        node_revision.version,
+        node_revision.type,
+        materialization.name,
+        request_headers=request_headers,
+    )
+    if (
+        materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME
+    ):  # pragma: no cover
+        info.urls = [info.urls[0]]
+    materialization_config_output = MaterializationConfigOutput.from_orm(
+        materialization,
+    )
+    return MaterializationConfigInfoUnified(
+        **materialization_config_output.dict(),
+        **info.dict(),
+    )
