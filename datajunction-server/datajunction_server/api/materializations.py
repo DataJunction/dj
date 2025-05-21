@@ -314,7 +314,7 @@ async def list_node_materializations(
                             request_headers=request_headers,
                         ),
                     )
-    else:  # Get just the active materializations on the current node revision
+    else:  # Get just the materializations on the current node revision
         for materialization in node.current.materializations:  # type: ignore
             if not materialization.deactivated_at or show_inactive:  # pragma: no cover
                 materializations.append(
