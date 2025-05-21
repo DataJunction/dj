@@ -954,6 +954,7 @@ def get_materialization_info(
     materialization: Materialization,
     request_headers: Optional[Dict[str, str]] = None,
 ) -> MaterializationConfigInfoUnified:
+    """Merge in materialization info from the query service for a node revision"""
     info = query_service_client.get_materialization_info(
         node_revision.name,
         node_revision.version,

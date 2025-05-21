@@ -1633,22 +1633,49 @@ country_agg.add_materialization(
 
 @pytest.mark.asyncio
 async def test_include_all_materialization_configs(
-    client_with_repairs_cube: AsyncClient,
+    module__client_with_roads: AsyncClient,
     set_temporal_column,
 ):
     """
     Test getting all materialization configs for all versions using include_all=true
     """
-    client_with_repairs_cube = await client_with_repairs_cube()
+    client = module__client_with_roads
+    cube_name = "default.repair_analytics"
+    response = await client.post(
+        "/nodes/default.repair_orders_fact/columns/order_date/attributes/",
+        json=[{"name": "dimension"}],
+    )
+    assert response.status_code in (200, 201)
+    response = await client.post(
+        "/nodes/cube/",
+        json={
+            "metrics": [
+                "default.num_repair_orders",
+                "default.total_repair_cost",
+            ],
+            "dimensions": [
+                "default.repair_orders_fact.order_date",
+                "default.hard_hat.state",
+                "default.dispatcher.company_name",
+                "default.municipality_dim.local_region",
+            ],
+            "filters": ["default.hard_hat.state='AZ'"],
+            "description": "Cube of various metrics related to repairs",
+            "mode": "published",
+            "name": cube_name,
+        },
+    )
+    assert response.status_code == 201
+
     await set_temporal_column(
-        client_with_repairs_cube,
-        "default.repairs_cube",
+        client,
+        cube_name,
         "default.repair_orders_fact.order_date",
     )
 
     # Create a materialization config
-    response = await client_with_repairs_cube.post(
-        "/nodes/default.repairs_cube/materialization/",
+    response = await client.post(
+        "/nodes/default.repair_analytics/materialization/",
         json={
             "job": "druid_measures_cube",
             "strategy": "full",
@@ -1659,12 +1686,12 @@ async def test_include_all_materialization_configs(
         response.json()["message"]
         == "Successfully updated materialization config named "
         "`druid_measures_cube__full__default.repair_orders_fact.order_date` "
-        "for node `default.repairs_cube`"
+        "for node `default.repair_analytics`"
     )
 
     # Update the cube (side-effect is a new materialization is created for the new revision)
-    await client_with_repairs_cube.patch(
-        "/nodes/default.repairs_cube/",
+    await client.patch(
+        "/nodes/default.repair_analytics/",
         json={
             "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
             "dimensions": [
@@ -1675,13 +1702,13 @@ async def test_include_all_materialization_configs(
         },
     )
 
-    response = await client_with_repairs_cube.get(
-        "/nodes/default.repairs_cube/materializations",
+    response = await client.get(
+        "/nodes/default.repair_analytics/materializations",
     )
     assert len(response.json()) == 1
 
     # Make sure both materializations show up when include_all=true is used
-    response = await client_with_repairs_cube.get(
-        "/nodes/default.repairs_cube/materializations?include_all=true",
+    response = await client.get(
+        "/nodes/default.repair_analytics/materializations?include_all=true",
     )
     assert len(response.json()) == 2
