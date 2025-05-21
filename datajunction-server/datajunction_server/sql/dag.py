@@ -24,7 +24,7 @@ from datajunction_server.errors import DJDoesNotExistException, DJGraphCycleExce
 from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import SEPARATOR, get_settings
+from datajunction_server.utils import SEPARATOR, get_settings, refresh_if_needed
 
 settings = get_settings()
 
@@ -236,10 +236,36 @@ async def get_dimension_attributes(
     """
     Get all dimension attributes for a given node.
     """
-    dims = await get_dimension_nodes(session, node_name, include_deactivated)
+    node = cast(
+        Node,
+        await Node.get_by_name(
+            session,
+            node_name,
+            options=[joinedload(Node.current)],
+        ),
+    )
+    if node.type == NodeType.METRIC:
+        node = node.current.parents[0]
+        await refresh_if_needed(session, node, ["current"])
+
+    dims = await get_dimension_nodes(session, node, include_deactivated)
     dimensions_map = {dim.id: dim for dim, _ in dims}
 
     reference_links = []
+    await refresh_if_needed(session, node.current, ["columns"])
+    for col in node.current.columns:
+        if col.dimension_id and col.dimension_column:
+            await session.refresh(col, ["dimension"])
+            reference_links.append(
+                DimensionAttributeOutput(
+                    name=f"{col.dimension.name}.{col.dimension_column}",
+                    node_name=col.dimension.name,
+                    node_display_name=col.dimension.current.display_name,
+                    properties=[],  # dim_col.attribute_names(),
+                    type=str(col.type),
+                    path=[f"{node.name}.{col.name}"],
+                ),
+            )
     if include_reference_links:
         for dimension_node, path in dims:
             for col in dimension_node.current.columns:
@@ -286,21 +312,14 @@ async def get_dimension_attributes(
 
 async def get_dimension_nodes(
     session: AsyncSession,
-    node_name: str,
+    node: Node,
     include_deactivated: bool = True,
 ) -> list[tuple[Node, list[str]]]:
     """
     Gets all dimension nodes in the given node's dimensions graph using a recursive
     CTE query to build out dimension links.
     """
-    node = cast(
-        Node,
-        await Node.get_by_name(
-            session,
-            node_name,
-            options=[joinedload(Node.current)],
-        ),
-    )
+    print("finding dag for node ", node.name)
     dag = (
         (
             select(
