@@ -1707,8 +1707,9 @@ async def test_include_all_materialization_configs(
     )
     assert len(response.json()) == 1
 
-    # Make sure both materializations show up when include_all=true is used
+    # Make sure both materializations show up when all materializations are requested
     response = await client.get(
-        "/nodes/default.repair_analytics/materializations?include_all=true",
+        "/nodes/default.repair_analytics/materializations"
+        "?include_all_revisions=true&show_inactive=true",
     )
     assert len(response.json()) == 2

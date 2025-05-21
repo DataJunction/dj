@@ -32,7 +32,6 @@ from datajunction_server.models.base import labelize
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.materialization import (
     MaterializationConfigInfoUnified,
-    MaterializationConfigOutput,
     MaterializationInfo,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
@@ -277,7 +276,8 @@ async def upsert_materialization(
 )
 async def list_node_materializations(
     node_name: str,
-    include_all: bool = False,
+    show_inactive: bool = False,
+    include_all_revisions: bool = False,
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
@@ -286,6 +286,9 @@ async def list_node_materializations(
     """
     Show all materializations configured for the node, with any associated metadata
     like urls from the materialization service, if available.
+
+    show_inactive: bool - Show materializations that have a deactivated_at timestamp set
+    include_all_revisions: bool - Show  materializations for all revisions of the node
     """
     request_headers = dict(request.headers)
     node = await Node.get_by_name(
@@ -294,42 +297,34 @@ async def list_node_materializations(
         options=[
             joinedload(Node.revisions).options(*NodeRevision.default_load_options()),
         ]
-        if include_all
+        if include_all_revisions
         else [],
+        raise_if_not_exists=True,
     )
     materializations = []
-    if include_all:  # Get all materializations for all node revisions
+    if include_all_revisions:  # Get all materializations for all node revisions
         for node_revision in node.revisions:  # type: ignore
             for materialization in node_revision.materializations:
+                if materialization.deactivated_at or show_inactive:
+                    materializations.append(
+                        get_materialization_info(
+                            query_service_client=query_service_client,
+                            node_revision=node_revision,
+                            materialization=materialization,
+                            request_headers=request_headers,
+                        ),
+                    )
+    else:  # Get just the active materializations on the current node revision
+        for materialization in node.current.materializations:  # type: ignore
+            if not materialization.deactivated_at or show_inactive:  # pragma: no cover
                 materializations.append(
                     get_materialization_info(
                         query_service_client=query_service_client,
-                        node_revision=node_revision,
+                        node_revision=node.current,  # type: ignore
                         materialization=materialization,
                         request_headers=request_headers,
                     ),
                 )
-    else:  # Get just the active materializations on the current node revision
-        for materialization in node.current.materializations:  # type: ignore
-            if not materialization.deactivated_at:  # pragma: no cover
-                info = query_service_client.get_materialization_info(
-                    node_name,
-                    node.current.version,  # type: ignore
-                    node.type,  # type: ignore
-                    materialization.name,  # type: ignore
-                    request_headers=request_headers,
-                )
-                if materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME:
-                    info.urls = [info.urls[0]]
-                materialization_config_output = MaterializationConfigOutput.from_orm(
-                    materialization,
-                )
-                materialization = MaterializationConfigInfoUnified(
-                    **materialization_config_output.dict(),
-                    **info.dict(),
-                )
-                materializations.append(materialization)
-
     return materializations
 
 
