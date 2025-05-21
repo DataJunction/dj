@@ -1554,7 +1554,7 @@ async def list_node_dag(
 
 @router.get(
     "/nodes/{name}/dimensions/",
-    response_model=List[str],
+    response_model=List[DimensionAttributeOutput],
     name="List All Dimension Attributes",
 )
 async def list_all_dimension_attributes(
@@ -1562,20 +1562,24 @@ async def list_all_dimension_attributes(
     *,
     depth: int = 30,
     session: AsyncSession = Depends(get_session),
-) -> list[str]:
+) -> list[DimensionAttributeOutput]:
     """
     List all available dimension attributes for the given node.
     """
-    node = await Node.get_by_name(
-        session,
-        name,
-        options=[
-            joinedload(Node.current).options(
-                joinedload(NodeRevision.parents).options(joinedload(Node.current)),
-            ),
-        ],
-    )
     dims = await get_dimensions_graph(session, name)
+    # DimensionAttributeOutput()
+    return [
+        DimensionAttributeOutput(
+            name=f"{dim.name}.{col.name}",
+            node_name=dim.name,
+            node_display_name=dim.current.display_name,
+            properties=[],  # attribute_types.split(",") if attribute_types else [],
+            type=str(col.type),
+            path=[],
+        )
+        for dim in dims
+        for col in dim.current.columns
+    ]
     # dimensions = await get_dimensions(
     #     session,
     #     node,  # type: ignore
