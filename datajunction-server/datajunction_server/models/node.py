@@ -583,7 +583,7 @@ class DimensionAttributeOutput(BaseModel):
     node_name: Optional[str]
     node_display_name: Optional[str]
     properties: list[str] | None
-    type: str
+    type: str | None
     path: List[str]
     filter_only: bool = False
 
