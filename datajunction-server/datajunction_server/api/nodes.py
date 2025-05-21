@@ -1579,14 +1579,6 @@ async def list_all_dimension_attributes(
         for dim, path in dims
         for col in dim.current.columns
     ]
-    # dimensions = await get_dimensions(
-    #     session,
-    #     node,  # type: ignore
-    #     with_attributes=True,
-    #     depth=depth,
-    # )
-    # filter_only_dimensions = await get_filter_only_dimensions(session, name)
-    return [dim.name for dim in dims]  # dimensions + filter_only_dimensions
 
 
 @router.get(
