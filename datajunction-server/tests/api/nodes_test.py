@@ -4295,7 +4295,7 @@ class TestValidateNodes:
         )
         response = await client_with_roads.get("/nodes/default.hard_hat/dimensions")
         dimensions = response.json()
-        assert [dim["name"] for dim in dimensions] == [
+        assert {dim["name"] for dim in dimensions} == {
             "default.hard_hat.hard_hat_id",
             "default.hard_hat.state",
             "default.hard_hat.title",
@@ -4303,7 +4303,7 @@ class TestValidateNodes:
             "default.us_state.state_name",
             "default.us_state.state_region",
             "default.us_state.state_short",
-        ]
+        }
 
         response = await client_with_roads.get("/history?node=default.hard_hat")
         history = response.json()
@@ -4376,10 +4376,10 @@ class TestValidateNodes:
         )
         response = await client_with_roads.get("/nodes/default.hard_hat/dimensions")
         dimensions = response.json()
-        assert [dim["name"] for dim in dimensions] == [
+        assert {dim["name"] for dim in dimensions} == {
             "default.hard_hat.hard_hat_id",
             "default.hard_hat.title",
-        ]
+        }
 
     @pytest.mark.asyncio
     async def test_propagate_update_downstream(
@@ -5320,100 +5320,103 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
         "/nodes/default.regional_level_agg/dimensions/",
     )
     assert response.status_code in (200, 201)
-    assert response.json() == [
-        {
-            "filter_only": False,
-            "name": "default.regional_level_agg.order_day",
-            "node_display_name": "Regional Level Agg",
-            "node_name": "default.regional_level_agg",
-            "path": [],
-            "type": "int",
-            "properties": ["primary_key"],
-        },
-        {
-            "filter_only": False,
-            "name": "default.regional_level_agg.order_month",
-            "node_display_name": "Regional Level Agg",
-            "node_name": "default.regional_level_agg",
-            "path": [],
-            "type": "int",
-            "properties": ["primary_key"],
-        },
-        {
-            "filter_only": False,
-            "name": "default.regional_level_agg.order_year",
-            "node_display_name": "Regional Level Agg",
-            "node_name": "default.regional_level_agg",
-            "path": [],
-            "type": "int",
-            "properties": ["primary_key"],
-        },
-        {
-            "filter_only": False,
-            "name": "default.regional_level_agg.state_name",
-            "node_display_name": "Regional Level Agg",
-            "node_name": "default.regional_level_agg",
-            "path": [],
-            "type": "string",
-            "properties": ["primary_key"],
-        },
-        {
-            "filter_only": False,
-            "name": "default.regional_level_agg.us_region_id",
-            "node_display_name": "Regional Level Agg",
-            "node_name": "default.regional_level_agg",
-            "path": [],
-            "type": "int",
-            "properties": ["primary_key"],
-        },
-        {
-            "filter_only": True,
-            "name": "default.repair_order.repair_order_id",
-            "node_display_name": "Repair Order",
-            "node_name": "default.repair_order",
-            "path": ["default.repair_orders"],
-            "type": "int",
-            "properties": ["primary_key"],
-        },
-        {
-            "filter_only": True,
-            "name": "default.dispatcher.dispatcher_id",
-            "node_display_name": "Dispatcher",
-            "node_name": "default.dispatcher",
-            "path": ["default.repair_orders"],
-            "type": "int",
-            "properties": ["primary_key"],
-        },
-        {
-            "filter_only": True,
-            "name": "default.repair_order.repair_order_id",
-            "node_display_name": "Repair Order",
-            "node_name": "default.repair_order",
-            "path": ["default.repair_order_details"],
-            "type": "int",
-            "properties": ["primary_key"],
-        },
-        {
-            "filter_only": True,
-            "name": "default.contractor.contractor_id",
-            "node_display_name": "Contractor",
-            "node_name": "default.contractor",
-            "path": ["default.repair_type"],
-            "type": "int",
-            "properties": ["primary_key"],
-        },
-        {
-            "filter_only": True,
-            "name": "default.us_state.state_short",
-            "node_display_name": "Us State",
-            "node_name": "default.us_state",
-            "path": [
-                "default.contractors",
-            ],
-            "type": "string",
-            "properties": ["primary_key"],
-        },
-    ]
+    assert sorted(response.json(), key=lambda x: x["name"]) == sorted(
+        [
+            {
+                "filter_only": False,
+                "name": "default.regional_level_agg.order_day",
+                "node_display_name": "Regional Level Agg",
+                "node_name": "default.regional_level_agg",
+                "path": [],
+                "type": "int",
+                "properties": ["primary_key"],
+            },
+            {
+                "filter_only": False,
+                "name": "default.regional_level_agg.order_month",
+                "node_display_name": "Regional Level Agg",
+                "node_name": "default.regional_level_agg",
+                "path": [],
+                "type": "int",
+                "properties": ["primary_key"],
+            },
+            {
+                "filter_only": False,
+                "name": "default.regional_level_agg.order_year",
+                "node_display_name": "Regional Level Agg",
+                "node_name": "default.regional_level_agg",
+                "path": [],
+                "type": "int",
+                "properties": ["primary_key"],
+            },
+            {
+                "filter_only": False,
+                "name": "default.regional_level_agg.state_name",
+                "node_display_name": "Regional Level Agg",
+                "node_name": "default.regional_level_agg",
+                "path": [],
+                "type": "string",
+                "properties": ["primary_key"],
+            },
+            {
+                "filter_only": False,
+                "name": "default.regional_level_agg.us_region_id",
+                "node_display_name": "Regional Level Agg",
+                "node_name": "default.regional_level_agg",
+                "path": [],
+                "type": "int",
+                "properties": ["primary_key"],
+            },
+            {
+                "filter_only": True,
+                "name": "default.repair_order.repair_order_id",
+                "node_display_name": "Repair Order",
+                "node_name": "default.repair_order",
+                "path": ["default.repair_orders"],
+                "type": "int",
+                "properties": ["primary_key"],
+            },
+            {
+                "filter_only": True,
+                "name": "default.dispatcher.dispatcher_id",
+                "node_display_name": "Dispatcher",
+                "node_name": "default.dispatcher",
+                "path": ["default.repair_orders"],
+                "type": "int",
+                "properties": ["primary_key"],
+            },
+            {
+                "filter_only": True,
+                "name": "default.repair_order.repair_order_id",
+                "node_display_name": "Repair Order",
+                "node_name": "default.repair_order",
+                "path": ["default.repair_order_details"],
+                "type": "int",
+                "properties": ["primary_key"],
+            },
+            {
+                "filter_only": True,
+                "name": "default.contractor.contractor_id",
+                "node_display_name": "Contractor",
+                "node_name": "default.contractor",
+                "path": ["default.repair_type"],
+                "type": "int",
+                "properties": ["primary_key"],
+            },
+            {
+                "filter_only": True,
+                "name": "default.us_state.state_short",
+                "node_display_name": "Us State",
+                "node_name": "default.us_state",
+                "path": [
+                    "default.contractors",
+                ],
+                "type": "string",
+                "properties": ["primary_key"],
+            },
+        ],
+        key=lambda x: x["name"],  # type: ignore
+    )
 
 
 @pytest.mark.asyncio
@@ -5498,30 +5501,35 @@ async def test_cycle_detection_dimensions_graph(client_with_roads: AsyncClient) 
 
     # Requesting dimensions for any of the above nodes should have a finite end
     response = await client_with_roads.get("/nodes/default.user/dimensions")
-    assert [
+    assert {
         " -> ".join(dim["path"] + [""]) + dim["name"] for dim in response.json()
-    ] == [
-        "default.user -> default.country.country_id",
-        "default.user -> default.country -> default.user -> default.country.country_id",
-        "default.user -> default.country.user_id",
-        "default.user -> default.country -> default.user -> default.country.user_id",
-        "default.user.birth_country",
-        "default.user -> default.country -> default.user.birth_country",
+    } == {
+        "default.user -> default.country -> default.user -> default.user.birth_country",
+        "default.user -> default.country -> default.user -> default.user.user_id",
+        "default.user -> default.country -> default.user -> default.country -> default.country.user_id",
         "default.user.user_id",
-        "default.user -> default.country -> default.user.user_id",
-    ]
+        "default.user -> default.country -> default.user -> default.country -> default.country.country_id",
+        "default.user -> default.country -> default.country.user_id",
+        "default.user -> default.country -> default.country.country_id",
+        "default.user.birth_country",
+    }
     response = await client_with_roads.get("/nodes/default.events/dimensions")
-    assert [
+
+    print(
+        "!!!!!",
+        {" -> ".join(dim["path"] + [""]) + dim["name"] for dim in response.json()},
+    )
+    assert {
         " -> ".join(dim["path"] + [""]) + dim["name"] for dim in response.json()
-    ] == [
-        "default.events -> default.user -> default.country.country_id",
-        "default.events -> default.user -> default.country.user_id",
+    } == {
+        "default.events -> default.user -> default.country -> default.country.user_id",
         "default.events.event_id",
-        "default.events -> default.user.birth_country",
-        "default.events -> default.user -> default.country -> default.user.birth_country",
-        "default.events -> default.user.user_id",
-        "default.events -> default.user -> default.country -> default.user.user_id",
-    ]
+        "default.events -> default.user -> default.country -> default.user -> default.user.birth_country",
+        "default.events -> default.user -> default.user.birth_country",
+        "default.events -> default.user -> default.user.user_id",
+        "default.events -> default.user -> default.country -> default.country.country_id",
+        "default.events -> default.user -> default.country -> default.user -> default.user.user_id",
+    }
 
 
 @pytest.mark.asyncio

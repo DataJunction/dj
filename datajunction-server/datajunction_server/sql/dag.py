@@ -227,6 +227,39 @@ async def get_upstream_nodes(
     ]
 
 
+async def build_reference_link(
+    session: AsyncSession,
+    col: Column,
+    path: list[str],
+    role: list[str] | None = None,
+) -> DimensionAttributeOutput | None:
+    """
+    Builds a reference link dimension attribute output for a column.
+    """
+    if not (col.dimension_id and col.dimension_column):
+        return None
+
+    await session.refresh(col.dimension, ["current"])
+    await session.refresh(col.dimension.current, ["columns"])
+
+    dim_cols = col.dimension.current.columns
+    if dim_col := next(
+        (dc for dc in dim_cols if dc.name == col.dimension_column),
+        None,
+    ):
+        return DimensionAttributeOutput(
+            name=f"{col.dimension.name}.{col.dimension_column}" + f"[{'->'.join(role)}]"
+            if role
+            else "",
+            node_name=col.dimension.name,
+            node_display_name=col.dimension.current.display_name,
+            properties=dim_col.attribute_names(),
+            type=str(col.type),
+            path=path,
+        )
+    return None
+
+
 async def get_dimension_attributes(
     session: AsyncSession,
     node_name: str,
@@ -245,81 +278,91 @@ async def get_dimension_attributes(
         ),
     )
     if node.type == NodeType.METRIC:
+        await refresh_if_needed(session, node.current, ["parents"])
         node = node.current.parents[0]
         await refresh_if_needed(session, node, ["current"])
 
-    dims = await get_dimension_nodes(session, node, include_deactivated)
-    dimensions_map = {dim.id: dim for dim, _ in dims}
+    # Discover all dimension nodes in the given node's dimensions graph
+    dimension_nodes_and_paths = await get_dimension_nodes(
+        session,
+        node,
+        include_deactivated,
+    )
+    dimensions_map = {dim.id: dim for dim, _, _ in dimension_nodes_and_paths}
 
+    # Add all reference links to the list of dimension attributes
     reference_links = []
     await refresh_if_needed(session, node.current, ["columns"])
     for col in node.current.columns:
         if col.dimension_id and col.dimension_column:
             await session.refresh(col, ["dimension"])
-            reference_links.append(
-                DimensionAttributeOutput(
-                    name=f"{col.dimension.name}.{col.dimension_column}",
-                    node_name=col.dimension.name,
-                    node_display_name=col.dimension.current.display_name,
-                    properties=[],  # dim_col.attribute_names(),
-                    type=str(col.type),
-                    path=[f"{node.name}.{col.name}"],
-                ),
-            )
+            if ref_link := await build_reference_link(
+                session,
+                col,
+                path=[f"{node.name}.{col.name}"],
+            ):
+                reference_links.append(ref_link)
+
     if include_reference_links:
-        for dimension_node, path in dims:
+        for dimension_node, path, role in dimension_nodes_and_paths:
             for col in dimension_node.current.columns:
-                if not (col.dimension_id and col.dimension_column):
-                    continue
+                if col.dimension_id and col.dimension_column:
+                    join_path = (
+                        [node.name] if dimension_node.name != node.name else []
+                    ) + [dimensions_map[int(node_id)].name for node_id in path]
+                    if ref_link := await build_reference_link(
+                        session,
+                        col,
+                        join_path,
+                        role,
+                    ):
+                        reference_links.append(ref_link)
 
-                await session.refresh(col.dimension, ["current"])
-                await session.refresh(col.dimension.current, ["columns"])
-
-                dim_cols = col.dimension.current.columns
-                if dim_col := next(
-                    (dc for dc in dim_cols if dc.name == col.dimension_column),
-                    None,
-                ):
-                    reference_links.append(
-                        DimensionAttributeOutput(
-                            name=f"{col.dimension.name}.{col.dimension_column}",
-                            node_name=col.dimension.name,
-                            node_display_name=col.dimension.display_name,
-                            properties=dim_col.attribute_names(),
-                            type=str(col.type),
-                            path=(
-                                [node_name] if dimension_node.name != node_name else []
-                            )
-                            + [dimensions_map[int(node_id)].name for node_id in path],
-                        ),
-                    )
-
-    regular_attributes = [
+    # Build all dimension attributes from the dimension nodes in the graph
+    graph_dimensions = [
         DimensionAttributeOutput(
-            name=f"{dim.name}.{col.name}",
+            name=f"{dim.name}.{col.name}" + (f"[{'->'.join(role)}]" if role else ""),
             node_name=dim.name,
             node_display_name=dim.current.display_name,
             properties=col.attribute_names(),
             type=str(col.type),
             path=[node_name] + [dimensions_map[int(node_id)].name for node_id in path],
         )
-        for dim, path in dims
+        for dim, path, role in dimension_nodes_and_paths
         for col in dim.current.columns
     ]
 
-    return reference_links + regular_attributes
+    # Build all local dimension attributes from the original node
+    local_dimensions = [
+        DimensionAttributeOutput(
+            name=f"{node.name}.{col.name}",
+            node_name=node.name,
+            node_display_name=node.current.display_name,
+            properties=col.attribute_names(),
+            type=str(col.type),
+            path=[],
+        )
+        for col in node.current.columns
+    ]
+    local_dimensions = [
+        dim
+        for dim in local_dimensions
+        if "primary_key" in (dim.properties or [])
+        or "dimension" in (dim.properties or [])
+        or node.type == NodeType.DIMENSION
+    ]
+    return reference_links + graph_dimensions + local_dimensions
 
 
 async def get_dimension_nodes(
     session: AsyncSession,
     node: Node,
     include_deactivated: bool = True,
-) -> list[tuple[Node, list[str]]]:
+) -> list[tuple[Node, list[str], list[str] | None]]:
     """
-    Gets all dimension nodes in the given node's dimensions graph using a recursive
-    CTE query to build out dimension links.
+    Discovers all dimension nodes in the given node's dimensions graph using a recursive
+    CTE query to build out the dimension links.
     """
-    print("finding dag for node ", node.name)
     dag = (
         (
             select(
@@ -327,6 +370,7 @@ async def get_dimension_nodes(
                 NodeRevision.id,
                 NodeRevision.node_id,
                 array([NodeRevision.node_id]).label("join_path"),  # start path
+                array([DimensionLink.role]).label("role"),
             )
             .where(DimensionLink.node_revision_id == node.current.id)
             .join(Node, DimensionLink.dimension_id == Node.id)
@@ -350,6 +394,7 @@ async def get_dimension_nodes(
             func.array_cat(dag.c.join_path, array([NodeRevision.node_id])).label(
                 "join_path",
             ),
+            func.array_cat(dag.c.role, array([DimensionLink.role])).label("role"),
         )
         .join(DimensionLink, dag.c.id == DimensionLink.node_revision_id)
         .join(Node, DimensionLink.dimension_id == Node.id)
@@ -360,7 +405,7 @@ async def get_dimension_nodes(
         ),
     )
 
-    node_selector = select(Node, paths.c.join_path)
+    node_selector = select(Node, paths.c.join_path, paths.c.role)
     if not include_deactivated:
         node_selector = node_selector.where(is_(Node.deactivated_at, None))
     statement = (
@@ -372,7 +417,10 @@ async def get_dimension_nodes(
         )
         .options(*_node_output_options())
     )
-    return [(node, path) for node, path in (await session.execute(statement)).all()]
+    return [
+        (node, path, [r for r in role if r])
+        for node, path, role in (await session.execute(statement)).all()
+    ]
 
 
 async def get_dimensions_dag(
