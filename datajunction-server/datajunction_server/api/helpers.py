@@ -56,6 +56,11 @@ from datajunction_server.models.history import status_change_history
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.materialization import (
+    MaterializationConfigInfoUnified,
+    MaterializationStrategy,
+    MaterializationConfigOutput,
+)
 from datajunction_server.models.query import ColumnMetadata, QueryWithResults
 from datajunction_server.naming import LOOKUP_CHARS
 from datajunction_server.service_clients import QueryServiceClient
@@ -940,3 +945,70 @@ async def get_save_history(notify: Callable = Depends(get_notifier)) -> Callable
         await save_history(event, session, notify)
 
     return save_history_with_notify
+
+
+def get_materialization_info(
+    query_service_client: QueryServiceClient,
+    node: Node,
+    include_all_revisions: bool,
+    show_inactive: bool,
+    request_headers: Optional[Dict[str, str]] = None,
+):
+    """Get materializations for a node
+
+    If include_all_revisions=true this pulls materializations for each node revision and
+    combines them into a single list. Otherwise it just pulls materializations for the
+    current node revision.
+
+    If show_inactive=true this also returns materializations with a deactivated_at timestamp
+    """
+    return (
+        [
+            materialization
+            for node_revision in node.revisions  # type: ignore
+            for materialization in get_node_revision_materialization(
+                query_service_client=query_service_client,
+                node_revision=node_revision,
+                show_inactive=show_inactive,
+                request_headers=request_headers,
+            )
+        ]
+        if include_all_revisions
+        else get_node_revision_materialization(
+            query_service_client=query_service_client,
+            node_revision=node.current,  # type: ignore
+            show_inactive=show_inactive,
+            request_headers=request_headers,
+        )
+    )
+
+
+def get_node_revision_materialization(
+    query_service_client: QueryServiceClient,
+    node_revision: NodeRevision,
+    show_inactive: bool,
+    request_headers: Optional[Dict[str, str]] = None,
+) -> list[MaterializationConfigInfoUnified]:
+    """Merge in materialization info from the query service for a node revision"""
+    materializations = []
+    for materialization in node_revision.materializations:
+        if not materialization.deactivated_at or show_inactive:
+            info = query_service_client.get_materialization_info(
+                node_revision.name,
+                node_revision.version,
+                node_revision.type,
+                materialization.name,
+                request_headers=request_headers,
+            )
+            if materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME:
+                info.urls = [info.urls[0]]
+            materialization_config_output = MaterializationConfigOutput.from_orm(
+                materialization,
+            )
+            materializations.append(
+                MaterializationConfigInfoUnified(
+                    **materialization_config_output.dict(),
+                    **info.dict(),
+                ),
+            )
+    return materializations
