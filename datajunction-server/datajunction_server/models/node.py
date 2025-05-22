@@ -580,11 +580,11 @@ class DimensionAttributeOutput(BaseModel):
     """
 
     name: str
-    node_name: Optional[str]
-    node_display_name: Optional[str]
+    node_name: str | None
+    node_display_name: str | None
     properties: list[str] | None
-    type: str
-    path: List[str]
+    type: str | None
+    path: list[str]
     filter_only: bool = False
 
 

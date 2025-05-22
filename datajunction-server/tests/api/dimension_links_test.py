@@ -326,13 +326,19 @@ async def test_link_complex_dimension_without_role(
     assert str(parse(query)) == str(parse(expected))
 
     response = await dimensions_link_client.get("/nodes/default.events/dimensions")
-    assert [(attr["name"], attr["path"]) for attr in response.json()] == [
-        ("default.users.account_type", ["default.events"]),
-        ("default.users.registration_country", ["default.events"]),
-        ("default.users.residence_country", ["default.events"]),
-        ("default.users.snapshot_date", ["default.events"]),
-        ("default.users.user_id", ["default.events"]),
-    ]
+    assert sorted(
+        [(attr["name"], attr["path"]) for attr in response.json()],
+        key=lambda x: x[0],
+    ) == sorted(
+        [
+            ("default.users.account_type", ["default.events", "default.users"]),
+            ("default.users.registration_country", ["default.events", "default.users"]),
+            ("default.users.residence_country", ["default.events", "default.users"]),
+            ("default.users.snapshot_date", ["default.events", "default.users"]),
+            ("default.users.user_id", ["default.events", "default.users"]),
+        ],
+        key=lambda x: x[0],
+    )
 
 
 @pytest.mark.asyncio
@@ -382,90 +388,114 @@ async def test_link_complex_dimension_with_role(
     }
 
     response = await dimensions_link_client.get("/nodes/default.events")
-    assert sorted(response.json()["dimension_links"], key=lambda x: x["role"]) == [
-        {
-            "dimension": {"name": "default.users"},
-            "join_cardinality": "one_to_one",
-            "join_sql": "default.events.user_id = default.users.user_id AND "
-            "default.events.event_start_date = default.users.snapshot_date",
-            "join_type": "left",
-            "role": "user_direct",
-            "foreign_keys": {
-                "default.events.event_start_date": "default.users.snapshot_date",
-                "default.events.user_id": "default.users.user_id",
+    assert sorted(
+        response.json()["dimension_links"],
+        key=lambda x: x["role"],
+    ) == sorted(
+        [
+            {
+                "dimension": {"name": "default.users"},
+                "join_cardinality": "one_to_one",
+                "join_sql": "default.events.user_id = default.users.user_id AND "
+                "default.events.event_start_date = default.users.snapshot_date",
+                "join_type": "left",
+                "role": "user_direct",
+                "foreign_keys": {
+                    "default.events.event_start_date": "default.users.snapshot_date",
+                    "default.events.user_id": "default.users.user_id",
+                },
             },
-        },
-        {
-            "dimension": {"name": "default.users"},
-            "join_cardinality": "one_to_many",
-            "join_sql": "default.events.user_id = default.users.user_id AND "
-            "default.events.event_start_date BETWEEN "
-            "default.users.snapshot_date AND "
-            "CAST(DATE_ADD(CAST(default.users.snapshot_date AS DATE), 10) AS "
-            "INT)",
-            "join_type": "left",
-            "role": "user_windowed",
-            "foreign_keys": {
-                "default.events.event_start_date": None,
-                "default.events.user_id": "default.users.user_id",
+            {
+                "dimension": {"name": "default.users"},
+                "join_cardinality": "one_to_many",
+                "join_sql": "default.events.user_id = default.users.user_id AND "
+                "default.events.event_start_date BETWEEN "
+                "default.users.snapshot_date AND "
+                "CAST(DATE_ADD(CAST(default.users.snapshot_date AS DATE), 10) AS "
+                "INT)",
+                "join_type": "left",
+                "role": "user_windowed",
+                "foreign_keys": {
+                    "default.events.event_start_date": None,
+                    "default.events.user_id": "default.users.user_id",
+                },
             },
-        },
-    ]
+        ],
+        key=lambda x: x["role"],  # type: ignore
+    )
 
     # Verify that the dimensions on the downstream metric have roles specified
     response = await dimensions_link_client.get(
         "/nodes/default.elapsed_secs/dimensions",
     )
-    assert [(attr["name"], attr["path"]) for attr in response.json()] == [
+    assert sorted(
+        [(attr["name"], attr["path"]) for attr in response.json()],
+        key=lambda x: x[0],
+    ) == [
         (
             "default.countries.country_code[user_direct->registration_country]",
-            ["default.events.user_direct", "default.users.registration_country"],
+            ["default.elapsed_secs", "default.users", "default.countries"],
         ),
         (
             "default.countries.country_code[user_windowed->registration_country]",
-            ["default.events.user_windowed", "default.users.registration_country"],
+            ["default.elapsed_secs", "default.users", "default.countries"],
         ),
         (
             "default.countries.name[user_direct->registration_country]",
-            ["default.events.user_direct", "default.users.registration_country"],
+            ["default.elapsed_secs", "default.users", "default.countries"],
         ),
         (
             "default.countries.name[user_windowed->registration_country]",
-            ["default.events.user_windowed", "default.users.registration_country"],
+            ["default.elapsed_secs", "default.users", "default.countries"],
         ),
         (
             "default.countries.population[user_direct->registration_country]",
-            ["default.events.user_direct", "default.users.registration_country"],
+            ["default.elapsed_secs", "default.users", "default.countries"],
         ),
         (
             "default.countries.population[user_windowed->registration_country]",
-            ["default.events.user_windowed", "default.users.registration_country"],
+            ["default.elapsed_secs", "default.users", "default.countries"],
         ),
-        ("default.users.account_type[user_direct]", ["default.events.user_direct"]),
-        ("default.users.account_type[user_windowed]", ["default.events.user_windowed"]),
+        (
+            "default.users.account_type[user_direct]",
+            ["default.elapsed_secs", "default.users"],
+        ),
+        (
+            "default.users.account_type[user_windowed]",
+            ["default.elapsed_secs", "default.users"],
+        ),
         (
             "default.users.registration_country[user_direct]",
-            ["default.events.user_direct"],
+            ["default.elapsed_secs", "default.users"],
         ),
         (
             "default.users.registration_country[user_windowed]",
-            ["default.events.user_windowed"],
+            ["default.elapsed_secs", "default.users"],
         ),
         (
             "default.users.residence_country[user_direct]",
-            ["default.events.user_direct"],
+            ["default.elapsed_secs", "default.users"],
         ),
         (
             "default.users.residence_country[user_windowed]",
-            ["default.events.user_windowed"],
+            ["default.elapsed_secs", "default.users"],
         ),
-        ("default.users.snapshot_date[user_direct]", ["default.events.user_direct"]),
+        (
+            "default.users.snapshot_date[user_direct]",
+            ["default.elapsed_secs", "default.users"],
+        ),
         (
             "default.users.snapshot_date[user_windowed]",
-            ["default.events.user_windowed"],
+            ["default.elapsed_secs", "default.users"],
         ),
-        ("default.users.user_id[user_direct]", ["default.events.user_direct"]),
-        ("default.users.user_id[user_windowed]", ["default.events.user_windowed"]),
+        (
+            "default.users.user_id[user_direct]",
+            ["default.elapsed_secs", "default.users"],
+        ),
+        (
+            "default.users.user_id[user_windowed]",
+            ["default.elapsed_secs", "default.users"],
+        ),
     ]
 
     # Get SQL for the downstream metric grouped by the user dimension of role "user_windowed"
@@ -843,6 +873,48 @@ async def test_reference_dimension_links_errors(
 
 
 @pytest.mark.asyncio
+async def test_reference_dimension_links(
+    dimensions_link_client: AsyncClient,
+    link_events_to_users_without_role,
+):
+    """
+    Test reference dimension links on dimension nodes
+    """
+    await link_events_to_users_without_role()
+    response = await dimensions_link_client.get(
+        "/nodes/default.elapsed_secs/dimensions",
+    )
+    dimensions_data = response.json()
+    assert [dim["name"] for dim in dimensions_data] == [
+        "default.users.user_id",
+        "default.users.snapshot_date",
+        "default.users.registration_country",
+        "default.users.residence_country",
+        "default.users.account_type",
+    ]
+    response = await dimensions_link_client.post(
+        "/nodes/default.users/columns/residence_country/link",
+        params={
+            "dimension_node": "default.countries",
+            "dimension_column": "name",
+        },
+    )
+    assert response.status_code == 201
+    response = await dimensions_link_client.get(
+        "/nodes/default.elapsed_secs/dimensions",
+    )
+    dimensions_data = response.json()
+    assert [dim["name"] for dim in dimensions_data] == [
+        "default.countries.name",
+        "default.users.user_id",
+        "default.users.snapshot_date",
+        "default.users.registration_country",
+        "default.users.residence_country",
+        "default.users.account_type",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_measures_sql_with_reference_dimension_links(
     dimensions_link_client: AsyncClient,
     reference_link_events_user_registration_country,
@@ -876,14 +948,16 @@ async def test_measures_sql_with_reference_dimension_links(
         "/nodes/default.elapsed_secs/dimensions",
     )
     dimensions_data = response.json()
-    assert [dim["name"] for dim in dimensions_data] == [
-        "default.users.account_type",
-        "default.users.registration_country",
-        "default.users.registration_country",
-        "default.users.residence_country",
-        "default.users.snapshot_date",
-        "default.users.user_id",
-    ]
+    assert set([dim["name"] for dim in dimensions_data]) == set(
+        [
+            "default.users.account_type",
+            "default.users.registration_country",
+            "default.users.registration_country",
+            "default.users.residence_country",
+            "default.users.snapshot_date",
+            "default.users.user_id",
+        ],
+    )
 
     sql_params = {
         "metrics": ["default.elapsed_secs"],

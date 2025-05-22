@@ -106,6 +106,7 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     _node_output_options,
     get_dimensions,
+    get_dimension_attributes,
     get_downstream_nodes,
     get_filter_only_dimensions,
     get_upstream_nodes,
@@ -1561,25 +1562,11 @@ async def list_all_dimension_attributes(
     *,
     depth: int = 30,
     session: AsyncSession = Depends(get_session),
-) -> List[DimensionAttributeOutput]:
+) -> list[DimensionAttributeOutput]:
     """
     List all available dimension attributes for the given node.
     """
-    node = await Node.get_by_name(
-        session,
-        name,
-        options=[
-            joinedload(Node.current).options(
-                joinedload(NodeRevision.parents).options(joinedload(Node.current)),
-            ),
-        ],
-    )
-    dimensions = await get_dimensions(
-        session,
-        node,  # type: ignore
-        with_attributes=True,
-        depth=depth,
-    )
+    dimensions = await get_dimension_attributes(session, name)
     filter_only_dimensions = await get_filter_only_dimensions(session, name)
     return dimensions + filter_only_dimensions
 
