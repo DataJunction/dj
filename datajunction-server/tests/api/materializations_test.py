@@ -1629,3 +1629,170 @@ country_agg.add_materialization(
     materialization
 )"""
     )
+
+
+@pytest.mark.asyncio
+async def test_getting_materializations_for_all_revisions(
+    module__client_with_roads: AsyncClient,
+    set_temporal_column,
+):
+    """
+    Test getting all materialization configs for all versions using include_all=true
+    """
+    client = module__client_with_roads
+    cube_name = "default.repair_analytics"
+    response = await client.post(
+        "/nodes/default.repair_orders_fact/columns/order_date/attributes/",
+        json=[{"name": "dimension"}],
+    )
+    assert response.status_code in (200, 201)
+    response = await client.post(
+        "/nodes/cube/",
+        json={
+            "metrics": [
+                "default.num_repair_orders",
+                "default.total_repair_cost",
+            ],
+            "dimensions": [
+                "default.repair_orders_fact.order_date",
+                "default.hard_hat.state",
+                "default.dispatcher.company_name",
+                "default.municipality_dim.local_region",
+            ],
+            "filters": ["default.hard_hat.state='AZ'"],
+            "description": "Cube of various metrics related to repairs",
+            "mode": "published",
+            "name": cube_name,
+        },
+    )
+    assert response.status_code == 201
+
+    await set_temporal_column(
+        client,
+        cube_name,
+        "default.repair_orders_fact.order_date",
+    )
+
+    # Create a materialization config
+    response = await client.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={
+            "job": "druid_measures_cube",
+            "strategy": "incremental_time",
+            "config": {},
+            "schedule": "@daily",
+        },
+    )
+    assert (
+        response.json()["message"]
+        == "Successfully updated materialization config named "
+        "`druid_measures_cube__incremental_time__default.repair_orders_fact.order_date` "
+        f"for node `{cube_name}`"
+    )
+
+    # Update the cube (side-effect is a new materialization is created for the new revision)
+    await client.patch(
+        f"/nodes/{cube_name}/",
+        json={
+            "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
+            "dimensions": [
+                "default.repair_orders_fact.order_date",
+                "default.hard_hat.state",
+                "default.dispatcher.company_name",
+            ],
+        },
+    )
+
+    response = await client.get(
+        f"/nodes/{cube_name}/materializations",
+    )
+    assert len(response.json()) == 1
+
+    # Make sure both materializations show up when all materializations are requested
+    response = await client.get(
+        f"/nodes/{cube_name}/materializations"
+        "?include_all_revisions=true&show_inactive=true",
+    )
+    assert len(response.json()) == 2
+
+
+@pytest.mark.asyncio
+async def test_getting_materializations_after_deletion(
+    module__client_with_roads: AsyncClient,
+    set_temporal_column,
+):
+    """
+    Test that a materialization is no longer returned after deletion (inactivation) and
+    that it can be retrieved using the show_inactive=true query param
+    """
+    client = module__client_with_roads
+    cube_name = "default.repair_revenue_analysis"
+    response = await client.post(
+        "/nodes/default.repair_orders_fact/columns/order_date/attributes/",
+        json=[{"name": "dimension"}],
+    )
+    assert response.status_code in (200, 201)
+    response = await client.post(
+        "/nodes/cube/",
+        json={
+            "metrics": [
+                "default.num_repair_orders",
+                "default.total_repair_cost",
+            ],
+            "dimensions": [
+                "default.repair_orders_fact.order_date",
+                "default.hard_hat.state",
+                "default.dispatcher.company_name",
+                "default.municipality_dim.local_region",
+            ],
+            "filters": ["default.hard_hat.state='AZ'"],
+            "description": "Cube of various metrics related to repairs",
+            "mode": "published",
+            "name": cube_name,
+        },
+    )
+    assert response.status_code == 201
+
+    await set_temporal_column(
+        client,
+        cube_name,
+        "default.repair_orders_fact.order_date",
+    )
+
+    # Create a materialization config
+    response = await client.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={
+            "job": "druid_measures_cube",
+            "strategy": "full",
+            "schedule": "",
+        },
+    )
+    assert (
+        response.json()["message"]
+        == "Successfully updated materialization config named "
+        "`druid_measures_cube__full__default.repair_orders_fact.order_date` "
+        f"for node `{cube_name}`"
+    )
+
+    # Delete the materialization
+    response = await client.delete(
+        f"/nodes/{cube_name}/materializations/"
+        "?materialization_name=druid_measures_cube__full__default.repair_orders_fact.order_date",
+    )
+    assert response.json() == {
+        "message": "The materialization named `druid_measures_cube__full__default.repair_orders_fact.order_date` on node "
+        f"`{cube_name}` has been successfully deactivated",
+    }
+
+    # Test that the materialization is no longer being returned
+    response = await client.get(
+        f"/nodes/{cube_name}/materializations",
+    )
+    assert len(response.json()) == 0
+
+    # Test that the materialization is returned when show_inactive=true is used
+    response = await client.get(
+        f"/nodes/{cube_name}/materializations?show_inactive=true",
+    )
+    assert len(response.json()) == 1

@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from datajunction_server.api.helpers import get_save_history
+from datajunction_server.api.helpers import get_save_history, get_materialization_info
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.column import Column, ColumnAttribute
@@ -32,7 +32,6 @@ from datajunction_server.models.base import labelize
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.materialization import (
     MaterializationConfigInfoUnified,
-    MaterializationConfigOutput,
     MaterializationInfo,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
@@ -277,7 +276,8 @@ async def upsert_materialization(
 )
 async def list_node_materializations(
     node_name: str,
-    show_deleted: bool = False,
+    show_inactive: bool = False,
+    include_all_revisions: bool = False,
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
@@ -286,30 +286,32 @@ async def list_node_materializations(
     """
     Show all materializations configured for the node, with any associated metadata
     like urls from the materialization service, if available.
+
+    show_inactive: bool - Show materializations that have a deactivated_at timestamp set
+    include_all_revisions: bool - Show  materializations for all revisions of the node
     """
     request_headers = dict(request.headers)
-    node = await Node.get_by_name(session, node_name)
-    materializations = []
-    for materialization in node.current.materializations:  # type: ignore
-        if not materialization.deactivated_at or show_deleted:  # pragma: no cover
-            info = query_service_client.get_materialization_info(
-                node_name,
-                node.current.version,  # type: ignore
-                node.type,  # type: ignore
-                materialization.name,  # type: ignore
-                request_headers=request_headers,
-            )
-            if materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME:
-                info.urls = [info.urls[0]]
-            materialization_config_output = MaterializationConfigOutput.from_orm(
-                materialization,
-            )
-            materialization = MaterializationConfigInfoUnified(
-                **materialization_config_output.dict(),
-                **info.dict(),
-            )
-            materializations.append(materialization)
-    return materializations
+
+    # If materializations from all revisions are requested,
+    # this includes the joined load to pull all node revisions
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[
+            joinedload(Node.revisions).options(*NodeRevision.default_load_options()),
+        ]
+        if include_all_revisions
+        else [],
+        raise_if_not_exists=True,
+    )
+
+    return get_materialization_info(
+        query_service_client=query_service_client,
+        node=node,  # type: ignore
+        include_all_revisions=include_all_revisions,
+        show_inactive=show_inactive,
+        request_headers=request_headers,
+    )
 
 
 @router.delete(
