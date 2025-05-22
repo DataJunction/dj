@@ -1678,14 +1678,15 @@ async def test_getting_materializations_for_all_revisions(
         f"/nodes/{cube_name}/materialization/",
         json={
             "job": "druid_measures_cube",
-            "strategy": "full",
-            "schedule": "",
+            "strategy": "incremental_time",
+            "config": {},
+            "schedule": "@daily",
         },
     )
     assert (
         response.json()["message"]
         == "Successfully updated materialization config named "
-        "`druid_measures_cube__full__default.repair_orders_fact.order_date` "
+        "`druid_measures_cube__incremental_time__default.repair_orders_fact.order_date` "
         f"for node `{cube_name}`"
     )
 
