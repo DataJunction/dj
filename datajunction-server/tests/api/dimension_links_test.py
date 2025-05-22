@@ -873,6 +873,48 @@ async def test_reference_dimension_links_errors(
 
 
 @pytest.mark.asyncio
+async def test_reference_dimension_links(
+    dimensions_link_client: AsyncClient,
+    link_events_to_users_without_role,
+):
+    """
+    Test reference dimension links on dimension nodes
+    """
+    await link_events_to_users_without_role()
+    response = await dimensions_link_client.get(
+        "/nodes/default.elapsed_secs/dimensions",
+    )
+    dimensions_data = response.json()
+    assert [dim["name"] for dim in dimensions_data] == [
+        "default.users.user_id",
+        "default.users.snapshot_date",
+        "default.users.registration_country",
+        "default.users.residence_country",
+        "default.users.account_type",
+    ]
+    response = await dimensions_link_client.post(
+        "/nodes/default.users/columns/residence_country/link",
+        params={
+            "dimension_node": "default.countries",
+            "dimension_column": "name",
+        },
+    )
+    assert response.status_code == 201
+    response = await dimensions_link_client.get(
+        "/nodes/default.elapsed_secs/dimensions",
+    )
+    dimensions_data = response.json()
+    assert [dim["name"] for dim in dimensions_data] == [
+        "default.countries.name",
+        "default.users.user_id",
+        "default.users.snapshot_date",
+        "default.users.registration_country",
+        "default.users.residence_country",
+        "default.users.account_type",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_measures_sql_with_reference_dimension_links(
     dimensions_link_client: AsyncClient,
     reference_link_events_user_registration_country,

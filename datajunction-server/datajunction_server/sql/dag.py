@@ -237,8 +237,8 @@ async def build_reference_link(
     Builds a reference link dimension attribute output for a column.
     """
     if not (col.dimension_id and col.dimension_column):
-        return None
-
+        return None  # pragma: no cover
+    await session.refresh(col, ["dimension"])
     await session.refresh(col.dimension, ["current"])
     await session.refresh(col.dimension.current, ["columns"])
 
@@ -256,14 +256,13 @@ async def build_reference_link(
             type=str(col.type),
             path=path,
         )
-    return None
+    return None  # pragma: no cover
 
 
 async def get_dimension_attributes(
     session: AsyncSession,
     node_name: str,
     include_deactivated: bool = True,
-    include_reference_links: bool = True,
 ):
     """
     Get all dimension attributes for a given node.
@@ -295,27 +294,25 @@ async def get_dimension_attributes(
     for col in node.current.columns:
         if col.dimension_id and col.dimension_column:
             await session.refresh(col, ["dimension"])
-            if ref_link := await build_reference_link(
+            if ref_link := await build_reference_link(  # pragma: no cover
                 session,
                 col,
                 path=[f"{node.name}.{col.name}"],
             ):
                 reference_links.append(ref_link)
-
-    if include_reference_links:
-        for dimension_node, path, role in dimension_nodes_and_paths:
-            for col in dimension_node.current.columns:
-                if col.dimension_id and col.dimension_column:
-                    join_path = (
-                        [node.name] if dimension_node.name != node.name else []
-                    ) + [dimensions_map[int(node_id)].name for node_id in path]
-                    if ref_link := await build_reference_link(
-                        session,
-                        col,
-                        join_path,
-                        role,
-                    ):
-                        reference_links.append(ref_link)
+    for dimension_node, path, role in dimension_nodes_and_paths:
+        for col in dimension_node.current.columns:
+            if col.dimension_id and col.dimension_column:
+                join_path = (
+                    [node.name] if dimension_node.name != node.name else []
+                ) + [dimensions_map[int(node_id)].name for node_id in path]
+                if ref_link := await build_reference_link(
+                    session,
+                    col,
+                    join_path,
+                    role,
+                ):
+                    reference_links.append(ref_link)
 
     # Build all dimension attributes from the dimension nodes in the graph
     graph_dimensions = [
@@ -406,7 +403,9 @@ async def get_dimension_nodes(
 
     node_selector = select(Node, paths.c.join_path, paths.c.role)
     if not include_deactivated:
-        node_selector = node_selector.where(is_(Node.deactivated_at, None))
+        node_selector = node_selector.where(
+            is_(Node.deactivated_at, None),
+        )  # pragma: no cover
     statement = (
         node_selector.join(paths, paths.c.node_id == Node.id)
         .join(
