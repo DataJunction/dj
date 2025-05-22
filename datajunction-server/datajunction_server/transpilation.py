@@ -1,14 +1,19 @@
 """SQL transpilation plugins manager."""
 
 import importlib
-from abc import ABC, abstractmethod
 from typing import Optional
+import logging
 
-from datajunction_server.errors import DJPluginNotFoundException
 from datajunction_server.models.engine import Dialect
+from datajunction_server.models.dialect import DialectRegistry, dialect_plugin
+from datajunction_server.utils import get_settings
+
+settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
-class SQLTranspilationPlugin(ABC):
+@dialect_plugin(Dialect.SPARK.value)
+class SQLTranspilationPlugin:
     """
     SQL transpilation plugin base class. To add support for a new SQL transpilation library,
     implement this class with a custom `transpile_sql` method that works for the library. The
@@ -16,7 +21,7 @@ class SQLTranspilationPlugin(ABC):
     using it, or skipping transpilation if the package cannot be loaded.
     """
 
-    package_name: Optional[str] = None
+    package_name: Optional[str] = "default"
 
     def __init__(self):
         """
@@ -31,12 +36,12 @@ class SQLTranspilationPlugin(ABC):
         if self.package_name:  # pragma: no cover
             try:
                 importlib.import_module(self.package_name)
-            except ImportError as import_err:
-                raise DJPluginNotFoundException(
-                    message=f"The SQL transpilation package is not installed: {self.package_name}",
-                ) from import_err
+            except ImportError:
+                logger.warning(
+                    "The SQL transpilation package is not installed: %s",
+                    self.package_name,
+                )
 
-    @abstractmethod
     def transpile_sql(
         self,
         query: str,
@@ -45,8 +50,12 @@ class SQLTranspilationPlugin(ABC):
         output_dialect: Optional[Dialect] = None,
     ) -> str:
         """Transpile a given SQL query using the specific library."""
+        return query
 
 
+@dialect_plugin(Dialect.SPARK.value)
+@dialect_plugin(Dialect.TRINO.value)
+@dialect_plugin(Dialect.DRUID.value)
 class SQLGlotTranspilationPlugin(SQLTranspilationPlugin):
     """
     Implement sqlglot as a transpilation option
@@ -82,17 +91,27 @@ class SQLGlotTranspilationPlugin(SQLTranspilationPlugin):
         return query
 
 
-def get_transpilation_plugin(package_name: str) -> SQLTranspilationPlugin:
-    """
-    Retrieves the configured SQL transpilation plugin
-    """
-    transpilation_plugins = [
-        clazz
-        for clazz in SQLTranspilationPlugin.__subclasses__()
-        if clazz.package_name == package_name
-    ]
-    if not transpilation_plugins:
-        raise DJPluginNotFoundException(
-            message=f"No SQL transpilation plugin found for package `{package_name}`!",
-        )
-    return transpilation_plugins[0]()  # type: ignore
+def transpile_sql(
+    sql: str,
+    dialect: Dialect | None = None,
+) -> str:
+    print(
+        "dialect",
+        dialect,
+        "settings",
+        settings.transpilation_plugins,
+        "DialectRegistry",
+        DialectRegistry._registry,
+    )
+    if dialect:
+        if plugin_class := DialectRegistry.get_plugin(  # pragma: no cover
+            dialect.name.lower(),
+        ):
+            print("plugin_class", plugin_class)
+            plugin = plugin_class()
+            return plugin.transpile_sql(
+                sql,
+                input_dialect=Dialect.SPARK,
+                output_dialect=dialect,
+            )
+    return sql

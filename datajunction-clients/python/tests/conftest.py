@@ -111,7 +111,14 @@ def module__settings(module_mocker: MockerFixture) -> Iterator[Settings]:
         redis_cache=None,
         query_service=None,
         secret="a-fake-secretkey",
+        transpilation_plugins=["default"],
     )
+    from datajunction_server.models.dialect import register_dialect_plugin
+    from datajunction_server.transpilation import SQLTranspilationPlugin
+
+    register_dialect_plugin("spark", SQLTranspilationPlugin)
+    register_dialect_plugin("trino", SQLTranspilationPlugin)
+    register_dialect_plugin("druid", SQLTranspilationPlugin)
 
     module_mocker.patch(
         "datajunction_server.utils.get_settings",

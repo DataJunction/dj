@@ -127,7 +127,7 @@ async def test_find_existing_cube():
 @patch("datajunction_server.api.helpers.find_existing_cube")
 @patch("datajunction_server.api.helpers.get_catalog_by_name")
 @patch("datajunction_server.api.helpers.build_materialized_cube_node")
-@patch("datajunction_server.api.helpers.TranslatedSQL", MagicMock)
+@patch("datajunction_server.api.helpers.TranslatedSQL.create", MagicMock)
 async def test_build_sql_for_multiple_metrics(
     mock_build_materialized_cube_node,
     mock_get_catalog_by_name,
