@@ -5513,12 +5513,8 @@ async def test_cycle_detection_dimensions_graph(client_with_roads: AsyncClient) 
         "default.user -> default.country -> default.country.country_id",
         "default.user.birth_country",
     }
-    response = await client_with_roads.get("/nodes/default.events/dimensions")
 
-    print(
-        "!!!!!",
-        {" -> ".join(dim["path"] + [""]) + dim["name"] for dim in response.json()},
-    )
+    response = await client_with_roads.get("/nodes/default.events/dimensions")
     assert {
         " -> ".join(dim["path"] + [""]) + dim["name"] for dim in response.json()
     } == {
