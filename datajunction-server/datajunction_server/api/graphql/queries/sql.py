@@ -84,7 +84,7 @@ async def measures_sql(
     """
     Get measures SQL for a set of metrics with dimensions and filters
     """
-    session, settings = info.context["session"], info.context["settings"]
+    session = info.context["session"]
     queries = await get_measures_query(
         session=session,
         metrics=list(OrderedDict.fromkeys(cube.metrics)),  # type: ignore
@@ -94,7 +94,6 @@ async def measures_sql(
         engine_name=engine.name if engine else None,
         engine_version=engine.version if engine else None,
         include_all_columns=include_all_columns,
-        sql_transpilation_library=settings.sql_transpilation_library,
         use_materialized=use_materialized,
         preagg_requested=preaggregate,
     )

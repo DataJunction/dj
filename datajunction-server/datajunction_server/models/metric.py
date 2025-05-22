@@ -4,7 +4,6 @@ Models for metrics.
 
 from typing import List, Optional
 
-from pydantic.class_validators import root_validator
 from pydantic.main import BaseModel
 
 from datajunction_server.database.node import Node
@@ -15,11 +14,11 @@ from datajunction_server.models.node import (
     MetricMetadataOutput,
 )
 from datajunction_server.models.query import ColumnMetadata
+from datajunction_server.models.sql import TranspiledSQL
 from datajunction_server.sql.decompose import MeasureExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
-from datajunction_server.transpilation import get_transpilation_plugin
+from datajunction_server.transpilation import transpile_sql
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import get_settings
 
 
 class Metric(BaseModel):
@@ -85,7 +84,7 @@ class Metric(BaseModel):
         )
 
 
-class TranslatedSQL(BaseModel):
+class TranslatedSQL(TranspiledSQL):
     """
     Class for SQL generated from a given metric.
     """
@@ -97,21 +96,11 @@ class TranslatedSQL(BaseModel):
     dialect: Optional[Dialect] = None
     upstream_tables: Optional[List[str]] = None
 
-    @root_validator(pre=False)
-    def transpile_sql(
-        cls,
-        values,
-    ) -> "TranslatedSQL":
-        """
-        Transpiles SQL to the specified dialect with the configured transpilation plugin.
-        If no plugin is configured, it will just return the original generated query.
-        """
-        settings = get_settings()
-        if settings.sql_transpilation_library:  # pragma: no cover
-            plugin = get_transpilation_plugin(settings.sql_transpilation_library)
-            values["sql"] = plugin.transpile_sql(
-                values["sql"],
-                input_dialect=Dialect.SPARK,
-                output_dialect=values["dialect"],
-            )
-        return values
+    @classmethod
+    def create(cls, *, dialect: Dialect | None = None, **kwargs):
+        sql = transpile_sql(kwargs["sql"], dialect)
+        return cls(
+            sql=sql,
+            dialect=dialect,
+            **{k: v for k, v in kwargs.items() if k not in {"sql", "dialect"}},
+        )
