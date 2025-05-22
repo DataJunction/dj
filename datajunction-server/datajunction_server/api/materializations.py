@@ -291,6 +291,9 @@ async def list_node_materializations(
     include_all_revisions: bool - Show  materializations for all revisions of the node
     """
     request_headers = dict(request.headers)
+
+    # If materializations from all revisions are requested,
+    # this includes the joined load to pull all node revisions
     node = await Node.get_by_name(
         session,
         node_name,
@@ -301,33 +304,14 @@ async def list_node_materializations(
         else [],
         raise_if_not_exists=True,
     )
-    materializations = []
-    if include_all_revisions:  # Get all materializations for all node revisions
-        for node_revision in node.revisions:  # type: ignore
-            for materialization in node_revision.materializations:
-                if (
-                    not materialization.deactivated_at or show_inactive
-                ):  # pragma: no cover
-                    materializations.append(
-                        get_materialization_info(
-                            query_service_client=query_service_client,
-                            node_revision=node_revision,
-                            materialization=materialization,
-                            request_headers=request_headers,
-                        ),
-                    )
-    else:  # Get just the materializations on the current node revision
-        for materialization in node.current.materializations:  # type: ignore
-            if not materialization.deactivated_at or show_inactive:  # pragma: no cover
-                materializations.append(
-                    get_materialization_info(
-                        query_service_client=query_service_client,
-                        node_revision=node.current,  # type: ignore
-                        materialization=materialization,
-                        request_headers=request_headers,
-                    ),
-                )
-    return materializations
+
+    return get_materialization_info(
+        query_service_client=query_service_client,
+        node=node,  # type: ignore
+        include_all_revisions=include_all_revisions,
+        show_inactive=show_inactive,
+        request_headers=request_headers,
+    )
 
 
 @router.delete(

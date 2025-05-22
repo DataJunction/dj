@@ -1632,7 +1632,7 @@ country_agg.add_materialization(
 
 
 @pytest.mark.asyncio
-async def test_include_all_materialization_configs(
+async def test_getting_materializations_for_all_revisions(
     module__client_with_roads: AsyncClient,
     set_temporal_column,
 ):
@@ -1675,7 +1675,7 @@ async def test_include_all_materialization_configs(
 
     # Create a materialization config
     response = await client.post(
-        "/nodes/default.repair_analytics/materialization/",
+        f"/nodes/{cube_name}/materialization/",
         json={
             "job": "druid_measures_cube",
             "strategy": "full",
@@ -1686,12 +1686,12 @@ async def test_include_all_materialization_configs(
         response.json()["message"]
         == "Successfully updated materialization config named "
         "`druid_measures_cube__full__default.repair_orders_fact.order_date` "
-        "for node `default.repair_analytics`"
+        f"for node `{cube_name}`"
     )
 
     # Update the cube (side-effect is a new materialization is created for the new revision)
     await client.patch(
-        "/nodes/default.repair_analytics/",
+        f"/nodes/{cube_name}/",
         json={
             "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
             "dimensions": [
@@ -1703,13 +1703,13 @@ async def test_include_all_materialization_configs(
     )
 
     response = await client.get(
-        "/nodes/default.repair_analytics/materializations",
+        f"/nodes/{cube_name}/materializations",
     )
     assert len(response.json()) == 1
 
     # Make sure both materializations show up when all materializations are requested
     response = await client.get(
-        "/nodes/default.repair_analytics/materializations"
+        f"/nodes/{cube_name}/materializations"
         "?include_all_revisions=true&show_inactive=true",
     )
     assert len(response.json()) == 2
@@ -1725,7 +1725,7 @@ async def test_getting_materializations_after_deletion(
     that it can be retrieved using the show_inactive=true query param
     """
     client = module__client_with_roads
-    cube_name = "default.repair_analytics"
+    cube_name = "default.repair_revenue_analysis"
     response = await client.post(
         "/nodes/default.repair_orders_fact/columns/order_date/attributes/",
         json=[{"name": "dimension"}],
@@ -1760,7 +1760,7 @@ async def test_getting_materializations_after_deletion(
 
     # Create a materialization config
     response = await client.post(
-        "/nodes/default.repair_analytics/materialization/",
+        f"/nodes/{cube_name}/materialization/",
         json={
             "job": "druid_measures_cube",
             "strategy": "full",
@@ -1771,27 +1771,27 @@ async def test_getting_materializations_after_deletion(
         response.json()["message"]
         == "Successfully updated materialization config named "
         "`druid_measures_cube__full__default.repair_orders_fact.order_date` "
-        "for node `default.repair_analytics`"
+        f"for node `{cube_name}`"
     )
 
     # Delete the materialization
     response = await client.delete(
-        "/nodes/default.repair_analytics/materializations/"
+        f"/nodes/{cube_name}/materializations/"
         "?materialization_name=druid_measures_cube__full__default.repair_orders_fact.order_date",
     )
     assert response.json() == {
         "message": "The materialization named `druid_measures_cube__full__default.repair_orders_fact.order_date` on node "
-        "`default.repair_analytics` has been successfully deactivated",
+        f"`{cube_name}` has been successfully deactivated",
     }
 
     # Test that the materialization is no longer being returned
     response = await client.get(
-        "/nodes/default.repair_analytics/materializations",
+        f"/nodes/{cube_name}/materializations",
     )
     assert len(response.json()) == 0
 
     # Test that the materialization is returned when show_inactive=true is used
     response = await client.get(
-        "/nodes/default.repair_analytics/materializations?show_inactive=true",
+        f"/nodes/{cube_name}/materializations?show_inactive=true",
     )
     assert len(response.json()) == 1
