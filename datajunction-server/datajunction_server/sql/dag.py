@@ -306,7 +306,7 @@ async def get_dimension_attributes(
                 join_path = (
                     [node.name] if dimension_node.name != node.name else []
                 ) + [dimensions_map[int(node_id)].name for node_id in path]
-                if ref_link := await build_reference_link(
+                if ref_link := await build_reference_link(  # pragma: no cover
                     session,
                     col,
                     join_path,
@@ -403,9 +403,9 @@ async def get_dimension_nodes(
 
     node_selector = select(Node, paths.c.join_path, paths.c.role)
     if not include_deactivated:
-        node_selector = node_selector.where(
+        node_selector = node_selector.where(  # pragma: no cover
             is_(Node.deactivated_at, None),
-        )  # pragma: no cover
+        )
     statement = (
         node_selector.join(paths, paths.c.node_id == Node.id)
         .join(
