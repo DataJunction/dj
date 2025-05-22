@@ -3,12 +3,13 @@ DAG related functions.
 """
 
 import itertools
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Set, Union, cast
 
 from sqlalchemy import and_, func, join, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload
 from sqlalchemy.sql.operators import is_
+from sqlalchemy.dialects.postgresql import array
 
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
@@ -23,7 +24,7 @@ from datajunction_server.errors import DJDoesNotExistException, DJGraphCycleExce
 from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import SEPARATOR, get_settings
+from datajunction_server.utils import SEPARATOR, get_settings, refresh_if_needed
 
 settings = get_settings()
 
@@ -223,6 +224,200 @@ async def get_upstream_nodes(
         upstream
         for upstream in results
         if upstream.type == node_type or node_type is None
+    ]
+
+
+async def build_reference_link(
+    session: AsyncSession,
+    col: Column,
+    path: list[str],
+    role: list[str] | None = None,
+) -> DimensionAttributeOutput | None:
+    """
+    Builds a reference link dimension attribute output for a column.
+    """
+    if not (col.dimension_id and col.dimension_column):
+        return None  # pragma: no cover
+    await session.refresh(col, ["dimension"])
+    await session.refresh(col.dimension, ["current"])
+    await session.refresh(col.dimension.current, ["columns"])
+
+    dim_cols = col.dimension.current.columns
+    if dim_col := next(
+        (dc for dc in dim_cols if dc.name == col.dimension_column),
+        None,
+    ):
+        return DimensionAttributeOutput(
+            name=f"{col.dimension.name}.{col.dimension_column}"
+            + (f"[{'->'.join(role)}]" if role else ""),
+            node_name=col.dimension.name,
+            node_display_name=col.dimension.current.display_name,
+            properties=dim_col.attribute_names(),
+            type=str(col.type),
+            path=path,
+        )
+    return None  # pragma: no cover
+
+
+async def get_dimension_attributes(
+    session: AsyncSession,
+    node_name: str,
+    include_deactivated: bool = True,
+):
+    """
+    Get all dimension attributes for a given node.
+    """
+    node = cast(
+        Node,
+        await Node.get_by_name(
+            session,
+            node_name,
+            options=[joinedload(Node.current)],
+        ),
+    )
+    if node.type == NodeType.METRIC:
+        await refresh_if_needed(session, node.current, ["parents"])
+        node = node.current.parents[0]
+        await refresh_if_needed(session, node, ["current"])
+
+    # Discover all dimension nodes in the given node's dimensions graph
+    dimension_nodes_and_paths = await get_dimension_nodes(
+        session,
+        node,
+        include_deactivated,
+    )
+    dimensions_map = {dim.id: dim for dim, _, _ in dimension_nodes_and_paths}
+
+    # Add all reference links to the list of dimension attributes
+    reference_links = []
+    await refresh_if_needed(session, node.current, ["columns"])
+    for col in node.current.columns:
+        if col.dimension_id and col.dimension_column:
+            await session.refresh(col, ["dimension"])
+            if ref_link := await build_reference_link(  # pragma: no cover
+                session,
+                col,
+                path=[f"{node.name}.{col.name}"],
+            ):
+                reference_links.append(ref_link)
+    for dimension_node, path, role in dimension_nodes_and_paths:
+        for col in dimension_node.current.columns:
+            if col.dimension_id and col.dimension_column:
+                join_path = (
+                    [node.name] if dimension_node.name != node.name else []
+                ) + [dimensions_map[int(node_id)].name for node_id in path]
+                if ref_link := await build_reference_link(  # pragma: no cover
+                    session,
+                    col,
+                    join_path,
+                    role,
+                ):
+                    reference_links.append(ref_link)
+
+    # Build all dimension attributes from the dimension nodes in the graph
+    graph_dimensions = [
+        DimensionAttributeOutput(
+            name=f"{dim.name}.{col.name}" + (f"[{'->'.join(role)}]" if role else ""),
+            node_name=dim.name,
+            node_display_name=dim.current.display_name,
+            properties=col.attribute_names(),
+            type=str(col.type),
+            path=[node_name] + [dimensions_map[int(node_id)].name for node_id in path],
+        )
+        for dim, path, role in dimension_nodes_and_paths
+        for col in dim.current.columns
+    ]
+
+    # Build all local dimension attributes from the original node
+    local_dimensions = [
+        DimensionAttributeOutput(
+            name=f"{node.name}.{col.name}",
+            node_name=node.name,
+            node_display_name=node.current.display_name,
+            properties=col.attribute_names(),
+            type=str(col.type),
+            path=[],
+        )
+        for col in node.current.columns
+    ]
+    local_dimensions = [
+        dim
+        for dim in local_dimensions
+        if "primary_key" in (dim.properties or [])
+        or "dimension" in (dim.properties or [])
+        or node.type == NodeType.DIMENSION
+    ]
+    return reference_links + graph_dimensions + local_dimensions
+
+
+async def get_dimension_nodes(
+    session: AsyncSession,
+    node: Node,
+    include_deactivated: bool = True,
+) -> list[tuple[Node, list[str], list[str] | None]]:
+    """
+    Discovers all dimension nodes in the given node's dimensions graph using a recursive
+    CTE query to build out the dimension links.
+    """
+    dag = (
+        (
+            select(
+                DimensionLink.node_revision_id,
+                NodeRevision.id,
+                NodeRevision.node_id,
+                array([NodeRevision.node_id]).label("join_path"),  # start path
+                array([DimensionLink.role]).label("role"),
+            )
+            .where(DimensionLink.node_revision_id == node.current.id)
+            .join(Node, DimensionLink.dimension_id == Node.id)
+            .join(
+                NodeRevision,
+                (Node.id == NodeRevision.node_id)
+                & (Node.current_version == NodeRevision.version),
+            )
+        )
+        .cte("dimensions", recursive=True)
+        .suffix_with(
+            "CYCLE node_id SET is_cycle USING path",
+        )
+    )
+
+    paths = dag.union_all(
+        select(
+            dag.c.node_revision_id,
+            NodeRevision.id,
+            NodeRevision.node_id,
+            func.array_cat(dag.c.join_path, array([NodeRevision.node_id])).label(
+                "join_path",
+            ),
+            func.array_cat(dag.c.role, array([DimensionLink.role])).label("role"),
+        )
+        .join(DimensionLink, dag.c.id == DimensionLink.node_revision_id)
+        .join(Node, DimensionLink.dimension_id == Node.id)
+        .join(
+            NodeRevision,
+            (Node.id == NodeRevision.node_id)
+            & (Node.current_version == NodeRevision.version),
+        ),
+    )
+
+    node_selector = select(Node, paths.c.join_path, paths.c.role)
+    if not include_deactivated:
+        node_selector = node_selector.where(  # pragma: no cover
+            is_(Node.deactivated_at, None),
+        )
+    statement = (
+        node_selector.join(paths, paths.c.node_id == Node.id)
+        .join(
+            NodeRevision,
+            (Node.current_version == NodeRevision.version)
+            & (Node.id == NodeRevision.node_id),
+        )
+        .options(*_node_output_options())
+    )
+    return [
+        (node, path, [r for r in role if r])
+        for node, path, role in (await session.execute(statement)).all()
     ]
 
 
