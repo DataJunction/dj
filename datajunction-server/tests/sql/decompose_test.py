@@ -471,7 +471,7 @@ def test_count_distinct_rate():
             aggregation=None,
             rule=AggregationRule(
                 type=Aggregability.LIMITED,
-                level=["user_id_distinct_5deb6d4f"],
+                level=["user_id"],
             ),
         ),
         MetricComponent(
@@ -547,7 +547,7 @@ def test_multiple_aggregations_with_conditions():
             aggregation=None,
             rule=AggregationRule(
                 type=Aggregability.LIMITED,
-                level=["region_account_id_distinct_04a6925b"],
+                level=["IF(region = 'US', account_id, NULL)"],
             ),
         ),
     ]

@@ -9,6 +9,7 @@ from typing import Any, DefaultDict, Dict, List, Optional, Tuple, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# from datajunction_server.errors import DJParseException
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
 from datajunction_server.database.dimensionlink import DimensionLink
@@ -348,19 +349,22 @@ def build_preaggregate_query(
             )
             for col in temp_select.find_all(ast.Column):
                 # Realias based on canonical dimension name if needed
-                if col.alias_or_name.name not in parent_ast.select.column_mapping:
+                if selected_column := parent_ast.select.column_mapping.get(
+                    col.alias_or_name.name,
+                ):
+                    col.add_type(selected_column.type)
+                elif selected_column := parent_ast.select.column_name_mapping.get(
+                    col.alias_or_name.name,
+                ):
+                    col.name.name = selected_column.alias_or_name.name
+                    col.add_type(selected_column.type)
+                else:
                     new_alias = amenable_name(
                         parent_node.name + SEPARATOR + col.alias_or_name.name,
                     )
                     if new_alias in parent_ast.select.column_mapping:
                         col.name.name = new_alias
-                    col.add_type(ast.StringType())
-                else:
-                    col.add_type(
-                        parent_ast.select.column_mapping.get(  # type: ignore
-                            col.alias_or_name.name,
-                        ).type,
-                    )
+
             for proj in temp_select.projection:
                 proj.set_semantic_entity(parent_node.name + SEPARATOR + measure.name)  # type: ignore
                 proj.set_semantic_type(SemanticType.MEASURE)  # type: ignore
