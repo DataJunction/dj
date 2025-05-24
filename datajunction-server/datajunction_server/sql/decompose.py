@@ -88,10 +88,19 @@ class MeasureExtractor:
         Handles measures decomposition for a single-argument associative aggregation function.
         Examples: SUM, MAX, MIN, COUNT
         """
+        # Handle the case where the quantifier is DISTINCT, where we need to generate a
+        # measure that represents the dimension column with the distinct quantifier.
         arg = func.args[0]
-        measure_name = "_".join(
-            [str(col) for col in arg.find_all(ast.Column)] + [func.name.name.lower()],
-        )
+        if func.quantifier == ast.SetQuantifier.Distinct:
+            measure_name = "_".join(
+                [str(col) for col in arg.find_all(ast.Column)] + ["distinct"],
+            )
+        else:
+            measure_name = "_".join(
+                [str(col) for col in arg.find_all(ast.Column)]
+                + [func.name.name.lower()],
+            )
+
         expression = f"{func.quantifier} {arg}" if func.quantifier else str(arg)
         short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
 
@@ -99,7 +108,9 @@ class MeasureExtractor:
             Measure(
                 name=f"{measure_name}_{short_hash}",
                 expression=expression,
-                aggregation=func.name.name.upper(),
+                aggregation=func.name.name.upper()
+                if func.quantifier != ast.SetQuantifier.Distinct
+                else None,
                 rule=AggregationRule(
                     type=Aggregability.FULL
                     if func.quantifier != ast.SetQuantifier.Distinct
@@ -178,6 +189,8 @@ class MeasureExtractor:
         elif func.function() in (dj_functions.Count, dj_functions.CountIf):
             if func.quantifier != ast.SetQuantifier.Distinct:
                 func.name.name = "SUM"
+                func.args = [ast.Column(ast.Name(measure.name)) for measure in measures]
+            else:
                 func.args = [ast.Column(ast.Name(measure.name)) for measure in measures]
         else:
             func.args = [ast.Column(ast.Name(measure.name)) for measure in measures]

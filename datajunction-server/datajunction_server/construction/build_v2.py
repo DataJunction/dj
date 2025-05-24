@@ -333,9 +333,15 @@ def build_preaggregate_query(
             if measure.name in added_measures:
                 continue
             added_measures.add(measure.name)
-            temp_select = cached_parse(
-                f"SELECT {measure.aggregation}({measure.expression}) AS {measure.name}",
-            ).select
+            temp_select = (
+                cached_parse(
+                    f"SELECT {measure.aggregation}({measure.expression}) AS {measure.name}",
+                ).select
+                if measure.aggregation
+                else cached_parse(
+                    f"SELECT {measure.expression} AS {measure.name}",
+                ).select
+            )
             for col in temp_select.find_all(ast.Column):
                 # Realias based on canonical dimension name if needed
                 if col.alias_or_name.name not in parent_ast.select.column_mapping:
@@ -344,9 +350,8 @@ def build_preaggregate_query(
                     )
                     if new_alias in parent_ast.select.column_mapping:
                         col.name.name = new_alias
-                if (  # pragma: no cover
-                    col.alias_or_name.name in parent_ast.select.column_mapping
-                ):
+                    col.add_type(ast.StringType())
+                else:
                     col.add_type(
                         parent_ast.select.column_mapping.get(  # type: ignore
                             col.alias_or_name.name,

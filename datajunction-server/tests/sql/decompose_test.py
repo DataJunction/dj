@@ -466,12 +466,12 @@ def test_count_distinct_rate():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         Measure(
-            name="user_id_count_5deb6d4f",
+            name="user_id_distinct_5deb6d4f",
             expression="DISTINCT user_id",
-            aggregation="COUNT",
+            aggregation=None,
             rule=AggregationRule(
                 type=Aggregability.LIMITED,
-                level=["user_id"],
+                level=["user_id_distinct_5deb6d4f"],
             ),
         ),
         Measure(
@@ -484,7 +484,7 @@ def test_count_distinct_rate():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT COUNT( DISTINCT user_id) / "
+            "SELECT COUNT( DISTINCT user_id_distinct_5deb6d4f) / "
             "SUM(action_count_418c5509) FROM parent_node",
         ),
     )
@@ -542,12 +542,12 @@ def test_multiple_aggregations_with_conditions():
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         Measure(
-            name="region_account_id_count_04a6925b",
+            name="region_account_id_distinct_04a6925b",
             expression="DISTINCT IF(region = 'US', account_id, NULL)",
-            aggregation="COUNT",
+            aggregation=None,
             rule=AggregationRule(
                 type=Aggregability.LIMITED,
-                level=["IF(region = 'US', account_id, NULL)"],
+                level=["region_account_id_distinct_04a6925b"],
             ),
         ),
     ]
@@ -555,7 +555,7 @@ def test_multiple_aggregations_with_conditions():
     assert str(derived_sql) == str(
         parse(
             "SELECT SUM(region_sales_amount_sum_55eb544e) + "
-            "COUNT(DISTINCT IF(region = 'US', account_id, NULL)) FROM parent_node",
+            "COUNT(DISTINCT region_account_id_distinct_04a6925b) FROM parent_node",
         ),
     )
 

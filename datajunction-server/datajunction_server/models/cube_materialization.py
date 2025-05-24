@@ -58,7 +58,7 @@ class Measure(BaseModel):
 
     name: str
     expression: str  # A SQL expression for defining the measure
-    aggregation: str
+    aggregation: str | None
     rule: AggregationRule
 
 
