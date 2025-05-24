@@ -30,7 +30,7 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
-from datajunction_server.sql.decompose import MeasureExtractor
+from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 NodeType = strawberry.enum(NodeType_)
@@ -184,7 +184,7 @@ class NodeRevision:
         """
         if root.type != NodeType.METRIC:
             return None
-        extractor = MeasureExtractor.from_query_string(root.query)
+        extractor = MetricComponentExtractor.from_query_string(root.query)
         measures, derived_ast = extractor.extract()
         return ExtractedMeasures(  # type: ignore
             measures=measures,

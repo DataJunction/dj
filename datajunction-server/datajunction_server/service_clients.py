@@ -295,6 +295,8 @@ class QueryServiceClient:
         for the node. The query service is expected to manage all reruns of this job. Note
         that this functionality may be moved to the materialization service at a later point.
         """
+        print("materialization_input", materialization_input.dict())
+
         response = self.requests_session.post(
             "/cubes/materialize",
             json=materialization_input.dict(),

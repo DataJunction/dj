@@ -14,13 +14,13 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
-from datajunction_server.models.cube_materialization import Measure
+from datajunction_server.models.cube_materialization import MetricComponent
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.naming import LOOKUP_CHARS, amenable_name, from_amenable_name
 from datajunction_server.sql.dag import get_shared_dimensions
-from datajunction_server.sql.decompose import MeasureExtractor
+from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.utils import SEPARATOR
@@ -335,7 +335,10 @@ def build_materialized_cube_node(
 
 def metrics_to_measures(
     metric_nodes: list[Node],
-) -> Tuple[DefaultDict[str, Set[str]], dict[str, tuple[list[Measure], ast.Query]]]:
+) -> Tuple[
+    DefaultDict[str, Set[str]],
+    dict[str, tuple[list[MetricComponent], ast.Query]],
+]:
     """
     For the given metric nodes, returns a mapping between the metrics' referenced parent nodes
     and the list of necessary measures to extract from the parent node.
@@ -345,11 +348,11 @@ def metrics_to_measures(
         "parent_node_name2": ["measure_columnX"],
     }
     """
-    metric_to_measures: dict[str, tuple[list[Measure], ast.Query]] = {}
+    metric_to_measures: dict[str, tuple[list[MetricComponent], ast.Query]] = {}
     parents_to_measures = collections.defaultdict(set)
 
     def _process_metric(metric_query: str):
-        extractor = MeasureExtractor.from_query_string(metric_query)
+        extractor = MetricComponentExtractor.from_query_string(metric_query)
         metric_ast = parse(metric_query)
         return extractor.extract(), list(metric_ast.find_all(ast.Column))
 

@@ -9,6 +9,7 @@ from typing import Any, DefaultDict, Dict, List, Optional, Tuple, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# from datajunction_server.errors import DJParseException
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
 from datajunction_server.database.dimensionlink import DimensionLink
@@ -23,7 +24,10 @@ from datajunction_server.errors import (
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
-from datajunction_server.models.cube_materialization import Aggregability, Measure
+from datajunction_server.models.cube_materialization import (
+    Aggregability,
+    MetricComponent,
+)
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
@@ -222,8 +226,10 @@ async def get_measures_query(
             CompileContext(session, DJException()),
         )
 
+        # TODO: Move this here so that we can set the grain properly on the generated SQL
         final_query = (
-            build_preaggregate_query(
+            await build_preaggregate_query(
+                context,
                 parent_ast,
                 parent_node,
                 dimensional_columns,
@@ -276,12 +282,13 @@ async def get_measures_query(
     return measures_queries
 
 
-def build_preaggregate_query(
+async def build_preaggregate_query(
+    context: CompileContext,
     parent_ast: ast.Query,
     parent_node: Node,
     dimensional_columns: list[ast.Column],
     children: list[NodeRevision],
-    metrics2measures: dict[str, tuple[list[Measure], ast.Query]],
+    metrics2measures: dict[str, tuple[list[MetricComponent], ast.Query]],
 ):
     """
     Builds a measures query preaggregated to the chosen dimensions.
@@ -333,25 +340,39 @@ def build_preaggregate_query(
             if measure.name in added_measures:
                 continue
             added_measures.add(measure.name)
-            temp_select = cached_parse(
-                f"SELECT {measure.aggregation}({measure.expression}) AS {measure.name}",
-            ).select
+            temp_select = (
+                cached_parse(
+                    f"SELECT {measure.aggregation}({measure.expression}) AS {measure.name}",
+                ).select
+                if measure.aggregation
+                else cached_parse(
+                    f"SELECT {measure.expression} AS {measure.name}",
+                ).select
+            )
+            # await temp_select.compile(ctx=context)
+            print("temp_select.projection", temp_select)
             for col in temp_select.find_all(ast.Column):
                 # Realias based on canonical dimension name if needed
-                if col.alias_or_name.name not in parent_ast.select.column_mapping:
+                print("col.alias_or_name.name", col.name.name)
+                if selected_column := parent_ast.select.column_mapping.get(
+                    col.name.name,
+                ):
+                    print("selected_column (alias)", selected_column)
+                    col.add_type(selected_column.type)
+                elif selected_column := parent_ast.select.column_name_mapping.get(
+                    col.name.name,
+                ):
+                    print("selected_column (name)", selected_column)
+                    col.name.name = selected_column.alias_or_name.name
+                    col.add_type(selected_column.type)
+                else:
+                    print("selected_column (neither)", selected_column)
                     new_alias = amenable_name(
                         parent_node.name + SEPARATOR + col.alias_or_name.name,
                     )
                     if new_alias in parent_ast.select.column_mapping:
                         col.name.name = new_alias
-                if (  # pragma: no cover
-                    col.alias_or_name.name in parent_ast.select.column_mapping
-                ):
-                    col.add_type(
-                        parent_ast.select.column_mapping.get(  # type: ignore
-                            col.alias_or_name.name,
-                        ).type,
-                    )
+
             for proj in temp_select.projection:
                 proj.set_semantic_entity(parent_node.name + SEPARATOR + measure.name)  # type: ignore
                 proj.set_semantic_type(SemanticType.MEASURE)  # type: ignore
