@@ -1177,22 +1177,38 @@ async def test_measures_sql_errors(
 
 
 @pytest.mark.asyncio
-async def test_measures_sql_preagg_incompatible(
+async def test_measures_sql_agg_distinct_metric(
     module__client_with_roads: AsyncClient,
     duckdb_conn: duckdb.DuckDBPyConnection,
 ):
     """
-    Test ``GET /sql/measures`` with incompatible metrics vs compatible metrics.
+    Test `GET /sql/measures` with metrics that have an aggregation that uses the
+    DISTINCT quantifier, like COUNT(DISTINCT ...).
     """
     await fix_dimension_links(module__client_with_roads)
+    metric_name = "default.number_of_hard_hats"
     await module__client_with_roads.post(
         "/nodes/metric",
         json={
-            "description": "A preagg incompatible metric",
+            "description": "A count distinct metric",
             "query": "SELECT COUNT(DISTINCT hard_hat_id) FROM default.repair_orders_fact",
             "mode": "published",
-            "name": "default.number_of_hard_hats",
+            "name": metric_name,
         },
+    )
+    response = await module__client_with_roads.get(f"/metrics/{metric_name}")
+    metric_data = response.json()
+    assert metric_data["measures"] == [
+        {
+            "aggregation": None,
+            "expression": "hard_hat_id",
+            "name": "hard_hat_id_distinct_c311610d",
+            "rule": {"level": ["hard_hat_id"], "type": "limited"},
+        },
+    ]
+    assert (
+        metric_data["derived_expression"]
+        == "COUNT( DISTINCT hard_hat_id_distinct_c311610d)"
     )
 
     response = await module__client_with_roads.get(
@@ -1248,7 +1264,7 @@ async def test_measures_sql_preagg_incompatible(
       default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
       COUNT(price) AS price_count_78a5eb43,
       SUM(price) AS price_sum_78a5eb43,
-      COUNT( DISTINCT hard_hat_id) AS hard_hat_id_count_2673ee49
+      hard_hat_id AS hard_hat_id_distinct_c311610d
     FROM default_DOT_repair_orders_fact_built
     GROUP BY  default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name, default_DOT_repair_orders_fact_built.hard_hat_id
     """
@@ -1256,24 +1272,34 @@ async def test_measures_sql_preagg_incompatible(
     result = duckdb_conn.sql(translated_sql["sql"])
     assert set(result.fetchall()) == {
         ("Federal Roads Group", 1, 63708.0, 1),
-        ("Pothole Pete", 1, 67253.0, 1),
-        ("Asphalts R Us", 2, 114665.0, 1),
+        ("Pothole Pete", 1, 67253.0, 3),
+        ("Asphalts R Us", 2, 114665.0, 5),
         ("Pothole Pete", 3, 154983.0, 1),
-        ("Asphalts R Us", 1, 76463.0, 1),
-        ("Asphalts R Us", 2, 162413.0, 1),
-        ("Asphalts R Us", 1, 63918.0, 1),
-        ("Federal Roads Group", 2, 118999.0, 1),
-        ("Federal Roads Group", 1, 27222.0, 1),
-        ("Pothole Pete", 2, 125194.0, 1),
-        ("Federal Roads Group", 1, 54901.0, 1),
-        ("Asphalts R Us", 2, 133859.0, 1),
-        ("Federal Roads Group", 2, 78603.0, 1),
-        ("Federal Roads Group", 1, 70418.0, 1),
-        ("Pothole Pete", 1, 62928.0, 1),
-        ("Federal Roads Group", 1, 53374.0, 1),
-        ("Pothole Pete", 1, 87289.0, 1),
+        ("Asphalts R Us", 1, 76463.0, 8),
+        ("Asphalts R Us", 2, 162413.0, 3),
+        ("Asphalts R Us", 1, 63918.0, 4),
+        ("Federal Roads Group", 2, 118999.0, 5),
+        ("Federal Roads Group", 1, 27222.0, 4),
+        ("Pothole Pete", 2, 125194.0, 4),
+        ("Federal Roads Group", 1, 54901.0, 8),
+        ("Asphalts R Us", 2, 133859.0, 6),
+        ("Federal Roads Group", 2, 78603.0, 2),
+        ("Federal Roads Group", 1, 70418.0, 9),
+        ("Pothole Pete", 1, 62928.0, 6),
+        ("Federal Roads Group", 1, 53374.0, 7),
+        ("Pothole Pete", 1, 87289.0, 5),
     }
 
+
+@pytest.mark.asyncio
+async def test_measures_sql_simple_agg_metric(
+    module__client_with_roads: AsyncClient,
+    duckdb_conn: duckdb.DuckDBPyConnection,
+):
+    """
+    Test ``GET /sql/measures`` with metrics that have simple aggregations.
+    """
+    await fix_dimension_links(module__client_with_roads)
     response = await module__client_with_roads.get(
         "/sql/measures/v2",
         params={
