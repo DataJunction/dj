@@ -49,16 +49,33 @@ class AggregationRule(BaseModel):
     level: list[str] | None = None
 
 
-class Measure(BaseModel):
+class MetricComponent(BaseModel):
     """
-    Measures are aggregated facts (e.g. SUM(view_secs)). They can be optionally combined
-    to build derived metrics, e.g. SUM(clicks) / SUM(view_secs). Combining is optional because
-    a stand-alone measure can itself be a metric.
+    A reusable, named building block of a metric definition.
+
+    A MetricComponent represents a SQL expression that can serve as an input to building
+    a metric. It may be an aggregatable fact (e.g. `view_secs` in `SUM(view_secs)`),
+    a conditional (e.g., `IF(x, y, z)` in `SUM(IF(x, y, z))`) or a distinct expression
+    (e.g. `DISTINCT IF(x, y, z)`), or any derived input used in computing metrics.
+
+    Components may be:
+    - Aggregated directly to form a simple metric (e.g. `SUM(view_secs)`)
+    - Combined with others to define derived metrics (e.g. `SUM(clicks) / SUM(view_secs)`)
+    - Reused across multiple metrics
+
+    Not all components require aggregation — some may be passed through as-is or grouped by.
+
+    Attributes:
+        name: A unique name for the component, typically derived from its expression.
+        expression: The raw SQL expression that defines the component.
+        aggregation: The aggregation function to apply (e.g. 'SUM', 'COUNT'), or None if unaggregated.
+        rule: Aggregation rules that define how and when the component can be aggregated
+            (e.g., fully or limited).
     """
 
     name: str
     expression: str  # A SQL expression for defining the measure
-    aggregation: str
+    aggregation: str | None
     rule: AggregationRule
 
 
@@ -69,7 +86,7 @@ class MetricMeasures(BaseModel):
     """
 
     metric: str
-    measures: List[Measure]
+    measures: List[MetricComponent]
     combiner: str
 
 
@@ -96,7 +113,7 @@ class MeasuresMaterialization(BaseModel):
     dimensions: list[str] = Field(
         description="List of dimensions included in this materialization.",
     )
-    measures: list[Measure] = Field(
+    measures: list[MetricComponent] = Field(
         description="List of measures included in this materialization.",
     )
     query: str = Field(
@@ -158,6 +175,18 @@ class MeasuresMaterialization(BaseModel):
         """
         Builds a MeasuresMaterialization object from a measures query.
         """
+        metric_components = list(
+            {
+                component.name: component
+                for metric, (components, combiner) in measures_query.metrics.items()
+                for component in components
+            }.values(),
+        )
+        dimensional_metric_components = [
+            component.name
+            for component in metric_components
+            if not component.aggregation
+        ]
         return MeasuresMaterialization(
             node=measures_query.node,
             grain=measures_query.grain,
@@ -174,14 +203,9 @@ class MeasuresMaterialization(BaseModel):
                 col.name
                 for col in measures_query.columns  # type: ignore
                 if col.semantic_type == SemanticType.DIMENSION
-            ],
-            measures=list(
-                {
-                    measure.name: measure
-                    for metric, (measures, combiner) in measures_query.metrics.items()
-                    for measure in measures
-                }.values(),
-            ),
+            ]
+            + dimensional_metric_components,
+            measures=metric_components,
             spark_conf=measures_query.spark_conf,
             upstream_tables=measures_query.upstream_tables,
         )
@@ -273,7 +297,7 @@ class CombineMaterialization(BaseModel):
     dimensions: list[str] = Field(
         description="List of dimensions included in this materialization.",
     )
-    measures: list[Measure] = Field(
+    measures: list[MetricComponent] = Field(
         description="List of measures included in this materialization.",
     )
 
@@ -319,7 +343,11 @@ class CombineMaterialization(BaseModel):
                 ],
             }
             for measure in self.measures
-            if (column_mapping.get(measure.name), measure.aggregation.lower())
+            if measure.aggregation
+            and (
+                column_mapping.get(measure.name),
+                measure.aggregation.lower(),
+            )
             in DRUID_AGG_MAPPING
         ]
 
@@ -338,6 +366,22 @@ class CombineMaterialization(BaseModel):
 
         # if there are categorical partitions, we can additionally include one of them
         # in the partitionDimension field under partitionsSpec
+        # [
+        #     {
+        #         "fieldName": measure.name,
+        #         "name": measure.name,
+        #         "type": DRUID_AGG_MAPPING[
+        #             (column_mapping[measure.name], measure.aggregation.lower())
+        #         ],
+        #     }
+        #     for measure in self.measures
+        #     if measure.aggregation
+        #     and (
+        #         column_mapping.get(measure.name),
+        #         measure.aggregation.lower(),
+        #     )
+        #     in DRUID_AGG_MAPPING
+        # ]
         druid_spec: Dict = {
             "dataSchema": {
                 "dataSource": druid_datasource_name,

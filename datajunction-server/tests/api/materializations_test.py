@@ -13,7 +13,7 @@ from datajunction_server.models.cube_materialization import (
     Aggregability,
     AggregationRule,
     CubeMetric,
-    Measure,
+    MetricComponent,
     MeasureKey,
     NodeNameVersion,
 )
@@ -871,13 +871,13 @@ async def test_druid_cube_incremental(
         "default_DOT_municipality_dim_DOT_local_region",
     ]
     assert mat.measures_materializations[0].measures == [
-        Measure(
+        MetricComponent(
             name="repair_order_id_count_0b7dfba0",
             expression="repair_order_id",
             aggregation="COUNT",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
-        Measure(
+        MetricComponent(
             name="total_repair_cost_sum_9bdaf803",
             expression="total_repair_cost",
             aggregation="SUM",
@@ -1022,13 +1022,13 @@ async def test_druid_cube_incremental(
         "default_DOT_municipality_dim_DOT_local_region",
     ]
     assert mat.combiners[0].measures == [
-        Measure(
+        MetricComponent(
             name="repair_order_id_count_0b7dfba0",
             expression="repair_order_id",
             aggregation="COUNT",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
-        Measure(
+        MetricComponent(
             name="total_repair_cost_sum_9bdaf803",
             expression="total_repair_cost",
             aggregation="SUM",
