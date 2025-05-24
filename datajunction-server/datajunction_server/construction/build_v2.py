@@ -23,7 +23,10 @@ from datajunction_server.errors import (
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
-from datajunction_server.models.cube_materialization import Aggregability, Measure
+from datajunction_server.models.cube_materialization import (
+    Aggregability,
+    MetricComponent,
+)
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
@@ -222,6 +225,7 @@ async def get_measures_query(
             CompileContext(session, DJException()),
         )
 
+        # TODO: Move this here so that we can set the grain properly on the generated SQL
         final_query = (
             build_preaggregate_query(
                 parent_ast,
@@ -281,7 +285,7 @@ def build_preaggregate_query(
     parent_node: Node,
     dimensional_columns: list[ast.Column],
     children: list[NodeRevision],
-    metrics2measures: dict[str, tuple[list[Measure], ast.Query]],
+    metrics2measures: dict[str, tuple[list[MetricComponent], ast.Query]],
 ):
     """
     Builds a measures query preaggregated to the chosen dimensions.
