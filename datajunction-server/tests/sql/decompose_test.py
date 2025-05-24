@@ -484,7 +484,7 @@ def test_count_distinct_rate():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT COUNT( DISTINCT user_id_count_5deb6d4f) / "
+            "SELECT COUNT( DISTINCT user_id) / "
             "SUM(action_count_418c5509) FROM parent_node",
         ),
     )
@@ -554,8 +554,8 @@ def test_multiple_aggregations_with_conditions():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT  SUM(region_sales_amount_sum_55eb544e) + COUNT("
-            "DISTINCT region_account_id_count_04a6925b) FROM parent_node",
+            "SELECT SUM(region_sales_amount_sum_55eb544e) + "
+            "COUNT(DISTINCT IF(region = 'US', account_id, NULL)) FROM parent_node",
         ),
     )
 

@@ -175,11 +175,9 @@ class MeasureExtractor:
                     ),
                 ),
             )
-        elif (
-            func.function() in (dj_functions.Count, dj_functions.CountIf)
-            and func.quantifier != ast.SetQuantifier.Distinct
-        ):
-            func.name.name = "SUM"
-            func.args = [ast.Column(ast.Name(measure.name)) for measure in measures]
+        elif func.function() in (dj_functions.Count, dj_functions.CountIf):
+            if func.quantifier != ast.SetQuantifier.Distinct:
+                func.name.name = "SUM"
+                func.args = [ast.Column(ast.Name(measure.name)) for measure in measures]
         else:
             func.args = [ast.Column(ast.Name(measure.name)) for measure in measures]
