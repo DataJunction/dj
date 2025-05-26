@@ -333,25 +333,33 @@ def build_materialized_cube_node(
     return combined_ast
 
 
-def metrics_to_measures(
+def extract_components_and_parent_columns(
     metric_nodes: list[Node],
 ) -> Tuple[
     DefaultDict[str, Set[str]],
     dict[str, tuple[list[MetricComponent], ast.Query]],
 ]:
     """
-    For the given metric nodes, returns a mapping between the metrics' referenced parent nodes
-    and the list of necessary measures to extract from the parent node.
-    The structure is:
-    {
-        "parent_node_name1": ["measure_columnA", "measure_columnB"],
-        "parent_node_name2": ["measure_columnX"],
-    }
-    """
-    metric_to_measures: dict[str, tuple[list[MetricComponent], ast.Query]] = {}
-    parents_to_measures = collections.defaultdict(set)
+    Given a list of metric nodes, returns:
+    1. A mapping of parent node names to sets of column names (as referenced in metric queries).
+    2. A mapping from metric node names to their extracted MetricComponents and full AST.
 
-    def _process_metric(metric_query: str):
+    Returns:
+    (
+        {
+            "parent_node_1": {"column_a", "column_b"},
+            "parent_node_2": {"column_x"},
+        },
+        {
+            "metric_node_name": ([MetricComponent, ...], ast.Query),
+            ...
+        }
+    )
+    """
+    components_by_metric: dict[str, tuple[list[MetricComponent], ast.Query]] = {}
+    parent_columns = collections.defaultdict(set)
+
+    def extract_components_and_columns(metric_query: str):
         extractor = MetricComponentExtractor.from_query_string(metric_query)
         metric_ast = parse(metric_query)
         return extractor.extract(), list(metric_ast.find_all(ast.Column))
@@ -359,14 +367,14 @@ def metrics_to_measures(
     max_workers = min(max(1, len(metric_nodes)), os.cpu_count())  # type: ignore
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         extracted_measures = executor.map(
-            _process_metric,
+            extract_components_and_columns,
             [metric_node.current.query for metric_node in metric_nodes],
         )
 
     for metric_node, (measures, columns) in zip(metric_nodes, extracted_measures):
-        metric_to_measures[metric_node.name] = measures
+        components_by_metric[metric_node.name] = measures
         for col in columns:
-            parents_to_measures[metric_node.current.parents[0].name].add(  # type: ignore
+            parent_columns[metric_node.current.parents[0].name].add(  # type: ignore
                 col.alias_or_name.name,
             )
-    return parents_to_measures, metric_to_measures
+    return parent_columns, components_by_metric

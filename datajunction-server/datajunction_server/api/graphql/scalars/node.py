@@ -15,7 +15,7 @@ from datajunction_server.api.graphql.scalars.materialization import (
     MaterializationConfig,
 )
 from datajunction_server.api.graphql.scalars.metricmetadata import (
-    ExtractedMeasures,
+    DecomposedMetric,
     MetricMetadata,
 )
 from datajunction_server.api.graphql.scalars.user import User
@@ -178,16 +178,16 @@ class NodeRevision:
         )
 
     @strawberry.field
-    def extracted_measures(self, root: "DBNodeRevision") -> ExtractedMeasures | None:
+    def extracted_measures(self, root: "DBNodeRevision") -> DecomposedMetric | None:
         """
-        A list of measures for a metric node
+        A list of metric components for a metric node
         """
         if root.type != NodeType.METRIC:
             return None
         extractor = MetricComponentExtractor.from_query_string(root.query)
-        measures, derived_ast = extractor.extract()
-        return ExtractedMeasures(  # type: ignore
-            measures=measures,
+        components, derived_ast = extractor.extract()
+        return DecomposedMetric(  # type: ignore
+            components=components,
             derived_query=str(derived_ast),
             derived_expression=str(derived_ast.select.projection[0]),
         )

@@ -36,16 +36,16 @@ class AggregationRule: ...
 
 
 @strawberry.experimental.pydantic.type(model=MetricComponent_, all_fields=True)
-class Measure: ...
+class MetricComponent: ...
 
 
 @strawberry.type
-class ExtractedMeasures:
+class DecomposedMetric:
     """
-    extracted measures from metric
+    Decomposed metric, which includes its components and derived query
     """
 
-    measures: list[Measure]
+    components: list[MetricComponent]
     derived_query: str
     derived_expression: str
 
