@@ -9,7 +9,6 @@ from typing import Any, DefaultDict, Dict, List, Optional, Tuple, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# from datajunction_server.errors import DJParseException
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
 from datajunction_server.database.dimensionlink import DimensionLink
@@ -226,7 +225,6 @@ async def get_measures_query(
             CompileContext(session, DJException()),
         )
 
-        # TODO: Move this here so that we can set the grain properly on the generated SQL
         final_query = (
             build_preaggregate_query(
                 parent_ast,
