@@ -367,22 +367,6 @@ class CombineMaterialization(BaseModel):
 
         # if there are categorical partitions, we can additionally include one of them
         # in the partitionDimension field under partitionsSpec
-        # [
-        #     {
-        #         "fieldName": measure.name,
-        #         "name": measure.name,
-        #         "type": DRUID_AGG_MAPPING[
-        #             (column_mapping[measure.name], measure.aggregation.lower())
-        #         ],
-        #     }
-        #     for measure in self.measures
-        #     if measure.aggregation
-        #     and (
-        #         column_mapping.get(measure.name),
-        #         measure.aggregation.lower(),
-        #     )
-        #     in DRUID_AGG_MAPPING
-        # ]
         druid_spec: Dict = {
             "dataSchema": {
                 "dataSource": druid_datasource_name,
