@@ -123,7 +123,7 @@ async def get_measures_query(
     )
     from datajunction_server.construction.build import (
         group_metrics_by_parent,
-        metrics_to_measures,
+        extract_components_and_parent_columns,
         rename_columns,
     )
 
@@ -151,7 +151,9 @@ async def get_measures_query(
     await check_dimension_attributes_exist(session, dimensions)
 
     common_parents = group_metrics_by_parent(metric_nodes)
-    parents_to_measures, metrics2measures = metrics_to_measures(metric_nodes)
+    parent_columns, metric_components = extract_components_and_parent_columns(
+        metric_nodes,
+    )
 
     column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
     matcher = re.compile(column_name_regex)
@@ -165,10 +167,10 @@ async def get_measures_query(
         # Determine whether to pre-aggregate to the requested dimensions so that subsequent
         # queries are more efficient by checking the measures on the requested metrics
         preaggregate = preagg_requested and all(
-            len(metrics2measures[metric.name][0]) > 0
+            len(metric_components[metric.name][0]) > 0
             and all(
                 measure.rule.type in (Aggregability.FULL, Aggregability.LIMITED)
-                for measure in metrics2measures[metric.name][0]
+                for measure in metric_components[metric.name][0]
             )
             for metric in children
         )
@@ -200,8 +202,8 @@ async def get_measures_query(
                     (identifier := expr.alias_or_name.identifier(False))
                     and (
                         from_amenable_name(identifier).split(SEPARATOR)[-1]
-                        in parents_to_measures[parent_node.name]
-                        or identifier in parents_to_measures[parent_node.name]
+                        in parent_columns[parent_node.name]
+                        or identifier in parent_columns[parent_node.name]
                         or from_amenable_name(identifier) in dimensions_without_roles
                     )
                 )
@@ -231,7 +233,7 @@ async def get_measures_query(
                 parent_node,
                 dimensional_columns,
                 children,
-                metrics2measures,
+                metric_components,
             )
             if preaggregate
             else parent_ast
@@ -267,8 +269,8 @@ async def get_measures_query(
                 errors=query_builder.errors,
                 metrics={
                     metric.name: (
-                        metrics2measures[metric.name][0],
-                        str(metrics2measures[metric.name][1]).replace("\n", "")
+                        metric_components[metric.name][0],
+                        str(metric_components[metric.name][1]).replace("\n", "")
                         if preaggregate
                         else metric.query,
                     )

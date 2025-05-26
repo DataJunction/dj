@@ -627,7 +627,7 @@ async def test_find_transform(
                     name
                 }
                 extractedMeasures {
-                    measures {
+                    components {
                         name
                     }
                 }
@@ -699,7 +699,7 @@ async def test_find_metric(
                     name
                 }
                 extractedMeasures {
-                    measures {
+                    components {
                         name
                         expression
                         aggregation
@@ -741,7 +741,7 @@ async def test_find_metric(
                 ],
                 "requiredDimensions": [],
                 "extractedMeasures": {
-                    "measures": [
+                    "components": [
                         {
                             "aggregation": "SUM",
                             "expression": "completed_repairs",
