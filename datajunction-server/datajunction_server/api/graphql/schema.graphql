@@ -1,0 +1,464 @@
+enum Aggregability {
+  FULL
+  LIMITED
+  NONE
+}
+
+type AggregationRule {
+  type: Aggregability!
+  level: [String!]
+}
+
+type Attribute {
+  attributeType: AttributeTypeName!
+}
+
+type AttributeTypeName {
+  namespace: String!
+  name: String!
+}
+
+type AvailabilityState {
+  catalog: String!
+  schema_: String
+  table: String!
+  validThroughTs: Int!
+  url: String
+  categoricalPartitions: [String!]
+  temporalPartitions: [String!]
+  minTemporalPartition: [String!]
+  maxTemporalPartition: [String!]
+  partitions: [PartitionAvailability!]
+}
+
+type Backfill {
+  spec: [PartitionBackfill!]
+  urls: [String!]
+}
+
+type Catalog {
+  name: String!
+  engines: [Engine!]
+}
+
+type Column {
+  name: String!
+  displayName: String
+  type: String!
+  attributes: [Attribute!]
+  dimension: NodeName
+  partition: Partition
+}
+
+type ColumnMetadata {
+  name: String!
+  type: String!
+  semanticEntity: SemanticEntity
+  semanticType: SemanticType
+}
+
+input CubeDefinition {
+  metrics: [String!]!
+  dimensions: [String!] = null
+  filters: [String!] = null
+  orderby: [String!] = null
+}
+
+type DJError {
+  code: ErrorCode!
+  message: String
+  context: String
+}
+
+"""Date with time (isoformat)"""
+scalar DateTime
+
+enum Dialect {
+  SPARK
+  TRINO
+  DRUID
+}
+
+type DimensionAttribute {
+  name: String!
+  attribute: String
+  role: String
+  properties: [String!]!
+  type: String!
+  DimensionNode: Node
+
+  """The dimension node this attribute belongs to"""
+  dimensionNode: Node!
+}
+
+type DimensionLink {
+  dimension: NodeName!
+  joinType: JoinType!
+  joinSql: String!
+  joinCardinality: JoinCardinality
+  role: String
+  foreignKeys: JSON!
+}
+
+type Engine {
+  name: String!
+  version: String!
+  uri: String
+  dialect: Dialect
+}
+
+input EngineSettings {
+  """The name of the engine used by the generated SQL"""
+  name: String!
+
+  """The version of the engine used by the generated SQL"""
+  version: String
+}
+
+enum ErrorCode {
+  UNKNOWN_ERROR
+  NOT_IMPLEMENTED_ERROR
+  ALREADY_EXISTS
+  INVALID_FILTER_PATTERN
+  INVALID_COLUMN_IN_FILTER
+  INVALID_VALUE_IN_FILTER
+  INVALID_ARGUMENTS_TO_FUNCTION
+  INVALID_SQL_QUERY
+  MISSING_COLUMNS
+  UNKNOWN_NODE
+  NODE_TYPE_ERROR
+  INVALID_DIMENSION_JOIN
+  INVALID_COLUMN
+  QUERY_SERVICE_ERROR
+  INVALID_ORDER_BY
+  COMPOUND_BUILD_EXCEPTION
+  MISSING_PARENT
+  TYPE_INFERENCE
+  MISSING_PARAMETER
+  AUTHENTICATION_ERROR
+  OAUTH_ERROR
+  INVALID_LOGIN_CREDENTIALS
+  USER_NOT_FOUND
+  UNAUTHORIZED_ACCESS
+  INCOMPLETE_AUTHORIZATION
+  INVALID_PARENT
+  INVALID_DIMENSION
+  INVALID_METRIC
+}
+
+type ExtractedMeasures {
+  measures: [Measure!]!
+  derivedQuery: String!
+  derivedExpression: String!
+}
+
+type GeneratedSQL {
+  node: Node!
+  sql: String!
+  columns: [ColumnMetadata!]!
+  dialect: Dialect!
+  upstreamTables: [String!]!
+  errors: [DJError!]!
+}
+
+"""
+The `JSON` scalar type represents JSON values as specified by [ECMA-404](https://ecma-international.org/wp-content/uploads/ECMA-404_2nd_edition_december_2017.pdf).
+"""
+scalar JSON @specifiedBy(url: "https://ecma-international.org/wp-content/uploads/ECMA-404_2nd_edition_december_2017.pdf")
+
+enum JoinCardinality {
+  ONE_TO_ONE
+  ONE_TO_MANY
+  MANY_TO_ONE
+  MANY_TO_MANY
+}
+
+enum JoinType {
+  LEFT
+  RIGHT
+  INNER
+  FULL
+  CROSS
+}
+
+type MaterializationConfig {
+  name: String
+  config: JSON!
+  schedule: String!
+  job: String
+  backfills: [Backfill!]!
+  strategy: String
+}
+
+type Measure {
+  name: String!
+  expression: String!
+  aggregation: String!
+  rule: AggregationRule!
+}
+
+enum MetricDirection {
+  HIGHER_IS_BETTER
+  LOWER_IS_BETTER
+  NEUTRAL
+}
+
+type MetricMetadata {
+  direction: MetricDirection
+  unit: Unit
+  significantDigits: Int
+  minDecimalExponent: Int
+  maxDecimalExponent: Int
+  expression: String!
+  incompatibleDruidFunctions: [String!]!
+}
+
+type Node {
+  id: Union!
+  name: String!
+  type: NodeType!
+  currentVersion: String!
+  createdAt: DateTime!
+  deactivatedAt: DateTime
+  current: NodeRevision!
+  revisions: [NodeRevision!]!
+  tags: [TagBase!]!
+  createdBy: User!
+  editedBy: [String!]!
+}
+
+type NodeConnection {
+  pageInfo: PageInfo!
+  edges: [NodeEdge!]!
+}
+
+type NodeEdge {
+  node: Node!
+}
+
+enum NodeMode {
+  PUBLISHED
+  DRAFT
+}
+
+type NodeName {
+  name: String!
+}
+
+type NodeRevision {
+  id: Union!
+  type: NodeType!
+  name: String!
+  displayName: String
+  version: String!
+  status: NodeStatus!
+  mode: NodeMode
+  description: String!
+  updatedAt: DateTime!
+  query: String
+  columns: [Column!]!
+  dimensionLinks: [DimensionLink!]!
+  parents: [NodeName!]!
+  availability: AvailabilityState
+  materializations: [MaterializationConfig!]
+  schema_: String
+  table: String
+  requiredDimensions: [Column!]
+  catalog: Catalog
+  primaryKey: [String!]!
+  metricMetadata: MetricMetadata
+  extractedMeasures: ExtractedMeasures
+  cubeMetrics: [NodeRevision!]!
+  cubeDimensions: [DimensionAttribute!]!
+}
+
+enum NodeStatus {
+  VALID
+  INVALID
+}
+
+enum NodeType {
+  SOURCE
+  TRANSFORM
+  METRIC
+  DIMENSION
+  CUBE
+}
+
+enum OAuthProvider {
+  BASIC
+  GITHUB
+  GOOGLE
+}
+
+type PageInfo {
+  """When paginating forwards, are there more nodes?"""
+  hasNextPage: Boolean!
+
+  """When paginating forwards, are there more nodes?"""
+  hasPrevPage: Boolean!
+
+  """When paginating back, the cursor to continue."""
+  startCursor: String
+
+  """When paginating forwards, the cursor to continue."""
+  endCursor: String
+}
+
+type Partition {
+  type_: PartitionType!
+  format: String
+  granularity: String
+  expression: String
+}
+
+type PartitionAvailability {
+  minTemporalPartition: [String!]
+  maxTemporalPartition: [String!]
+  value: [String]!
+  validThroughTs: Int
+}
+
+type PartitionBackfill {
+  columnName: String!
+  values: [String!]
+  range: [String!]
+}
+
+enum PartitionType {
+  TEMPORAL
+  CATEGORICAL
+}
+
+type Query {
+  listCatalogs: [Catalog!]!
+  listEngines: [Engine!]!
+
+  """Find nodes based on the search parameters."""
+  findNodes(
+    """A fragment of a node name to search for"""
+    fragment: String = null
+
+    """Filter to nodes with these names"""
+    names: [String!] = null
+
+    """Filter nodes to these node types"""
+    nodeTypes: [NodeType!] = null
+
+    """Filter to nodes tagged with these tags"""
+    tags: [String!] = null
+
+    """Limit nodes"""
+    limit: Int = 1000
+  ): [Node!]!
+
+  """Find nodes based on the search parameters with pagination"""
+  findNodesPaginated(
+    """A fragment of a node name to search for"""
+    fragment: String = null
+
+    """Filter to nodes with these names"""
+    names: [String!] = null
+
+    """Filter nodes to these node types"""
+    nodeTypes: [NodeType!] = null
+
+    """Filter to nodes tagged with these tags"""
+    tags: [String!] = null
+
+    """Filter to nodes edited by this user"""
+    editedBy: String = null
+
+    """Filter to nodes in this namespace"""
+    namespace: String = null
+    after: String = null
+    before: String = null
+
+    """Limit nodes"""
+    limit: Int = 100
+  ): NodeConnection!
+
+  """Get common dimensions for one or more nodes"""
+  commonDimensions(
+    """A list of nodes to find common dimensions for"""
+    nodes: [String!] = null
+  ): [DimensionAttribute!]!
+  measuresSql(
+    cube: CubeDefinition!
+    engine: EngineSettings = null
+
+    """Whether to use materialized nodes where applicable"""
+    useMaterialized: Boolean! = true
+
+    """
+    Whether to include all columns or only those necessary for the metrics and dimensions in the cube
+    """
+    includeAllColumns: Boolean! = false
+
+    """
+    Whether to pre-aggregate to the requested dimensions so that subsequent queries are more efficient.
+    """
+    preaggregate: Boolean! = false
+  ): [GeneratedSQL!]!
+
+  """Find DJ node tags based on the search parameters."""
+  listTags(tagNames: [String!] = null, tagTypes: [String!] = null): [Tag!]!
+
+  """List all DJ node tag types"""
+  listTagTypes: [String!]!
+}
+
+type SemanticEntity {
+  name: String!
+
+  """The node this semantic entity is sourced from"""
+  node: String!
+
+  """The column on the node this semantic entity is sourced from"""
+  column: String!
+}
+
+enum SemanticType {
+  MEASURE
+  METRIC
+  DIMENSION
+  TIMESTAMP
+}
+
+type Tag {
+  name: String!
+  tagType: String!
+  description: String
+  displayName: String
+  tagMetadata: JSON
+
+  """The nodes with this tag"""
+  nodes: [Node!]!
+}
+
+type TagBase {
+  name: String!
+  tagType: String!
+  description: String
+  displayName: String
+  tagMetadata: JSON
+}
+
+"""BigInt field"""
+scalar Union
+
+type Unit {
+  name: String!
+  label: String
+  category: String
+  abbreviation: String
+}
+
+type User {
+  id: Union!
+  username: String!
+  email: String
+  name: String
+  oauthProvider: OAuthProvider!
+  isAdmin: Boolean!
+}
