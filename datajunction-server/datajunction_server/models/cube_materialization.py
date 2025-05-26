@@ -20,7 +20,7 @@ from datajunction_server.models.query import ColumnMetadata
 
 class Aggregability(StrEnum):
     """
-    Type of allowed aggregation for a given measure.
+    Type of allowed aggregation for a given metric component.
     """
 
     FULL = "full"
@@ -30,13 +30,13 @@ class Aggregability(StrEnum):
 
 class AggregationRule(BaseModel):
     """
-    The aggregation rule for the measure. If the Aggregability type is LIMITED, the `level` should
-    be specified to highlight the level at which the measure needs to be aggregated in order to
-    support the specified aggregation function.
+    The aggregation rule for the metric component. If the Aggregability type is LIMITED, the
+    `level` should be specified to highlight the level at which the metric component needs to
+    be aggregated in order to support the specified aggregation function.
 
     For example, consider a metric like COUNT(DISTINCT user_id). It can be decomposed into a
-    single measure with LIMITED aggregability, i.e., it is only aggregatable if the measure is
-    calculated at the `user_id` level:
+    single metric component with LIMITED aggregability, i.e., it is only aggregatable if the
+    component is calculated at the `user_id` level:
     - name: num_users
       expression: DISTINCT user_id
       aggregation: COUNT
@@ -63,14 +63,15 @@ class MetricComponent(BaseModel):
     - Combined with others to define derived metrics (e.g. `SUM(clicks) / SUM(view_secs)`)
     - Reused across multiple metrics
 
-    Not all components require aggregation — some may be passed through as-is or grouped by.
+    Not all components require aggregation — some may be passed through as-is or grouped by,
+    with the group-by grain defined by the aggregation rule.
 
     Attributes:
         name: A unique name for the component, typically derived from its expression.
         expression: The raw SQL expression that defines the component.
         aggregation: The aggregation function to apply (e.g. 'SUM', 'COUNT'), or None if unaggregated.
         rule: Aggregation rules that define how and when the component can be aggregated
-            (e.g., fully or limited).
+            (e.g., fully or limited), and at what grain it can be aggregated.
     """
 
     name: str
