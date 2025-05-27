@@ -23,7 +23,7 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.nodes import (
-    get_cube_revision_metadata,
+    get_single_cube_revision_metadata,
     hard_delete_node,
 )
 from datajunction_server.models.node import NodeMinimumDetail
@@ -499,7 +499,7 @@ async def _cube_project_config(
         node_type=NodeType.CUBE,
         namespace_requested=namespace_requested,
     )
-    cube_revision = await get_cube_revision_metadata(session, node.name)
+    cube_revision = await get_single_cube_revision_metadata(session, node.name)
     metrics = []
     dimensions = []
     for element in cube_revision.cube_elements:
