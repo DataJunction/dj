@@ -3326,3 +3326,45 @@ async def test_cube_materialization_metadata(
           default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_municipality_dim_DOT_local_region
     """
     assert str(parse(results["combiners"][0]["query"])) == str(parse(expected_combiner))
+
+
+@pytest.mark.asyncio
+async def test_get_all_cubes(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Test getting all cubes and limiting to available cubes
+    """
+    await make_a_test_cube(
+        client_with_repairs_cube,
+        "default.repairs_cube_9",
+    )
+
+    # Get all cubes
+    response = await client_with_repairs_cube.get("/cubes")
+    assert response.is_success
+    data = response.json()
+    assert len([cube for cube in data if cube["name"] == "default.repairs_cube_9"]) == 1
+
+    # Get cubes available in default and test that this cube is excluded
+    response = await client_with_repairs_cube.get("/cubes?catalog=default")
+    assert response.is_success
+    data = response.json()
+    assert len([cube for cube in data if cube["name"] == "default.repairs_cube_9"]) == 0
+
+    # Set an avialability for the cube
+    await client_with_repairs_cube.post(
+        "/data/default.repairs_cube_9/availability/",
+        json={
+            "catalog": "default",
+            "schema_": "roads",
+            "table": "repairs_cube",
+            "valid_through_ts": 1010129120,
+        },
+    )
+
+    # Get only cubes available in default and test that this cube is now included
+    response = await client_with_repairs_cube.get("/cubes?catalog=default")
+    assert response.is_success
+    data = response.json()
+    assert len([cube for cube in data if cube["name"] == "default.repairs_cube_9"]) == 1
