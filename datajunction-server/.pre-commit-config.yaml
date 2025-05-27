@@ -52,3 +52,10 @@ repos:
   rev: 2.6.1
   hooks:
     - id: pdm-lock-check
+- repo: local
+  hooks:
+    - id: generate-graphql-schema
+      name: Generate GraphQL schema
+      entry: python datajunction-server/scripts/generate-graphql.py --output-dir datajunction-server/datajunction_server/api/graphql
+      language: system
+      pass_filenames: false
