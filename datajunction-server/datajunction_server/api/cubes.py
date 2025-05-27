@@ -16,7 +16,10 @@ from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.internal.materializations import build_cube_materialization
-from datajunction_server.internal.nodes import get_cube_revision_metadata
+from datajunction_server.internal.nodes import (
+    get_single_cube_revision_metadata,
+    get_all_cube_revisions_metadata,
+)
 from datajunction_server.models import access
 from datajunction_server.models.cube import (
     CubeRevisionMetadata,
@@ -48,6 +51,24 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["cubes"])
 
 
+@router.get("/cubes", name="Get all Cubes")
+async def get_all_cubes(
+    *,
+    session: AsyncSession = Depends(get_session),
+    available_in_catalog: Optional[str] = Query(
+        None,
+        description="Filter to include only cubes available in a specific catalog",
+    ),
+) -> list[CubeRevisionMetadata]:
+    """
+    Get information on all cubes
+    """
+    return await get_all_cube_revisions_metadata(
+        session=session,
+        available_in_catalog=available_in_catalog,
+    )
+
+
 @router.get("/cubes/{name}/", name="Get a Cube")
 async def get_cube(
     name: str,
@@ -57,7 +78,7 @@ async def get_cube(
     """
     Get information on a cube
     """
-    return await get_cube_revision_metadata(session, name)
+    return await get_single_cube_revision_metadata(session, name)
 
 
 @router.get("/cubes/{name}/materialization", name="Cube Materialization Config")
