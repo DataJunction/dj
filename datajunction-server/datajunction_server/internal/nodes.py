@@ -1634,7 +1634,7 @@ async def get_single_cube_revision_metadata(
 
 async def get_all_cube_revisions_metadata(
     session: AsyncSession,
-    available_in_catalog: Optional[str] = None,
+    catalog: Optional[str] = None,
 ) -> List[CubeRevisionMetadata]:
     """
     Returns cube revision metadata for the latest version of all cubes.
@@ -1642,9 +1642,9 @@ async def get_all_cube_revisions_metadata(
     """
     statement = await _build_cube_revision_statement()
 
-    if available_in_catalog:
+    if catalog:
         statement = statement.join(AvailabilityState, NodeRevision.availability).where(
-            AvailabilityState.catalog == available_in_catalog,
+            AvailabilityState.catalog == catalog,
         )
 
     result = await session.execute(statement)

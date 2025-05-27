@@ -3347,7 +3347,7 @@ async def test_get_all_cubes(
     assert len([cube for cube in data if cube["name"] == "default.repairs_cube_9"]) == 1
 
     # Get cubes available in default and test that this cube is excluded
-    response = await client_with_repairs_cube.get("/cubes?available_in_catalog=default")
+    response = await client_with_repairs_cube.get("/cubes?catalog=default")
     assert response.is_success
     data = response.json()
     assert len([cube for cube in data if cube["name"] == "default.repairs_cube_9"]) == 0
@@ -3364,7 +3364,7 @@ async def test_get_all_cubes(
     )
 
     # Get only cubes available in default and test that this cube is now included
-    response = await client_with_repairs_cube.get("/cubes?available_in_catalog=default")
+    response = await client_with_repairs_cube.get("/cubes?catalog=default")
     assert response.is_success
     data = response.json()
     assert len([cube for cube in data if cube["name"] == "default.repairs_cube_9"]) == 1

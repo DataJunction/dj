@@ -55,7 +55,7 @@ router = SecureAPIRouter(tags=["cubes"])
 async def get_all_cubes(
     *,
     session: AsyncSession = Depends(get_session),
-    available_in_catalog: Optional[str] = Query(
+    catalog: Optional[str] = Query(
         None,
         description="Filter to include only cubes available in a specific catalog",
     ),
@@ -65,7 +65,7 @@ async def get_all_cubes(
     """
     return await get_all_cube_revisions_metadata(
         session=session,
-        available_in_catalog=available_in_catalog,
+        catalog=catalog,
     )
 
 
