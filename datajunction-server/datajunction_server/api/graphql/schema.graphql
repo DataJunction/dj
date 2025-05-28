@@ -85,6 +85,11 @@ enum Dialect {
   DRUID
 }
 
+type DialectInfo {
+  name: String!
+  pluginClass: String!
+}
+
 type DimensionAttribute {
   name: String!
   attribute: String
@@ -331,8 +336,14 @@ enum PartitionType {
 }
 
 type Query {
+  """List available catalogs"""
   listCatalogs: [Catalog!]!
+
+  """List all available engines"""
   listEngines: [Engine!]!
+
+  """List all supported SQL dialects"""
+  listDialects: [DialectInfo!]!
 
   """Find nodes based on the search parameters."""
   findNodes(
@@ -383,6 +394,8 @@ type Query {
     """A list of nodes to find common dimensions for"""
     nodes: [String!] = null
   ): [DimensionAttribute!]!
+
+  """Get measures SQL for a list of metrics, dimensions, and filters."""
   measuresSql(
     cube: CubeDefinition!
     engine: EngineSettings = null

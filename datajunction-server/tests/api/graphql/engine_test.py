@@ -62,3 +62,41 @@ async def test_engine_list(
             ],
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_list_dialects(
+    client: AsyncClient,
+) -> None:
+    """
+    Test listing dialects
+    """
+    query = """
+    {
+        listDialects{
+            name
+            pluginClass
+        }
+    }
+    """
+    response = await client.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data == {
+        "data": {
+            "listDialects": [
+                {
+                    "name": "spark",
+                    "pluginClass": "SQLTranspilationPlugin",
+                },
+                {
+                    "name": "druid",
+                    "pluginClass": "SQLTranspilationPlugin",
+                },
+                {
+                    "name": "trino",
+                    "pluginClass": "SQLTranspilationPlugin",
+                },
+            ],
+        },
+    }
