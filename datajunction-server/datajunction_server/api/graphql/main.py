@@ -7,10 +7,9 @@ import strawberry
 from fastapi import Depends
 from strawberry.fastapi import GraphQLRouter
 from strawberry.types import Info
-
 from datajunction_server.api.graphql.queries.catalogs import list_catalogs
 from datajunction_server.api.graphql.queries.dag import common_dimensions
-from datajunction_server.api.graphql.queries.engines import list_engines
+from datajunction_server.api.graphql.queries.engines import list_engines, list_dialects
 from datajunction_server.api.graphql.queries.nodes import (
     find_nodes,
     find_nodes_paginated,
@@ -18,7 +17,11 @@ from datajunction_server.api.graphql.queries.nodes import (
 from datajunction_server.api.graphql.queries.sql import measures_sql
 from datajunction_server.api.graphql.queries.tags import list_tag_types, list_tags
 from datajunction_server.api.graphql.scalars import Connection
-from datajunction_server.api.graphql.scalars.catalog_engine import Catalog, Engine
+from datajunction_server.api.graphql.scalars.catalog_engine import (
+    Catalog,
+    Engine,
+    DialectInfo,
+)
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute, Node
 from datajunction_server.api.graphql.scalars.sql import GeneratedSQL
 from datajunction_server.api.graphql.scalars.tag import Tag
@@ -81,9 +84,15 @@ class Query:
     # Catalog and engine queries
     list_catalogs: list[Catalog] = strawberry.field(
         resolver=log_resolver(list_catalogs),
+        description="List available catalogs",
     )
     list_engines: list[Engine] = strawberry.field(
         resolver=log_resolver(list_engines),
+        description="List all available engines",
+    )
+    list_dialects: list[DialectInfo] = strawberry.field(
+        resolver=log_resolver(list_dialects),
+        description="List all supported SQL dialects",
     )
 
     # Node search queries
@@ -105,6 +114,7 @@ class Query:
     # Generate SQL queries
     measures_sql: list[GeneratedSQL] = strawberry.field(
         resolver=log_resolver(measures_sql),
+        description="Get measures SQL for a list of metrics, dimensions, and filters.",
     )
 
     # Tags queries
