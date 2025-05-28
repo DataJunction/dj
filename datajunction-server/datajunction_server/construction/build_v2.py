@@ -23,7 +23,10 @@ from datajunction_server.errors import (
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
-from datajunction_server.models.cube_materialization import Aggregability, Measure
+from datajunction_server.models.cube_materialization import (
+    Aggregability,
+    MetricComponent,
+)
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
@@ -120,7 +123,7 @@ async def get_measures_query(
     )
     from datajunction_server.construction.build import (
         group_metrics_by_parent,
-        metrics_to_measures,
+        extract_components_and_parent_columns,
         rename_columns,
     )
 
@@ -148,7 +151,9 @@ async def get_measures_query(
     await check_dimension_attributes_exist(session, dimensions)
 
     common_parents = group_metrics_by_parent(metric_nodes)
-    parents_to_measures, metrics2measures = metrics_to_measures(metric_nodes)
+    parent_columns, metric_components = extract_components_and_parent_columns(
+        metric_nodes,
+    )
 
     column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
     matcher = re.compile(column_name_regex)
@@ -162,10 +167,10 @@ async def get_measures_query(
         # Determine whether to pre-aggregate to the requested dimensions so that subsequent
         # queries are more efficient by checking the measures on the requested metrics
         preaggregate = preagg_requested and all(
-            len(metrics2measures[metric.name][0]) > 0
+            len(metric_components[metric.name][0]) > 0
             and all(
                 measure.rule.type in (Aggregability.FULL, Aggregability.LIMITED)
-                for measure in metrics2measures[metric.name][0]
+                for measure in metric_components[metric.name][0]
             )
             for metric in children
         )
@@ -197,8 +202,8 @@ async def get_measures_query(
                     (identifier := expr.alias_or_name.identifier(False))
                     and (
                         from_amenable_name(identifier).split(SEPARATOR)[-1]
-                        in parents_to_measures[parent_node.name]
-                        or identifier in parents_to_measures[parent_node.name]
+                        in parent_columns[parent_node.name]
+                        or identifier in parent_columns[parent_node.name]
                         or from_amenable_name(identifier) in dimensions_without_roles
                     )
                 )
@@ -228,7 +233,7 @@ async def get_measures_query(
                 parent_node,
                 dimensional_columns,
                 children,
-                metrics2measures,
+                metric_components,
             )
             if preaggregate
             else parent_ast
@@ -264,8 +269,8 @@ async def get_measures_query(
                 errors=query_builder.errors,
                 metrics={
                     metric.name: (
-                        metrics2measures[metric.name][0],
-                        str(metrics2measures[metric.name][1]).replace("\n", "")
+                        metric_components[metric.name][0],
+                        str(metric_components[metric.name][1]).replace("\n", "")
                         if preaggregate
                         else metric.query,
                     )
@@ -276,12 +281,52 @@ async def get_measures_query(
     return measures_queries
 
 
+def resolve_metric_component_against_parent(
+    component: MetricComponent,
+    parent_ast: ast.Query,
+    parent_node: Node,
+) -> ast.Query:
+    """
+    Parses and resolves a SQL expression (or aggregated expression) against a parent query AST.
+    We resolve column references based on the parent's column mappings and apply the types
+    from the parent.
+    """
+    expr_sql = (
+        f"{component.aggregation}({component.expression})"
+        if component.aggregation
+        else component.expression
+    )
+    # Add all expressions from the metric component's aggregation level to the GROUP BY
+    group_by_clause = (
+        f"GROUP BY {','.join(component.rule.level)}" if component.rule.level else ""
+    )
+    component_ast = cached_parse(
+        f"SELECT {expr_sql} AS {component.name} FROM {parent_ast.alias_or_name.name} {group_by_clause}",
+    )
+
+    parent_select = parent_ast.select
+    for col in component_ast.find_all(ast.Column):
+        if matching := parent_select.column_mapping.get(col.name.name):
+            # Case 1: The column name matches one of the parent's select aliases directly
+            col.name = matching.alias_or_name.copy()
+            col.add_type(matching.type)
+        else:
+            # Case 2: The column is a local dimension reference and cannot be found directly
+            # in the parent's select clause, but can be resolved by prefixing with the parent
+            # node's name (e.g., from `entity` to `default_DOT_transform_DOT_entity`)
+            alias = amenable_name(f"{parent_node.name}{SEPARATOR}{col.name.name}")
+            if matching := parent_select.column_mapping.get(alias):  # pragma: no cover
+                col.name.name = alias
+                col.add_type(matching.type)
+    return component_ast
+
+
 def build_preaggregate_query(
     parent_ast: ast.Query,
     parent_node: Node,
     dimensional_columns: list[ast.Column],
     children: list[NodeRevision],
-    metrics2measures: dict[str, tuple[list[Measure], ast.Query]],
+    metric_to_components: dict[str, tuple[list[MetricComponent], ast.Query]],
 ):
     """
     Builds a measures query preaggregated to the chosen dimensions.
@@ -291,24 +336,6 @@ def build_preaggregate_query(
     built_parent_ref = parent_node.name + "_built"
     parent_node_cte = parent_ast.to_cte(ast.Name(amenable_name(built_parent_ref)))
     from_table = ast.Table(ast.Name(amenable_name(built_parent_ref)))
-
-    # Find all required GROUP BY columns based on each of the measure's aggregation rules.
-    # If the measure supports full aggregation, there are no required group-by columns, but if it
-    # supports limited aggregation, we need to aggregate to the specified level.
-    colum_name_to_alias = {
-        col.name.identifier(): (col.alias or col.name).identifier()
-        for col in parent_ast.select.column_mapping.values()
-    }
-    required_group_by_columns = [
-        ast.Column.from_existing(
-            parent_ast.select.column_mapping[colum_name_to_alias[group_by_col]],
-            table=from_table,
-        )
-        for metric in metrics2measures
-        for measures in metrics2measures[metric][0]
-        if measures.rule.level
-        for group_by_col in measures.rule.level
-    ]
 
     final_query = ast.Query(
         ctes=existing_ctes + [parent_node_cte],
@@ -322,40 +349,26 @@ def build_preaggregate_query(
             group_by=[
                 ast.Column(dim.alias_or_name, _table=from_table)
                 for dim in dimensional_columns
-            ]
-            + required_group_by_columns,
+            ],
         ),
     )
 
-    added_measures = set()
+    added_components = set()
     for metric in children:
-        for measure in metrics2measures[metric.name][0]:
-            if measure.name in added_measures:
+        for component in metric_to_components[metric.name][0]:
+            if component.name in added_components:
                 continue
-            added_measures.add(measure.name)
-            temp_select = cached_parse(
-                f"SELECT {measure.aggregation}({measure.expression}) AS {measure.name}",
-            ).select
-            for col in temp_select.find_all(ast.Column):
-                # Realias based on canonical dimension name if needed
-                if col.alias_or_name.name not in parent_ast.select.column_mapping:
-                    new_alias = amenable_name(
-                        parent_node.name + SEPARATOR + col.alias_or_name.name,
-                    )
-                    if new_alias in parent_ast.select.column_mapping:
-                        col.name.name = new_alias
-                if (  # pragma: no cover
-                    col.alias_or_name.name in parent_ast.select.column_mapping
-                ):
-                    col.add_type(
-                        parent_ast.select.column_mapping.get(  # type: ignore
-                            col.alias_or_name.name,
-                        ).type,
-                    )
-            for proj in temp_select.projection:
-                proj.set_semantic_entity(parent_node.name + SEPARATOR + measure.name)  # type: ignore
+            added_components.add(component.name)
+            component_ast = resolve_metric_component_against_parent(
+                component,
+                parent_ast,
+                parent_node,
+            )
+            for proj in component_ast.select.projection:
+                proj.set_semantic_entity(parent_node.name + SEPARATOR + component.name)  # type: ignore
                 proj.set_semantic_type(SemanticType.MEASURE)  # type: ignore
-            final_query.select.projection.extend(temp_select.projection)
+            final_query.select.projection.extend(component_ast.select.projection)
+            final_query.select.group_by.extend(component_ast.select.group_by or [])
     return final_query
 
 

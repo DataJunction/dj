@@ -1,4 +1,4 @@
-"""Used for extracting measures form metric definitions."""
+"""Used for extracting components from metric definitions."""
 
 import hashlib
 from functools import lru_cache
@@ -6,16 +6,16 @@ from functools import lru_cache
 from datajunction_server.models.cube_materialization import (
     Aggregability,
     AggregationRule,
-    Measure,
+    MetricComponent,
 )
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 
-class MeasureExtractor:
+class MetricComponentExtractor:
     """
-    Extracts aggregatable measures from a metric definition and generates SQL
-    derived from those measures.
+    Extracts metric components from a metric definition and generates SQL derived
+    from those components.
     """
 
     def __init__(self, query_ast: ast.Query):
@@ -32,27 +32,27 @@ class MeasureExtractor:
         }
 
         # Outputs from decomposition
-        self._measures: list[Measure] = []
-        self._measures_tracker: set[str] = set()
+        self._components: list[MetricComponent] = []
+        self._components_tracker: set[str] = set()
         self._query_ast = query_ast
         self._extracted = False
 
     @classmethod
     @lru_cache(maxsize=128)
     def from_query_string(cls, metric_query: str):
-        """Create measures extractor from query string"""
+        """Create metric component extractor from query string"""
         query_ast = parse(metric_query)
-        return MeasureExtractor(query_ast=query_ast)
+        return MetricComponentExtractor(query_ast=query_ast)
 
     @classmethod
     def from_query_ast(cls, query_ast: ast.Query):  # pragma: no cover
-        """Create measures extractor from query AST"""
-        return MeasureExtractor(query_ast=query_ast)  # pragma: no cover
+        """Create metric component extractor from query AST"""
+        return MetricComponentExtractor(query_ast=query_ast)  # pragma: no cover
 
-    def extract(self) -> tuple[list[Measure], ast.Query]:
+    def extract(self) -> tuple[list[MetricComponent], ast.Query]:
         """
-        Decomposes the metric query into its constituent aggregatable measures and
-        constructs a SQL query derived from those measures.
+        Decomposes the metric query into its constituent aggregatable components and
+        constructs a SQL query derived from those components.
         """
         if not self._extracted:
             # Normalize metric queries with aliases
@@ -72,34 +72,45 @@ class MeasureExtractor:
                 dj_function = func.function()
                 handler = self.handlers.get(dj_function)
                 if handler and dj_function.is_aggregation:
-                    if func_measures := handler(func):  # pragma: no cover
-                        MeasureExtractor.update_ast(func, func_measures)
+                    if func_components := handler(func):  # pragma: no cover
+                        MetricComponentExtractor.update_ast(func, func_components)
 
-                    for measure in sorted(func_measures, key=lambda m: m.name):
-                        if measure.name not in self._measures_tracker:
-                            self._measures_tracker.add(measure.name)
-                            self._measures.append(measure)
+                    for component in sorted(func_components, key=lambda m: m.name):
+                        if component.name not in self._components_tracker:
+                            self._components_tracker.add(component.name)
+                            self._components.append(component)
 
             self._extracted = True
-        return self._measures, self._query_ast
+        return self._components, self._query_ast
 
-    def _simple_associative_agg(self, func) -> list[Measure]:
+    def _simple_associative_agg(self, func) -> list[MetricComponent]:
         """
-        Handles measures decomposition for a single-argument associative aggregation function.
+        Handles decomposition for a single-argument associative aggregation function.
         Examples: SUM, MAX, MIN, COUNT
         """
+        # Handle the case where the quantifier is DISTINCT, where we need to generate a
+        # component that represents the dimension column with the distinct quantifier.
         arg = func.args[0]
-        measure_name = "_".join(
-            [str(col) for col in arg.find_all(ast.Column)] + [func.name.name.lower()],
-        )
-        expression = f"{func.quantifier} {arg}" if func.quantifier else str(arg)
+        if func.quantifier == ast.SetQuantifier.Distinct:
+            component_name = "_".join(
+                [str(col) for col in arg.find_all(ast.Column)] + ["distinct"],
+            )
+        else:
+            component_name = "_".join(
+                [str(col) for col in arg.find_all(ast.Column)]
+                + [func.name.name.lower()],
+            )
+
+        expression = str(arg)
         short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
 
         return [
-            Measure(
-                name=f"{measure_name}_{short_hash}",
+            MetricComponent(
+                name=f"{component_name}_{short_hash}",
                 expression=expression,
-                aggregation=func.name.name.upper(),
+                aggregation=func.name.name.upper()
+                if func.quantifier != ast.SetQuantifier.Distinct
+                else None,
                 rule=AggregationRule(
                     type=Aggregability.FULL
                     if func.quantifier != ast.SetQuantifier.Distinct
@@ -113,18 +124,18 @@ class MeasureExtractor:
             ),
         ]
 
-    def _avg(self, func) -> list[Measure]:
+    def _avg(self, func) -> list[MetricComponent]:
         """
-        Handles measures decomposition for AVG (it requires both the SUM and COUNT
-        of the selected measure).
+        Handles decomposition for AVG (it requires both the SUM and COUNT of
+        the function's argument).
         """
         arg = func.args[0]
-        measure_name = "_".join([str(col) for col in arg.find_all(ast.Column)])
+        component_name = "_".join([str(col) for col in arg.find_all(ast.Column)])
         expression = str(arg)
         short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
         return [
-            Measure(
-                name=f"{measure_name}_{dj_functions.Sum.__name__.lower()}_{short_hash}",
+            MetricComponent(
+                name=f"{component_name}_{dj_functions.Sum.__name__.lower()}_{short_hash}",
                 expression=expression,
                 aggregation=dj_functions.Sum.__name__.upper(),
                 rule=AggregationRule(
@@ -138,8 +149,8 @@ class MeasureExtractor:
                     ),
                 ),
             ),
-            Measure(
-                name=f"{measure_name}_{dj_functions.Count.__name__.lower()}_{short_hash}",
+            MetricComponent(
+                name=f"{component_name}_{dj_functions.Count.__name__.lower()}_{short_hash}",
                 expression=expression,
                 aggregation=dj_functions.Count.__name__.upper(),
                 rule=AggregationRule(
@@ -156,9 +167,9 @@ class MeasureExtractor:
         ]
 
     @staticmethod
-    def update_ast(func, measures: list[Measure]):
+    def update_ast(func, components: list[MetricComponent]):
         """
-        Updates the query AST based on the measures derived from the function.
+        Updates the query AST based on the metric components derived from the function.
         """
         if func.function() == dj_functions.Avg:
             func.parent.replace(
@@ -167,19 +178,25 @@ class MeasureExtractor:
                     op=ast.BinaryOpKind.Divide,
                     left=ast.Function(
                         ast.Name("SUM"),
-                        args=[ast.Column(ast.Name(measures[0].name))],
+                        args=[ast.Column(ast.Name(components[0].name))],
                     ),
                     right=ast.Function(
                         ast.Name("SUM"),
-                        args=[ast.Column(ast.Name(measures[1].name))],
+                        args=[ast.Column(ast.Name(components[1].name))],
                     ),
                 ),
             )
-        elif (
-            func.function() in (dj_functions.Count, dj_functions.CountIf)
-            and func.quantifier != ast.SetQuantifier.Distinct
-        ):
-            func.name.name = "SUM"
-            func.args = [ast.Column(ast.Name(measure.name)) for measure in measures]
+        elif func.function() in (dj_functions.Count, dj_functions.CountIf):
+            if func.quantifier != ast.SetQuantifier.Distinct:
+                func.name.name = "SUM"
+                func.args = [
+                    ast.Column(ast.Name(component.name)) for component in components
+                ]
+            else:
+                func.args = [
+                    ast.Column(ast.Name(component.name)) for component in components
+                ]
         else:
-            func.args = [ast.Column(ast.Name(measure.name)) for measure in measures]
+            func.args = [
+                ast.Column(ast.Name(component.name)) for component in components
+            ]

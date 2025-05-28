@@ -102,7 +102,6 @@ export default function AddBackfillPopover({
           display: popoverAnchor === false ? 'none' : 'block',
           width: '50%',
           minWidth: '800px',
-          left: '-25%',
         }}
         ref={ref}
       >

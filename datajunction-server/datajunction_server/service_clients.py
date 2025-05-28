@@ -309,8 +309,9 @@ class QueryServiceClient:
         if response.status_code not in (200, 201):  # pragma: no cover
             _logger.exception(
                 "[DJQS] Failed to schedule cube materialization for"
-                " node=%s with `POST /cubes/materialize`",
+                " node=%s with `POST /cubes/materialize`: %s",
                 materialization_input.cube,
+                response.json(),
                 exc_info=True,
             )
             return MaterializationInfo(urls=[], output_tables=[])  # pragma: no cover
