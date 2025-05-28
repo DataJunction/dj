@@ -1,4 +1,6 @@
 import logging
+
+from pydantic import BaseModel
 from datajunction_server.enum import StrEnum
 from datajunction_server.utils import get_settings
 from typing import TYPE_CHECKING
@@ -40,6 +42,15 @@ class Dialect(StrEnum):
                 "supports it. Please configure a plugin on the server to use this dialect.",
             )
         raise TypeError(f"{value!r} is not a valid string for {cls.__name__}")
+
+
+class DialectInfo(BaseModel):
+    """
+    Information about a SQL dialect and its associated plugin class.
+    """
+
+    name: str
+    plugin_class: str
 
 
 class DialectRegistry:

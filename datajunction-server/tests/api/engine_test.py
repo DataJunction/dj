@@ -151,3 +151,28 @@ async def test_engine_raise_on_engine_already_exists(
     assert response.status_code == 409
     data = response.json()
     assert data == {"detail": "Engine already exists: `spark-three` version `3.3.1`"}
+
+
+@pytest.mark.asyncio
+async def test_dialects_list(
+    module__client: AsyncClient,
+) -> None:
+    """
+    Test listing dialects
+    """
+    response = await module__client.get("/dialects/")
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "name": "spark",
+            "plugin_class": "SQLTranspilationPlugin",
+        },
+        {
+            "name": "druid",
+            "plugin_class": "SQLTranspilationPlugin",
+        },
+        {
+            "name": "trino",
+            "plugin_class": "SQLTranspilationPlugin",
+        },
+    ]
