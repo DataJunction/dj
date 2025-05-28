@@ -10,7 +10,9 @@ from datajunction_server.models.cube_materialization import (
 from datajunction_server.models.cube_materialization import (
     AggregationRule as AggregationRule_,
 )
-from datajunction_server.models.cube_materialization import Measure as Measure_
+from datajunction_server.models.cube_materialization import (
+    MetricComponent as MetricComponent_,
+)
 from datajunction_server.models.node import MetricDirection as MetricDirection_
 
 MetricDirection = strawberry.enum(MetricDirection_)
@@ -33,17 +35,17 @@ class Unit:
 class AggregationRule: ...
 
 
-@strawberry.experimental.pydantic.type(model=Measure_, all_fields=True)
-class Measure: ...
+@strawberry.experimental.pydantic.type(model=MetricComponent_, all_fields=True)
+class MetricComponent: ...
 
 
 @strawberry.type
-class ExtractedMeasures:
+class DecomposedMetric:
     """
-    extracted measures from metric
+    Decomposed metric, which includes its components and derived query
     """
 
-    measures: list[Measure]
+    components: list[MetricComponent]
     derived_query: str
     derived_expression: str
 

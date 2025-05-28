@@ -7,7 +7,7 @@ from typing import List, Optional
 from pydantic.main import BaseModel
 
 from datajunction_server.database.node import Node
-from datajunction_server.models.cube_materialization import Measure
+from datajunction_server.models.cube_materialization import MetricComponent
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
@@ -15,7 +15,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.models.sql import TranspiledSQL
-from datajunction_server.sql.decompose import MeasureExtractor
+from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.transpilation import transpile_sql
 from datajunction_server.typing import UTCDatetime
@@ -45,7 +45,7 @@ class Metric(BaseModel):
 
     incompatible_druid_functions: List[str]
 
-    measures: List[Measure]
+    measures: List[MetricComponent]
     derived_query: str
     derived_expression: str
 
@@ -61,7 +61,7 @@ class Metric(BaseModel):
             for func in functions
             if Dialect.DRUID not in func.dialects
         ]
-        extractor = MeasureExtractor.from_query_string(node.current.query)
+        extractor = MetricComponentExtractor.from_query_string(node.current.query)
         measures, derived_sql = extractor.extract()
         return cls(
             id=node.id,

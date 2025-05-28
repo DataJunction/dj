@@ -11,6 +11,7 @@ from datajunction_server.construction.build_v2 import (
     QueryBuilder,
     combine_filter_conditions,
     dimension_join_path,
+    resolve_metric_component_against_parent,
 )
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
@@ -25,6 +26,12 @@ from datajunction_server.errors import (
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+from datajunction_server.models.cube_materialization import (
+    AggregationRule,
+    MetricComponent,
+    Aggregability,
+)
 
 
 async def create_source(
@@ -1703,3 +1710,175 @@ def test_normalize_query_param_value():
     with pytest.raises(TypeError) as e:
         QueryBuilder.normalize_query_param_value("param8", [1, 2, 3])
     assert "Unsupported parameter type" in str(e.value)
+
+
+class TestResolveMetricComponent:
+    """
+    All tests for resolving MetricComponent against a parent AST
+    """
+
+    @pytest.fixture
+    def parent_ast(self):
+        """
+        Returns a sample parent AST for testing.
+        """
+        parent_ast = parse(
+            """
+            WITH default_DOT_transform_agg_built AS (
+            SELECT
+                default_DOT_transform_agg.dateint AS default_DOT_transform_agg_DOT_utc_date,
+                default_DOT_transform_agg.entity AS default_DOT_transform_agg_DOT_entity,
+                default_DOT_transform_agg.event_type,
+                default_DOT_transform_agg.event_ts,
+            FROM default_DOT_transform_agg
+            ) SELECT 1
+            """,
+        ).ctes[0]
+        parent_ast.select.projection[0].add_type(ct.IntegerType())
+        parent_ast.select.projection[1].add_type(ct.VarcharType())
+        parent_ast.select.projection[2].add_type(ct.VarcharType())
+        parent_ast.select.projection[3].add_type(ct.IntegerType())
+        return parent_ast
+
+    @pytest.fixture
+    def parent_node(self):
+        return Node(name="default.transform_agg")
+
+    def test_resolve_direct_projection(self, parent_ast, parent_node):
+        """
+        Test resolving a direct projection against a parent AST.
+        """
+        component = MetricComponent(
+            name="event_ts_max_10a23a8f",
+            expression="event_ts",
+            aggregation="MAX",
+            rule=AggregationRule(type=Aggregability.FULL),
+        )
+        component_ast = resolve_metric_component_against_parent(
+            component,
+            parent_ast,
+            parent_node,
+        )
+        expected_ast = parse(
+            "SELECT MAX(default_DOT_transform_agg.event_ts) AS event_ts_max_10a23a8f "
+            "FROM default_DOT_transform_agg_built",
+        )
+        assert str(component_ast) == str(expected_ast)
+        assert [col.type for col in component_ast.select.projection] == [
+            ct.IntegerType(),
+        ]
+
+    def test_handles_group_by(self, parent_ast, parent_node):
+        """
+        Test that a component with a group by (determined from AggregationRule) is constructed
+        correctly against the parent AST.
+        """
+        component = MetricComponent(
+            name="entity_distinct",
+            expression="entity",
+            aggregation=None,
+            rule=AggregationRule(type=Aggregability.LIMITED, level=["entity"]),
+        )
+        component_ast = resolve_metric_component_against_parent(
+            component,
+            parent_ast,
+            parent_node,
+        )
+        assert str(component_ast) == str(
+            parse(
+                "SELECT default_DOT_transform_agg_DOT_entity AS entity_distinct "
+                "FROM default_DOT_transform_agg_built "
+                "GROUP BY default_DOT_transform_agg_DOT_entity",
+            ),
+        )
+        assert [col.type for col in component_ast.select.projection] == [
+            ct.VarcharType(),
+        ]
+        component = MetricComponent(
+            name="event_type_distinct",
+            expression="event_type",
+            aggregation=None,
+            rule=AggregationRule(type=Aggregability.LIMITED, level=["event_type"]),
+        )
+        component_ast = resolve_metric_component_against_parent(
+            component,
+            parent_ast,
+            parent_node,
+        )
+        assert str(component_ast) == str(
+            parse(
+                "SELECT default_DOT_transform_agg.event_type AS event_type_distinct "
+                "FROM default_DOT_transform_agg_built "
+                "GROUP BY default_DOT_transform_agg.event_type",
+            ),
+        )
+        assert [col.type for col in component_ast.select.projection] == [
+            ct.VarcharType(),
+        ]
+
+    def test_resolve_local_dimension_ref_with_groupby(self, parent_ast, parent_node):
+        component = MetricComponent(
+            name="utc_date_distinct",
+            expression="utc_date",
+            aggregation=None,
+            rule=AggregationRule(type=Aggregability.LIMITED, level=["utc_date"]),
+        )
+        component_ast = resolve_metric_component_against_parent(
+            component,
+            parent_ast,
+            parent_node,
+        )
+        assert str(component_ast) == str(
+            parse(
+                "SELECT default_DOT_transform_agg_DOT_utc_date AS utc_date_distinct "
+                "FROM default_DOT_transform_agg_built "
+                "GROUP BY default_DOT_transform_agg_DOT_utc_date",
+            ),
+        )
+        assert [col.type for col in component_ast.select.projection] == [
+            ct.IntegerType(),
+        ]
+
+    def test_resolve_local_dimension_ref_without_groupby(self, parent_ast, parent_node):
+        component = MetricComponent(
+            name="utc_date_max",
+            expression="utc_date",
+            aggregation="MAX",
+            rule=AggregationRule(type=Aggregability.FULL),
+        )
+        component_ast = resolve_metric_component_against_parent(
+            component,
+            parent_ast,
+            parent_node,
+        )
+        assert str(component_ast) == str(
+            parse(
+                "SELECT MAX(default_DOT_transform_agg_DOT_utc_date) AS utc_date_max "
+                "FROM default_DOT_transform_agg_built",
+            ),
+        )
+        assert [col.type for col in component_ast.select.projection] == [
+            ct.IntegerType(),
+        ]
+
+    def test_no_aggregation_no_group_by(self, parent_ast, parent_node):
+        component = MetricComponent(
+            name="raw_value",
+            expression="entity",
+            aggregation=None,
+            rule=AggregationRule(type=Aggregability.NONE),
+        )
+        component_ast = resolve_metric_component_against_parent(
+            component,
+            parent_ast,
+            parent_node,
+        )
+        assert str(component_ast) == str(
+            parse(
+                "SELECT default_DOT_transform_agg_DOT_entity AS raw_value "
+                "FROM default_DOT_transform_agg_built",
+            ),
+        )
+        assert [col.type for col in component_ast.select.projection] == [
+            ct.VarcharType(),
+        ]
