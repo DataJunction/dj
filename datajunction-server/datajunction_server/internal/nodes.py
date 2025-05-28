@@ -8,7 +8,7 @@ from typing import Callable, Dict, List, Optional, Union
 
 from fastapi import BackgroundTasks
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -1635,9 +1635,11 @@ async def get_single_cube_revision_metadata(
 async def get_all_cube_revisions_metadata(
     session: AsyncSession,
     catalog: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 10,
 ) -> List[CubeRevisionMetadata]:
     """
-    Returns cube revision metadata for the latest version of all cubes.
+    Returns cube revision metadata for the latest version of all cubes, with pagination.
     Optionally filters by the catalog in which the cube is available.
     """
     statement = await _build_cube_revision_statement()
@@ -1646,6 +1648,11 @@ async def get_all_cube_revisions_metadata(
         statement = statement.join(AvailabilityState, NodeRevision.availability).where(
             AvailabilityState.catalog == catalog,
         )
+
+    statement = statement.order_by(desc(NodeRevision.updated_at))
+
+    offset = (page - 1) * page_size
+    statement = statement.offset(offset).limit(page_size)
 
     result = await session.execute(statement)
     cubes = result.unique().scalars().all()
