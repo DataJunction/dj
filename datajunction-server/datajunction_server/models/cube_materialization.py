@@ -71,7 +71,7 @@ class MetricComponent(BaseModel):
         expression: The raw SQL expression that defines the component.
         aggregation: The aggregation function to apply (e.g. 'SUM', 'COUNT'), or None if unaggregated.
         rule: Aggregation rules that define how and when the component can be aggregated
-            (e.g., fully or limited), and at what grain it can be aggregated.
+            (e.g., full or limited), and at what grain it can be aggregated.
     """
 
     name: str

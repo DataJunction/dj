@@ -73,6 +73,12 @@ type DJError {
 """Date with time (isoformat)"""
 scalar DateTime
 
+type DecomposedMetric {
+  components: [MetricComponent!]!
+  derivedQuery: String!
+  derivedExpression: String!
+}
+
 enum Dialect {
   SPARK
   TRINO
@@ -146,12 +152,6 @@ enum ErrorCode {
   INVALID_METRIC
 }
 
-type ExtractedMeasures {
-  measures: [Measure!]!
-  derivedQuery: String!
-  derivedExpression: String!
-}
-
 type GeneratedSQL {
   node: Node!
   sql: String!
@@ -190,10 +190,10 @@ type MaterializationConfig {
   strategy: String
 }
 
-type Measure {
+type MetricComponent {
   name: String!
   expression: String!
-  aggregation: String!
+  aggregation: String
   rule: AggregationRule!
 }
 
@@ -267,7 +267,7 @@ type NodeRevision {
   catalog: Catalog
   primaryKey: [String!]!
   metricMetadata: MetricMetadata
-  extractedMeasures: ExtractedMeasures
+  extractedMeasures: DecomposedMetric
   cubeMetrics: [NodeRevision!]!
   cubeDimensions: [DimensionAttribute!]!
 }
