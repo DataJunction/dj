@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.sql.operators import is_
 
 from datajunction_server.api.catalogs import UNKNOWN_CATALOG_ID
 from datajunction_server.api.helpers import (
@@ -1573,6 +1574,7 @@ async def _build_cube_revision_statement(name: Optional[str] = None):
     statement = (
         select(NodeRevision)
         .select_from(Node)
+        .where(is_(Node.deactivated_at, None))
         .join(
             NodeRevision,
             (NodeRevision.name == Node.name)
