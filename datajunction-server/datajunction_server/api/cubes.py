@@ -59,6 +59,13 @@ async def get_all_cubes(
         None,
         description="Filter to include only cubes available in a specific catalog",
     ),
+    page: int = Query(1, ge=1, description="Page number (starting from 1)"),
+    page_size: int = Query(
+        10,
+        ge=1,
+        le=1000,
+        description="Number of items per page (max 1000)",
+    ),
 ) -> list[CubeRevisionMetadata]:
     """
     Get information on all cubes
@@ -66,6 +73,8 @@ async def get_all_cubes(
     return await get_all_cube_revisions_metadata(
         session=session,
         catalog=catalog,
+        page=page,
+        page_size=page_size,
     )
 
 
