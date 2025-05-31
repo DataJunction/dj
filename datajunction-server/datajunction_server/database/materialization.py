@@ -19,6 +19,7 @@ from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
+from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.models.materialization import (
     DruidMeasuresCubeConfig,
     GenericMaterializationConfig,
@@ -93,6 +94,13 @@ class Materialization(Base):
     backfills: Mapped[List[Backfill]] = relationship(
         back_populates="materialization",
         primaryjoin="Materialization.id==Backfill.materialization_id",
+        cascade="all, delete",
+        lazy="selectin",
+    )
+
+    availability: Mapped[List[AvailabilityState]] = relationship(
+        back_populates="materialization",
+        primaryjoin="Materialization.id==AvailabilityState.materialization_id",
         cascade="all, delete",
         lazy="selectin",
     )
