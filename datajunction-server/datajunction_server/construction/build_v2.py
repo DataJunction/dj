@@ -159,15 +159,16 @@ async def get_measures_query(
     matcher = re.compile(column_name_regex)
 
     # Find any dimensions referenced in the metric definitions and add to requested dimensions
-    dimensions.extend(
+    dimensions_in_metric_defs = set(
         ref.identifier()
         for metric in metric_nodes
         for ref in parse(metric.current.query).find_all(ast.Column)
-        if (
-            (parts := ref.identifier().rsplit(SEPARATOR, 1))
-            and len(parts) > 1
-            and SEPARATOR in parts[0]
-        )
+        if (parts := ref.identifier().rsplit(SEPARATOR, 1))
+        and len(parts) > 1
+        and SEPARATOR in parts[0]
+    )
+    dimensions.extend(
+        [dim for dim in sorted(dimensions_in_metric_defs) if dim not in dimensions],
     )
 
     dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
@@ -323,8 +324,13 @@ def resolve_metric_component_against_parent(
             # Case 1: The column name matches one of the parent's select aliases directly
             col.name = matching.alias_or_name.copy()
             col.add_type(matching.type)
+        elif matching := parent_select.semantic_column_mapping.get(col.identifier()):
+            # Case 2: The column name is a joinable dimension and can be found by searching
+            # the semantic entities of each of the parent columns
+            col.name = matching.alias_or_name.copy()
+            col.add_type(matching.type)
         else:
-            # Case 2: The column is a local dimension reference and cannot be found directly
+            # Case 3: The column is a local dimension reference and cannot be found directly
             # in the parent's select clause, but can be resolved by prefixing with the parent
             # node's name (e.g., from `entity` to `default_DOT_transform_DOT_entity`)
             alias = amenable_name(f"{parent_node.name}{SEPARATOR}{col.name.name}")
