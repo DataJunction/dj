@@ -95,19 +95,10 @@ def transpile_sql(
     sql: str,
     dialect: Dialect | None = None,
 ) -> str:
-    print(
-        "dialect",
-        dialect,
-        "settings",
-        settings.transpilation_plugins,
-        "DialectRegistry",
-        DialectRegistry._registry,
-    )
     if dialect:
         if plugin_class := DialectRegistry.get_plugin(  # pragma: no cover
             dialect.name.lower(),
         ):
-            print("plugin_class", plugin_class)
             plugin = plugin_class()
             return plugin.transpile_sql(
                 sql,
