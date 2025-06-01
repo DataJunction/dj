@@ -2603,6 +2603,13 @@ class SelectExpression(Aliasable, Expression):
         """
         return {col.alias_or_name.name: col for col in self.projection}
 
+    @property
+    def semantic_column_mapping(self) -> Dict[str, "Column"]:
+        """
+        Returns a dictionary with the output column names mapped to the columns
+        """
+        return {col.semantic_entity: col for col in self.projection}
+
 
 @dataclass(eq=False)
 class QueryParameter(Expression):

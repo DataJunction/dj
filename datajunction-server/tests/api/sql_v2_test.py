@@ -1578,3 +1578,126 @@ async def test_measures_sql_local_dimensions(
     """
     assert str(parse(str(expected_sql))) == str(parse(str(data[0]["sql"])))
     duckdb_conn.sql(data[0]["sql"])
+
+
+@pytest.mark.asyncio
+async def test_measures_sql_metric_definitions_with_dimensions(
+    module__client_with_roads: AsyncClient,
+    duckdb_conn: duckdb.DuckDBPyConnection,
+):
+    """
+    Test measures SQL for metric definitions that reference joinable dimensions
+    """
+    await fix_dimension_links(module__client_with_roads)
+
+    metric_name = "default.num_unique_hard_hat_names_ny"
+    response = await module__client_with_roads.post(
+        "/nodes/metric",
+        json={
+            "description": "An example metric with a definition that references a joinable dimension",
+            "query": "SELECT COUNT(DISTINCT IF(default.hard_hat.state = 'NY', default.hard_hat.first_name, NULL)) FROM default.repair_orders_fact",
+            "mode": "published",
+            "name": metric_name,
+            "display_name": "Number of Unique Hard Hat Names in NY",
+        },
+    )
+    assert response.status_code == 201
+    response = await module__client_with_roads.get(f"/metrics/{metric_name}")
+    assert response.json()["measures"] == [
+        {
+            "aggregation": None,
+            "expression": "IF(default.hard_hat.state = 'NY', default.hard_hat.first_name, "
+            "NULL)",
+            "name": "default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_da41d3a0",
+            "rule": {
+                "level": [
+                    "IF(default.hard_hat.state = 'NY', "
+                    "default.hard_hat.first_name, NULL)",
+                ],
+                "type": "limited",
+            },
+        },
+    ]
+    response = await module__client_with_roads.get(
+        "/sql/measures/v2",
+        params={
+            "metrics": [
+                metric_name,
+            ],
+            "dimensions": [
+                "default.hard_hat.city",
+            ],
+            "filters": [],
+            "preaggregate": True,
+        },
+    )
+    data = response.json()
+    expected_sql = """
+    WITH default_DOT_repair_orders_fact AS (
+      SELECT
+        repair_orders.repair_order_id,
+        repair_orders.municipality_id,
+        repair_orders.hard_hat_id,
+        repair_orders.dispatcher_id,
+        repair_orders.order_date,
+        repair_orders.dispatched_date,
+        repair_orders.required_date,
+        repair_order_details.discount,
+        repair_order_details.price,
+        repair_order_details.quantity,
+        repair_order_details.repair_type_id,
+        repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+        repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+        repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+      FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+    ),
+    default_DOT_hard_hat AS (
+      SELECT
+        default_DOT_hard_hats.hard_hat_id,
+        default_DOT_hard_hats.last_name,
+        default_DOT_hard_hats.first_name,
+        default_DOT_hard_hats.title,
+        default_DOT_hard_hats.birth_date,
+        default_DOT_hard_hats.hire_date,
+        default_DOT_hard_hats.address,
+        default_DOT_hard_hats.city,
+        default_DOT_hard_hats.state,
+        default_DOT_hard_hats.postal_code,
+        default_DOT_hard_hats.country,
+        default_DOT_hard_hats.manager,
+        default_DOT_hard_hats.contractor_id
+      FROM roads.hard_hats AS default_DOT_hard_hats
+    ),
+    default_DOT_repair_orders_fact_built AS (
+      SELECT
+        default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
+        default_DOT_hard_hat.first_name default_DOT_hard_hat_DOT_first_name,
+        default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state
+      FROM default_DOT_repair_orders_fact
+      INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+    )
+    SELECT
+      default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_city,
+      default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_first_name,
+      default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_state,
+      IF(default_DOT_hard_hat_DOT_state = 'NY', default_DOT_hard_hat_DOT_first_name, NULL) AS default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_da41d3a0
+    FROM default_DOT_repair_orders_fact_built
+    GROUP BY
+      default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_city,
+      default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_first_name,
+      default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_state,
+      IF(default_DOT_hard_hat_DOT_state = 'NY', default_DOT_hard_hat_DOT_first_name, NULL)
+    """
+    assert str(parse(data[0]["sql"])) == str(parse(expected_sql))
+    result = duckdb_conn.sql(data[0]["sql"])
+    assert result.fetchall() == [
+        ("Jersey City", "Perkins", "NJ", None),
+        ("Billerica", "Best", "MA", None),
+        ("Southgate", "Riley", "MI", None),
+        ("Phoenix", "Henderson", "AZ", None),
+        ("Southampton", "Stafford", "PA", None),
+        ("Powder Springs", "Clarke", "GA", None),
+        ("Middletown", "Massey", "CT", None),
+        ("Muskogee", "Ziegler", "OK", None),
+        ("Niagara Falls", "Boone", "NY", "Boone"),
+    ]

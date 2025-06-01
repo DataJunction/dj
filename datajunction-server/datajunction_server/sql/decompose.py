@@ -8,6 +8,7 @@ from datajunction_server.models.cube_materialization import (
     AggregationRule,
     MetricComponent,
 )
+from datajunction_server.naming import amenable_name
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
@@ -93,11 +94,12 @@ class MetricComponentExtractor:
         arg = func.args[0]
         if func.quantifier == ast.SetQuantifier.Distinct:
             component_name = "_".join(
-                [str(col) for col in arg.find_all(ast.Column)] + ["distinct"],
+                [amenable_name(str(col)) for col in arg.find_all(ast.Column)]
+                + ["distinct"],
             )
         else:
             component_name = "_".join(
-                [str(col) for col in arg.find_all(ast.Column)]
+                [amenable_name(str(col)) for col in arg.find_all(ast.Column)]
                 + [func.name.name.lower()],
             )
 
