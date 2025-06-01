@@ -81,7 +81,7 @@ dependencies = [
     "nbformat>=5.10.4",
 
     # GraphQL
-    "strawberry-graphql>=0.204.0",
+    "strawberry-graphql[opentelemetry]>=0.204.0",
 
     # Data validation
     "pydantic<2",

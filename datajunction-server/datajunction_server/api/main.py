@@ -2,6 +2,7 @@
 Main DJ server app.
 """
 
+from contextlib import asynccontextmanager
 import logging
 from datajunction_server.api import setup_logging  # noqa
 
@@ -55,6 +56,17 @@ settings = get_settings()
 
 dependencies = [Depends(default_attribute_types), Depends(default_catalog)]
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context for initializing and tearing down app-wide resources, like the FastAPI cache
+    """
+    FastAPICache.init(InMemoryBackend(), prefix="inmemory-cache")  # pragma: no cover
+
+    yield
+
+
 app = FastAPI(
     title=settings.name,
     description=settings.description,
@@ -64,6 +76,7 @@ app = FastAPI(
         "url": "https://mit-license.org/",
     },
     dependencies=dependencies,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -97,14 +110,6 @@ app.include_router(whoami.router)
 app.include_router(users.router)
 app.include_router(basic.router)
 app.include_router(notifications.router)
-
-
-@app.on_event("startup")
-async def startup():
-    """
-    Initialize FastAPI cache when the server starts up
-    """
-    FastAPICache.init(InMemoryBackend(), prefix="inmemory-cache")  # pragma: no cover
 
 
 @app.exception_handler(DJException)
