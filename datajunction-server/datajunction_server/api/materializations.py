@@ -316,51 +316,96 @@ async def list_node_materializations(
 
 @router.delete(
     "/nodes/{node_name}/materializations/",
-    response_model=List[MaterializationConfigInfoUnified],
+    status_code=HTTPStatus.OK,
     name="Deactivate a Materialization for a Node",
 )
 async def deactivate_node_materializations(
     node_name: str,
     materialization_name: str,
+    node_version: str | None = None,
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_and_update_current_user),
     save_history: Callable = Depends(get_save_history),
-) -> List[MaterializationConfigInfoUnified]:
+) -> JSONResponse:
     """
     Deactivate the node materialization with the provided name.
     Also calls the query service to deactivate the associated scheduled jobs.
+
+    If node_version not provided, it will deactivate the materialization
+    for the current version of the node.
     """
     request_headers = dict(request.headers)
-    node = await Node.get_by_name(session, node_name)
+
+    # find the node revision to deactivate the materialization for
+    node_revision = None
+    if node_version:
+        node = await Node.get_by_name(
+            session,
+            node_name,
+            options=[
+                joinedload(Node.revisions).options(
+                    *NodeRevision.default_load_options(),
+                ),
+            ],
+        )
+        for nr in node.revisions:  # type: ignore
+            if nr.version == node_version:  # pragma: no cover
+                node_revision = nr
+                break
+        if not node_revision:
+            raise DJDoesNotExistException(  # pragma: no cover
+                f"Node revision with version '{node_version}' not found for node {node_name} .",
+            )
+    else:
+        node = await Node.get_by_name(session, node_name)
+        node_revision = node.current  # type: ignore
+
+    # find the materialization to deactivate
+    materialization_to_deactivate = None
+    for materialization in node_revision.materializations:  # type: ignore
+        if materialization.name == materialization_name:
+            materialization_to_deactivate = materialization
+            break
+    if not materialization_to_deactivate:
+        raise DJDoesNotExistException(
+            f"Materialization with name '{materialization_name}' not found on "
+            f"version {node_version} of node {node_name} .",
+        )
+    elif materialization_to_deactivate.deactivated_at:  # pragma: no cover
+        return JSONResponse(
+            status_code=HTTPStatus.OK,
+            content={
+                "message": f"Materialization named `{materialization_name}` on node `{node_name}` "
+                f"version `{node_revision.version}` has been already inactive.",  # type: ignore
+            },
+        )
+    # do the deactivation
     query_service_client.deactivate_materialization(
         node_name,
         materialization_name,
+        node_version=node_revision.version,  # type: ignore
         request_headers=request_headers,
     )
-    for materialization in node.current.materializations:  # type: ignore
-        if (
-            materialization.name == materialization_name
-            and not materialization.deactivated_at
-        ):  # pragma: no cover
-            now = datetime.utcnow()
-            materialization.deactivated_at = UTCDatetime(
-                year=now.year,
-                month=now.month,
-                day=now.day,
-                hour=now.hour,
-                minute=now.minute,
-                second=now.second,
-            )
-            session.add(materialization)
-
+    now = datetime.utcnow()
+    materialization_to_deactivate.deactivated_at = UTCDatetime(
+        year=now.year,
+        month=now.month,
+        day=now.day,
+        hour=now.hour,
+        minute=now.minute,
+        second=now.second,
+    )
+    session.add(materialization_to_deactivate)
+    # save the history event
     await save_history(
         event=History(
             entity_type=EntityType.MATERIALIZATION,
             entity_name=materialization_name,
             node=node.name,  # type: ignore
+            version=node_revision.version,  # type: ignore
             activity_type=ActivityType.DELETE,
             details={},
             user=current_user.username,
@@ -372,8 +417,8 @@ async def deactivate_node_materializations(
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={
-            "message": f"The materialization named `{materialization_name}` on node `{node_name}` "
-            "has been successfully deactivated",
+            "message": f"Materialization named `{materialization_name}` on node `{node_name}` "
+            f"version `{node_revision.version}` has been successfully deactivated",
         },
     )
 

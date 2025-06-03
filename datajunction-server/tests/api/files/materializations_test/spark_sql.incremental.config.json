@@ -118,6 +118,7 @@
             "default.roads.hard_hats"
          ]
       },
+      "deactivated_at": null,
       "job":"SparkSqlMaterializationJob",
       "name":"spark_sql__incremental_time__birth_date",
       "schedule":"0 * * * *",

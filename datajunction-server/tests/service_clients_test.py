@@ -461,6 +461,7 @@ class TestQueryServiceClient:
         mock_request.assert_called_with(
             "/materialization/default.hard_hat/default/",
             headers=ANY,
+            json={"node_version": None},
         )
 
     def test_query_service_client_raising_error(self, mocker: MockerFixture) -> None:

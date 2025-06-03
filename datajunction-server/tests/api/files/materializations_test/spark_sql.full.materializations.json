@@ -116,6 +116,7 @@
          "default.roads.hard_hats"
       ]
    },
+   "deactivated_at": null,
    "schedule":"0 * * * *",
    "job":"SparkSqlMaterializationJob",
    "backfills":[
