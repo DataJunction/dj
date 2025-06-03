@@ -261,8 +261,8 @@ async def test_crud_materialization(module__client_with_basic: AsyncClient):
         "?materialization_name=spark_sql__full",
     )
     assert response.json() == {
-        "message": "The materialization named `spark_sql__full` on node "
-        "`basic.transform.country_agg` has been successfully deactivated",
+        "message": "Materialization named `spark_sql__full` on node "
+        "`basic.transform.country_agg` version `v1.0` has been successfully deactivated",
     }
 
     # Setting it again should inform that it already exists but was reactivated
@@ -359,7 +359,7 @@ async def test_druid_measures_cube_full(
             "materialization_name": "druid_measures_cube__full",
         },
     )
-    assert response.status_code in (200, 201)
+    assert response.status_code == 404
 
     # [failure] When there are no columns on the cube with type `timestamp` and no partition labels
     response = await client_with_repairs_cube.post(
@@ -1778,11 +1778,11 @@ async def test_getting_materializations_after_deletion(
     # Delete the materialization
     response = await client.delete(
         f"/nodes/{cube_name}/materializations/"
-        "?materialization_name=druid_measures_cube__full__default.repair_orders_fact.order_date",
+        "?materialization_name=druid_measures_cube__full__default.repair_orders_fact.order_date&node_version=v1.0",
     )
     assert response.json() == {
-        "message": "The materialization named `druid_measures_cube__full__default.repair_orders_fact.order_date` on node "
-        f"`{cube_name}` has been successfully deactivated",
+        "message": "Materialization named `druid_measures_cube__full__default.repair_orders_fact.order_date` on node "
+        f"`{cube_name}` version `v1.0` has been successfully deactivated",
     }
 
     # Test that the materialization is no longer being returned

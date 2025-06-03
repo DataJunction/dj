@@ -16,6 +16,7 @@ from datajunction_server.models.partition import (
 )
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.naming import amenable_name
+from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
@@ -125,6 +126,7 @@ class MaterializationConfigOutput(BaseModel):
     job: Optional[str]
     backfills: List[BackfillOutput]
     strategy: Optional[str]
+    deactivated_at: Optional[UTCDatetime] | None
 
     class Config:
         orm_mode = True
