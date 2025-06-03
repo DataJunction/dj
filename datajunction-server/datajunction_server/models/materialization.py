@@ -126,7 +126,7 @@ class MaterializationConfigOutput(BaseModel):
     job: Optional[str]
     backfills: List[BackfillOutput]
     strategy: Optional[str]
-    deactivated_at: Optional[UTCDatetime] | None
+    deactivated_at: UTCDatetime | None
 
     class Config:
         orm_mode = True

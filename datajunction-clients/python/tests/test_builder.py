@@ -626,8 +626,8 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             materialization_name="spark_sql__full",
         )
         assert result == {
-            "message": "The materialization named `spark_sql__full` on node "
-            "`default.large_revenue_payments_only` has been successfully deactivated",
+            "message": "Materialization named `spark_sql__full` on node "
+            "`default.large_revenue_payments_only` version `v1.0` has been successfully deactivated",
         }
 
         large_revenue_payments_and_business_only = client.create_transform(
