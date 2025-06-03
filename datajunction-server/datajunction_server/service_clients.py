@@ -341,7 +341,7 @@ class QueryServiceClient:
             }
             if request_headers
             else self.requests_session.headers,
-            json={"node_version": node_version},
+            json={"node_version": node_version} if node_version else {},
         )
         if response.status_code not in (200, 201):  # pragma: no cover
             _logger.exception(

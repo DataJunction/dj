@@ -316,7 +316,7 @@ async def list_node_materializations(
 
 @router.delete(
     "/nodes/{node_name}/materializations/",
-    status_code=HTTPStatus.OK,
+    response_model=None,
     name="Deactivate a Materialization for a Node",
 )
 async def deactivate_node_materializations(
