@@ -157,6 +157,16 @@ async def get_measures_query(
 
     column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
     matcher = re.compile(column_name_regex)
+
+    # Find any dimensions referenced in the metric definitions and add to requested dimensions
+    dimensions.extend(
+        [
+            dim
+            for dim in get_dimensions_referenced_in_metrics(metric_nodes)
+            if dim not in dimensions
+        ],
+    )
+
     dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
 
     measures_queries = []
@@ -310,8 +320,13 @@ def resolve_metric_component_against_parent(
             # Case 1: The column name matches one of the parent's select aliases directly
             col.name = matching.alias_or_name.copy()
             col.add_type(matching.type)
+        elif matching := parent_select.semantic_column_mapping.get(col.identifier()):
+            # Case 2: The column name is a joinable dimension and can be found by searching
+            # the semantic entities of each of the parent columns
+            col.name = matching.alias_or_name.copy()
+            col.add_type(matching.type)
         else:
-            # Case 2: The column is a local dimension reference and cannot be found directly
+            # Case 3: The column is a local dimension reference and cannot be found directly
             # in the parent's select clause, but can be resolved by prefixing with the parent
             # node's name (e.g., from `entity` to `default_DOT_transform_DOT_entity`)
             alias = amenable_name(f"{parent_node.name}{SEPARATOR}{col.name.name}")
@@ -370,6 +385,19 @@ def build_preaggregate_query(
             final_query.select.projection.extend(component_ast.select.projection)
             final_query.select.group_by.extend(component_ast.select.group_by or [])
     return final_query
+
+
+def get_dimensions_referenced_in_metrics(metric_nodes: list[Node]) -> List[str]:
+    """
+    Returns a list of dimensions referenced in the metric nodes' query definitions.
+    """
+    dimensions = set()
+    for metric in metric_nodes:
+        metric_ast = parse(metric.current.query)
+        for ref in metric_ast.find_all(ast.Column):
+            if SEPARATOR in ref.identifier().rsplit(SEPARATOR, 1)[0]:
+                dimensions.add(ref.identifier())
+    return sorted(list(dimensions))
 
 
 class QueryBuilder:
@@ -1096,6 +1124,8 @@ class CubeQueryBuilder:
         Builds SQL for multiple metrics with the requested set of dimensions,
         filter expressions, order by, and limit clauses.
         """
+        self.add_dimensions(get_dimensions_referenced_in_metrics(self.metric_nodes))
+
         measures_queries = await self.build_measures_queries()
 
         # Join together the transforms on the shared dimensions and select all
@@ -1214,27 +1244,36 @@ class CubeQueryBuilder:
                 group_by_col.alias = None
                 parent_ast.select.group_by.append(group_by_col)
 
-            # Add metric aggregations to select
-            for metric_node in metrics:
-                metric_proj = await self.build_metric_agg(metric_node, parent_node)
-                parent_ast.select.projection.extend(metric_proj)
-
             await refresh_if_needed(self.session, parent_node.current, ["columns"])
 
             # Generate semantic types for each
             for expr in parent_ast.select.projection:
                 column_identifier = expr.alias_or_name.identifier(False)  # type: ignore
                 semantic_entity = from_amenable_name(column_identifier)
-                if semantic_entity in self.dimensions:
+                if semantic_entity in self.dimensions:  # pragma: no cover
                     expr.set_semantic_entity(semantic_entity)  # type: ignore
                     expr.set_semantic_type(SemanticType.DIMENSION)  # type: ignore
+
+            # Add metric aggregations to select
+            for metric_node in metrics:
+                metric_proj = await self.build_metric_agg(
+                    metric_node,
+                    parent_node,
+                    parent_ast,
+                )
+                parent_ast.select.projection.extend(metric_proj)
 
             ctx = CompileContext(self.session, DJException())
             await parent_ast.compile(ctx)
             measures_queries[parent_node.name] = parent_ast
         return measures_queries
 
-    async def build_metric_agg(self, metric_node, parent_node):
+    async def build_metric_agg(
+        self,
+        metric_node: NodeRevision,
+        parent_node: Node,
+        parent_ast: ast.Query,
+    ):
         """
         Build the metric's aggregate expression.
         """
@@ -1261,9 +1300,24 @@ class CubeQueryBuilder:
             SemanticType.METRIC,
         )
         for col in metric_query.ctes[-1].select.find_all(ast.Column):
-            col._table = ast.Table(
-                name=ast.Name(name=amenable_name(parent_node.name)),
-            )
+            if matching := parent_ast.select.semantic_column_mapping.get(
+                col.identifier(),
+            ):
+                # When the column is a joinable dimension reference, find it in the parent AST and
+                # point the column to the parent AST column ref
+                col.name = ast.Name(name=matching.name.name)
+                col._table = matching.table
+                col.add_type(matching.type)
+            else:
+                column_identifier = SEPARATOR.join(name.name for name in col.namespace)
+                node_name = (
+                    column_identifier.rsplit(SEPARATOR, 1)[0]
+                    if SEPARATOR in column_identifier
+                    else parent_node.name
+                )
+                col._table = ast.Table(
+                    name=ast.Name(name=amenable_name(node_name)),
+                )
         return metric_query.ctes[-1].select.projection
 
     def extract_ctes(self, measures_queries) -> Tuple[List[ast.Query], List[ast.Query]]:
