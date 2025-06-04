@@ -55,34 +55,71 @@ class MetricComponentExtractor:
         Decomposes the metric query into its constituent aggregatable components and
         constructs a SQL query derived from those components.
         """
-        if not self._extracted:
-            # Normalize metric queries with aliases
-            parent_node_alias = self._query_ast.select.from_.relations[  # type: ignore
-                0
-            ].primary.alias
-            if parent_node_alias:
-                for col in self._query_ast.find_all(ast.Column):
-                    if (
-                        col.namespace
-                        and col.namespace[0].name == parent_node_alias.name
-                    ):
-                        col.name = ast.Name(col.name.name)
-                self._query_ast.select.from_.relations[0].primary.set_alias(None)  # type: ignore
+        if self._extracted:
+            return self._components, self._query_ast
 
-            for func in self._query_ast.find_all(ast.Function):
-                dj_function = func.function()
-                handler = self.handlers.get(dj_function)
-                if handler and dj_function.is_aggregation:
-                    if func_components := handler(func):  # pragma: no cover
-                        MetricComponentExtractor.update_ast(func, func_components)
-
-                    for component in sorted(func_components, key=lambda m: m.name):
-                        if component.name not in self._components_tracker:
-                            self._components_tracker.add(component.name)
-                            self._components.append(component)
-
-            self._extracted = True
+        self._normalize_aliases()
+        self._extract_functions()
+        self._extract_columns()
+        self._extracted = True
         return self._components, self._query_ast
+
+    def _normalize_aliases(self):
+        """
+        Normalizes the metric query AST by removing aliases from the FROM clause
+        and stripping column references of any such aliases.
+        """
+        parent_node_alias = self._query_ast.select.from_.relations[  # type: ignore
+            0
+        ].primary.alias
+        if parent_node_alias:
+            for col in self._query_ast.find_all(ast.Column):
+                if col.namespace and col.namespace[0].name == parent_node_alias.name:
+                    # Strip namespace (alias) from column name
+                    col.name = ast.Name(col.name.name)
+            # Remove the alias from the FROM clause entirely
+            self._query_ast.select.from_.relations[0].primary.set_alias(None)  # type: ignore
+
+    def _extract_functions(self):
+        """
+        Extract and replace aggregatable functions from the metric query and replace with
+        their corresponding metric components.
+        """
+        for func in self._query_ast.find_all(ast.Function):
+            dj_function = func.function()
+            handler = self.handlers.get(dj_function)
+            if handler and dj_function.is_aggregation:
+                if func_components := handler(func):  # pragma: no cover
+                    MetricComponentExtractor.update_ast(func, func_components)
+
+                for component in sorted(func_components, key=lambda m: m.name):
+                    if component.name not in self._components_tracker:
+                        self._components_tracker.add(component.name)
+                        self._components.append(component)
+
+    def _extract_columns(self):
+        """
+        Extracts columns from the metric query and generates metric components for them.
+        """
+        for col in self._query_ast.find_all(ast.Column):
+            if col.name.name not in self._components_tracker:
+                component_name = amenable_name(str(col))
+                expression = str(col)
+                self._components.append(
+                    MetricComponent(
+                        name=component_name,
+                        expression=expression,
+                        aggregation=None,
+                        rule=AggregationRule(type=Aggregability.FULL, level=None),
+                    ),
+                )
+                # Replace the column in the AST with a reference to the new metric component
+                if col.parent:
+                    col.parent.replace(
+                        from_=col,
+                        to=ast.Column(ast.Name(component_name)),
+                        copy=False,
+                    )
 
     def _simple_associative_agg(self, func) -> list[MetricComponent]:
         """
