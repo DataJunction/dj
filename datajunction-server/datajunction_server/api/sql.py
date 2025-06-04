@@ -214,7 +214,7 @@ async def build_and_save_node_sql(
             ignore_errors=ignore_errors,
         )
         columns = [
-            assemble_column_metadata(col)  # type: ignore
+            assemble_column_metadata(col, use_semantic_metadata=True)  # type: ignore
             for col in query_ast.select.projection
         ]
         query = str(query_ast)

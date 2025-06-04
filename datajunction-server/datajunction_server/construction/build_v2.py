@@ -214,6 +214,7 @@ async def get_measures_query(
                         from_amenable_name(identifier).split(SEPARATOR)[-1]
                         in parent_columns[parent_node.name]
                         or identifier in parent_columns[parent_node.name]
+                        or expr.semantic_entity in dimensions_without_roles
                         or from_amenable_name(identifier) in dimensions_without_roles
                     )
                 )
@@ -253,6 +254,7 @@ async def get_measures_query(
         columns_metadata = [
             assemble_column_metadata(  # pragma: no cover
                 cast(ast.Column, col),
+                preaggregate,
             )
             for col in final_query.select.projection
         ]
@@ -862,14 +864,9 @@ class QueryBuilder:
             # Realias based on canonical dimension name
             new_alias = amenable_name(dim_name)
             if node_col and new_alias not in self.final_ast.select.column_mapping:
-                self.final_ast.select.projection.append(
-                    ast.Column(
-                        ast.Name(node_col.name.name),
-                        _table=node_col.table,  # type: ignore
-                        _type=node_col.type,  # type: ignore
-                        alias=ast.Name(new_alias),  # type: ignore
-                    ),
-                )
+                node_col.set_alias(ast.Name(amenable_name(dim_name)))
+                node_col.set_semantic_entity(dim_name)
+                node_col.set_semantic_type(SemanticType.DIMENSION)
 
     async def add_request_by_node_name(self, node_name):
         """Add a node request to the access control validator."""
