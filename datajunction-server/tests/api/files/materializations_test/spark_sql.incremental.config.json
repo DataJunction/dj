@@ -120,6 +120,7 @@
       },
       "deactivated_at": null,
       "job":"SparkSqlMaterializationJob",
+      "node_revision_id": 42,
       "name":"spark_sql__incremental_time__birth_date",
       "schedule":"0 * * * *",
       "strategy":"incremental_time"

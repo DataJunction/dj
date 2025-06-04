@@ -9,6 +9,7 @@ from typing import Callable, List
 
 from fastapi import Depends, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -342,19 +343,13 @@ async def deactivate_node_materializations(
     # find the node revision to deactivate the materialization for
     node_revision = None
     if node_version:
-        node = await Node.get_by_name(
-            session,
-            node_name,
-            options=[
-                joinedload(Node.revisions).options(
-                    *NodeRevision.default_load_options(),
-                ),
-            ],
+        stmt = (
+            select(NodeRevision)
+            .options(*NodeRevision.default_load_options())
+            .where(NodeRevision.name == node_name, NodeRevision.version == node_version)
         )
-        for nr in node.revisions:  # type: ignore
-            if nr.version == node_version:  # pragma: no cover
-                node_revision = nr
-                break
+        result = await session.execute(stmt)
+        node_revision = result.scalars().first()
         if not node_revision:
             raise DJDoesNotExistException(  # pragma: no cover
                 f"Node revision with version '{node_version}' not found for node {node_name} .",
@@ -404,7 +399,7 @@ async def deactivate_node_materializations(
         event=History(
             entity_type=EntityType.MATERIALIZATION,
             entity_name=materialization_name,
-            node=node.name,  # type: ignore
+            node=node_name,
             version=node_revision.version,  # type: ignore
             activity_type=ActivityType.DELETE,
             details={},
@@ -413,7 +408,7 @@ async def deactivate_node_materializations(
         session=session,
     )
     await session.commit()
-    await session.refresh(node.current)  # type: ignore
+    # await session.refresh(node.current)  # type: ignore
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={

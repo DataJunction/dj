@@ -120,6 +120,7 @@
    "deactivated_at": null,
    "job":"SparkSqlMaterializationJob",
    "name":"spark_sql__full__birth_date__country",
+   "node_revision_id": 42,
    "schedule":"0 * * * *",
    "strategy":"full"
 }
