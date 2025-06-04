@@ -862,7 +862,14 @@ class QueryBuilder:
             # Realias based on canonical dimension name
             new_alias = amenable_name(dim_name)
             if node_col and new_alias not in self.final_ast.select.column_mapping:
-                node_col.set_alias(ast.Name(amenable_name(dim_name)))
+                self.final_ast.select.projection.append(
+                    ast.Column(
+                        ast.Name(node_col.name.name),
+                        _table=node_col.table,  # type: ignore
+                        _type=node_col.type,  # type: ignore
+                        alias=ast.Name(new_alias),  # type: ignore
+                    ),
+                )
 
     async def add_request_by_node_name(self, node_name):
         """Add a node request to the access control validator."""
