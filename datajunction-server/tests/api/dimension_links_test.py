@@ -996,8 +996,8 @@ FROM default_DOT_events"""
         {
             "name": "default_DOT_users_DOT_registration_country",
             "type": "string",
-            "column": "registration_country",
-            "node": "default.users",
+            "column": "user_registration_country",
+            "node": "default.events",
             "semantic_entity": "default.users.registration_country",
             "semantic_type": "dimension",
         },

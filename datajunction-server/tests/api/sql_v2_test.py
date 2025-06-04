@@ -89,7 +89,7 @@ async def fix_dimension_links(module__client_with_roads: AsyncClient):
                 {
                     "column": "dispatcher_id",
                     "name": "default_DOT_dispatcher_DOT_dispatcher_id",
-                    "node": "default.dispatcher",
+                    "node": "default.repair_orders_fact",
                     "semantic_entity": "default.dispatcher.dispatcher_id",
                     "semantic_type": "dimension",
                     "type": "int",
@@ -182,7 +182,7 @@ async def fix_dimension_links(module__client_with_roads: AsyncClient):
                 {
                     "column": "dispatcher_id",
                     "name": "default_DOT_dispatcher_DOT_dispatcher_id",
-                    "node": "default.dispatcher",
+                    "node": "default.repair_orders_fact",
                     "semantic_entity": "default.dispatcher.dispatcher_id",
                     "semantic_type": "dimension",
                     "type": "int",

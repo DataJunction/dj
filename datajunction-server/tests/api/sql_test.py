@@ -951,7 +951,7 @@ async def test_transform_sql_filter_dimension_pk_col(
                 "name": "default_DOT_hard_hat_DOT_hard_hat_id",
                 "node": "default.hard_hat",
                 "semantic_entity": "default.hard_hat.hard_hat_id",
-                "semantic_type": None,
+                "semantic_type": "dimension",
                 "type": "int",
             },
             {
