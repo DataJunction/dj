@@ -41,6 +41,7 @@ class History(Base):
     )
     entity_name: Mapped[Optional[str]] = mapped_column(String, default=None)
     node: Mapped[Optional[str]] = mapped_column(String, default=None)
+    version: Mapped[Optional[str]] = mapped_column(String, default=None)
     activity_type: Mapped[Optional[ActivityType]] = mapped_column(
         Enum(ActivityType),
         default=None,

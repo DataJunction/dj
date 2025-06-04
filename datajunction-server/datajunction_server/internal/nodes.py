@@ -906,7 +906,7 @@ async def update_cube_node(
                     new_cube_revision,
                     materialization_upsert_class(
                         **MaterializationConfigOutput.from_orm(old).dict(
-                            exclude={"job"},
+                            exclude={"job", "node_revision_id", "deactivated_at"},
                         ),
                         job=MaterializationJobTypeEnum.find_match(old.job),
                     ),
