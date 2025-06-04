@@ -63,6 +63,12 @@ def rename_columns(
     projection = []
     node_columns = {col.name for col in node.columns}
     for expression in built_ast.select.projection:
+        if hasattr(expression, "semantic_entity") and expression.semantic_entity:  # type: ignore
+            # If the expression already has a semantic entity, we assume it is already
+            # fully qualified and skip renaming.
+            projection.append(expression)
+            expression.set_alias(ast.Name(amenable_name(expression.semantic_entity)))  # type: ignore
+            continue
         if (
             not isinstance(expression, ast.Alias)
             and not isinstance(

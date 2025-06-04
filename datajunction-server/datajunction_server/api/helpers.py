@@ -62,7 +62,7 @@ from datajunction_server.models.materialization import (
     MaterializationConfigOutput,
 )
 from datajunction_server.models.query import ColumnMetadata, QueryWithResults
-from datajunction_server.naming import LOOKUP_CHARS
+from datajunction_server.naming import LOOKUP_CHARS, from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.typing import END_JOB_STATES
@@ -743,7 +743,7 @@ async def build_sql_for_multiple_metrics(
         query_parameters=query_parameters,
     )
     columns = [
-        assemble_column_metadata(col)  # type: ignore
+        assemble_column_metadata(col, use_semantic_metadata=True)  # type: ignore
         for col in query_ast.select.projection
     ]
     upstream_tables = [tbl for tbl in query_ast.find_all(ast.Table) if tbl.dj_node]
@@ -892,7 +892,7 @@ async def build_sql_for_dj_query(  # pragma: no cover
 
 def assemble_column_metadata(
     column: ast.Column,
-    # node_name: Union[List[str], str],
+    use_semantic_metadata: bool = False,
 ) -> ColumnMetadata:
     """
     Extract column metadata from AST
@@ -901,12 +901,16 @@ def assemble_column_metadata(
         name=column.alias_or_name.name,
         type=str(column.type),
         column=(
-            column.semantic_entity.split(SEPARATOR)[-1]
+            column.name.name
+            if hasattr(column, "name") and column.name and not use_semantic_metadata
+            else column.semantic_entity.split(SEPARATOR)[-1]
             if hasattr(column, "semantic_entity") and column.semantic_entity
             else None
         ),
         node=(
-            SEPARATOR.join(column.semantic_entity.split(SEPARATOR)[:-1])
+            from_amenable_name(column.table.alias_or_name.name)
+            if hasattr(column, "table") and column.table and not use_semantic_metadata
+            else SEPARATOR.join(column.semantic_entity.split(SEPARATOR)[:-1])
             if hasattr(column, "semantic_entity") and column.semantic_entity
             else None
         ),
