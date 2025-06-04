@@ -897,23 +897,24 @@ def assemble_column_metadata(
     """
     Extract column metadata from AST
     """
+    has_semantic_entity = hasattr(column, "semantic_entity") and column.semantic_entity
+
+    if use_semantic_metadata and has_semantic_entity:
+        column_name = column.semantic_entity.split(SEPARATOR)[-1]  # type: ignore
+        node_name = SEPARATOR.join(column.semantic_entity.split(SEPARATOR)[:-1])  # type: ignore
+    else:
+        column_name = getattr(column.name, "name", None)
+        node_name = (
+            from_amenable_name(column.table.alias_or_name.name)  # type: ignore
+            if hasattr(column, "table") and column.table
+            else None
+        )
+
     metadata = ColumnMetadata(
         name=column.alias_or_name.name,
         type=str(column.type),
-        column=(
-            column.name.name
-            if hasattr(column, "name") and column.name and not use_semantic_metadata
-            else column.semantic_entity.split(SEPARATOR)[-1]
-            if hasattr(column, "semantic_entity") and column.semantic_entity
-            else None
-        ),
-        node=(
-            from_amenable_name(column.table.alias_or_name.name)
-            if hasattr(column, "table") and column.table and not use_semantic_metadata
-            else SEPARATOR.join(column.semantic_entity.split(SEPARATOR)[:-1])
-            if hasattr(column, "semantic_entity") and column.semantic_entity
-            else None
-        ),
+        column=column_name,
+        node=node_name,
         semantic_entity=column.semantic_entity
         if hasattr(column, "semantic_entity")
         else None,
