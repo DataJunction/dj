@@ -118,6 +118,7 @@
       },
       "deactivated_at": null,
       "job":"SparkSqlMaterializationJob",
+      "node_revision_id": 42,
       "name":"spark_sql__full",
       "schedule":"0 * * * *",
       "strategy":"full"

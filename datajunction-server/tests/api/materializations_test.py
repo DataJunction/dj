@@ -1086,7 +1086,9 @@ async def test_spark_sql_full(
         parse(load_expected_file("spark_sql.full.query.sql")),
     )
     del data["materializations"][0]["config"]["query"]
-    assert data["materializations"] == load_expected_file("spark_sql.full.config.json")
+    expected_config = load_expected_file("spark_sql.full.config.json")
+    expected_config[0]["node_revision_id"] = mock.ANY
+    assert data["materializations"] == expected_config
 
     # Set both temporal and categorical partitions on node
     response = await module__client_with_roads.post(
@@ -1140,6 +1142,7 @@ async def test_spark_sql_full(
     materialization_with_partitions = data["materializations"][1]
     del materialization_with_partitions["config"]["query"]
     expected_config = load_expected_file("spark_sql.full.partition.config.json")
+    expected_config["node_revision_id"] = mock.ANY
     assert materialization_with_partitions == expected_config
 
     # Check listing materializations of the node
@@ -1148,11 +1151,13 @@ async def test_spark_sql_full(
     )
     materializations = response.json()
     materializations[0]["config"]["query"] = mock.ANY
+    materializations[0]["node_revision_id"] = mock.ANY
     assert materializations[0] == load_expected_file(
         "spark_sql.full.materializations.json",
     )
     materializations = response.json()
     materializations[1]["config"]["query"] = mock.ANY
+    materializations[1]["node_revision_id"] = mock.ANY
     assert materializations[1] == load_expected_file(
         "spark_sql.full.partition.materializations.json",
     )
@@ -1264,6 +1269,7 @@ async def test_spark_sql_incremental(
     data = response.json()
     assert data["version"] == "v1.0"
     del data["materializations"][0]["config"]["query"]
+    data["materializations"][0]["node_revision_id"] = mock.ANY
     assert data["materializations"] == load_expected_file(
         "spark_sql.incremental.config.json",
     )

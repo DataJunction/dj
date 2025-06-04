@@ -120,6 +120,7 @@ class MaterializationConfigOutput(BaseModel):
     Output for materialization config.
     """
 
+    node_revision_id: int
     name: Optional[str]
     config: Dict
     schedule: str
