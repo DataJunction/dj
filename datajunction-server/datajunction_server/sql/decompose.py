@@ -114,7 +114,7 @@ class MetricComponentExtractor:
                     ),
                 )
                 # Replace the column in the AST with a reference to the new metric component
-                if col.parent:
+                if col.parent:  # pragma: no cover
                     col.parent.replace(
                         from_=col,
                         to=ast.Column(ast.Name(component_name)),

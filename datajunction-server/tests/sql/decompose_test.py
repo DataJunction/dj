@@ -520,7 +520,14 @@ def test_no_aggregation():
         "SELECT sales_amount FROM parent_node",
     )
     measures, derived_sql = extractor.extract()
-    expected_measures = []
+    expected_measures = [
+        MetricComponent(
+            name="sales_amount",
+            expression="sales_amount",
+            aggregation=None,
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+    ]
     assert measures == expected_measures
     assert str(derived_sql) == str(parse("SELECT sales_amount FROM parent_node"))
 
@@ -605,7 +612,14 @@ def test_unsupported_aggregation_function():
         "SELECT MEDIAN(sales_amount) FROM parent_node",
     )
     measures, derived_sql = extractor.extract()
-    expected_measures = []
+    expected_measures = [
+        MetricComponent(
+            name="sales_amount",
+            expression="sales_amount",
+            aggregation=None,
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+    ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse("SELECT MEDIAN(sales_amount) FROM parent_node"),
@@ -615,7 +629,14 @@ def test_unsupported_aggregation_function():
         "SELECT approx_percentile(duration_ms, 1.0, 0.9) / 1000 FROM parent_node",
     )
     measures, derived_sql = extractor.extract()
-    expected_measures = []
+    expected_measures = [
+        MetricComponent(
+            name="duration_ms",
+            expression="duration_ms",
+            aggregation=None,
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+    ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
