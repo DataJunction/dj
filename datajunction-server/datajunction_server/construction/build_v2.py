@@ -373,7 +373,10 @@ def build_preaggregate_query(
     added_components = set()
     for metric in children:
         for component in metric_to_components[metric.name][0]:
-            if component.name in added_components:
+            if (
+                component.name in final_query.select.column_mapping
+                or component.name in added_components
+            ):
                 continue
             added_components.add(component.name)
             component_ast = resolve_metric_component_against_parent(
