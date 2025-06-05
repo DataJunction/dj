@@ -1875,13 +1875,135 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
         ]
 
     @pytest.mark.asyncio
+    async def test_metric_with_duplicate_referenced_dimensions(
+        self,
+        module__client_with_roads: AsyncClient,
+        duckdb_conn: duckdb.DuckDBPyConnection,
+    ):
+        """
+        Getting SQL for the metrics with duplicate referenced dimensions (e.g., both in the metric
+        definition and in the request) should yield the same SQL with no duplicate columns.
+        """
+        metric_name = "default.unique_hard_hat_names_in_ny2_ratio"
+        response = await module__client_with_roads.post(
+            "/nodes/metric",
+            json={
+                "description": "An example metric with a definition that references a joinable dimension",
+                "query": "SELECT COUNT(DISTINCT IF(default.hard_hat.state = 'NY', default.hard_hat.first_name, NULL)) / default.hard_hat.hard_hat_id FROM default.repair_orders_fact",
+                "mode": "published",
+                "name": metric_name,
+                "display_name": "Number of Unique Hard Hat Names in NY (Ratio)",
+            },
+        )
+        response = await module__client_with_roads.get(
+            "/sql/measures/v2",
+            params={
+                "metrics": [metric_name],
+                "dimensions": [],
+                "filters": [],
+                "preaggregate": True,
+            },
+        )
+        data = response.json()
+        expected_sql = """
+        WITH default_DOT_repair_orders_fact AS (
+          SELECT
+            repair_orders.repair_order_id,
+            repair_orders.municipality_id,
+            repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id,
+            repair_orders.order_date,
+            repair_orders.dispatched_date,
+            repair_orders.required_date,
+            repair_order_details.discount,
+            repair_order_details.price,
+            repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+          FROM roads.repair_orders AS repair_orders
+          JOIN roads.repair_order_details AS repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ),
+        default_DOT_hard_hat AS (
+          SELECT
+            default_DOT_hard_hats.hard_hat_id,
+            default_DOT_hard_hats.last_name,
+            default_DOT_hard_hats.first_name,
+            default_DOT_hard_hats.title,
+            default_DOT_hard_hats.birth_date,
+            default_DOT_hard_hats.hire_date,
+            default_DOT_hard_hats.address,
+            default_DOT_hard_hats.city,
+            default_DOT_hard_hats.state,
+            default_DOT_hard_hats.postal_code,
+            default_DOT_hard_hats.country,
+            default_DOT_hard_hats.manager,
+            default_DOT_hard_hats.contractor_id
+          FROM roads.hard_hats AS default_DOT_hard_hats
+        ),
+        default_DOT_repair_orders_fact_built AS (
+          SELECT
+            default_DOT_repair_orders_fact.hard_hat_id,
+            default_DOT_hard_hat.first_name default_DOT_hard_hat_DOT_first_name,
+            default_DOT_hard_hat.hard_hat_id default_DOT_hard_hat_DOT_hard_hat_id,
+            default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state
+          FROM default_DOT_repair_orders_fact
+          INNER JOIN default_DOT_hard_hat
+            ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+        )
+        SELECT
+          default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_first_name,
+          default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_hard_hat_id,
+          default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_state,
+          IF(default_DOT_hard_hat_DOT_state = 'NY', default_DOT_hard_hat_DOT_first_name, NULL) AS default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_da41d3a0
+        FROM default_DOT_repair_orders_fact_built
+        GROUP BY
+          default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_first_name,
+          default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_hard_hat_id,
+          default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_state,
+          IF(default_DOT_hard_hat_DOT_state = 'NY', default_DOT_hard_hat_DOT_first_name, NULL)
+        """
+        expected_data = [
+            ("Perkins", 1, "NJ", None),
+            ("Best", 3, "MA", None),
+            ("Riley", 5, "MI", None),
+            ("Henderson", 8, "AZ", None),
+            ("Stafford", 4, "PA", None),
+            ("Clarke", 6, "GA", None),
+            ("Massey", 2, "CT", None),
+            ("Ziegler", 9, "OK", None),
+            ("Boone", 7, "NY", "Boone"),
+        ]
+        assert str(parse(data[0]["sql"])) == str(parse(expected_sql))
+        result = duckdb_conn.sql(data[0]["sql"])
+        assert result.fetchall() == expected_data
+
+        # Getting SQL for the same metric with a referenced dimension in the request
+        # should yield the same SQL with no duplicate columns
+        response = await module__client_with_roads.get(
+            "/sql/measures/v2",
+            params={
+                "metrics": [metric_name],
+                "dimensions": ["default.hard_hat.first_name"],
+                "filters": [],
+                "preaggregate": True,
+            },
+        )
+        data = response.json()
+        assert str(parse(data[0]["sql"])) == str(parse(expected_sql))
+        result = duckdb_conn.sql(data[0]["sql"])
+        assert result.fetchall() == expected_data
+
+    @pytest.mark.asyncio
     async def test_sql_metric_definition_with_multiple_joinable_dimensions(
         self,
         module__client_with_roads: AsyncClient,
         duckdb_conn: duckdb.DuckDBPyConnection,
     ):
         """
-        Test measures SQL for metric definitions that reference joinable dimensions
+        Test SQL for metric definitions that reference joinable dimensions
         """
         metric_name = "default.unique_hard_hat_names_in_ny2"
         response = await module__client_with_roads.post(
@@ -1900,7 +2022,6 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                 "metrics": [metric_name],
                 "dimensions": [],
                 "filters": [],
-                "preaggregate": True,
             },
         )
         data = response.json()
@@ -1956,9 +2077,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
           default_DOT_repair_orders_fact_metrics.default_DOT_unique_hard_hat_names_in_ny2
         FROM default_DOT_repair_orders_fact_metrics
         """
-        assert str(parse(data["sql"])) == str(parse(expected_sql))
-        result = duckdb_conn.sql(data["sql"])
-        assert result.fetchall() == [
+        expected_data = [
             ("Perkins", "NJ", 0),
             ("Best", "MA", 0),
             ("Riley", "MI", 0),
@@ -1969,3 +2088,21 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
             ("Ziegler", "OK", 0),
             ("Boone", "NY", 1),
         ]
+        assert str(parse(data["sql"])) == str(parse(expected_sql))
+        result = duckdb_conn.sql(data["sql"])
+        assert result.fetchall() == expected_data
+
+        # Getting SQL for the same metric with the referenced dimensions in the request
+        # should yield the same SQL with no duplicate columns
+        response = await module__client_with_roads.get(
+            "/sql",
+            params={
+                "metrics": [metric_name],
+                "dimensions": ["default.hard_hat.first_name", "default.hard_hat.state"],
+                "filters": [],
+            },
+        )
+        data = response.json()
+        assert str(parse(data["sql"])) == str(parse(expected_sql))
+        result = duckdb_conn.sql(data["sql"])
+        assert result.fetchall() == expected_data
