@@ -433,6 +433,7 @@ class DruidCubeMaterializationInput(BaseModel):
     Materialization info as passed to the query service.
     """
 
+    id: int | None = None
     name: str
 
     # Frozen cube info at the time of materialization
