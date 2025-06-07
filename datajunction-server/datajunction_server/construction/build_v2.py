@@ -1607,11 +1607,13 @@ def build_dimension_attribute(
     """
     dimension_attr = FullColumnName(full_column_name)
     dim_node = dimension_attr.node_name
+    print("dimension_node_joins", dim_node)
     node_query = (
         dimension_node_joins[dim_node].node_query
         if dim_node in dimension_node_joins
         else None
     )
+    print("node_query", node_query)
 
     if node_query:
         foreign_key_column_name = (
@@ -1621,10 +1623,14 @@ def build_dimension_attribute(
             if dimension_attr.name in link.foreign_keys_reversed
             else None
         )
+        print("foreign_key_column_name", foreign_key_column_name)
         for col in node_query.select.projection:
+            print("col.alias_or_name.name", col.alias_or_name.name)
             if col.alias_or_name.name == dimension_attr.column_name or (  # type: ignore
                 foreign_key_column_name
-                and col.alias_or_name.identifier() == foreign_key_column_name  # type: ignore
+                and foreign_key_column_name in (
+                    col.alias_or_name.identifier(), col.alias_or_name.name
+                )
             ):
                 return ast.Column(
                     name=ast.Name(col.alias_or_name.name),  # type: ignore
