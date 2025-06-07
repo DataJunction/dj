@@ -520,7 +520,14 @@ def test_no_aggregation():
         "SELECT sales_amount FROM parent_node",
     )
     measures, derived_sql = extractor.extract()
-    expected_measures = []
+    expected_measures = [
+        MetricComponent(
+            name="sales_amount",
+            expression="sales_amount",
+            aggregation=None,
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+    ]
     assert measures == expected_measures
     assert str(derived_sql) == str(parse("SELECT sales_amount FROM parent_node"))
 
@@ -605,7 +612,14 @@ def test_unsupported_aggregation_function():
         "SELECT MEDIAN(sales_amount) FROM parent_node",
     )
     measures, derived_sql = extractor.extract()
-    expected_measures = []
+    expected_measures = [
+        MetricComponent(
+            name="sales_amount",
+            expression="sales_amount",
+            aggregation=None,
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+    ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse("SELECT MEDIAN(sales_amount) FROM parent_node"),
@@ -615,7 +629,14 @@ def test_unsupported_aggregation_function():
         "SELECT approx_percentile(duration_ms, 1.0, 0.9) / 1000 FROM parent_node",
     )
     measures, derived_sql = extractor.extract()
-    expected_measures = []
+    expected_measures = [
+        MetricComponent(
+            name="duration_ms",
+            expression="duration_ms",
+            aggregation=None,
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+    ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
@@ -685,5 +706,44 @@ def test_metric_query_with_aliases():
         parse(
             "SELECT SUM(time_to_dispatch_sum_bf99afd6) / "
             "SUM(time_to_dispatch_count_bf99afd6) FROM default.repair_orders_fact",
+        ),
+    )
+
+
+def test_metrics_with_dimension_columns():
+    """
+    Test decomposition for a metric definition that has a dimension reference in its expression
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT 100.0 * COUNT(DISTINCT IF(duration >= 10, default.hard_hat.hard_hat_id, 0)) / "
+        "default.hard_hat.birth_date FROM default.repair_orders_fact",
+    )
+    measures, derived_sql = extractor.extract()
+    expected_measures = [
+        MetricComponent(
+            name="duration_default_DOT_hard_hat_DOT_hard_hat_id_distinct_44ab91c7",
+            expression="IF(duration >= 10, default.hard_hat.hard_hat_id, 0)",
+            aggregation=None,
+            rule=AggregationRule(
+                type=Aggregability.LIMITED,
+                level=["IF(duration >= 10, default.hard_hat.hard_hat_id, 0)"],
+            ),
+        ),
+        MetricComponent(
+            name="default_DOT_hard_hat_DOT_birth_date",
+            expression="default.hard_hat.birth_date",
+            aggregation=None,
+            rule=AggregationRule(
+                type=Aggregability.FULL,
+                level=None,
+            ),
+        ),
+    ]
+    assert measures == expected_measures
+    assert str(derived_sql) == str(
+        parse(
+            "SELECT 100.0 * COUNT(DISTINCT "
+            "duration_default_DOT_hard_hat_DOT_hard_hat_id_distinct_44ab91c7) / "
+            "default_DOT_hard_hat_DOT_birth_date FROM default.repair_orders_fact",
         ),
     )

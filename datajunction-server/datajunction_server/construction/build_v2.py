@@ -373,7 +373,10 @@ def build_preaggregate_query(
     added_components = set()
     for metric in children:
         for component in metric_to_components[metric.name][0]:
-            if component.name in added_components:
+            if (
+                component.name in final_query.select.column_mapping
+                or component.name in added_components
+            ):
                 continue
             added_components.add(component.name)
             component_ast = resolve_metric_component_against_parent(
@@ -1621,7 +1624,8 @@ def build_dimension_attribute(
         for col in node_query.select.projection:
             if col.alias_or_name.name == dimension_attr.column_name or (  # type: ignore
                 foreign_key_column_name
-                and col.alias_or_name.identifier() == foreign_key_column_name  # type: ignore
+                and foreign_key_column_name
+                in (col.alias_or_name.identifier(), col.alias_or_name.name)  # type: ignore
             ):
                 return ast.Column(
                     name=ast.Name(col.alias_or_name.name),  # type: ignore
