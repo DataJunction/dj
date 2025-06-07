@@ -5,6 +5,7 @@ from functools import wraps
 
 import strawberry
 from fastapi import Depends
+from strawberry.extensions.tracing import OpenTelemetryExtension
 from strawberry.fastapi import GraphQLRouter
 from strawberry.types import Info
 from datajunction_server.api.graphql.queries.catalogs import list_catalogs
@@ -128,6 +129,11 @@ class Query:
     )
 
 
-schema = strawberry.Schema(query=Query)
+schema = strawberry.Schema(
+    query=Query,
+    extensions=[
+        OpenTelemetryExtension,
+    ],
+)
 
 graphql_app = GraphQLRouter(schema, context_getter=get_context)
