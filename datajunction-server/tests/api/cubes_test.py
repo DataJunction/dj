@@ -226,7 +226,14 @@ async def test_create_invalid_cube(module__client_with_account_revenue: AsyncCli
         "warnings": [],
     }
 
-    # Check that creating a cube with no dimension nodes fails appropriately
+
+@pytest.mark.asyncio
+async def test_create_cube_no_dimensions(
+    module__client_with_account_revenue: AsyncClient,
+):
+    """
+    Check that creating a cube with no dimension attributes works
+    """
     response = await module__client_with_account_revenue.post(
         "/nodes/cube/",
         json={
@@ -234,16 +241,12 @@ async def test_create_invalid_cube(module__client_with_account_revenue: AsyncCli
             "dimensions": [],
             "description": "A cube of number of accounts grouped by account type",
             "mode": "published",
-            "name": "default.cubes_must_have_dimensions",
+            "name": "default.cubes_can_have_no_dimensions",
         },
     )
-    assert response.status_code == 422
+    assert response.status_code == 201
     data = response.json()
-    assert data == {
-        "message": "At least one dimension is required",
-        "errors": [],
-        "warnings": [],
-    }
+    assert data["parents"] == [{"name": "default.number_of_account_types"}]
 
 
 @pytest.mark.asyncio
