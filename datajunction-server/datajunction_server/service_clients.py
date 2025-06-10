@@ -326,6 +326,7 @@ class QueryServiceClient:
         self,
         node_name: str,
         materialization_name: str,
+        node_version: str | None = None,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> MaterializationInfo:
         """
@@ -340,19 +341,22 @@ class QueryServiceClient:
             }
             if request_headers
             else self.requests_session.headers,
+            json={"node_version": node_version} if node_version else {},
         )
         if response.status_code not in (200, 201):  # pragma: no cover
             _logger.exception(
-                "[DJQS] Failed to deactivate materialization for node=%s with `DELETE %s`",
+                "[DJQS] Failed to deactivate materialization for node=%s, version=%s with `DELETE %s`",
                 node_name,
+                node_version,
                 deactivate_endpoint,
                 exc_info=True,
             )
             return MaterializationInfo(urls=[], output_tables=[])
         result = response.json()
         _logger.info(
-            "[DJQS] Deactivated materialization for node=%s with `DELETE %s`",
+            "[DJQS] Deactivated materialization for node=%s, version=%s with `DELETE %s`",
             node_name,
+            node_version,
             deactivate_endpoint,
         )
         return MaterializationInfo(**result)

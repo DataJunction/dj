@@ -3466,10 +3466,12 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "spark": {},
                     "upstream_tables": ["public.basic.dim_users"],
                 },
+                "deactivated_at": None,
                 "strategy": "full",
                 "job": "SparkSqlMaterializationJob",
                 "name": "spark_sql__full",
                 "schedule": "0 * * * *",
+                "node_revision_id": mock.ANY,
             },
         ]
 
