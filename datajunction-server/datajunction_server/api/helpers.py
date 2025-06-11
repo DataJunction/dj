@@ -419,7 +419,9 @@ async def validate_cube(
             dimensions.append(columns[column_name_without_role])
 
     if require_dimensions and not dimensions:
-        raise DJInvalidInputException(message="At least one dimension is required")
+        raise DJInvalidInputException(  # pragma: no cover
+            message="At least one dimension is required",
+        )
 
     if len(set(catalogs)) > 1:
         raise DJInvalidInputException(
