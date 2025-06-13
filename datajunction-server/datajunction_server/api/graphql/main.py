@@ -8,7 +8,10 @@ from fastapi import Request
 from strawberry.fastapi import GraphQLRouter
 from strawberry.types import Info
 from datajunction_server.api.graphql.queries.catalogs import list_catalogs
-from datajunction_server.api.graphql.queries.dag import common_dimensions
+from datajunction_server.api.graphql.queries.dag import (
+    common_dimensions,
+    downstream_nodes,
+)
 from datajunction_server.api.graphql.queries.engines import list_engines, list_dialects
 from datajunction_server.api.graphql.queries.nodes import (
     find_nodes,
@@ -109,6 +112,10 @@ class Query:
     common_dimensions: list[DimensionAttribute] = strawberry.field(
         resolver=log_resolver(common_dimensions),
         description="Get common dimensions for one or more nodes",
+    )
+    downstream_nodes: list[Node] = strawberry.field(
+        resolver=log_resolver(downstream_nodes),
+        description="Find downstream nodes (optionally, of a given type) from a given node.",
     )
 
     # Generate SQL queries
