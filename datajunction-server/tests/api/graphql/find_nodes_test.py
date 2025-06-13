@@ -25,6 +25,9 @@ async def test_find_by_node_type(
                 name
             }
             currentVersion
+            current {
+                customMetadata
+            }
         }
     }
     """
@@ -38,18 +41,21 @@ async def test_find_by_node_type(
             "name": "default.repair_orders_fact",
             "tags": [],
             "type": "TRANSFORM",
+            "current": {"customMetadata": {"foo": "bar"}},
         },
         {
             "currentVersion": "v1.0",
             "name": "default.national_level_agg",
             "tags": [],
             "type": "TRANSFORM",
+            "current": {"customMetadata": None},
         },
         {
             "currentVersion": "v1.0",
             "name": "default.regional_level_agg",
             "tags": [],
             "type": "TRANSFORM",
+            "current": {"customMetadata": None},
         },
     ]
 
