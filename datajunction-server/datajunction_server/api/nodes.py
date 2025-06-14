@@ -351,6 +351,9 @@ async def delete_node(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
     save_history: Callable = Depends(get_save_history),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    background_tasks: BackgroundTasks,
+    request: Request,
 ):
     """
     Delete (aka deactivate) the specified node.
@@ -360,6 +363,9 @@ async def delete_node(
         name=name,
         current_user=current_user,
         save_history=save_history,
+        query_service_client=query_service_client,
+        background_tasks=background_tasks,
+        request_headers=dict(request.headers),
     )
     return JSONResponse(
         status_code=HTTPStatus.OK,
