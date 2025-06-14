@@ -1964,6 +1964,9 @@ async def deactivate_node(
     name: str,
     current_user: User,
     save_history: Callable,
+    query_service_client: QueryServiceClient,
+    background_tasks: BackgroundTasks,
+    request_headers: Dict[str, str] = None,
     message: str = None,
 ):
     """
@@ -1988,6 +1991,14 @@ async def deactivate_node(
             )
             session.add(downstream)
 
+    # If the node has materializations, deactivate them
+    background_tasks.add_task(
+        deactivate_node_materializations,
+        node=node,
+        query_service_client=query_service_client,
+        request_headers=request_headers,
+    )
+
     now = datetime.utcnow()
     node.deactivated_at = UTCDatetime(
         year=now.year,
@@ -2011,6 +2022,22 @@ async def deactivate_node(
     )
     await session.commit()
     await session.refresh(node, ["current"])
+
+
+def deactivate_node_materializations(
+    node: Node,
+    query_service_client: QueryServiceClient,
+    request_headers: Dict[str, str],
+):
+    """
+    Deactivates all materializations for a node
+    """
+    for materialization in node.current.materializations:
+        query_service_client.deactivate_materialization(
+            node.name,
+            materialization_name=materialization.name,
+            request_headers=request_headers,
+        )
 
 
 async def activate_node(
