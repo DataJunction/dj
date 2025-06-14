@@ -2,7 +2,7 @@
 
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Callable, Dict, List, Optional, Union
 
@@ -1964,15 +1964,18 @@ async def deactivate_node(
     name: str,
     current_user: User,
     save_history: Callable,
+    query_service_client: QueryServiceClient,
+    background_tasks: BackgroundTasks,
+    request_headers: Dict[str, str] = None,
     message: str = None,
 ):
     """
     Deactivates a node and propagates to all downstreams.
     """
-    node = await get_node_by_name(session, name, with_current=True)
+    node = await Node.get_by_name(session, name)
 
     # Find all downstream nodes and mark them as invalid
-    downstreams = await get_downstream_nodes(session, node.name)
+    downstreams = await get_downstream_nodes(session, name)
     for downstream in downstreams:
         if downstream.current.status != NodeStatus.INVALID:
             downstream.current.status = NodeStatus.INVALID
@@ -1981,15 +1984,26 @@ async def deactivate_node(
                     downstream.current,
                     NodeStatus.VALID,
                     NodeStatus.INVALID,
-                    parent_node=node.name,
+                    parent_node=name,
                     current_user=current_user,
                 ),
                 session=session,
             )
             session.add(downstream)
 
-    now = datetime.utcnow()
-    node.deactivated_at = UTCDatetime(
+    # If the node has materializations, deactivate them
+    for materialization in (
+        node.current.materializations if node and node.current else []
+    ):
+        background_tasks.add_task(
+            query_service_client.deactivate_materialization,
+            node_name=name,
+            materialization_name=materialization.name,
+            request_headers=request_headers,
+        )
+
+    now = datetime.now(timezone.utc)
+    node.deactivated_at = UTCDatetime(  # type: ignore
         year=now.year,
         month=now.month,
         day=now.day,
@@ -2001,8 +2015,8 @@ async def deactivate_node(
     await save_history(
         event=History(
             entity_type=EntityType.NODE,
-            entity_name=node.name,
-            node=node.name,
+            entity_name=name,
+            node=name,
             activity_type=ActivityType.DELETE,
             details={"message": message} if message else {},
             user=current_user.username,
