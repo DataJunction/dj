@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+from typing import Callable
 from unittest import mock
 
 import pytest
@@ -1637,16 +1638,14 @@ country_agg.add_materialization(
     )
 
 
-@pytest.mark.asyncio
-async def test_getting_materializations_for_all_revisions(
-    module__client_with_roads: AsyncClient,
-    set_temporal_column,
+async def create_cube_with_materialization(
+    client: AsyncClient,
+    set_temporal_column: Callable,
+    cube_name: str,
+    strategy: str,
+    schedule: str,
 ):
-    """
-    Test getting all materialization configs for all versions using include_all=true
-    """
-    client = module__client_with_roads
-    cube_name = "default.repair_analytics"
+    # cube_name = "default.repair_revenue_analysis"
     response = await client.post(
         "/nodes/default.repair_orders_fact/columns/order_date/attributes/",
         json=[{"name": "dimension"}],
@@ -1684,16 +1683,34 @@ async def test_getting_materializations_for_all_revisions(
         f"/nodes/{cube_name}/materialization/",
         json={
             "job": "druid_measures_cube",
-            "strategy": "incremental_time",
-            "config": {},
-            "schedule": "@daily",
+            "strategy": strategy,
+            "schedule": schedule,
         },
     )
     assert (
         response.json()["message"]
         == "Successfully updated materialization config named "
-        "`druid_measures_cube__incremental_time__default.repair_orders_fact.order_date` "
+        f"`druid_measures_cube__{strategy}__default.repair_orders_fact.order_date` "
         f"for node `{cube_name}`"
+    )
+
+
+@pytest.mark.asyncio
+async def test_getting_materializations_for_all_revisions(
+    module__client_with_roads: AsyncClient,
+    set_temporal_column: Callable,
+):
+    """
+    Test getting all materialization configs for all versions using include_all=true
+    """
+    client = module__client_with_roads
+    cube_name = "default.repair_analytics"
+    await create_cube_with_materialization(
+        client,
+        set_temporal_column,
+        cube_name=cube_name,
+        strategy="incremental_time",
+        schedule="@daily",
     )
 
     # Update the cube (side-effect is a new materialization is created for the new revision)
@@ -1733,52 +1750,12 @@ async def test_getting_materializations_after_deletion(
     """
     client = module__client_with_roads
     cube_name = "default.repair_revenue_analysis"
-    response = await client.post(
-        "/nodes/default.repair_orders_fact/columns/order_date/attributes/",
-        json=[{"name": "dimension"}],
-    )
-    assert response.status_code in (200, 201)
-    response = await client.post(
-        "/nodes/cube/",
-        json={
-            "metrics": [
-                "default.num_repair_orders",
-                "default.total_repair_cost",
-            ],
-            "dimensions": [
-                "default.repair_orders_fact.order_date",
-                "default.hard_hat.state",
-                "default.dispatcher.company_name",
-                "default.municipality_dim.local_region",
-            ],
-            "filters": ["default.hard_hat.state='AZ'"],
-            "description": "Cube of various metrics related to repairs",
-            "mode": "published",
-            "name": cube_name,
-        },
-    )
-    assert response.status_code == 201
-
-    await set_temporal_column(
+    await create_cube_with_materialization(
         client,
-        cube_name,
-        "default.repair_orders_fact.order_date",
-    )
-
-    # Create a materialization config
-    response = await client.post(
-        f"/nodes/{cube_name}/materialization/",
-        json={
-            "job": "druid_measures_cube",
-            "strategy": "full",
-            "schedule": "",
-        },
-    )
-    assert (
-        response.json()["message"]
-        == "Successfully updated materialization config named "
-        "`druid_measures_cube__full__default.repair_orders_fact.order_date` "
-        f"for node `{cube_name}`"
+        set_temporal_column,
+        cube_name=cube_name,
+        strategy="full",
+        schedule="",
     )
 
     # Delete the materialization
@@ -1802,3 +1779,26 @@ async def test_getting_materializations_after_deletion(
         f"/nodes/{cube_name}/materializations?show_inactive=true",
     )
     assert len(response.json()) == 1
+
+
+async def test_deleting_node_with_materialization(
+    module__client_with_roads: AsyncClient,
+    set_temporal_column: Callable,
+):
+    """
+    Test that deleting a node with a materialization works
+    """
+    client = module__client_with_roads
+    cube_name = "default.repairs_analysis"
+    await create_cube_with_materialization(
+        client,
+        set_temporal_column,
+        cube_name=cube_name,
+        strategy="incremental_time",
+        schedule="@daily",
+    )
+    response = await client.delete(f"/nodes/{cube_name}")
+    assert (
+        response.json()["message"]
+        == f"Node `{cube_name}` has been successfully deleted."
+    )
