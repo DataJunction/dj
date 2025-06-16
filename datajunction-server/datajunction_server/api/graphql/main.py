@@ -66,6 +66,9 @@ def log_resolver(func):
 
 
 async def get_context(request: Request):
+    """
+    Provides the context for graphql requests
+    """
     return {
         "session": request.state.db,
         "settings": get_settings(),
