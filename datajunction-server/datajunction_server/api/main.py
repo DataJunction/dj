@@ -42,6 +42,7 @@ from datajunction_server.api.access.authentication import basic, whoami
 from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.api.catalogs import default_catalog
 from datajunction_server.api.graphql.main import graphql_app, schema as graphql_schema  # noqa: F401
+from datajunction_server.api.graphql.middleware import GraphQLSessionMiddleware
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.errors import DJException
 from datajunction_server.utils import get_settings
@@ -72,7 +73,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+app.add_middleware(GraphQLSessionMiddleware)
 app.include_router(catalogs.router)
 app.include_router(collection.router)
 app.include_router(engines.router)
