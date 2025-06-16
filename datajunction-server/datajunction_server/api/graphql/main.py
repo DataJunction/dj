@@ -4,7 +4,7 @@ import logging
 from functools import wraps
 
 import strawberry
-from fastapi import Depends
+from fastapi import Request
 from strawberry.fastapi import GraphQLRouter
 from strawberry.types import Info
 from datajunction_server.api.graphql.queries.catalogs import list_catalogs
@@ -25,7 +25,7 @@ from datajunction_server.api.graphql.scalars.catalog_engine import (
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute, Node
 from datajunction_server.api.graphql.scalars.sql import GeneratedSQL
 from datajunction_server.api.graphql.scalars.tag import Tag
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -65,14 +65,14 @@ def log_resolver(func):
     return wrapper
 
 
-async def get_context(
-    session=Depends(get_session),
-    settings=Depends(get_settings),
-):
+async def get_context(request: Request):
     """
     Provides the context for graphql requests
     """
-    return {"session": session, "settings": settings}
+    return {
+        "session": request.state.db,
+        "settings": get_settings(),
+    }
 
 
 @strawberry.type
