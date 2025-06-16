@@ -18,7 +18,7 @@ from typing import (
     List,
     Optional,
 )
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import duckdb
 import httpx
@@ -356,10 +356,22 @@ def query_service_client(
     yield qs_client
 
 
+@pytest.fixture
+def mock_session_manager(session: AsyncSession):
+    mock_manager = Mock()
+    mock_manager.session.return_value = session
+    with patch(
+        "datajunction_server.api.graphql.middleware.get_session_manager",
+        return_value=mock_manager,
+    ):
+        yield
+
+
 @pytest_asyncio.fixture
 async def client(
     session: AsyncSession,
     settings_no_qs: Settings,
+    mock_session_manager,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -714,12 +726,24 @@ async def module__client_example_loader(
     return _load_examples
 
 
+@pytest.fixture(scope="module")
+def module__mock_session_manager(module__session: AsyncSession):
+    mock_manager = Mock()
+    mock_manager.session.return_value = module__session
+    with patch(
+        "datajunction_server.api.graphql.middleware.get_session_manager",
+        return_value=mock_manager,
+    ):
+        yield
+
+
 @pytest_asyncio.fixture(scope="module")
 async def module__client(
     module__session: AsyncSession,
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,
     module_mocker: MockerFixture,
+    module__mock_session_manager,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
