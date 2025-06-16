@@ -6,10 +6,10 @@ import logging
 from http import HTTPStatus
 from typing import Callable, Dict, List, Optional
 
-from fastapi import Depends, Query
+from fastapi import Depends, Query, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
@@ -35,6 +35,7 @@ from datajunction_server.models.node import NamespaceOutput, NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
     get_and_update_current_user,
+    get_query_service_client,
     get_session,
     get_settings,
 )
@@ -172,9 +173,13 @@ async def deactivate_a_namespace(
         default=False,
         description="Cascade the deletion down to the nodes in the namespace",
     ),
+    *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_and_update_current_user),
     save_history: Callable = Depends(get_save_history),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    background_tasks: BackgroundTasks,
+    request: Request,
 ) -> JSONResponse:
     """
     Deactivates a node namespace
@@ -217,6 +222,9 @@ async def deactivate_a_namespace(
                 message=f"Cascaded from deactivating namespace `{namespace}`",
                 current_user=current_user,
                 save_history=save_history,
+                query_service_client=query_service_client,
+                background_tasks=background_tasks,
+                request_headers=dict(request.headers),
             )
         message = (
             f"Namespace `{namespace}` has been deactivated. The following nodes"
