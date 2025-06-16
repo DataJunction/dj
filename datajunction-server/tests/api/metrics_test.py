@@ -418,7 +418,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
         {
             "aggregation": "SUM",
             "expression": "if(discount > 0.0, 1, 0)",
-            "name": "discount_sum_62846f49",
+            "name": "discount_sum_30b84e6c",
             "rule": {
                 "level": None,
                 "type": "full",
@@ -427,7 +427,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
         {
             "aggregation": "COUNT",
             "expression": "*",
-            "name": "count_3389dae3",
+            "name": "count_c8e42e74",
             "rule": {
                 "level": None,
                 "type": "full",
@@ -435,11 +435,11 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
         },
     ]
     assert data["derived_query"] == (
-        "SELECT  CAST(sum(discount_sum_62846f49) AS DOUBLE) / SUM(count_3389dae3) AS "
+        "SELECT  CAST(sum(discount_sum_30b84e6c) AS DOUBLE) / SUM(count_c8e42e74) AS "
         "default_DOT_discounted_orders_rate \n FROM default.repair_orders_fact"
     )
     assert data["derived_expression"] == (
-        "CAST(sum(discount_sum_62846f49) AS DOUBLE) / SUM(count_3389dae3) "
+        "CAST(sum(discount_sum_30b84e6c) AS DOUBLE) / SUM(count_c8e42e74) "
         "AS default_DOT_discounted_orders_rate"
     )
 
