@@ -21,19 +21,24 @@ class DJAdmin(DJBuilder):  # pylint: disable=too-many-public-methods
         response = self._session.get(f"/catalogs/{name}/", timeout=self._timeout)
         return response.json()
 
-    def add_catalog(self, name: str) -> None:
+    def add_catalog(self, name: str, skip_if_exists: bool = False) -> None:
         """
         Add a catalog.
         """
-        response = self._session.post(
-            "/catalogs/",
-            json={"name": f"{name}"},
-            timeout=self._timeout,
-        )
-        json_response = response.json()
+        try:
+            response = self._session.post(
+                "/catalogs/",
+                json={"name": f"{name}"},
+                timeout=self._timeout,
+            )
+        except DJClientException as exc:  # pragma: no cover
+            if skip_if_exists and "already exists" in str(exc):
+                return
+            raise exc
+
         if not response.status_code < 400:
             raise DJClientException(
-                f"Adding catalog `{name}` failed: {json_response}",
+                f"Adding catalog `{name}` failed: {response.json()}",
             )  # pragma: no cover
 
     #
@@ -53,26 +58,36 @@ class DJAdmin(DJBuilder):  # pylint: disable=too-many-public-methods
         self,
         name: str,
         version: str,
-        uri: Optional[str],
-        dialect: Optional[str],
+        uri: Optional[str] = None,
+        dialect: Optional[str] = None,
+        skip_if_exists: bool = False,
     ) -> None:
         """
         Add an engine.
         """
-        response = self._session.post(
-            "/engines/",
-            json={
-                "name": f"{name}",
-                "version": f"{version}",
-                "uri": f"{uri}",
-                "dialect": f"{dialect}",
-            },
-            timeout=self._timeout,
-        )
-        json_response = response.json()
+        params = {
+            "name": f"{name}",
+            "version": f"{version}",
+        }
+        if uri:  # pragma: no cover
+            params["uri"] = f"{uri}"
+        if dialect:  # pragma: no cover
+            params["dialect"] = f"{dialect}"
+
+        try:
+            response = self._session.post(
+                "/engines/",
+                json=params,
+                timeout=self._timeout,
+            )
+        except DJClientException as exc:  # pragma: no cover
+            if skip_if_exists and "already exists" in str(exc):
+                return
+            raise exc
+
         if not response.status_code < 400:
             raise DJClientException(
-                f"Adding engine failed: {json_response}",
+                f"Adding engine failed: {response.json()}",
             )  # pragma: no cover
 
     def link_engine_to_catalog(
