@@ -327,7 +327,7 @@ async def create_cube_node_revision(
         session,
         data.metrics,
         data.dimensions,
-        require_dimensions=True,
+        require_dimensions=False,
     )
     status = (
         NodeStatus.VALID
@@ -2151,7 +2151,7 @@ async def revalidate_node(
                 session,
                 metric_names=cube_metrics,
                 dimension_names=cube_dimensions,
-                require_dimensions=True,
+                require_dimensions=False,
             )
             current_node_revision.status = NodeStatus.VALID
         except DJException as exc:  # pragma: no cover
