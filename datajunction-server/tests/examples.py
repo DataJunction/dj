@@ -602,6 +602,7 @@ GROUP BY
             "name": "default.repair_orders_fact",
             "display_name": "Repair Orders Fact",
             "mode": "published",
+            "custom_metadata": {"foo": "bar"},
             "query": """SELECT
   repair_orders.repair_order_id,
   repair_orders.municipality_id,
@@ -655,6 +656,9 @@ CROSS JOIN
             "metric_metadata": {
                 "direction": "higher_is_better",
                 "unit": "dollar",
+            },
+            "custom_metadata": {
+                "foo": "bar",
             },
         },
     ),
