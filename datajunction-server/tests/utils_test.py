@@ -102,7 +102,7 @@ def test_get_engine(
     engine = get_engine()
     assert engine.pool.size() == settings.db_pool_size
     assert engine.pool.timeout() == settings.db_pool_timeout
-    assert engine.pool.overflow() == -settings.db_max_overflow
+    assert engine.pool._max_overflow == settings.db_max_overflow
 
 
 def test_get_query_service_client(mocker: MockerFixture, settings: Settings) -> None:
