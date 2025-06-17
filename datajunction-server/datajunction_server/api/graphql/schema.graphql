@@ -260,6 +260,7 @@ type NodeRevision {
   mode: NodeMode
   description: String!
   updatedAt: DateTime!
+  customMetadata: JSON
   query: String
   columns: [Column!]!
   dimensionLinks: [DimensionLink!]!
@@ -394,6 +395,15 @@ type Query {
     """A list of nodes to find common dimensions for"""
     nodes: [String!] = null
   ): [DimensionAttribute!]!
+
+  """Find downstream nodes (optionally, of a given type) from a given node."""
+  downstreamNodes(
+    """The node name to find downstream nodes for."""
+    nodeName: String!
+
+    """The node type to filter the downstream nodes on."""
+    nodeType: NodeType = null
+  ): [Node!]!
 
   """Get measures SQL for a list of metrics, dimensions, and filters."""
   measuresSql(
