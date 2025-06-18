@@ -243,6 +243,17 @@ services:
     container_name: superset-redis
     restart: always
 
+  superset-init:
+    image: apache/superset:latest
+    depends_on:
+      - superset-db
+    command: >
+      /bin/bash -c "
+      superset db upgrade &&
+      superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.com --password admin &&
+      superset init
+      "
+
 volumes:
   superset_db:
   superset_home:
