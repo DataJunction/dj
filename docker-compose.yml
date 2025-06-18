@@ -222,7 +222,7 @@ services:
     environment:
       - SUPERSET_SECRET_KEY=your_secret_key_here
       - ADMIN_USERNAME=admin
-      - ADMIN_EMAIL=admin@superset.com
+      - ADMIN_EMAIL=admin@datajunction.io
       - ADMIN_PASSWORD=admin
     ports:
       - "8088:8088"
@@ -249,12 +249,12 @@ services:
     command: >
       bash -c "pip install psycopg2-binary &&
               superset db upgrade &&
-              superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.com --password admin &&
+              superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@datajunction.io --password admin &&
               superset init"
     environment:
       - SUPERSET_SECRET_KEY=your_secret_key_here
       - ADMIN_USERNAME=admin
-      - ADMIN_EMAIL=admin@superset.com
+      - ADMIN_EMAIL=admin@datajunction.io
       - ADMIN_PASSWORD=admin
     volumes:
       - ./superset_home:/app/superset_home
@@ -263,7 +263,3 @@ services:
     image: redis:7
     container_name: superset-redis
     restart: always
-
-# volumes:
-#   superset_db:
-#   superset_home:
