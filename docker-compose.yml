@@ -215,47 +215,55 @@ services:
 
   superset:
     image: apache/superset:latest
-    container_name: superset
-    ports:
-      - 8088:8088
-    environment:
-      - SUPERSET_SECRET_KEY=supersecretkey
-      - PYTHONPATH=/app/pythonpath
-    volumes:
-      - superset_home:/app/superset_home
+    restart: always
     depends_on:
       - superset-db
       - superset-redis
+    environment:
+      - SUPERSET_SECRET_KEY=your_secret_key_here
+      - ADMIN_USERNAME=admin
+      - ADMIN_EMAIL=admin@superset.com
+      - ADMIN_PASSWORD=admin
+    ports:
+      - "8088:8088"
+    volumes:
+      - ./superset_home:/app/superset_home
 
   superset-db:
-    image: postgres:15
-    container_name: superset-db
+    image: postgres:latest
     restart: always
     environment:
       POSTGRES_DB: superset
-      POSTGRES_USER: superset
       POSTGRES_PASSWORD: superset
+      POSTGRES_USER: superset
     volumes:
-      - superset_db:/var/lib/postgresql/data
+      - ./postgres_superset:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+
+  superset-init:
+    image: apache/superset:latest
+    depends_on:
+      - superset-db
+      - superset-redis
+    command: >
+      bash -c "pip install psycopg2-binary &&
+              superset db upgrade &&
+              superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.com --password admin &&
+              superset init"
+    environment:
+      - SUPERSET_SECRET_KEY=your_secret_key_here
+      - ADMIN_USERNAME=admin
+      - ADMIN_EMAIL=admin@superset.com
+      - ADMIN_PASSWORD=admin
+    volumes:
+      - ./superset_home:/app/superset_home
 
   superset-redis:
     image: redis:7
     container_name: superset-redis
     restart: always
 
-  superset-init:
-    image: apache/superset:latest
-    depends_on:
-      - superset-db
-    environment:
-      - SUPERSET_SECRET_KEY=supersecretkey
-    command: >
-      /bin/bash -c "
-      superset db upgrade &&
-      superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.com --password admin &&
-      superset init
-      "
-
-volumes:
-  superset_db:
-  superset_home:
+# volumes:
+#   superset_db:
+#   superset_home:
