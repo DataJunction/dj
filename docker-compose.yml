@@ -213,3 +213,42 @@ services:
     networks:
       - djqs-network
 
+  superset:
+    image: apache/superset:latest
+    container_name: superset
+    ports:
+      - 8088:8088
+    environment:
+      - SUPERSET_SECRET_KEY=supersecretkey
+      - PYTHONPATH=/app/pythonpath
+    volumes:
+      - superset_home:/app/superset_home
+    depends_on:
+      - superset-db
+      - superset-redis
+    # entrypoint: >
+    #   /bin/bash -c "
+    #   superset db upgrade &&
+    #   superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.com --password admin &&
+    #   superset init
+    #   "
+
+  superset-db:
+    image: postgres:15
+    container_name: superset-db
+    restart: always
+    environment:
+      POSTGRES_DB: superset
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
+    volumes:
+      - superset_db:/var/lib/postgresql/data
+
+  superset-redis:
+    image: redis:7
+    container_name: superset-redis
+    restart: always
+
+volumes:
+  superset_db:
+  superset_home:
