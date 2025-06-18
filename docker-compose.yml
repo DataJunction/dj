@@ -249,7 +249,7 @@ services:
     command: >
       bash -c "pip install psycopg2-binary &&
               superset db upgrade &&
-              superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@datajunction.io --password admin &&
+              superset fab create-admin --username admin --firstname DataJunction --lastname Admin --email admin@datajunction.io --password admin &&
               superset init"
     environment:
       - SUPERSET_SECRET_KEY=your_secret_key_here
