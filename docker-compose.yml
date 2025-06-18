@@ -247,6 +247,8 @@ services:
     image: apache/superset:latest
     depends_on:
       - superset-db
+    environment:
+      - SUPERSET_SECRET_KEY=supersecretkey
     command: >
       /bin/bash -c "
       superset db upgrade &&
