@@ -58,6 +58,6 @@ class Column:
     name: str
     display_name: Optional[str]
     type: str
-    attributes: Optional[List[Attribute]]
+    attributes: List[Attribute] = strawberry.field(default_factory=list)
     dimension: Optional[NodeName]
     partition: Optional[Partition]
