@@ -3,16 +3,16 @@ name: "PR Update : Run tests and linters"
 on:
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      # python
-      - datajunction-clients/python/datajunction/__about__.py
-      - datajunction-server/datajunction_server/__about__.py
-      - datajunction-query/djqs/__about__.py
-      - datajunction-reflection/datajunction_reflection/__about__.py
-      # javascript
-      - datajunction-clients/javascript/package.json
-      - datajunction-ui/package.json
-      # java: TODO
+    # paths-ignore:
+    #   # python
+    #   - datajunction-clients/python/datajunction/__about__.py
+    #   - datajunction-server/datajunction_server/__about__.py
+    #   - datajunction-query/djqs/__about__.py
+    #   - datajunction-reflection/datajunction_reflection/__about__.py
+    #   # javascript
+    #   - datajunction-clients/javascript/package.json
+    #   - datajunction-ui/package.json
+    #   # java: TODO
   push:
     branches: [ main ]
 
@@ -37,14 +37,15 @@ jobs:
         working-directory: ./
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
             client:
               - 'datajunction-clients/python/**'
-              # run Python unit tests also when server is updated (because server changes can break the client)
+              # Run cliebnt unit tests also when server code is updated 
+              # because server changes can break the client.
               - 'datajunction-server/**'
               - '!**/__about__.py'
             server:
@@ -56,6 +57,7 @@ jobs:
             djrs:
               - 'datajunction-reflection/**'
               - '!**/__about__.py'
+          predicate-quantifier: every
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
