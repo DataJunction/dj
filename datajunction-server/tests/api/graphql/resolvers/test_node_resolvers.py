@@ -11,7 +11,9 @@ from datajunction_server.errors import DJNodeNotFound
 async def test_no_cube_metrics_dimensions_passed():
     session = AsyncMock()
     cube_def = CubeDefinition(
-        cube=None, metrics=["metric1", "metric2"], dimensions=["dim1", "dim2"],
+        cube=None,
+        metrics=["metric1", "metric2"],
+        dimensions=["dim1", "dim2"],
     )
 
     metrics, dimensions = await resolve_metrics_and_dimensions(session, cube_def)
@@ -23,10 +25,13 @@ async def test_no_cube_metrics_dimensions_passed():
 @pytest.mark.asyncio
 @patch("datajunction_server.api.graphql.resolvers.nodes.DBNode.get_cube_by_name")
 async def test_cube_found_merges_metrics_and_dimensions(
-    mock_get_cube, session=AsyncMock(),
+    mock_get_cube,
+    session=AsyncMock(),
 ):
     cube_def = CubeDefinition(
-        cube="my_cube", metrics=["metric2", "metric3"], dimensions=["dim2", "dim3"],
+        cube="my_cube",
+        metrics=["metric2", "metric3"],
+        dimensions=["dim2", "dim3"],
     )
 
     # Mock the cube_node with current having cube_node_metrics and cube_node_dimensions
@@ -48,7 +53,9 @@ async def test_cube_found_merges_metrics_and_dimensions(
 @patch("datajunction_server.api.graphql.resolvers.nodes.DBNode.get_cube_by_name")
 async def test_cube_not_found_raises(mock_get_cube, session=AsyncMock()):
     cube_def = CubeDefinition(
-        cube="missing_cube", metrics=["metric1"], dimensions=["dim1"],
+        cube="missing_cube",
+        metrics=["metric1"],
+        dimensions=["dim1"],
     )
 
     mock_get_cube.return_value = None
