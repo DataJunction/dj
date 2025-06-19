@@ -64,6 +64,8 @@ repos:
     - id: ariadne-codegen
       files: ^datajunction-server/datajunction_server/api/graphql/
       name: Generate GraphQL Python Client with Ariadne
-      entry: bash -c 'cd datajunction-server && ariadne-codegen'
-      language: system
+      entry: bash -c 'cd datajunction-server && ariadne-codegen client'
+      language: python
+      additional_dependencies:
+        - git+https://github.com/normanre/ariadne-codegen.git@fix/list-arg-handling#egg=ariadne-codegen
       pass_filenames: false
