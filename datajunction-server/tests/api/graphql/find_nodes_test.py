@@ -751,7 +751,7 @@ async def test_find_metric(
                         {
                             "aggregation": "SUM",
                             "expression": "completed_repairs",
-                            "name": "completed_repairs_sum_8b112bf1",
+                            "name": "completed_repairs_sum_81105666",
                             "rule": {
                                 "type": "FULL",
                             },
@@ -759,7 +759,7 @@ async def test_find_metric(
                         {
                             "aggregation": "SUM",
                             "expression": "total_repairs_dispatched",
-                            "name": "total_repairs_dispatched_sum_601dc4f1",
+                            "name": "total_repairs_dispatched_sum_01dc2341",
                             "rule": {
                                 "type": "FULL",
                             },
@@ -767,7 +767,7 @@ async def test_find_metric(
                         {
                             "aggregation": "SUM",
                             "expression": "total_amount_in_region",
-                            "name": "total_amount_in_region_sum_3426ede4",
+                            "name": "total_amount_in_region_sum_1c94ab45",
                             "rule": {
                                 "type": "FULL",
                             },
@@ -775,23 +775,23 @@ async def test_find_metric(
                         {
                             "aggregation": "SUM",
                             "expression": "na.total_amount_nationwide",
-                            "name": "na_DOT_total_amount_nationwide_sum_4ecb2318",
+                            "name": "na_DOT_total_amount_nationwide_sum_fed946fe",
                             "rule": {
                                 "type": "FULL",
                             },
                         },
                     ],
-                    "derivedQuery": "SELECT  (SUM(completed_repairs_sum_8b112bf1) * 1.0 / "
-                    "SUM(total_repairs_dispatched_sum_601dc4f1)) * "
-                    "(SUM(total_amount_in_region_sum_3426ede4) * 1.0 / "
-                    "SUM(na_DOT_total_amount_nationwide_sum_4ecb2318)) * 100 \n"
+                    "derivedQuery": "SELECT  (SUM(completed_repairs_sum_81105666) * 1.0 / "
+                    "SUM(total_repairs_dispatched_sum_01dc2341)) * "
+                    "(SUM(total_amount_in_region_sum_1c94ab45) * 1.0 / "
+                    "SUM(na_DOT_total_amount_nationwide_sum_fed946fe)) * 100 \n"
                     " FROM default.regional_level_agg CROSS JOIN "
                     "default.national_level_agg na\n"
                     "\n",
-                    "derivedExpression": "(SUM(completed_repairs_sum_8b112bf1) * 1.0 / "
-                    "SUM(total_repairs_dispatched_sum_601dc4f1)) * "
-                    "(SUM(total_amount_in_region_sum_3426ede4) * 1.0 / "
-                    "SUM(na_DOT_total_amount_nationwide_sum_4ecb2318)) * 100",
+                    "derivedExpression": "(SUM(completed_repairs_sum_81105666) * 1.0 / "
+                    "SUM(total_repairs_dispatched_sum_01dc2341)) * "
+                    "(SUM(total_amount_in_region_sum_1c94ab45) * 1.0 / "
+                    "SUM(na_DOT_total_amount_nationwide_sum_fed946fe)) * 100",
                 },
             },
             "name": "default.regional_repair_efficiency",
