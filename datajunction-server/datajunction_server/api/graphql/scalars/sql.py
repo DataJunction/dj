@@ -1,11 +1,11 @@
 """SQL-related scalars."""
 
 from functools import cached_property
+from typing import Annotated
 
 import strawberry
 from strawberry.types import Info
 
-from datajunction_server.api.graphql.resolvers.nodes import get_node_by_name
 from datajunction_server.api.graphql.scalars.errors import DJError
 from datajunction_server.api.graphql.scalars.node import Node
 from datajunction_server.api.graphql.utils import extract_fields
@@ -82,6 +82,8 @@ class GeneratedSQL:
         """
         Loads a strawberry GeneratedSQL from the original pydantic model.
         """
+        from datajunction_server.api.graphql.resolvers.nodes import get_node_by_name
+
         fields = extract_fields(info)
         return GeneratedSQL(  # type: ignore
             node=await get_node_by_name(
@@ -103,3 +105,55 @@ class GeneratedSQL:
             upstream_tables=obj.upstream_tables,
             errors=obj.errors,
         )
+
+
+@strawberry.input
+class CubeDefinition:
+    """
+    The cube definition for the query
+    """
+
+    cube: Annotated[
+        str | None,
+        strawberry.argument(
+            description="The name of the cube to query",
+        ),
+    ] = None  # type: ignore
+    metrics: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="A list of metric node names",
+        ),
+    ] = None  # type: ignore
+    dimensions: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="A list of dimension attribute names",
+        ),
+    ] = None
+    filters: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="A list of filter SQL clauses",
+        ),
+    ] = None
+    orderby: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="A list of order by clauses",
+        ),
+    ] = None
+
+
+@strawberry.input
+class EngineSettings:
+    """
+    The engine settings for the query
+    """
+
+    name: str = strawberry.field(
+        description="The name of the engine used by the generated SQL",
+    )
+    version: str | None = strawberry.field(
+        description="The version of the engine used by the generated SQL",
+    )
