@@ -1,9 +1,11 @@
 """Utils for handling GraphQL queries."""
 
 import re
-from typing import Any, Dict
+from typing import Any, Dict, TypeVar
 
 CURSOR_SEPARATOR = "-"
+
+T = TypeVar("T")
 
 
 def convert_camel_case(name):
@@ -44,3 +46,11 @@ def extract_fields(query_fields) -> Dict[str, Any]:
                 fields[field_name] = None
 
     return fields
+
+
+def dedupe_append(base: list[T], extras: list[T]) -> list[T]:
+    """
+    Append items from extras to base, ensuring no duplicates.
+    """
+    base_set = set(base)
+    return base + [x for x in extras if x not in base_set]

@@ -2,14 +2,17 @@
 Node resolvers
 """
 
+from collections import OrderedDict
 from typing import Any, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, joinedload, selectinload
 from strawberry.types import Info
 
+from datajunction_server.errors import DJNodeNotFound
 from datajunction_server.api.graphql.scalars.node import NodeName
-from datajunction_server.api.graphql.utils import extract_fields
+from datajunction_server.api.graphql.scalars.sql import CubeDefinition
+from datajunction_server.api.graphql.utils import dedupe_append, extract_fields
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Column, ColumnAttribute
 from datajunction_server.database.node import Node as DBNode
@@ -161,3 +164,26 @@ def load_node_revision_options(node_revision_fields):
             ),
         )
     return options
+
+
+async def resolve_metrics_and_dimensions(
+    session: AsyncSession,
+    cube_def: CubeDefinition,
+) -> tuple[list[str], list[str]]:
+    """
+    Resolves the metrics and dimensions for a given cube definition.
+    If a cube is specified, it retrieves the metrics and dimensions from the cube node.
+    If no cube is specified, it uses the metrics and dimensions provided in the cube definition.
+    """
+    metrics = cube_def.metrics or []
+    dimensions = cube_def.dimensions or []
+
+    if cube_def.cube:
+        cube_node = await DBNode.get_cube_by_name(session, cube_def.cube)
+        if not cube_node:
+            raise DJNodeNotFound(f"Cube '{cube_def.cube}' not found.")
+        metrics = dedupe_append(cube_node.current.cube_node_metrics, metrics)
+        dimensions = dedupe_append(cube_node.current.cube_node_dimensions, dimensions)
+
+    metrics = list(OrderedDict.fromkeys(metrics))
+    return metrics, dimensions
