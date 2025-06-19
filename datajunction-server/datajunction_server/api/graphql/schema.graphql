@@ -45,7 +45,7 @@ type Column {
   name: String!
   displayName: String
   type: String!
-  attributes: [Attribute!]
+  attributes: [Attribute!]!
   dimension: NodeName
   partition: Partition
 }
@@ -263,7 +263,6 @@ type NodeRevision {
   updatedAt: DateTime!
   customMetadata: JSON
   query: String
-  columns: [Column!]!
   dimensionLinks: [DimensionLink!]!
   parents: [NodeName!]!
   availability: AvailabilityState
@@ -272,6 +271,7 @@ type NodeRevision {
   table: String
   requiredDimensions: [Column!]
   catalog: Catalog
+  columns(attributes: [String!] = null): [Column!]!
   primaryKey: [String!]!
   metricMetadata: MetricMetadata
   extractedMeasures: DecomposedMetric
