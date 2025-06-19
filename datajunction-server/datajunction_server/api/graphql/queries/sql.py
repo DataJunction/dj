@@ -1,68 +1,19 @@
 """Generate SQL-related GraphQL queries."""
 
-from typing import Annotated, Optional, OrderedDict
+from typing import Annotated, Optional
 
 import strawberry
 from strawberry.types import Info
 
-from datajunction_server.models.node import NodeType
-from datajunction_server.errors import DJNodeNotFound
-from datajunction_server.database.node import Node as DBNode
-from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
-from datajunction_server.api.graphql.scalars.sql import GeneratedSQL
+from datajunction_server.api.graphql.resolvers.nodes import (
+    resolve_metrics_and_dimensions,
+)
+from datajunction_server.api.graphql.scalars.sql import (
+    GeneratedSQL,
+    CubeDefinition,
+    EngineSettings,
+)
 from datajunction_server.construction.build_v2 import get_measures_query
-from datajunction_server.utils import dedupe_append
-
-
-@strawberry.input
-class CubeDefinition:
-    """
-    The cube definition for the query
-    """
-    cube: Annotated[
-        str | None,
-        strawberry.argument(
-            description="The name of the cube to query",
-        ),
-    ] = None  # type: ignore
-    metrics: Annotated[
-        list[str] | None,
-        strawberry.argument(
-            description="A list of metric node names",
-        ),
-    ] = None  # type: ignore
-    dimensions: Annotated[
-        list[str] | None,
-        strawberry.argument(
-            description="A list of dimension attribute names",
-        ),
-    ] = None
-    filters: Annotated[
-        list[str] | None,
-        strawberry.argument(
-            description="A list of filter SQL clauses",
-        ),
-    ] = None
-    orderby: Annotated[
-        list[str] | None,
-        strawberry.argument(
-            description="A list of order by clauses",
-        ),
-    ] = None
-
-
-@strawberry.input
-class EngineSettings:
-    """
-    The engine settings for the query
-    """
-
-    name: str = strawberry.field(
-        description="The name of the engine used by the generated SQL",
-    )
-    version: str | None = strawberry.field(
-        description="The version of the engine used by the generated SQL",
-    )
 
 
 async def measures_sql(
@@ -95,19 +46,10 @@ async def measures_sql(
     Get measures SQL for a set of metrics with dimensions and filters
     """
     session = info.context["session"]
-    metrics = cube.metrics or []
-    dimensions = cube.dimensions or []
-
-    if cube.cube:
-        cube_node = await DBNode.get_cube_by_name(session, cube.cube)
-        if not cube_node:
-            raise DJNodeNotFound(f"Cube '{cube.cube}' not found.")
-        metrics = dedupe_append(cube_node.current.cube_node_metrics, metrics)
-        dimensions = dedupe_append(cube_node.current.cube_node_dimensions, dimensions)
-
+    metrics, dimensions = await resolve_metrics_and_dimensions(session, cube)
     queries = await get_measures_query(
         session=session,
-        metrics=list(OrderedDict.fromkeys(metrics)),  # type: ignore
+        metrics=metrics,  # type: ignore
         dimensions=dimensions,  # type: ignore
         filters=cube.filters,  # type: ignore
         orderby=cube.orderby,
