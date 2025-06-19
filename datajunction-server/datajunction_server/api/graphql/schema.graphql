@@ -58,7 +58,8 @@ type ColumnMetadata {
 }
 
 input CubeDefinition {
-  metrics: [String!]!
+  cube: String = null
+  metrics: [String!] = null
   dimensions: [String!] = null
   filters: [String!] = null
   orderby: [String!] = null
