@@ -1101,3 +1101,70 @@ async def test_find_nodes_paginated_empty_list(
             "hasPrevPage": False,
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_find_by_with_filtering_on_columns(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test that filter on columns works correctly
+    """
+    query = """
+    {
+        findNodes(names: ["default.regional_level_agg", "default.repair_orders"]) {
+            name
+            type
+            current {
+                columns(attributes: ["primary_key"]) {
+                    name
+                    type
+                }
+            }
+            currentVersion
+        }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodes"] == [
+        {
+            "current": {
+                "columns": [
+                    {
+                        "name": "us_region_id",
+                        "type": "int",
+                    },
+                    {
+                        "name": "state_name",
+                        "type": "string",
+                    },
+                    {
+                        "name": "order_year",
+                        "type": "int",
+                    },
+                    {
+                        "name": "order_month",
+                        "type": "int",
+                    },
+                    {
+                        "name": "order_day",
+                        "type": "int",
+                    },
+                ],
+            },
+            "currentVersion": "v1.0",
+            "name": "default.regional_level_agg",
+            "type": "TRANSFORM",
+        },
+        {
+            "current": {
+                "columns": [],
+            },
+            "currentVersion": "v1.0",
+            "name": "default.repair_orders",
+            "type": "SOURCE",
+        },
+    ]

@@ -124,7 +124,43 @@ class NodeRevision:
         return Catalog.from_pydantic(root.catalog)  # type: ignore
 
     query: Optional[str] = None
-    columns: List[Column]
+
+    @strawberry.field
+    def columns(
+        self,
+        root: "DBNodeRevision",
+        attributes: list[str] | None = None,
+    ) -> list[Column]:
+        """
+        The columns of the node
+        """
+        return [
+            Column(  # type: ignore
+                name=col.name,
+                display_name=col.display_name,
+                type=col.type,
+                attributes=col.attributes,
+                dimension=(
+                    NodeName(name=col.dimension.name)  # type: ignore
+                    if col.dimension
+                    else None
+                ),
+                partition=Partition(
+                    type_=col.partition.type_,  # type: ignore
+                    format=col.partition.format,
+                    granularity=col.partition.granularity,
+                    expression=col.partition.expression,
+                )
+                if col.partition
+                else None,
+            )
+            for col in root.columns
+            if (
+                any(col.has_attribute(attr) for attr in attributes)
+                if attributes
+                else True
+            )
+        ]
 
     # Dimensions and data graph-related outputs
     dimension_links: List[DimensionLink]
