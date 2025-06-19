@@ -5,7 +5,7 @@ on:
     branches: [ main ]
     paths-ignore:
       # python
-      - datajunction-clients/python/__about__.py
+      - datajunction-clients/python/datajunction/__about__.py
       - datajunction-server/datajunction_server/__about__.py
       - datajunction-query/djqs/__about__.py
       - datajunction-reflection/datajunction_reflection/__about__.py
