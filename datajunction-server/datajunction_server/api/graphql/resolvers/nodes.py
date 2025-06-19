@@ -10,6 +10,7 @@ from sqlalchemy.orm import defer, joinedload, selectinload
 from strawberry.types import Info
 
 from datajunction_server.errors import DJNodeNotFound
+from datajunction_server.sql.dag import get_downstream_nodes, get_upstream_nodes
 from datajunction_server.api.graphql.scalars.node import NodeName
 from datajunction_server.api.graphql.scalars.sql import CubeDefinition
 from datajunction_server.api.graphql.utils import dedupe_append, extract_fields
@@ -187,3 +188,36 @@ async def resolve_metrics_and_dimensions(
 
     metrics = list(OrderedDict.fromkeys(metrics))
     return metrics, dimensions
+
+
+async def resolve_node_upstreams(info: Info, root: DBNode) -> List[DBNode]:
+    """
+    Resolves the upstream nodes for a given node. This function extracts the requested
+    fields from the query and only loads those to optimize the database query.
+    """
+    fields = extract_fields(info)
+    options = load_node_options(fields)
+    return await get_upstream_nodes(
+        session=info.context["session"],
+        node_name=root.name,
+        node_output_options=options,
+    )
+
+
+async def resolve_node_downstreams(
+    info: Info,
+    root: DBNode,
+    depth: int | None = -1,
+) -> List[DBNode]:
+    """
+    Resolves the downstream nodes for a given node. This function extracts the requested
+    fields from the query and only loads those to optimize the database query.
+    """
+    fields = extract_fields(info)
+    options = load_node_options(fields)
+    return await get_downstream_nodes(
+        session=info.context["session"],
+        node_name=root.name,
+        depth=depth,  # type: ignore
+        node_output_options=options,
+    )
