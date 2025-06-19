@@ -315,7 +315,7 @@ async def test_druid_measures_cube_full(
     - [failure] When there are no columns on the cube with type `timestamp` and no partition labels
     - [failure] If nothing has changed, will not update the existing materialization
     """
-    client_with_repairs_cube = await client_with_repairs_cube()  # type: ignore
+    client_with_repairs_cube = await client_with_repairs_cube()
     # [success] When there is a column on the cube with a temporal partition label:
     await set_temporal_column(
         client_with_repairs_cube,
@@ -438,7 +438,7 @@ async def test_druid_measures_cube_incremental(
     - [success] When the underlying measures node contains DJ_LOGICAL_TIMESTAMP
     """
     cube_name = "default.repairs_cube__incremental"
-    client_with_repairs_cube = await client_with_repairs_cube(cube_name=cube_name)  # type: ignore
+    client_with_repairs_cube = await client_with_repairs_cube(cube_name=cube_name)
     # [failure] If there is no time partition column configured
     response = await client_with_repairs_cube.post(
         f"/nodes/{cube_name}/materialization/",
@@ -626,7 +626,7 @@ async def test_druid_metrics_cube_incremental(
     - [success] When the underlying measures node contains DJ_LOGICAL_TIMESTAMP
     """
     cube_name = "default.repairs_cube__metrics_incremental"
-    client_with_repairs_cube = await client_with_repairs_cube(cube_name=cube_name)  # type: ignore
+    client_with_repairs_cube = await client_with_repairs_cube(cube_name=cube_name)
 
     # [failure] If there is no time partition column configured
     response = await client_with_repairs_cube.post(
@@ -758,7 +758,7 @@ async def test_druid_cube_incremental(
     - Strategy: incremental_time
     """
     cube_name = "default.repairs_cube__default_incremental"
-    client_with_repairs_cube = await client_with_repairs_cube(cube_name=cube_name)  # type: ignore
+    client_with_repairs_cube = await client_with_repairs_cube(cube_name=cube_name)
     # [failure] If there is no time partition column configured
     response = await client_with_repairs_cube.post(
         f"/nodes/{cube_name}/materialization/",
@@ -826,12 +826,12 @@ async def test_druid_cube_incremental(
                         version=ANY_STRING,
                         display_name="Repair Orders Fact",
                     ),
-                    measure_name="repair_order_id_count_bd241964",
+                    measure_name="repair_order_id_count_0b7dfba0",
                 ),
             ],
-            derived_expression="SELECT  SUM(repair_order_id_count_bd241964)"
+            derived_expression="SELECT  SUM(repair_order_id_count_0b7dfba0)"
             "  FROM default.repair_orders_fact",
-            metric_expression="SUM(repair_order_id_count_bd241964)",
+            metric_expression="SUM(repair_order_id_count_0b7dfba0)",
         ),
         CubeMetric(
             metric=NodeNameVersion(
@@ -846,12 +846,12 @@ async def test_druid_cube_incremental(
                         version=ANY_STRING,
                         display_name="Repair Orders Fact",
                     ),
-                    measure_name="total_repair_cost_sum_67874507",
+                    measure_name="total_repair_cost_sum_9bdaf803",
                 ),
             ],
-            derived_expression="SELECT  sum(total_repair_cost_sum_67874507)"
+            derived_expression="SELECT  sum(total_repair_cost_sum_9bdaf803)"
             "  FROM default.repair_orders_fact",
-            metric_expression="sum(total_repair_cost_sum_67874507)",
+            metric_expression="sum(total_repair_cost_sum_9bdaf803)",
         ),
     ]
     assert mat.measures_materializations[0].node == NodeNameVersion(
@@ -873,13 +873,13 @@ async def test_druid_cube_incremental(
     ]
     assert mat.measures_materializations[0].measures == [
         MetricComponent(
-            name="repair_order_id_count_bd241964",
+            name="repair_order_id_count_0b7dfba0",
             expression="repair_order_id",
             aggregation="COUNT",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
         MetricComponent(
-            name="total_repair_cost_sum_67874507",
+            name="total_repair_cost_sum_9bdaf803",
             expression="total_repair_cost",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
@@ -919,19 +919,19 @@ async def test_druid_cube_incremental(
             semantic_type="dimension",
         ),
         ColumnMetadata(
-            name="repair_order_id_count_bd241964",
+            name="repair_order_id_count_0b7dfba0",
             type="bigint",
-            column="repair_order_id_count_bd241964",
+            column="repair_order_id_count_0b7dfba0",
             node="default.repair_orders_fact",
-            semantic_entity="default.repair_orders_fact.repair_order_id_count_bd241964",
+            semantic_entity="default.repair_orders_fact.repair_order_id_count_0b7dfba0",
             semantic_type="measure",
         ),
         ColumnMetadata(
-            name="total_repair_cost_sum_67874507",
+            name="total_repair_cost_sum_9bdaf803",
             type="double",
-            column="total_repair_cost_sum_67874507",
+            column="total_repair_cost_sum_9bdaf803",
             node="default.repair_orders_fact",
-            semantic_entity="default.repair_orders_fact.total_repair_cost_sum_67874507",
+            semantic_entity="default.repair_orders_fact.total_repair_cost_sum_9bdaf803",
             semantic_type="measure",
         ),
     ]
@@ -994,19 +994,19 @@ async def test_druid_cube_incremental(
             semantic_type="dimension",
         ),
         ColumnMetadata(
-            name="repair_order_id_count_bd241964",
+            name="repair_order_id_count_0b7dfba0",
             type="bigint",
-            column="repair_order_id_count_bd241964",
+            column="repair_order_id_count_0b7dfba0",
             node="default.repair_orders_fact",
-            semantic_entity="default.repair_orders_fact.repair_order_id_count_bd241964",
+            semantic_entity="default.repair_orders_fact.repair_order_id_count_0b7dfba0",
             semantic_type="measure",
         ),
         ColumnMetadata(
-            name="total_repair_cost_sum_67874507",
+            name="total_repair_cost_sum_9bdaf803",
             type="double",
-            column="total_repair_cost_sum_67874507",
+            column="total_repair_cost_sum_9bdaf803",
             node="default.repair_orders_fact",
-            semantic_entity="default.repair_orders_fact.total_repair_cost_sum_67874507",
+            semantic_entity="default.repair_orders_fact.total_repair_cost_sum_9bdaf803",
             semantic_type="measure",
         ),
     ]
@@ -1024,13 +1024,13 @@ async def test_druid_cube_incremental(
     ]
     assert mat.combiners[0].measures == [
         MetricComponent(
-            name="repair_order_id_count_bd241964",
+            name="repair_order_id_count_0b7dfba0",
             expression="repair_order_id",
             aggregation="COUNT",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
         MetricComponent(
-            name="total_repair_cost_sum_67874507",
+            name="total_repair_cost_sum_9bdaf803",
             expression="total_repair_cost",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
