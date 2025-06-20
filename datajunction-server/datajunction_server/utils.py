@@ -41,6 +41,8 @@ from datajunction_server.errors import (
 )
 from datajunction_server.service_clients import QueryServiceClient
 
+logger = logging.getLogger(__name__)
+
 
 def setup_logging(loglevel: str) -> None:
     """
@@ -86,11 +88,11 @@ class DatabaseSessionManager:
         Initialize the database engine
         """
         settings = get_settings()
-        self.writer_engine, self.writer_session = self._create_engine_and_session(
+        self.writer_engine, self.writer_session = self.create_engine_and_session(
             settings.writer_db,
         )
         if settings.reader_db:
-            self.reader_engine, self.reader_session = self._create_engine_and_session(
+            self.reader_engine, self.reader_session = self.create_engine_and_session(
                 settings.reader_db,
             )
         else:
@@ -99,7 +101,8 @@ class DatabaseSessionManager:
                 self.writer_session,
             )
 
-    def _create_engine_and_session(
+    @classmethod
+    def create_engine_and_session(
         self,
         database_config: DatabaseConfig,
     ) -> tuple[AsyncEngine, AsyncSession]:
@@ -136,12 +139,6 @@ class DatabaseSessionManager:
     def session(self):
         return self.writer_session
 
-    def get_writer_session(self):
-        return self.writer_session
-
-    def get_reader_session(self):
-        return self.reader_session
-
     async def close(self):
         """
         Close database session
@@ -163,34 +160,37 @@ def get_session_manager() -> DatabaseSessionManager:
     return session_manager
 
 
-@lru_cache(maxsize=None)
-def get_engine() -> AsyncEngine:
-    """
-    Create the metadata engine.
-    """
-    settings = get_settings()
-    engine = create_async_engine(
-        settings.index,
-        future=True,
-        echo=settings.db_echo,
-        pool_pre_ping=settings.db_pool_pre_ping,
-        pool_size=settings.db_pool_size,
-        max_overflow=settings.db_max_overflow,
-        pool_timeout=settings.db_pool_timeout,
-        poolclass=AsyncAdaptedQueuePool,
-        connect_args={
-            "connect_timeout": settings.db_connect_timeout,
-        },
-    )
-    return engine
+# @lru_cache(maxsize=None)
+# def get_engine() -> AsyncEngine:
+#     """
+#     Create the metadata engine.
+#     """
+#     settings = get_settings()
+#     engine = create_async_engine(
+#         settings.index,
+#         future=True,
+#         echo=settings.db_echo,
+#         pool_pre_ping=settings.db_pool_pre_ping,
+#         pool_size=settings.db_pool_size,
+#         max_overflow=settings.db_max_overflow,
+#         pool_timeout=settings.db_pool_timeout,
+#         poolclass=AsyncAdaptedQueuePool,
+#         connect_args={
+#             "connect_timeout": settings.db_connect_timeout,
+#         },
+#     )
+#     return engine
 
 
-async def get_session() -> AsyncIterator[AsyncSession]:
+async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """
     Async database session.
     """
     session_manager = get_session_manager()
-    session = session_manager.session()
+    if request.method == "GET":
+        session = session_manager.reader_session()
+    else:
+        session = session_manager.writer_session()
     try:
         yield session
     except Exception as exc:
@@ -219,6 +219,7 @@ async def get_writer_session() -> AsyncIterator[AsyncSession]:
     """
     Async database session.
     """
+    logger.info("Getting writer session")
     session_manager = get_session_manager()
     session = session_manager.writer_session()
     try:

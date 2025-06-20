@@ -4,6 +4,7 @@ from starlette.requests import Request
 from datajunction_server.utils import get_session_manager
 from graphql import parse
 
+
 def is_mutation_operation(body_bytes: bytes) -> bool:
     """
     Check if the provided GraphQL query text contains a mutation operation.
