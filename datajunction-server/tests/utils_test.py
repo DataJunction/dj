@@ -3,6 +3,7 @@ Tests for ``datajunction_server.utils``.
 """
 
 import logging
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -55,6 +56,47 @@ async def test_get_session(mocker: MockerFixture) -> None:
         background_tasks.side_effect = lambda x, y: None
         session = await anext(get_session(request=mocker.MagicMock()))
         assert isinstance(session, AsyncSession)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,expected_session_attr",
+    [
+        ("GET", "reader_session"),
+        ("POST", "writer_session"),
+    ],
+)
+async def test_get_session_uses_correct_session(method, expected_session_attr):
+    """
+    Ensure get_session uses reader_session for GET and writer_session for others.
+    """
+    mock_reader = AsyncMock(spec=AsyncSession)
+    mock_writer = AsyncMock(spec=AsyncSession)
+
+    mock_reader_callable = MagicMock(return_value=mock_reader)
+    mock_writer_callable = MagicMock(return_value=mock_writer)
+
+    mock_session_manager = SimpleNamespace(
+        reader_session=mock_reader_callable,
+        writer_session=mock_writer_callable,
+    )
+
+    with patch(
+        "datajunction_server.utils.get_session_manager",
+        return_value=mock_session_manager,
+    ):
+        request = MagicMock()
+        request.method = method
+
+        session = await anext(get_session(request))
+        if expected_session_attr == "reader_session":
+            mock_reader_callable.assert_called_once()
+            mock_writer_callable.assert_not_called()
+            assert session is mock_reader
+        else:
+            mock_writer_callable.assert_called_once()
+            mock_reader_callable.assert_not_called()
+            assert session is mock_writer
 
 
 def test_get_settings(mocker: MockerFixture) -> None:

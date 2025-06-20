@@ -50,16 +50,14 @@ class Settings(BaseSettings):  # pragma: no cover
     # A list of hostnames that are allowed to make cross-site HTTP requests
     cors_origin_whitelist: List[str] = ["http://localhost:3000"]
 
-    # SQLAlchemy URI for the metadata database.
+    # Config for the metadata database, with support for writer and reader clusters
+    # `writer_db` is the primary database used for write operations
+    # [optional] `reader_db` is used for read operations and defaults to `writer_db`
+    # if no dedicated read replica is configured.
     writer_db: DatabaseConfig = DatabaseConfig(
         uri="postgresql+psycopg://dj:dj@postgres_metadata:5432/dj",
     )
     reader_db: DatabaseConfig = writer_db
-
-    # Fallback to support legacy configurations
-    @property
-    def index(self) -> str:
-        return self.writer_db.uri
 
     # Directory where the repository lives. This should have 2 subdirectories, "nodes" and
     # "databases".
