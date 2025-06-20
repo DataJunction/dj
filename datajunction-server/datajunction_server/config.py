@@ -11,10 +11,28 @@ from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
 from cachelib.redis import RedisCache
 from celery import Celery
-from pydantic import BaseSettings
+from pydantic import BaseModel, BaseSettings
 
 if TYPE_CHECKING:
     pass
+
+
+class DatabaseConfig(BaseModel):
+    """
+    Metadata database configuration.
+    """
+
+    uri: str
+    pool_size: int = 20
+    max_overflow: int = 20
+    pool_timeout: int = 10
+    connect_timeout: int = 5
+    pool_pre_ping: bool = True
+    echo: bool = False
+    keepalives: int = 1
+    keepalives_idle: int = 30
+    keepalives_interval: int = 10
+    keepalives_count: int = 5
 
 
 class Settings(BaseSettings):  # pragma: no cover
@@ -30,7 +48,15 @@ class Settings(BaseSettings):  # pragma: no cover
     cors_origin_whitelist: List[str] = ["http://localhost:3000"]
 
     # SQLAlchemy URI for the metadata database.
-    index: str = "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj"
+    writer_db: DatabaseConfig = DatabaseConfig(
+        uri="postgresql+psycopg://dj:dj@postgres_metadata:5432/dj",
+    )
+    reader_db: Optional[DatabaseConfig] = None
+
+    # Fallback to support legacy configurations
+    @property
+    def index(self) -> str:
+        return self.writer_db.uri
 
     # Directory where the repository lives. This should have 2 subdirectories, "nodes" and
     # "databases".
