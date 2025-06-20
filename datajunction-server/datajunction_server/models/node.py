@@ -498,8 +498,8 @@ class MutableNodeFields(BaseModel):
     """
 
     display_name: Optional[str]
-    description: str
-    mode: NodeMode
+    description: Optional[str]
+    mode: NodeMode = NodeMode.PUBLISHED
     primary_key: Optional[List[str]]
     custom_metadata: Optional[Dict]
 
@@ -662,7 +662,7 @@ class CubeNodeFields(BaseModel):
     filters: Optional[List[str]]
     orderby: Optional[List[str]]
     limit: Optional[int]
-    description: str
+    description: Optional[str]
     mode: NodeMode
 
 
