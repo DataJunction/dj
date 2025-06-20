@@ -640,6 +640,12 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
         },
     )
 
+    # Deactivate one node so that it is not included in the export
+    response = await client_with_roads.delete(
+        "/nodes/default.hard_hat_to_delete",
+    )
+    assert response.status_code in (200, 201)
+
     response = await client_with_roads.get(
         "/namespaces/default/export/",
     )
@@ -714,7 +720,7 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
         "hard_hat.dimension.yaml",
         "hard_hat_2.dimension.yaml",
         "hard_hat_state.source.yaml",
-        "hard_hat_to_delete.dimension.yaml",
+        # "hard_hat_to_delete.dimension.yaml", <-- this node has been deactivated
         "hard_hats.source.yaml",
         "local_hard_hats.dimension.yaml",
         "local_hard_hats_1.dimension.yaml",
