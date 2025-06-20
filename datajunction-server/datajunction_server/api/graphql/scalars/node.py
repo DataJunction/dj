@@ -149,7 +149,7 @@ class NodeRevision:
                     type_=col.partition.type_,  # type: ignore
                     format=col.partition.format,
                     granularity=col.partition.granularity,
-                    expression=col.partition.expression,
+                    expression=col.partition.temporal_expression(),
                 )
                 if col.partition
                 else None,
