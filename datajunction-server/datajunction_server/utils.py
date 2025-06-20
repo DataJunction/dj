@@ -9,7 +9,7 @@ import re
 from functools import lru_cache
 from http import HTTPStatus
 
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator, List, Optional, cast
 
 from dotenv import load_dotenv
 from fastapi import Depends
@@ -80,8 +80,8 @@ class DatabaseSessionManager:
     def __init__(self):
         self.reader_engine: AsyncEngine | None = None
         self.writer_engine: AsyncEngine | None = None
-        self.writer_session = None
-        self.reader_session = None
+        self.writer_session: AsyncSession | None = None
+        self.reader_session: AsyncSession | None = None
 
     def init_db(self):
         """
@@ -160,68 +160,15 @@ def get_session_manager() -> DatabaseSessionManager:
     return session_manager
 
 
-# @lru_cache(maxsize=None)
-# def get_engine() -> AsyncEngine:
-#     """
-#     Create the metadata engine.
-#     """
-#     settings = get_settings()
-#     engine = create_async_engine(
-#         settings.index,
-#         future=True,
-#         echo=settings.db_echo,
-#         pool_pre_ping=settings.db_pool_pre_ping,
-#         pool_size=settings.db_pool_size,
-#         max_overflow=settings.db_max_overflow,
-#         pool_timeout=settings.db_pool_timeout,
-#         poolclass=AsyncAdaptedQueuePool,
-#         connect_args={
-#             "connect_timeout": settings.db_connect_timeout,
-#         },
-#     )
-#     return engine
-
-
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """
     Async database session.
     """
     session_manager = get_session_manager()
     if request.method == "GET":
-        session = session_manager.reader_session()
+        session = cast(AsyncSession, session_manager.reader_session)()
     else:
-        session = session_manager.writer_session()
-    try:
-        yield session
-    except Exception as exc:
-        await session.rollback()  # pragma: no cover
-        raise exc  # pragma: no cover
-    finally:
-        await session.close()
-
-
-async def get_reader_session() -> AsyncIterator[AsyncSession]:
-    """
-    Async database session.
-    """
-    session_manager = get_session_manager()
-    session = session_manager.reader_session()
-    try:
-        yield session
-    except Exception as exc:
-        await session.rollback()  # pragma: no cover
-        raise exc  # pragma: no cover
-    finally:
-        await session.close()
-
-
-async def get_writer_session() -> AsyncIterator[AsyncSession]:
-    """
-    Async database session.
-    """
-    logger.info("Getting writer session")
-    session_manager = get_session_manager()
-    session = session_manager.writer_session()
+        session = cast(AsyncSession, session_manager.writer_session)()
     try:
         yield session
     except Exception as exc:
