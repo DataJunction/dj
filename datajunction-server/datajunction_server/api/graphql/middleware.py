@@ -1,6 +1,23 @@
+import json
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from datajunction_server.utils import get_session_manager
+from graphql import parse
+
+def is_mutation_operation(body_bytes: bytes) -> bool:
+    """
+    Check if the provided GraphQL query text contains a mutation operation.
+    """
+    try:
+        payload = json.loads(body_bytes)
+        query_text = payload.get("query", "").lower() if payload else ""
+        document = parse(query_text)
+        for definition in document.definitions:
+            if hasattr(definition, "operation") and definition.operation == "mutation":
+                return True
+        return False
+    except Exception:
+        return False
 
 
 class GraphQLSessionMiddleware(BaseHTTPMiddleware):
@@ -11,7 +28,11 @@ class GraphQLSessionMiddleware(BaseHTTPMiddleware):
         or rolled back as appropriate.
         """
         if request.url.path.startswith("/graphql"):
-            session = get_session_manager().session()
+            body_bytes = await request.body()
+            if is_mutation_operation(body_bytes):
+                session = get_session_manager().writer_session()
+            else:
+                session = get_session_manager().reader_session()
             request.state.db = session  # Attach to request so context can access it
             try:
                 response = await call_next(request)
