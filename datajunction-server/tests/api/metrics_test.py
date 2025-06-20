@@ -1284,6 +1284,33 @@ async def test_list_metric_metadata(module__client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_create_valid_metrics(module__client_with_roads: AsyncClient):
+    """
+    Validate that creating a metric wo description is aOK.
+    """
+    # without description
+    response = await module__client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "query": ("SELECT sum(total_repair_cost) FROM default.repair_orders_fact"),
+            "mode": "published",
+            "name": "default.invalid_metric_example_wo_desc",
+        },
+    )
+    assert response.status_code == 201
+
+    # without mode
+    response = await module__client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "query": ("SELECT sum(total_repair_cost) FROM default.repair_orders_fact"),
+            "name": "default.invalid_metric_example_wo_mode",
+        },
+    )
+    assert response.status_code == 201
+
+
+@pytest.mark.asyncio
 async def test_create_invalid_metric(module__client_with_roads: AsyncClient):
     """
     Validate that creating a metric with invalid SQL raises errors.
