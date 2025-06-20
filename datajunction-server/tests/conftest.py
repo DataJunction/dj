@@ -36,7 +36,7 @@ from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
 
 from datajunction_server.api.main import app
-from datajunction_server.config import Settings
+from datajunction_server.config import DatabaseConfig, Settings
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
@@ -85,8 +85,9 @@ def settings(
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri=postgres_container.get_connection_url())
     settings = Settings(
-        index=postgres_container.get_connection_url(),
+        writer_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -117,8 +118,9 @@ def settings_no_qs(
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri=postgres_container.get_connection_url())
     settings = Settings(
-        index=postgres_container.get_connection_url(),
+        writer_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -839,8 +841,9 @@ def module__settings(
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri=module__postgres_container.get_connection_url())
     settings = Settings(
-        index=module__postgres_container.get_connection_url(),
+        writer_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -873,8 +876,9 @@ def regular_settings(
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri=module__postgres_container.get_connection_url())
     settings = Settings(
-        index=module__postgres_container.get_connection_url(),
+        writer_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,

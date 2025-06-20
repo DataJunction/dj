@@ -14,7 +14,7 @@ import pytest
 import pytest_asyncio
 from cachelib import SimpleCache
 from datajunction_server.api.main import app
-from datajunction_server.config import Settings
+from datajunction_server.config import Settings, DatabaseConfig
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
@@ -103,8 +103,9 @@ def module__settings(module_mocker: MockerFixture) -> Iterator[Settings]:
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri="sqlite://")
     settings = Settings(
-        index="sqlite://",
+        writer_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,

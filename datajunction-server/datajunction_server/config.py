@@ -40,6 +40,9 @@ class Settings(BaseSettings):  # pragma: no cover
     DataJunction configuration.
     """
 
+    class Config:
+        env_nested_delimiter = "__"  # Enables nesting like WRITER_DB__URI
+
     name: str = "DJ server"
     description: str = "A DataJunction metrics layer"
     url: str = "http://localhost:8000/"
@@ -51,7 +54,7 @@ class Settings(BaseSettings):  # pragma: no cover
     writer_db: DatabaseConfig = DatabaseConfig(
         uri="postgresql+psycopg://dj:dj@postgres_metadata:5432/dj",
     )
-    reader_db: Optional[DatabaseConfig] = None
+    reader_db: DatabaseConfig = writer_db
 
     # Fallback to support legacy configurations
     @property
@@ -117,18 +120,6 @@ class Settings(BaseSettings):  # pragma: no cover
     index_cache_expire = 60
 
     default_catalog_id: int = 0
-
-    # SQLAlchemy engine config
-    db_pool_size = 20
-    db_max_overflow = 20
-    db_pool_timeout = 10
-    db_connect_timeout = 5
-    db_pool_pre_ping = True
-    db_echo = False
-    db_keepalives = 1
-    db_keepalives_idle = 30
-    db_keepalives_interval = 10
-    db_keepalives_count = 5
 
     # Maximum amount of nodes to return for requests to list all nodes
     node_list_max = 10000
