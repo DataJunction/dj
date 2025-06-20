@@ -165,7 +165,7 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     Async database session.
     """
     session_manager = get_session_manager()
-    if request.method == "GET":
+    if request.method.upper() == "GET":
         session = cast(AsyncSession, session_manager.reader_session)()
     else:
         session = cast(AsyncSession, session_manager.writer_session)()
