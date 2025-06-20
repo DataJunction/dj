@@ -2,6 +2,7 @@
 Tests for the namespaces API.
 """
 
+from http import HTTPStatus
 from unittest import mock
 
 import pytest
@@ -644,7 +645,7 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
     response = await client_with_roads.delete(
         "/nodes/default.hard_hat_to_delete",
     )
-    assert response.status_code in (200, 201)
+    assert response.status_code == HTTPStatus.OK
 
     response = await client_with_roads.get(
         "/namespaces/default/export/",
