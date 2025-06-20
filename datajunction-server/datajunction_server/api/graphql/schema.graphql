@@ -231,6 +231,8 @@ type Node {
   tags: [TagBase!]!
   createdBy: User!
   editedBy: [String!]!
+  upstreams(depth: Int = 1): [Node!]!
+  downstreams(depth: Int = 1): [Node!]!
 }
 
 type NodeConnection {

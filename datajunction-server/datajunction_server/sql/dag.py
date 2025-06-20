@@ -61,6 +61,7 @@ async def get_downstream_nodes(
     include_deactivated: bool = True,
     include_cubes: bool = True,
     depth: int = -1,
+    node_output_options: Optional[List] = None,
 ) -> List[Node]:
     """
     Gets all downstream children of the given node, filterable by node type.
@@ -147,6 +148,7 @@ async def get_upstream_nodes(
     node_name: str,
     node_type: NodeType = None,
     include_deactivated: bool = True,
+    node_output_options: Optional[List] = None,
 ) -> List[Node]:
     """
     Gets all upstreams of the given node, filterable by node type.
@@ -216,7 +218,7 @@ async def get_upstream_nodes(
             (Node.current_version == NodeRevision.version)
             & (Node.id == NodeRevision.node_id),
         )
-        .options(*_node_output_options())
+        .options(*(node_output_options or _node_output_options()))
     )
 
     results = (await session.execute(statement)).unique().scalars().all()
