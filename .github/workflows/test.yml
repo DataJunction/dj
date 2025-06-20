@@ -3,16 +3,6 @@ name: "PR Update : Run tests and linters"
 on:
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      # python
-      - datajunction-clients/python/datajunction/__about__.py
-      - datajunction-server/datajunction_server/__about__.py
-      - datajunction-query/djqs/__about__.py
-      - datajunction-reflection/datajunction_reflection/__about__.py
-      # javascript
-      - datajunction-clients/javascript/package.json
-      - datajunction-ui/package.json
-      # java: TODO
   push:
     branches: [ main ]
 
@@ -21,7 +11,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./
+
+    outputs:
+      client: ${{ steps.filter.outputs.client }}
+      server: ${{ steps.filter.outputs.server }}
+      djqs: ${{ steps.filter.outputs.djqs }}
+      djrs: ${{ steps.filter.outputs.djrs }}
+      ui: ${{ steps.filter.outputs.ui }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          token: ''
+          filters: |
+            client:
+              - datajunction-clients/python/**
+              - '!datajunction-clients/python/datajunction/__about__.py'
+            server:
+              - datajunction-server/**
+              - '!datajunction-server/datajunction_server/__about__.py'
+            djqs:
+              - datajunction-query/**
+              - '!**/__about__.py'
+            djrs:
+              - datajunction-reflection/**
+              - '!**/__about__.py'
+            ui:
+              - datajunction-ui/**
+              - '!datajunction-ui/package.json'
+          predicate-quantifier: every
+
   build:
+    needs: changes
     env:
       PDM_DEPS: 'urllib3<2'
     runs-on: ubuntu-latest
@@ -32,31 +60,8 @@ jobs:
         python-version: ['3.10', '3.11']
         library: ['client', 'server', 'djqs', 'djrs']
 
-    defaults:
-      run:
-        working-directory: ./
-
     steps:
-      - uses: actions/checkout@v2
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            client:
-              - 'datajunction-clients/python/**'
-              # run Python unit tests also when server is updated (because server changes can break the client)
-              - 'datajunction-server/**'
-              - '!**/__about__.py'
-            server:
-              - 'datajunction-server/**'
-              - '!**/__about__.py'
-            djqs:
-              - 'datajunction-query/**'
-              - '!**/__about__.py'
-            djrs:
-              - 'datajunction-reflection/**'
-              - '!**/__about__.py'
-
+      - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
         with:
@@ -77,10 +82,10 @@ jobs:
 
       - name: Run Tests
         if: |
-          (matrix.library == 'client' && steps.filter.outputs.client == 'true') ||
-          (matrix.library == 'server' && steps.filter.outputs.server == 'true') ||
-          (matrix.library == 'djqs' && steps.filter.outputs.djqs == 'true') ||
-          (matrix.library == 'djrs' && steps.filter.outputs.djrs == 'true')
+          (matrix.library == 'client' && needs.changes.outputs.client == 'true') ||
+          (matrix.library == 'server' && needs.changes.outputs.server == 'true') ||
+          (matrix.library == 'djqs' && needs.changes.outputs.djqs == 'true') ||
+          (matrix.library == 'djrs' && needs.changes.outputs.djrs == 'true')
         run: |
           echo "Testing ${{ matrix.library }} ..."
           export TEST_DIR=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
@@ -117,6 +122,7 @@ jobs:
         working-directory: ./datajunction-clients/javascript
 
   build-ui:
+    needs: changes
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -132,17 +138,19 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - name: Install Dependencies
+        if: ${{ needs.changes.outputs.ui == 'true' }}
         run: yarn install
-      - name: Run Lint
-        run: yarn lint --fix
-      - name: Run Prettier
-        run: yarn prettier . --write
-      - name: Check Linters Failed
-        run: git diff --exit-code
-      - name: Run Unit Tests
-        run: yarn test --runInBand --ci --coverage
-      - name: Build Project
-        run: yarn webpack-build
+      - name: Run Lint and Prettier
+        if: ${{ needs.changes.outputs.ui == 'true' }}
+        run: |
+          yarn lint --fix
+          yarn prettier . --write
+          git diff --exit-code
+      - name: Run Unit Tests and Build
+        if: ${{ needs.changes.outputs.ui == 'true' }}
+        run: |
+          yarn test --runInBand --ci --coverage
+          yarn webpack-build
 
   build-java:
     runs-on: ubuntu-latest
