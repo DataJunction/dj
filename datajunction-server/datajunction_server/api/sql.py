@@ -11,6 +11,8 @@ from typing import Any, List, Optional, Tuple, cast
 from fastapi import BackgroundTasks, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.api.helpers import (
     assemble_column_metadata,
     build_sql_for_multiple_metrics,
@@ -33,6 +35,7 @@ from datajunction_server.models.user import UserOutput
 from datajunction_server.utils import (
     Settings,
     get_and_update_current_user,
+    get_current_user,
     get_session,
     get_settings,
 )
@@ -124,6 +127,7 @@ async def build_and_save_node_sql(
     ignore_errors: bool = True,
     use_materialized: bool = True,
     query_parameters: dict[str, Any] | None = None,
+    save: bool = False,
 ) -> QueryRequest:
     """
     Build node SQL and save it to query requests
@@ -158,10 +162,14 @@ async def build_and_save_node_sql(
         )
         # We save the request for both the cube and the metrics, so that if someone makes either
         # of these types of requests, they'll go to the cached query
-        requests_to_save = [
-            (node.current.cube_node_metrics, QueryBuildType.METRICS),
-            ([node_name], QueryBuildType.NODE),
-        ]
+        requests_to_save = (
+            [
+                (node.current.cube_node_metrics, QueryBuildType.METRICS),
+                ([node_name], QueryBuildType.NODE),
+            ]
+            if save
+            else []
+        )
         for nodes, query_type in requests_to_save:
             if query_parameters:
                 continue  # pragma: no cover
@@ -231,6 +239,7 @@ async def build_and_save_node_sql(
         query_type=QueryBuildType.NODE,
         query=query,
         columns=[col.dict() for col in columns or []],
+        save=False,
     )
     return query_request
 
@@ -251,6 +260,7 @@ async def get_node_sql(
     ignore_errors: bool = True,
     use_materialized: bool = True,
     query_parameters: dict[str, Any] | None = None,
+    cache: Cache = None,
 ) -> Tuple[TranslatedSQL, QueryRequest]:
     """
     Return SQL for a node.
@@ -293,6 +303,7 @@ async def get_node_sql(
             access_control=access_control,
             use_materialized=use_materialized,
             query_parameters=query_parameters,
+            save=False,
         )
         return (
             TranslatedSQL.create(
@@ -315,6 +326,7 @@ async def get_node_sql(
         ignore_errors=ignore_errors,
         use_materialized=use_materialized,
         query_parameters=query_parameters,
+        save=False,
     )
     return (
         TranslatedSQL.create(
@@ -342,13 +354,14 @@ async def get_sql(
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
     background_tasks: BackgroundTasks,
     ignore_errors: Optional[bool] = True,
     use_materialized: Optional[bool] = True,
+    cache: Cache = Depends(get_cache),
 ) -> TranslatedSQL:
     """
     Return SQL for a node.
@@ -368,6 +381,7 @@ async def get_sql(
         ignore_errors=ignore_errors,  # type: ignore
         use_materialized=use_materialized,  # type: ignore
         query_parameters=json.loads(query_params),
+        cache=cache,
     )
     return translated_sql
 
@@ -384,7 +398,7 @@ async def get_sql_for_metrics(
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
@@ -444,6 +458,7 @@ async def get_sql_for_metrics(
             ignore_errors=ignore_errors,
             use_materialized=use_materialized,
             query_parameters=json.loads(query_params),
+            save=False,
         )
         engine = (  # pragma: no cover
             await get_engine(session, engine_name, engine_version)  # type: ignore
@@ -469,6 +484,7 @@ async def get_sql_for_metrics(
         ignore_errors=ignore_errors,  # type: ignore
         use_materialized=use_materialized,  # type: ignore
         query_parameters=json.loads(query_params),
+        save=False,
     )
 
 
@@ -485,6 +501,7 @@ async def build_and_save_sql_for_metrics(
     ignore_errors: bool = True,
     use_materialized: bool = True,
     query_parameters: dict[str, Any] | None = None,
+    save: bool = True,
 ):
     """
     Builds and saves SQL for metrics.
@@ -503,18 +520,18 @@ async def build_and_save_sql_for_metrics(
         use_materialized=use_materialized,  # type: ignore
         query_parameters=query_parameters,
     )
-
-    await QueryRequest.save_query_request(
-        session=session,
-        nodes=metrics,
-        dimensions=dimensions,
-        filters=filters,  # type: ignore
-        orderby=orderby,  # type: ignore
-        limit=limit,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        query_type=QueryBuildType.METRICS,
-        query=translated_sql.sql,
-        columns=[col.dict() for col in translated_sql.columns],  # type: ignore
-    )
+    if save:
+        await QueryRequest.save_query_request(
+            session=session,
+            nodes=metrics,
+            dimensions=dimensions,
+            filters=filters,  # type: ignore
+            orderby=orderby,  # type: ignore
+            limit=limit,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            query_type=QueryBuildType.METRICS,
+            query=translated_sql.sql,
+            columns=[col.dict() for col in translated_sql.columns],  # type: ignore
+        )
     return translated_sql

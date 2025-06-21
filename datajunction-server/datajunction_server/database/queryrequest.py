@@ -223,6 +223,7 @@ class QueryRequest(Base):  # type: ignore
         query: str,
         columns: List[Dict[str, Any]],
         other_args: Optional[Dict[str, Any]] = None,
+        save: bool = True,
     ) -> "QueryRequest":
         """
         Retrieves saved query for a node SQL request
@@ -239,7 +240,7 @@ class QueryRequest(Base):  # type: ignore
             orderby=orderby,
             other_args=other_args,
         )
-        if query_request:  # pragma: no cover
+        if query_request and save:  # pragma: no cover
             query_request.query = query
             query_request.columns = columns
             session.add(query_request)
@@ -267,8 +268,9 @@ class QueryRequest(Base):  # type: ignore
                 columns=columns,
                 other_args=other_args or text("'{}'::jsonb"),
             )
-            session.add(query_request)
-            await session.commit()
+            if save:
+                session.add(query_request)
+                await session.commit()
         return query_request
 
     @classmethod

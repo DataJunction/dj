@@ -35,6 +35,7 @@ from datajunction_server.models.node import NamespaceOutput, NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
     get_and_update_current_user,
+    get_current_user,
     get_query_service_client,
     get_session,
     get_settings,
@@ -107,7 +108,7 @@ async def create_node_namespace(
 )
 async def list_namespaces(
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
