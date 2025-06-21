@@ -5,7 +5,7 @@
 groups = ["default", "pandas", "test"]
 strategy = []
 lock_version = "4.5.0"
-content_hash = "sha256:57e7532ecc53f23212e46e5f547e45414932325cd24a65d0f3504beb8c810c0d"
+content_hash = "sha256:c63b78b12796dc05227bd841651362faa27d9f9620087692c7332e82a7d26393"
 
 [[metadata.targets]]
 requires_python = "~=3.8"
@@ -18,28 +18,6 @@ summary = "Easily measure timing and throughput of code blocks, with beautiful h
 files = [
     {file = "about-time-4.2.1.tar.gz", hash = "sha256:6a538862d33ce67d997429d14998310e1dbfda6cb7d9bbfbf799c4709847fece"},
     {file = "about_time-4.2.1-py3-none-any.whl", hash = "sha256:8bbf4c75fe13cbd3d72f49a03b02c5c7dca32169b6d49117c257e7eb3eaee341"},
-]
-
-[[package]]
-name = "accept-types"
-version = "0.4.1"
-summary = "Determine the best content to send in an HTTP response"
-files = [
-    {file = "accept-types-0.4.1.tar.gz", hash = "sha256:fb27099716d8f0360408c8ca86d69dbfed44455834b70d1506250abe521b535a"},
-    {file = "accept_types-0.4.1-py3-none-any.whl", hash = "sha256:c87feccdffb66b02f9343ff387d7fd5c451ccb2e1221fbd37ea0cedef5cf290f"},
-]
-
-[[package]]
-name = "aiosqlite"
-version = "0.20.0"
-requires_python = ">=3.8"
-summary = "asyncio bridge to the standard sqlite3 module"
-dependencies = [
-    "typing-extensions>=4.0",
-]
-files = [
-    {file = "aiosqlite-0.20.0-py3-none-any.whl", hash = "sha256:36a1deaca0cac40ebe32aac9977a6e2bbc7f5189f23f4a54d5908986729e5bd6"},
-    {file = "aiosqlite-0.20.0.tar.gz", hash = "sha256:6d35c8c256637f4672f843c31021464090805bf925385ac39473fb16eaaca3d7"},
 ]
 
 [[package]]
@@ -112,18 +90,6 @@ dependencies = [
 files = [
     {file = "anyio-3.7.0-py3-none-any.whl", hash = "sha256:eddca883c4175f14df8aedce21054bfca3adb70ffe76a9f607aef9d7fa2ea7f0"},
     {file = "anyio-3.7.0.tar.gz", hash = "sha256:275d9973793619a5374e1c89a4f4ad3f4b0a5510a2b5b939444bee8f4c4d37ce"},
-]
-
-[[package]]
-name = "asciidag"
-version = "0.2.0"
-summary = "Draw DAGs (directed acyclic graphs) as ASCII art, à la git log --graph"
-dependencies = [
-    "enum34; python_version < \"3.4\"",
-]
-files = [
-    {file = "asciidag-0.2.0-py2.py3-none-any.whl", hash = "sha256:f7ea1e6a867ab4c3a2537ff03bc0f25d8fccc2d5109f9f329220ba4fbb1b3e02"},
-    {file = "asciidag-0.2.0.tar.gz", hash = "sha256:acf4df123fc222322467d9bdb2020e44b4e1af37d38129092a080c3cda54a788"},
 ]
 
 [[package]]
@@ -677,11 +643,8 @@ requires_python = "<4.0,>=3.8"
 path = "../../datajunction-server"
 summary = "DataJunction server library for running to a DataJunction server"
 dependencies = [
-    "accept-types<1.0.0,>=0.4.1",
-    "aiosqlite>=0.20.0",
     "alembic>=1.10.3",
     "antlr4-python3-runtime==4.13.1",
-    "asciidag<1.0.0,>=0.2.0",
     "bcrypt>=4.0.1",
     "cachelib<1.0.0,>=0.10.2",
     "cachetools>=5.3.1",
@@ -700,17 +663,15 @@ dependencies = [
     "passlib>=1.7.4",
     "psycopg>=3.1.16",
     "pydantic<2",
-    "pytest-asyncio==0.21.2",
     "python-dotenv<1.0.0,>=0.19.0",
     "python-jose>=3.3.0",
-    "python-multipart>=0.0.6",
+    "python-multipart>=0.0.20",
     "redis<5.0.0,>=4.5.4",
     "requests<=2.29.0,>=2.28.2",
     "rich<14.0.0,>=13.3.3",
     "sqlalchemy-utils<1.0.0,>=0.40.0",
     "sqlalchemy>=2",
-    "sqlparse<1.0.0,>=0.4.3",
-    "sse-starlette>=1.6.0",
+    "sse-starlette<=2.0.0,>=1.6.0",
     "strawberry-graphql>=0.204.0",
     "types-cachetools>=5.3.0.6",
     "yarl<2.0.0,>=1.8.2",
@@ -2134,12 +2095,12 @@ files = [
 
 [[package]]
 name = "python-multipart"
-version = "0.0.6"
-requires_python = ">=3.7"
+version = "0.0.20"
+requires_python = ">=3.8"
 summary = "A streaming multipart parser for Python"
 files = [
-    {file = "python_multipart-0.0.6-py3-none-any.whl", hash = "sha256:ee698bab5ef148b0a760751c261902cd096e57e10558e11aca17646b74ee1c18"},
-    {file = "python_multipart-0.0.6.tar.gz", hash = "sha256:e9925a80bb668529f1b67c7fdb0a5dacdd7cbfc6fb0bff3ea443fe22bdd62132"},
+    {file = "python_multipart-0.0.20-py3-none-any.whl", hash = "sha256:8a62d3a8335e06589fe01f2a3e178cdcc632f3fbe0d492ad9ee0ec35aab1f104"},
+    {file = "python_multipart-0.0.20.tar.gz", hash = "sha256:8dd0cab45b8e23064ae09147625994d090fa46f5b0d1e13af944c331a7fa9d13"},
 ]
 
 [[package]]
@@ -2527,13 +2488,13 @@ files = [
 ]
 
 [[package]]
-name = "sqlparse"
-version = "0.4.4"
-requires_python = ">=3.5"
-summary = "A non-validating SQL parser."
+name = "sqlglot"
+version = "26.29.0"
+requires_python = ">=3.8"
+summary = "An easily customizable SQL parser and transpiler"
 files = [
-    {file = "sqlparse-0.4.4-py3-none-any.whl", hash = "sha256:5430a4fe2ac7d0f93e66f1efc6e1338a41884b7ddf2a350cedd20ccc4d9d28f3"},
-    {file = "sqlparse-0.4.4.tar.gz", hash = "sha256:d446183e84b8349fa3061f0fe7f06ca94ba65b426946ffebe6e3e8295332420c"},
+    {file = "sqlglot-26.29.0-py3-none-any.whl", hash = "sha256:373376bab433d55b291ccbbf9fd59e08a59cde059bdb64e32d1f15accc07ac65"},
+    {file = "sqlglot-26.29.0.tar.gz", hash = "sha256:023f1f9c35f0b5c9e5614e87624567bf20a69940995a4cbfe89c5481b9239474"},
 ]
 
 [[package]]

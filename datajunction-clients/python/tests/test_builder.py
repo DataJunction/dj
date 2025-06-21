@@ -909,7 +909,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
 
         with pytest.raises(DJNamespaceAlreadyExists) as exc_info:
             client.create_namespace(namespace="roads.demo")
-        assert "Node namespace `roads.demo` already exists" in str(exc_info.value)
+        assert "Namespace `roads.demo` already exists." in str(exc_info.value)
 
     def test_create_delete_restore_namespace(self, client):
         """
@@ -920,7 +920,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert namespace.namespace == "roads.demo.foo"
         with pytest.raises(DJNamespaceAlreadyExists) as exc_info:
             client.create_namespace(namespace="roads.demo.foo")
-        assert "Node namespace `roads.demo.foo` already exists" in str(exc_info.value)
+        assert "Namespace `roads.demo.foo` already exists." in str(exc_info.value)
 
         # then delete it
         response = client.delete_namespace(namespace="roads.demo.foo")
