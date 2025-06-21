@@ -36,7 +36,7 @@ from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
 
 from datajunction_server.api.main import app
-from datajunction_server.config import Settings
+from datajunction_server.config import DatabaseConfig, Settings
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
@@ -50,6 +50,7 @@ from datajunction_server.models.user import OAuthProvider
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
+    DatabaseSessionManager,
     get_query_service_client,
     get_session,
     get_settings,
@@ -85,8 +86,10 @@ def settings(
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri=postgres_container.get_connection_url())
     settings = Settings(
-        index=postgres_container.get_connection_url(),
+        writer_db=writer_db,
+        reader_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -117,8 +120,10 @@ def settings_no_qs(
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri=postgres_container.get_connection_url())
     settings = Settings(
-        index=postgres_container.get_connection_url(),
+        writer_db=writer_db,
+        reader_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -359,7 +364,8 @@ def query_service_client(
 @pytest.fixture
 def mock_session_manager(session: AsyncSession):
     mock_manager = Mock()
-    mock_manager.session.return_value = session
+    mock_manager.writer_session.return_value = session
+    mock_manager.reader_session.return_value = session
     with patch(
         "datajunction_server.api.graphql.middleware.get_session_manager",
         return_value=mock_manager,
@@ -371,7 +377,6 @@ def mock_session_manager(session: AsyncSession):
 async def client(
     session: AsyncSession,
     settings_no_qs: Settings,
-    mock_session_manager,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -727,14 +732,17 @@ async def module__client_example_loader(
 
 
 @pytest.fixture(scope="module")
-def module__mock_session_manager(module__session: AsyncSession):
+def module__mock_session_manager(
+    module__session: AsyncSession,
+) -> Iterator[DatabaseSessionManager]:
     mock_manager = Mock()
-    mock_manager.session.return_value = module__session
+    mock_manager.writer_session = module__session
+    mock_manager.reader_session = module__session
     with patch(
         "datajunction_server.api.graphql.middleware.get_session_manager",
         return_value=mock_manager,
     ):
-        yield
+        yield mock_manager
 
 
 @pytest_asyncio.fixture(scope="module")
@@ -839,8 +847,10 @@ def module__settings(
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri=module__postgres_container.get_connection_url())
     settings = Settings(
-        index=module__postgres_container.get_connection_url(),
+        writer_db=writer_db,
+        reader_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -873,8 +883,9 @@ def regular_settings(
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri=module__postgres_container.get_connection_url())
     settings = Settings(
-        index=module__postgres_container.get_connection_url(),
+        writer_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,

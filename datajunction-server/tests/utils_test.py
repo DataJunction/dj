@@ -3,25 +3,27 @@ Tests for ``datajunction_server.utils``.
 """
 
 import logging
+from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pytest_mock import MockerFixture
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine
 from starlette.background import BackgroundTasks
 from testcontainers.postgres import PostgresContainer
 from yarl import URL
 
-from datajunction_server.config import Settings
+from datajunction_server.config import DatabaseConfig, Settings
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJDatabaseException, DJException
 from datajunction_server.utils import (
+    DatabaseSessionManager,
     Version,
     execute_with_retry,
     get_and_update_current_user,
-    get_engine,
     get_issue_url,
     get_query_service_client,
     get_session,
@@ -52,8 +54,49 @@ async def test_get_session(mocker: MockerFixture) -> None:
         mocker.MagicMock(autospec=BackgroundTasks),
     ) as background_tasks:
         background_tasks.side_effect = lambda x, y: None
-        session = await anext(get_session())
+        session = (await anext(get_session(request=mocker.MagicMock())))()
         assert isinstance(session, AsyncSession)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,expected_session_attr",
+    [
+        ("GET", "reader_session"),
+        ("POST", "writer_session"),
+    ],
+)
+async def test_get_session_uses_correct_session(method, expected_session_attr):
+    """
+    Ensure get_session uses reader_session for GET and writer_session for others.
+    """
+    mock_reader = AsyncMock(spec=AsyncSession)
+    mock_writer = AsyncMock(spec=AsyncSession)
+
+    mock_reader_callable = MagicMock(return_value=mock_reader)
+    mock_writer_callable = MagicMock(return_value=mock_writer)
+
+    mock_session_manager = SimpleNamespace(
+        reader_session=mock_reader_callable,
+        writer_session=mock_writer_callable,
+    )
+
+    with patch(
+        "datajunction_server.utils.get_session_manager",
+        return_value=mock_session_manager,
+    ):
+        request = MagicMock()
+        request.method = method
+
+        session = (await anext(get_session(request)))()
+        if expected_session_attr == "reader_session":
+            mock_reader_callable.assert_called_once()
+            mock_writer_callable.assert_not_called()
+            assert session is mock_reader
+        else:
+            mock_writer_callable.assert_called_once()
+            mock_reader_callable.assert_not_called()
+            assert session is mock_writer
 
 
 def test_get_settings(mocker: MockerFixture) -> None:
@@ -88,7 +131,7 @@ def test_get_issue_url() -> None:
     )
 
 
-def test_get_engine(
+def test_database_session_manager(
     mocker: MockerFixture,
     settings: Settings,
     postgres_container: PostgresContainer,
@@ -97,12 +140,21 @@ def test_get_engine(
     Test ``get_engine``.
     """
     connection_url = postgres_container.get_connection_url()
-    settings.index = connection_url
+    settings.writer_db = DatabaseConfig(uri=connection_url)
     mocker.patch("datajunction_server.utils.get_settings", return_value=settings)
-    engine = get_engine()
-    assert engine.pool.size() == settings.db_pool_size
-    assert engine.pool.timeout() == settings.db_pool_timeout
-    assert engine.pool.overflow() == -settings.db_max_overflow
+
+    session_manager = DatabaseSessionManager()
+    session_manager.init_db()
+
+    writer_engine = cast(AsyncEngine, session_manager.writer_engine)
+    writer_engine.pool.size() == settings.writer_db.pool_size
+    writer_engine.pool.timeout() == settings.writer_db.pool_timeout
+    writer_engine.pool.overflow() == settings.writer_db.max_overflow
+
+    reader_engine = cast(AsyncEngine, session_manager.reader_engine)
+    reader_engine.pool.size() == settings.reader_db.pool_size
+    reader_engine.pool.timeout() == settings.reader_db.pool_timeout
+    reader_engine.pool.overflow() == settings.reader_db.max_overflow
 
 
 def test_get_query_service_client(mocker: MockerFixture, settings: Settings) -> None:

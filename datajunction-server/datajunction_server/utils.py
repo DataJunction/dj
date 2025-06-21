@@ -9,7 +9,7 @@ import re
 from functools import lru_cache
 from http import HTTPStatus
 
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator, List, Optional, cast
 
 from dotenv import load_dotenv
 from fastapi import Depends
@@ -29,7 +29,7 @@ from sqlalchemy.sql import Select
 from starlette.requests import Request
 from yarl import URL
 
-from datajunction_server.config import Settings
+from datajunction_server.config import DatabaseConfig, Settings
 from datajunction_server.database.user import User
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import (
@@ -40,6 +40,8 @@ from datajunction_server.errors import (
     DJUninitializedResourceException,
 )
 from datajunction_server.service_clients import QueryServiceClient
+
+logger = logging.getLogger(__name__)
 
 
 def setup_logging(loglevel: str) -> None:
@@ -76,43 +78,66 @@ class DatabaseSessionManager:
     """
 
     def __init__(self):
-        self.engine: AsyncEngine | None = None
-        self.session_maker = None
-        self.session = None
+        self.reader_engine: AsyncEngine | None = None
+        self.writer_engine: AsyncEngine | None = None
+        self.writer_session: AsyncSession | None = None
+        self.reader_session: AsyncSession | None = None
 
     def init_db(self):
         """
         Initialize the database engine
         """
         settings = get_settings()
-        self.engine = create_async_engine(
-            settings.index,
+        self.writer_engine, self.writer_session = self.create_engine_and_session(
+            settings.writer_db,
+        )
+        if settings.reader_db:
+            self.reader_engine, self.reader_session = self.create_engine_and_session(
+                settings.reader_db,
+            )
+        else:
+            self.reader_engine, self.reader_session = (  # pragma: no cover
+                self.writer_engine,
+                self.writer_session,
+            )
+
+    @classmethod
+    def create_engine_and_session(
+        self,
+        database_config: DatabaseConfig,
+    ) -> tuple[AsyncEngine, AsyncSession]:
+        engine = create_async_engine(
+            database_config.uri,
             future=True,
-            echo=settings.db_echo,
-            pool_pre_ping=settings.db_pool_pre_ping,
-            pool_size=settings.db_pool_size,
-            max_overflow=settings.db_max_overflow,
-            pool_timeout=settings.db_pool_timeout,
+            echo=database_config.echo,
+            pool_pre_ping=database_config.pool_pre_ping,
+            pool_size=database_config.pool_size,
+            max_overflow=database_config.max_overflow,
+            pool_timeout=database_config.pool_timeout,
             poolclass=AsyncAdaptedQueuePool,
             connect_args={
-                "connect_timeout": settings.db_connect_timeout,
-                "keepalives": settings.db_keepalives,
-                "keepalives_idle": settings.db_keepalives_idle,
-                "keepalives_interval": settings.db_keepalives_interval,
-                "keepalives_count": settings.db_keepalives_count,
+                "connect_timeout": database_config.connect_timeout,
+                "keepalives": database_config.keepalives,
+                "keepalives_idle": database_config.keepalives_idle,
+                "keepalives_interval": database_config.keepalives_interval,
+                "keepalives_count": database_config.keepalives_count,
             },
         )
-
         async_session_factory = async_sessionmaker(
-            bind=self.engine,
+            bind=engine,
             autocommit=False,
             expire_on_commit=False,  # prevents attributes from being expired on commit
         )
         # Create a scoped session
-        self.session = async_scoped_session(  # pragma: no cover
+        scoped_session = async_scoped_session(  # pragma: no cover
             async_session_factory,
             scopefunc=asyncio.current_task,
         )
+        return engine, scoped_session
+
+    @property
+    def session(self):
+        return self.writer_session  # pragma: no cover
 
     async def close(self):
         """
@@ -135,34 +160,15 @@ def get_session_manager() -> DatabaseSessionManager:
     return session_manager
 
 
-@lru_cache(maxsize=None)
-def get_engine() -> AsyncEngine:
-    """
-    Create the metadata engine.
-    """
-    settings = get_settings()
-    engine = create_async_engine(
-        settings.index,
-        future=True,
-        echo=settings.db_echo,
-        pool_pre_ping=settings.db_pool_pre_ping,
-        pool_size=settings.db_pool_size,
-        max_overflow=settings.db_max_overflow,
-        pool_timeout=settings.db_pool_timeout,
-        poolclass=AsyncAdaptedQueuePool,
-        connect_args={
-            "connect_timeout": settings.db_connect_timeout,
-        },
-    )
-    return engine
-
-
-async def get_session() -> AsyncIterator[AsyncSession]:
+async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """
     Async database session.
     """
     session_manager = get_session_manager()
-    session = session_manager.session()
+    if request.method.upper() == "GET":
+        session = cast(AsyncSession, session_manager.reader_session)
+    else:
+        session = cast(AsyncSession, session_manager.writer_session)
     try:
         yield session
     except Exception as exc:
