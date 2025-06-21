@@ -17,8 +17,8 @@ async def test_middleware_success(client):
     """
     mock_session = AsyncMock()
     mock_manager = Mock()
-    mock_manager.writer_session = Mock(return_value=mock_session)
-    mock_manager.reader_session = Mock(return_value=mock_session)
+    mock_manager.writer_session = mock_session
+    mock_manager.reader_session = mock_session
 
     with patch(
         "datajunction_server.api.graphql.middleware.get_session_manager",
@@ -52,8 +52,8 @@ async def test_middleware_failure():
     ) as test_client:
         mock_session = AsyncMock()
         mock_manager = Mock()
-        mock_manager.writer_session = Mock(return_value=mock_session)
-        mock_manager.reader_session = Mock(return_value=mock_session)
+        mock_manager.writer_session = mock_session
+        mock_manager.reader_session = mock_session
 
         with patch(
             "datajunction_server.api.graphql.middleware.get_session_manager",

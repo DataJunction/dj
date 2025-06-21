@@ -51,10 +51,11 @@ class GraphQLSessionMiddleware(BaseHTTPMiddleware):
 
             # Set up the database session based on whether it's a mutation or not
             session = (
-                cast(AsyncSession, get_session_manager().writer_session)()
+                cast(AsyncSession, get_session_manager().writer_session)
                 if is_mutation(body_bytes)
-                else cast(AsyncSession, get_session_manager().reader_session)()
+                else cast(AsyncSession, get_session_manager().reader_session)
             )
+            print("!!session!!", session)
             request.state.db = session  # Attach to request so context can access it
             try:
                 response = await call_next(request)
