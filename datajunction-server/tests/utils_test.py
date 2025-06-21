@@ -55,7 +55,6 @@ async def test_get_session(mocker: MockerFixture) -> None:
     ) as background_tasks:
         background_tasks.side_effect = lambda x, y: None
         session = (await anext(get_session(request=mocker.MagicMock())))()
-        print("sessss", session)
         assert isinstance(session, AsyncSession)
 
 
