@@ -74,7 +74,8 @@ async def get_nodes_in_namespace_detailed(
             ),
             Node.current_version == NodeRevision.version,
             Node.name == NodeRevision.name,
-            Node.type == node_type if node_type else True,
+            Node.type == node_type if node_type else True,  # type: ignore
+            Node.deactivated_at.is_(None),
         )
         .options(
             joinedload(Node.current).options(
