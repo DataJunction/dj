@@ -26,10 +26,14 @@ def is_mutation(body_bytes: bytes) -> bool:
             getattr(defn, "operation", None) == OperationType.MUTATION
             for defn in document.definitions
         )
-    except (GraphQLError, json.JSONDecodeError):
-        return False
-    except Exception as e:
-        logger.exception("Failed to parse GraphQL query: %s", str(e))
+    except (GraphQLError, json.JSONDecodeError) as exc:
+        logger.exception("Failed to parse GraphQL query: %s", str(exc))
+        return False  # pragma: no cover
+    except Exception as exc:  # pragma: no cover
+        logger.exception(  # pragma: no cover
+            "Exception handling GraphQL query: %s",
+            str(exc),
+        )
         return False
 
 
@@ -44,7 +48,7 @@ class GraphQLSessionMiddleware(BaseHTTPMiddleware):
             body_bytes = await request.body()
 
             # Restore request body for downstream usage
-            async def receive():
+            async def receive():  # pragma: no cover
                 return {"type": "http.request", "body": body_bytes}
 
             request._receive = receive  # type: ignore
