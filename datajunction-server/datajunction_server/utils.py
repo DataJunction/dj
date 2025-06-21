@@ -91,7 +91,9 @@ class DatabaseSessionManager:
         self.writer_engine, self.writer_session = self.create_engine_and_session(
             settings.writer_db,
         )
+        print("Using writer database:", settings.writer_db.uri)
         if settings.reader_db:
+            print("Using reader database:", settings.reader_db.uri)
             self.reader_engine, self.reader_session = self.create_engine_and_session(
                 settings.reader_db,
             )
@@ -106,6 +108,7 @@ class DatabaseSessionManager:
         self,
         database_config: DatabaseConfig,
     ) -> tuple[AsyncEngine, AsyncSession]:
+        print("creating engine and session for", database_config.uri)
         engine = create_async_engine(
             database_config.uri,
             future=True,

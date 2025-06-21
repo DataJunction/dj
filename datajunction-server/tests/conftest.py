@@ -121,6 +121,7 @@ def settings_no_qs(
     writer_db = DatabaseConfig(uri=postgres_container.get_connection_url())
     settings = Settings(
         writer_db=writer_db,
+        reader_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -361,7 +362,8 @@ def query_service_client(
 @pytest.fixture
 def mock_session_manager(session: AsyncSession):
     mock_manager = Mock()
-    mock_manager.session.return_value = session
+    mock_manager.writer_session.return_value = session
+    mock_manager.reader_session.return_value = session
     with patch(
         "datajunction_server.api.graphql.middleware.get_session_manager",
         return_value=mock_manager,
@@ -373,7 +375,6 @@ def mock_session_manager(session: AsyncSession):
 async def client(
     session: AsyncSession,
     settings_no_qs: Settings,
-    mock_session_manager,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -728,24 +729,12 @@ async def module__client_example_loader(
     return _load_examples
 
 
-@pytest.fixture(scope="module")
-def module__mock_session_manager(module__session: AsyncSession):
-    mock_manager = Mock()
-    mock_manager.session.return_value = module__session
-    with patch(
-        "datajunction_server.api.graphql.middleware.get_session_manager",
-        return_value=mock_manager,
-    ):
-        yield
-
-
 @pytest_asyncio.fixture(scope="module")
 async def module__client(
     module__session: AsyncSession,
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,
     module_mocker: MockerFixture,
-    module__mock_session_manager,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -844,6 +833,7 @@ def module__settings(
     writer_db = DatabaseConfig(uri=module__postgres_container.get_connection_url())
     settings = Settings(
         writer_db=writer_db,
+        reader_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
