@@ -40,7 +40,7 @@ from datajunction_server.models.query import QueryCreate
 from datajunction_server.naming import from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
-    get_and_update_current_user,
+    get_current_user,
     get_query_service_client,
     get_session,
     get_settings,
@@ -194,7 +194,7 @@ async def get_cube_dimension_sql(
     ),
     include_counts: bool = False,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
@@ -237,7 +237,7 @@ async def get_cube_dimension_values(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),

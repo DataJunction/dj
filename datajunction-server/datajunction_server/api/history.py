@@ -19,7 +19,7 @@ from datajunction_server.internal.access.authentication.http import SecureAPIRou
 from datajunction_server.internal.history import EntityType
 from datajunction_server.models.history import HistoryOutput
 from datajunction_server.utils import (
-    get_and_update_current_user,
+    get_current_user,
     get_session,
     get_settings,
 )
@@ -59,7 +59,7 @@ async def list_history_by_node_context(
     limit: int = Query(default=100, lte=100),
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> List[HistoryOutput]:
     """
     List all activity history for a node context

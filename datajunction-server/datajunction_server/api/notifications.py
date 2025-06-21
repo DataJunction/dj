@@ -21,7 +21,11 @@ from datajunction_server.internal.notifications import (
     get_user_notification_preferences,
 )
 from datajunction_server.models.notifications import NotificationPreferenceModel
-from datajunction_server.utils import get_and_update_current_user, get_session
+from datajunction_server.utils import (
+    get_and_update_current_user,
+    get_current_user,
+    get_session,
+)
 
 router = SecureAPIRouter(tags=["notifications"])
 _logger = logging.getLogger(__name__)
@@ -120,7 +124,7 @@ async def get_preferences(
     entity_name: Optional[str] = None,
     entity_type: Optional[EntityType] = None,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> List[NotificationPreferenceModel]:
     """Gets notification preferences for the current user"""
     notification_preferences = await get_user_notification_preferences(

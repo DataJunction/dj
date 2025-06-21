@@ -3,6 +3,8 @@ Main DJ server app.
 """
 
 import logging
+
+from fastapi.concurrency import asynccontextmanager
 from datajunction_server.api import setup_logging  # noqa
 
 from http import HTTPStatus
@@ -45,7 +47,7 @@ from datajunction_server.api.graphql.main import graphql_app, schema as graphql_
 from datajunction_server.api.graphql.middleware import GraphQLSessionMiddleware
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.errors import DJException
-from datajunction_server.utils import get_settings
+from datajunction_server.utils import get_session_manager, get_settings
 
 if TYPE_CHECKING:  # pragma: no cover
     pass
@@ -55,6 +57,24 @@ settings = get_settings()
 
 dependencies = [Depends(default_attribute_types), Depends(default_catalog)]
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context for initializing and tearing down app-wide resources, like the FastAPI cache
+    """
+    FastAPICache.init(InMemoryBackend(), prefix="inmemory-cache")  # pragma: no cover
+
+    # Use scoped_session only for request lifecycle sessions. For setup/teardown (lifespan),
+    # prefer direct session factories and async with
+    session_factory = get_session_manager().get_writer_session_factory()
+    async with session_factory() as session:
+        await default_attribute_types(session)
+        await default_catalog(session)
+
+    yield
+
+
 app = FastAPI(
     title=settings.name,
     description=settings.description,
@@ -63,7 +83,7 @@ app = FastAPI(
         "name": "MIT License",
         "url": "https://mit-license.org/",
     },
-    dependencies=dependencies,
+    lifespan=lifespan,
 )
 
 app.add_middleware(

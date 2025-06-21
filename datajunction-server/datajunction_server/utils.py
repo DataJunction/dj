@@ -139,6 +139,13 @@ class DatabaseSessionManager:
     def session(self):
         return self.writer_session  # pragma: no cover
 
+    def get_writer_session_factory(self) -> async_sessionmaker[AsyncSession]:
+        return async_sessionmaker(
+            bind=self.writer_engine,
+            autocommit=False,
+            expire_on_commit=False,
+        )
+
     async def close(self):
         """
         Close database session
@@ -175,7 +182,7 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
         await session.rollback()  # pragma: no cover
         raise exc  # pragma: no cover
     finally:
-        await session.close()
+        await session.remove()
 
 
 async def refresh_if_needed(session: AsyncSession, obj, attributes: list[str]):
