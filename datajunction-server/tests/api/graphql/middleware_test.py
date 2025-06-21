@@ -4,6 +4,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, Request
 from unittest.mock import AsyncMock, Mock, patch
+from httpx import AsyncClient
 from datajunction_server.api.graphql.middleware import (
     GraphQLSessionMiddleware,
     is_mutation,
@@ -11,7 +12,7 @@ from datajunction_server.api.graphql.middleware import (
 
 
 @pytest.mark.asyncio
-async def test_middleware_success(client):
+async def test_middleware_success(module__client: AsyncClient):
     """
     Test that the middleware commits the session and closes it on success.
     """
@@ -24,7 +25,10 @@ async def test_middleware_success(client):
         "datajunction_server.api.graphql.middleware.get_session_manager",
         return_value=mock_manager,
     ):
-        response = await client.post("/graphql", json={"query": "{ __typename }"})
+        response = await module__client.post(
+            "/graphql",
+            json={"query": "{ __typename }"},
+        )
 
     assert response.status_code == 200
     mock_session.commit.assert_awaited_once()
