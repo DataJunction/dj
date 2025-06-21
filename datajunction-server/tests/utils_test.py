@@ -54,7 +54,8 @@ async def test_get_session(mocker: MockerFixture) -> None:
         mocker.MagicMock(autospec=BackgroundTasks),
     ) as background_tasks:
         background_tasks.side_effect = lambda x, y: None
-        session = await anext(get_session(request=mocker.MagicMock()))
+        session = (await anext(get_session(request=mocker.MagicMock())))()
+        print("sessss", session)
         assert isinstance(session, AsyncSession)
 
 
@@ -88,7 +89,7 @@ async def test_get_session_uses_correct_session(method, expected_session_attr):
         request = MagicMock()
         request.method = method
 
-        session = await anext(get_session(request))
+        session = (await anext(get_session(request)))()
         if expected_session_attr == "reader_session":
             mock_reader_callable.assert_called_once()
             mock_writer_callable.assert_not_called()
