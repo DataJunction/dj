@@ -88,6 +88,7 @@ def settings(
     writer_db = DatabaseConfig(uri=postgres_container.get_connection_url())
     settings = Settings(
         writer_db=writer_db,
+        reader_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
