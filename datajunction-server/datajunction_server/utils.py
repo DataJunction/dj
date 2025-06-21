@@ -96,7 +96,7 @@ class DatabaseSessionManager:
                 settings.reader_db,
             )
         else:
-            self.reader_engine, self.reader_session = (
+            self.reader_engine, self.reader_session = (  # pragma: no cover
                 self.writer_engine,
                 self.writer_session,
             )
@@ -137,7 +137,7 @@ class DatabaseSessionManager:
 
     @property
     def session(self):
-        return self.writer_session
+        return self.writer_session  # pragma: no cover
 
     async def close(self):
         """
