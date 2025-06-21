@@ -24,7 +24,7 @@ class DatabaseConfig(BaseModel):
 
     uri: str
     pool_size: int = 20
-    max_overflow: int = 20
+    max_overflow: int = 100
     pool_timeout: int = 10
     connect_timeout: int = 5
     pool_pre_ping: bool = True
