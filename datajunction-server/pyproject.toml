@@ -45,7 +45,7 @@ dependencies = [
     # Authentication and security
     "passlib>=1.7.4",
     "python-jose>=3.3.0",
-    "cryptography>=41.0.3",
+    "cryptography<=45.0.0",
     "bcrypt>=4.0.1",
 
     # Google APIs
@@ -81,7 +81,7 @@ dependencies = [
     "nbformat>=5.10.4",
 
     # GraphQL
-    "strawberry-graphql>=0.204.0",
+    "strawberry-graphql[opentelemetry]>=0.204.0",
 
     # Data validation
     "pydantic<2",
