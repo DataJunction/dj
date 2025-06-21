@@ -166,9 +166,9 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """
     session_manager = get_session_manager()
     if request.method.upper() == "GET":
-        session = cast(AsyncSession, session_manager.reader_session)()
+        session = cast(AsyncSession, session_manager.reader_session)
     else:
-        session = cast(AsyncSession, session_manager.writer_session)()
+        session = cast(AsyncSession, session_manager.writer_session)
     try:
         yield session
     except Exception as exc:
