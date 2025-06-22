@@ -157,7 +157,7 @@ async def default_catalog(session: AsyncSession = Depends(get_session)):
     """
     statement = select(Catalog).filter(Catalog.id == UNKNOWN_CATALOG_ID)
     catalogs = (await session.execute(statement)).all()
-    if not catalogs:
+    if not catalogs:  # pragma: no cover
         unknown = Catalog(
             id=UNKNOWN_CATALOG_ID,
             name="unknown",

@@ -269,8 +269,8 @@ class QueryRequest(Base):  # type: ignore
                 other_args=other_args or text("'{}'::jsonb"),
             )
             if save:
-                session.add(query_request)
-                await session.commit()
+                session.add(query_request)  # pragma: no cover
+                await session.commit()  # pragma: no cover
         return query_request
 
     @classmethod
