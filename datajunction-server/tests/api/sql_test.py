@@ -86,18 +86,6 @@ async def test_sql(
     ]
     assert response["dialect"] is None
 
-    # Check that this query request has been saved
-    query_request = (await session.execute(select(QueryRequest))).scalars().all()
-    assert len(query_request) == 1
-    assert query_request[0].nodes == ["default.a_metric@1"]
-    assert query_request[0].dimensions == []
-    assert query_request[0].filters == []
-    assert query_request[0].orderby == []
-    assert query_request[0].limit is None
-    assert query_request[0].query_type == QueryBuildType.NODE
-    assert compare_query_strings(query_request[0].query, response["sql"])
-    assert query_request[0].columns == response["columns"]
-
 
 @pytest.fixture
 def transform_node_sql_request(client_with_roads: AsyncClient):
@@ -274,6 +262,7 @@ async def get_query_requests(session: AsyncSession, query_type: QueryBuildType):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Not saving to query requests")
 async def test_saving_node_sql_requests(
     session: AsyncSession,
     client_with_roads: AsyncClient,
@@ -499,6 +488,7 @@ async def test_saving_measures_sql_requests(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Not saving to query requests")
 async def test_saving_metrics_sql_requests(
     session: AsyncSession,
     client_with_roads: AsyncClient,

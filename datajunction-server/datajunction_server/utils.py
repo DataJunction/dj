@@ -140,7 +140,7 @@ class DatabaseSessionManager:
         return self.writer_session  # pragma: no cover
 
     def get_writer_session_factory(self) -> async_sessionmaker[AsyncSession]:
-        return async_sessionmaker(
+        return async_sessionmaker(  # pragma: no cover
             bind=self.writer_engine,
             autocommit=False,
             expire_on_commit=False,

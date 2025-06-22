@@ -34,7 +34,6 @@ from datajunction_server.models.sql import GeneratedSQL
 from datajunction_server.models.user import UserOutput
 from datajunction_server.utils import (
     Settings,
-    get_and_update_current_user,
     get_current_user,
     get_session,
     get_settings,
@@ -75,7 +74,7 @@ async def get_measures_sql_for_cube_v2(
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_and_update_current_user),
+    current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
@@ -162,14 +161,10 @@ async def build_and_save_node_sql(
         )
         # We save the request for both the cube and the metrics, so that if someone makes either
         # of these types of requests, they'll go to the cached query
-        requests_to_save = (
-            [
-                (node.current.cube_node_metrics, QueryBuildType.METRICS),
-                ([node_name], QueryBuildType.NODE),
-            ]
-            if save
-            else []
-        )
+        requests_to_save = [
+            (node.current.cube_node_metrics, QueryBuildType.METRICS),
+            ([node_name], QueryBuildType.NODE),
+        ]
         for nodes, query_type in requests_to_save:
             if query_parameters:
                 continue  # pragma: no cover
@@ -185,6 +180,7 @@ async def build_and_save_node_sql(
                 query_type=query_type,
                 query=translated_sql.sql,
                 columns=[col.dict() for col in translated_sql.columns],  # type: ignore
+                save=False,
             )
         return request
 
@@ -521,7 +517,7 @@ async def build_and_save_sql_for_metrics(
         query_parameters=query_parameters,
     )
     if save:
-        await QueryRequest.save_query_request(
+        await QueryRequest.save_query_request(  # pragma: no cover
             session=session,
             nodes=metrics,
             dimensions=dimensions,

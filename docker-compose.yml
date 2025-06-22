@@ -42,8 +42,16 @@ services:
     networks:
       - core
     hostname: postgres_metadata
+    entrypoint: >
+      sh -c "docker-entrypoint.sh postgres &
+            echo 'Waiting for Postgres...';
+            until pg_isready -h localhost -U dj; do sleep 1; done;
+            echo 'Creating readonly user...';
+            /docker-entrypoint-initdb.d/create-readonly-user.sh;
+            wait"
     volumes:
       - ./postgres_metadata:/var/lib/postgresql/data
+      - ./init/create-readonly-user.sh:/docker-entrypoint-initdb.d/create-readonly-user.sh
     environment:
       - POSTGRES_PASSWORD=dj
       - POSTGRES_USER=dj

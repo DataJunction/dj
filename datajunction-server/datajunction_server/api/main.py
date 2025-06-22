@@ -59,7 +59,7 @@ dependencies = [Depends(default_attribute_types), Depends(default_catalog)]
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI):  # pragma: no cover
     """
     Lifespan context for initializing and tearing down app-wide resources, like the FastAPI cache
     """
