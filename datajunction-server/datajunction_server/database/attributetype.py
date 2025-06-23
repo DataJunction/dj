@@ -87,7 +87,7 @@ class ColumnAttribute(Base):
     """
 
     __tablename__ = "columnattribute"
-    __table_args__ = (UniqueConstraint("column_id", "attribute_type_id"),)
+    __table_args__ = (UniqueConstraint("attribute_type_id", "column_id"),)
 
     id: Mapped[int] = mapped_column(
         sa.BigInteger().with_variant(sa.Integer, "sqlite"),

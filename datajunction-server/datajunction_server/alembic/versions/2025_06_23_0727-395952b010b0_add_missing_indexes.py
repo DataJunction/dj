@@ -1,4 +1,5 @@
-"""Add missing indexes
+"""
+Add indexes to speed up recursive CTE queries
 
 Revision ID: 395952b010b0
 Revises: 5a8eb7b2a9c6
