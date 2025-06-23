@@ -455,6 +455,7 @@ async def get_dimensions_dag(
             )
             .select_from(NodeColumns)
             .join(Column, NodeColumns.column_id == Column.id)
+            .where(Column.dimension_id.isnot(None))
         )
         .union_all(
             select(
@@ -659,6 +660,13 @@ async def get_dimensions_dag(
             .where(NodeRevision.id == node_revision.id),
         )
     )
+    from sqlalchemy.dialects import postgresql
+
+    compiled_query = final_query.compile(
+        dialect=postgresql.dialect(),
+        compile_kwargs={"literal_binds": True},
+    )
+    print("compiled_query", compiled_query)
 
     def _extract_roles_from_path(join_path) -> str:
         """Extracts dimension roles from the query results' join path"""
