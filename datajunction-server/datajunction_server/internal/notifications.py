@@ -28,6 +28,7 @@ async def get_user_notification_preferences(
         statement = statement.where(NotificationPreference.entity_name == entity_name)
     if entity_type:
         statement = statement.where(NotificationPreference.entity_type == entity_type)
+    statement = statement.options(selectinload(NotificationPreference.user))
     result = await session.execute(statement)
     return result.scalars().all()
 

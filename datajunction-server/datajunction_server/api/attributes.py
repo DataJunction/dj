@@ -109,8 +109,7 @@ async def default_attribute_types(session: AsyncSession = Depends(get_session)):
         ),
     )
     attribute_types = (await session.execute(statement)).scalars().all()
-    for type_ in attribute_types:
-        # if type_:  # pragma: no cover
+    for type_ in attribute_types:  # pragma: no cover
         type_.name = default_attribute_type_names[type_.name].name
         type_.namespace = default_attribute_type_names[type_.name].namespace
         type_.description = default_attribute_type_names[type_.name].description
