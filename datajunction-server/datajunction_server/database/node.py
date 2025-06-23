@@ -179,6 +179,16 @@ class Node(Base):
     """
 
     __tablename__ = "node"
+    __table_args__ = (
+        UniqueConstraint("name", "namespace", name="unique_node_namespace_name"),
+        Index("cursor_index", "created_at", "id", postgresql_using="btree"),
+        Index(
+            "namespace_index",
+            "namespace",
+            postgresql_using="btree",
+            postgresql_ops={"identifier": "varchar_pattern_ops"},
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         sa.BigInteger().with_variant(sa.Integer, "sqlite"),
