@@ -187,7 +187,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
 
         # partial list
         nodes = client.list_transforms(namespace="foo.bar")
-        assert nodes == ["foo.bar.repair_orders_thin", "foo.bar.with_custom_metadata"]
+        assert nodes == ["foo.bar.with_custom_metadata", "foo.bar.repair_orders_thin"]
 
     def test_list_nodes(self, client):
         """
