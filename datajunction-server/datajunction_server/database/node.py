@@ -114,7 +114,6 @@ class BoundDimensionsRelationship(Base):
     """
 
     __tablename__ = "metric_required_dimensions"
-    __table_args__ = (Index("idx_metric_required_dimensions_metric_id", "metric_id"),)
 
     metric_id: Mapped[int] = mapped_column(
         ForeignKey(
@@ -253,23 +252,6 @@ class Node(Base):
         primaryjoin="History.entity_name==Node.name",
         order_by="History.created_at",
         foreign_keys="History.entity_name",
-    )
-
-    __table_args__ = (
-        UniqueConstraint("name", "namespace", name="unique_node_namespace_name"),
-        Index("cursor_index", "created_at", "id", postgresql_using="btree"),
-        Index(
-            "namespace_index",
-            "namespace",
-            postgresql_using="btree",
-            postgresql_ops={"identifier": "varchar_pattern_ops"},
-        ),
-        # Handles frequent filtering on deactivated_at is NULL
-        Index(
-            "idx_node_deactivated_at_null",
-            "deactivated_at",
-            postgresql_where=(deactivated_at.is_(None)),
-        ),
     )
 
     def __hash__(self) -> int:
