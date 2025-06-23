@@ -455,6 +455,7 @@ async def get_dimensions_dag(
             )
             .select_from(NodeColumns)
             .join(Column, NodeColumns.column_id == Column.id)
+            .where(Column.dimension_id.isnot(None))
         )
         .union_all(
             select(
