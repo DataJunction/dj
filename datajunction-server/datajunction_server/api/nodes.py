@@ -115,6 +115,7 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
 from datajunction_server.utils import (
     Version,
     get_and_update_current_user,
+    get_current_user,
     get_namespace_from_name,
     get_query_service_client,
     get_session,
@@ -241,7 +242,7 @@ async def list_nodes(
     prefix: Optional[str] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
@@ -272,7 +273,7 @@ async def list_all_nodes_with_details(
     node_type: Optional[NodeType] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
