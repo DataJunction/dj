@@ -2,6 +2,7 @@
 SQL related APIs.
 """
 
+import hashlib
 import json
 import logging
 from collections import OrderedDict
@@ -19,6 +20,8 @@ from datajunction_server.api.helpers import (
     get_query,
     validate_orderby,
 )
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.database import Engine, Node
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
@@ -70,7 +73,7 @@ async def get_measures_sql_for_cube_v2(
             "for the metrics and dimensions in the cube"
         ),
     ),
-    settings: Settings = Depends(get_settings),
+    cache: Cache = Depends(get_cache),
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -79,6 +82,7 @@ async def get_measures_sql_for_cube_v2(
         validate_access,
     ),
     use_materialized: bool = True,
+    background_tasks: BackgroundTasks,
 ) -> List[GeneratedSQL]:
     """
     Return measures SQL for a set of metrics with dimensions and filters.
@@ -96,7 +100,31 @@ async def get_measures_sql_for_cube_v2(
     )
 
     metrics = list(OrderedDict.fromkeys(metrics))
-    return await get_measures_query(
+    cache_key = await QueryRequest.build_cache_key(
+        session=session,
+        query_type=QueryBuildType.MEASURES,
+        nodes=metrics,
+        dimensions=dimensions,
+        filters=filters,
+        engine_name=engine_name,
+        engine_version=engine_version,
+        limit=None,
+        orderby=orderby,
+        other_args={
+            "include_all_columns": include_all_columns,
+            "preaggregate": preaggregate,
+            "use_materialized": use_materialized,
+            "query_parameters": json.loads(query_params),
+        }
+    )
+
+    # If the cache is enabled, we can use the cache key to get the cached request
+    # and return it without building the SQL again.
+    if cache.get(cache_key):
+        _logger.debug("Cache hit for measures SQL: %s", cache_key)
+        return cache.get(cache_key)
+
+    measures_query = await get_measures_query(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
@@ -111,6 +139,9 @@ async def get_measures_sql_for_cube_v2(
         preagg_requested=preaggregate,
         query_parameters=json.loads(query_params),
     )
+    background_tasks.add_task(cache.set, cache_key, measures_query)
+    return measures_query
+
 
 
 async def build_and_save_node_sql(
