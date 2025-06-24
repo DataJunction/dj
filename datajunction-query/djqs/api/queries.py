@@ -111,12 +111,6 @@ async def submit_query(  # pylint: disable=too-many-arguments
     )
 
     return_type = get_best_match(accept, ["application/json", "application/msgpack"])
-    if not return_type:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_ACCEPTABLE,
-            detail="Client MUST accept: application/json, application/msgpack",
-        )
-
     if return_type == "application/msgpack":
         content = msgpack.packb(
             asdict(query_with_results),

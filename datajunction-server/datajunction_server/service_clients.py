@@ -200,7 +200,7 @@ class QueryServiceClient:
         response_data = response.json()
         if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response_data['message']}",
+                message=f"Error response from query service: {response_data}",
                 errors=[
                     DJError(code=ErrorCode.QUERY_SERVICE_ERROR, message=error)
                     for error in response_data["errors"]

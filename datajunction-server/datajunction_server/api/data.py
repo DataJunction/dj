@@ -324,11 +324,6 @@ async def get_data_stream_for_node(
         request_headers=request_headers,
     )
 
-    # Save the external query id reference
-    query_request.query_id = initial_query_info.id
-    session.add(query_request)
-    await session.commit()
-
     return EventSourceResponse(
         query_event_stream(
             query=initial_query_info,
