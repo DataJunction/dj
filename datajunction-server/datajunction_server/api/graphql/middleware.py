@@ -52,12 +52,13 @@ class GraphQLSessionMiddleware(BaseHTTPMiddleware):
                 return {"type": "http.request", "body": body_bytes}
 
             request._receive = receive  # type: ignore
+            session_manager = get_session_manager()
 
             # Set up the database session based on whether it's a mutation or not
             session = (
-                cast(AsyncSession, get_session_manager().writer_session)
+                cast(AsyncSession, session_manager.writer_session)
                 if is_mutation(body_bytes)
-                else cast(AsyncSession, get_session_manager().reader_session)
+                else cast(AsyncSession, session_manager.reader_session)
             )
             request.state.db = session  # Attach to request so context can access it
             try:
@@ -68,6 +69,6 @@ class GraphQLSessionMiddleware(BaseHTTPMiddleware):
                 await session.rollback()
                 raise
             finally:
-                await session.close()
+                await session.remove()
         else:
             return await call_next(request)
