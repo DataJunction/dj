@@ -164,7 +164,7 @@ class NodeRevision:
 
     # Dimensions and data graph-related outputs
     dimension_links: List[DimensionLink]
-    parents: List[NodeName]
+    parents: List[Node]
 
     # Materialization-related outputs
     availability: Optional[AvailabilityState] = None
