@@ -19,7 +19,7 @@ from typing import (
     List,
     Optional,
 )
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from urllib.parse import urlparse
 
 from psycopg import connect
@@ -878,6 +878,7 @@ async def module__session(
         expire_on_commit=False,
     )
     async with async_session_factory() as session:
+        session.remove = AsyncMock(return_value=None)
         yield session
 
     async with engine.begin() as conn:
