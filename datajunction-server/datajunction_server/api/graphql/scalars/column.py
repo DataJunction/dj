@@ -38,6 +38,16 @@ class NodeName:
 
 
 @strawberry.type
+class NodeNameVersion:
+    """
+    Node name and version
+    """
+
+    name: str
+    current_version: str
+
+
+@strawberry.type
 class Partition:
     """
     A partition configuration for a column

@@ -251,6 +251,11 @@ type NodeName {
   name: String!
 }
 
+type NodeNameVersion {
+  name: String!
+  currentVersion: String!
+}
+
 type NodeRevision {
   id: Union!
   type: NodeType!
@@ -264,7 +269,7 @@ type NodeRevision {
   customMetadata: JSON
   query: String
   dimensionLinks: [DimensionLink!]!
-  parents: [NodeName!]!
+  parents: [NodeNameVersion!]!
   availability: AvailabilityState
   materializations: [MaterializationConfig!]
   schema_: String
