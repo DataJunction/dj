@@ -10,7 +10,12 @@ from strawberry.types import Info
 from datajunction_server.api.graphql.scalars import BigInt
 from datajunction_server.api.graphql.scalars.availabilitystate import AvailabilityState
 from datajunction_server.api.graphql.scalars.catalog_engine import Catalog
-from datajunction_server.api.graphql.scalars.column import Column, NodeName, Partition
+from datajunction_server.api.graphql.scalars.column import (
+    Column,
+    NodeName,
+    NodeNameVersion,
+    Partition,
+)
 from datajunction_server.api.graphql.scalars.materialization import (
     MaterializationConfig,
 )
@@ -164,7 +169,7 @@ class NodeRevision:
 
     # Dimensions and data graph-related outputs
     dimension_links: List[DimensionLink]
-    parents: List[Node]
+    parents: List[NodeNameVersion]
 
     # Materialization-related outputs
     availability: Optional[AvailabilityState] = None
