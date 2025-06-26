@@ -20,7 +20,7 @@ async def capture_queries(
     captured during the test.
     """
     queries = []
-    sync_engine = module__session.bind.sync_engine
+    engine = module__session.get_bind()
 
     def before_cursor_execute(
         _conn,
@@ -33,21 +33,21 @@ async def capture_queries(
         queries.append(statement)
 
     # Attach event listener to capture queries
-    event.listen(sync_engine, "before_cursor_execute", before_cursor_execute)
+    event.listen(engine.sync_engine, "before_cursor_execute", before_cursor_execute)
 
-    yield queries
-
-    # Detach event listener after the test
-    event.remove(sync_engine, "before_cursor_execute", before_cursor_execute)
+    try:
+        yield queries
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", before_cursor_execute)
 
 
 @pytest.mark.asyncio
 async def test_get_common_dimensions(
     module__client_with_roads: AsyncClient,
-    capture_queries: AsyncGenerator[
-        list[str],
-        None,
-    ],
+    # capture_queries: AsyncGenerator[
+    #     list[str],
+    #     None,
+    # ],
 ) -> None:
     """
     Test getting common dimensions for a set of metrics
@@ -101,10 +101,10 @@ async def test_get_common_dimensions(
 @pytest.mark.asyncio
 async def test_get_common_dimensions_with_full_dim_node(
     module__client_with_roads: AsyncClient,
-    capture_queries: AsyncGenerator[
-        list[str],
-        None,
-    ],
+    # capture_queries: AsyncGenerator[
+    #     list[str],
+    #     None,
+    # ],
 ) -> None:
     """
     Test getting common dimensions and requesting a full dimension node for each

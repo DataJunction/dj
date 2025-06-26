@@ -1,9 +1,7 @@
 import json
 import logging
-from typing import cast
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.utils import get_session_manager
 from graphql import parse, OperationType, GraphQLError
 
@@ -55,20 +53,22 @@ class GraphQLSessionMiddleware(BaseHTTPMiddleware):
             session_manager = get_session_manager()
 
             # Set up the database session based on whether it's a mutation or not
-            session = (
-                cast(AsyncSession, session_manager.writer_session)
+            scoped_session = (
+                session_manager.writer_session
                 if is_mutation(body_bytes)
-                else cast(AsyncSession, session_manager.reader_session)
+                else session_manager.reader_session
             )
+            session = scoped_session()  # type: ignore
             request.state.db = session  # Attach to request so context can access it
             try:
                 response = await call_next(request)
-                await session.commit()
+                # await scoped_session.commit()
                 return response
-            except Exception:
+            except Exception as exc:
                 await session.rollback()
-                raise
+                raise exc
             finally:
-                await session.remove()
+                await session.close()  # type: ignore
+                await scoped_session.remove()  # type: ignore
         else:
             return await call_next(request)

@@ -9,7 +9,7 @@ import re
 from functools import lru_cache
 from http import HTTPStatus
 
-from typing import AsyncIterator, List, Optional, cast
+from typing import AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import Depends
@@ -172,17 +172,20 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     Async database session.
     """
     session_manager = get_session_manager()
-    if request.method.upper() == "GET":
-        session = cast(AsyncSession, session_manager.reader_session)
-    else:
-        session = cast(AsyncSession, session_manager.writer_session)
+    scoped_session = (
+        session_manager.reader_session
+        if request.method.upper() == "GET"
+        else session_manager.writer_session
+    )
     try:
+        session: AsyncSession = scoped_session()  # type: ignore
         yield session
     except Exception as exc:
         await session.rollback()  # pragma: no cover
         raise exc  # pragma: no cover
     finally:
-        await session.remove()
+        await session.close()  # type: ignore
+        await scoped_session.remove()  # type: ignore
 
 
 async def refresh_if_needed(session: AsyncSession, obj, attributes: list[str]):
