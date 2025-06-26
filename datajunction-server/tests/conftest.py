@@ -56,7 +56,6 @@ from datajunction_server.models.user import OAuthProvider
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
-    DatabaseSessionManager,
     get_query_service_client,
     get_session,
     get_settings,
@@ -778,27 +777,12 @@ async def module__client_example_loader(
     return _load_examples
 
 
-@pytest.fixture(scope="module")
-def module__mock_session_manager(
-    module__session: AsyncSession,
-) -> Iterator[DatabaseSessionManager]:
-    mock_manager = Mock()
-    mock_manager.writer_session = module__session
-    mock_manager.reader_session = module__session
-    with patch(
-        "datajunction_server.api.graphql.middleware.get_session_manager",
-        return_value=mock_manager,
-    ):
-        yield mock_manager
-
-
 @pytest_asyncio.fixture(scope="module")
 async def module__client(
     module__session: AsyncSession,
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,
     module_mocker: MockerFixture,
-    module__mock_session_manager,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -1090,7 +1074,8 @@ def module__postgres_container(request) -> PostgresContainer:
         port=5432,
         driver="psycopg",
     )
-    with postgres:
+    postgres.start()
+    try:
         wait_for_logs(
             postgres,
             r"UTC \[1\] LOG:  database system is ready to accept connections",
@@ -1098,6 +1083,8 @@ def module__postgres_container(request) -> PostgresContainer:
         )
         create_readonly_user(postgres)
         yield postgres
+    finally:
+        postgres.stop()
 
 
 @pytest.fixture(scope="module")
