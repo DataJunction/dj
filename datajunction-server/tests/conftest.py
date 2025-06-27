@@ -785,7 +785,6 @@ def session_manager_per_worker():
     worker_id = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
     db_suffix = f"test_{worker_id}"
 
-    # Override DB URI per worker (you'll need to support this in get_settings())
     settings = get_settings()
     settings.writer_db.uri = settings.writer_db.uri.replace("test", db_suffix)
 
