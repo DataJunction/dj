@@ -115,13 +115,13 @@ def transform_node_sql_request(client_with_roads: AsyncClient):
 
 
 @pytest.fixture
-def measures_sql_request(client_with_roads: AsyncClient):
+def measures_sql_request():
     """
     Request measures SQL for some metrics
     GET `/sql/measures`
     """
 
-    async def _make_request() -> Response:
+    async def _make_request(client_with_roads) -> Response:
         measures_sql_params = {
             "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
             "dimensions": [
@@ -3622,7 +3622,7 @@ async def test_sql_use_materialized_table(
         },
     )
     assert availability_response.status_code == 200
-    response = (await measures_sql_request()).json()
+    response = (await measures_sql_request(module__client_with_examples)).json()
     assert "xyz.hardhat" in response[0]["sql"]
     expected_sql = """WITH default_DOT_repair_orders_fact AS (
   SELECT
