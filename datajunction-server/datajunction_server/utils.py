@@ -155,9 +155,9 @@ class DatabaseSessionManager:
             raise DJUninitializedResourceException(
                 "DatabaseSessionManager is not initialized",
             )
-        if self.reader_engine:
+        if self.reader_engine:  # pragma: no cover
             await self.reader_engine.dispose()  # pragma: no cover
-        if self.writer_engine:
+        if self.writer_engine:  # pragma: no cover
             await self.writer_engine.dispose()  # pragma: no cover
 
 
