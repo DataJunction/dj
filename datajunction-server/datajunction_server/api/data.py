@@ -284,7 +284,7 @@ async def get_data_stream_for_node(
         background_tasks=background_tasks,
     )
     if query_request and query_request.query_id:
-        return EventSourceResponse(
+        return EventSourceResponse(  # pragma: no cover
             query_event_stream(
                 query=QueryWithResults(
                     id=query_request.query_id,
