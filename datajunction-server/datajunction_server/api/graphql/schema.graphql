@@ -409,6 +409,9 @@ type Query {
 
     """The node type to filter the downstream nodes on."""
     nodeType: NodeType = null
+
+    """Whether to include deactivated nodes in the result."""
+    includeDeactivated: Boolean! = false
   ): [Node!]!
 
   """Get measures SQL for a list of metrics, dimensions, and filters."""
