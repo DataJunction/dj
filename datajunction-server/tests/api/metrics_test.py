@@ -408,6 +408,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
     }
     assert data["upstream_node"] == "default.repair_orders_fact"
     assert data["expression"] == "count(repair_order_id)"
+    assert data["custom_metadata"] == {"foo": "bar"}
 
     response = await module__client_with_roads.get(
         "/metrics/default.discounted_orders_rate",
@@ -442,6 +443,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
         "CAST(sum(discount_sum_62846f49) AS DOUBLE) / SUM(count_3389dae3) "
         "AS default_DOT_discounted_orders_rate"
     )
+    assert data["custom_metadata"] is None
 
 
 @pytest.mark.asyncio

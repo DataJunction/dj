@@ -2,7 +2,7 @@
 Models for metrics.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from pydantic.main import BaseModel
 
@@ -49,6 +49,8 @@ class Metric(BaseModel):
     derived_query: str
     derived_expression: str
 
+    custom_metadata: Optional[Dict] = None
+
     @classmethod
     def parse_node(cls, node: Node, dims: List[DimensionAttributeOutput]) -> "Metric":
         """
@@ -66,12 +68,12 @@ class Metric(BaseModel):
         return cls(
             id=node.id,
             name=node.name,
-            display_name=node.current.display_name,
+            display_name=node.current.display_name,  # type: ignore
             current_version=node.current_version,
             description=node.current.description,
             created_at=node.created_at,
             updated_at=node.current.updated_at,
-            query=node.current.query,
+            query=node.current.query,  # type: ignore
             upstream_node=node.current.parents[0].name,
             expression=str(query_ast.select.projection[0]),
             dimensions=dims,
@@ -81,6 +83,7 @@ class Metric(BaseModel):
             measures=measures,
             derived_query=str(derived_sql).strip(),
             derived_expression=str(derived_sql.select.projection[0]).strip(),
+            custom_metadata=node.current.custom_metadata,
         )
 
 
