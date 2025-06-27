@@ -26,6 +26,7 @@ class DatabaseConfig(BaseModel):
     pool_size: int = 20
     max_overflow: int = 100
     pool_timeout: int = 10
+    pool_recycle: int = 300
     connect_timeout: int = 5
     pool_pre_ping: bool = True
     echo: bool = False

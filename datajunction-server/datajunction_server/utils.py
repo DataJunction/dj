@@ -3,13 +3,14 @@ Utility functions.
 """
 
 import asyncio
+import json
 import logging
 import os
 import re
 from functools import lru_cache
 from http import HTTPStatus
 
-from typing import AsyncIterator, List, Optional, cast
+from typing import AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import Depends
@@ -103,9 +104,9 @@ class DatabaseSessionManager:
 
     @classmethod
     def create_engine_and_session(
-        self,
+        cls,
         database_config: DatabaseConfig,
-    ) -> tuple[AsyncEngine, AsyncSession]:
+    ) -> tuple[AsyncEngine, async_scoped_session]:
         engine = create_async_engine(
             database_config.uri,
             future=True,
@@ -114,6 +115,7 @@ class DatabaseSessionManager:
             pool_size=database_config.pool_size,
             max_overflow=database_config.max_overflow,
             pool_timeout=database_config.pool_timeout,
+            pool_recycle=database_config.pool_recycle,
             poolclass=AsyncAdaptedQueuePool,
             connect_args={
                 "connect_timeout": database_config.connect_timeout,
@@ -123,11 +125,8 @@ class DatabaseSessionManager:
                 "keepalives_count": database_config.keepalives_count,
             },
         )
-        async_session_factory = async_sessionmaker(
-            bind=engine,
-            autocommit=False,
-            expire_on_commit=False,  # prevents attributes from being expired on commit
-        )
+        async_session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
         # Create a scoped session
         scoped_session = async_scoped_session(  # pragma: no cover
             async_session_factory,
@@ -150,11 +149,16 @@ class DatabaseSessionManager:
         """
         Close database session
         """
-        if self.engine is None:  # pragma: no cover
+        if (  # pragma: no cover
+            self.reader_engine is None and self.writer_engine is None
+        ):
             raise DJUninitializedResourceException(
                 "DatabaseSessionManager is not initialized",
             )
-        await self.engine.dispose()  # pragma: no cover
+        if self.reader_engine:  # pragma: no cover
+            await self.reader_engine.dispose()  # pragma: no cover
+        if self.writer_engine:  # pragma: no cover
+            await self.writer_engine.dispose()  # pragma: no cover
 
 
 @lru_cache(maxsize=None)
@@ -167,22 +171,41 @@ def get_session_manager() -> DatabaseSessionManager:
     return session_manager
 
 
+async def is_graphql_query(request: Request) -> bool:
+    """
+    Check if the request is a GraphQL query and not a mutation.
+    """
+    if request.url.path != "/graphql":
+        return False
+    try:
+        body = await request.body()
+        body_json = json.loads(body)
+        query_text = body_json.get("query", "")
+        return query_text.strip().lower().startswith("query")
+    except Exception:
+        return False
+
+
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """
     Async database session.
     """
     session_manager = get_session_manager()
-    if request.method.upper() == "GET":
-        session = cast(AsyncSession, session_manager.reader_session)
-    else:
-        session = cast(AsyncSession, session_manager.writer_session)
+    scoped_session = (
+        session_manager.reader_session
+        if request.method.upper() == "GET" or await is_graphql_query(request)
+        else session_manager.writer_session
+    )
+    session = None
     try:
+        session: AsyncSession = scoped_session()  # type: ignore
         yield session
     except Exception as exc:
-        await session.rollback()  # pragma: no cover
+        if session is not None:
+            await session.rollback()  # pragma: no cover
         raise exc  # pragma: no cover
     finally:
-        await session.remove()
+        await scoped_session.remove()  # type: ignore
 
 
 async def refresh_if_needed(session: AsyncSession, obj, attributes: list[str]):
