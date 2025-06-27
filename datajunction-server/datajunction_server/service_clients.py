@@ -192,6 +192,7 @@ class QueryServiceClient:
             headers={
                 **self.requests_session.headers,
                 **QueryServiceClient.filtered_headers(request_headers),
+                "accept": "application/json",
             }
             if request_headers
             else self.requests_session.headers,
