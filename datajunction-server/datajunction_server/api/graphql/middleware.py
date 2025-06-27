@@ -1,8 +1,9 @@
 import json
 import logging
+import uuid
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from datajunction_server.utils import get_session_manager
+from datajunction_server.utils import DatabaseSessionManager, get_session_manager
 from graphql import parse, OperationType, GraphQLError
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,9 @@ class GraphQLSessionMiddleware(BaseHTTPMiddleware):
         a database session is created for each GraphQL request, and that it's committed
         or rolled back as appropriate.
         """
+        uuid_token = str(uuid.uuid4())
+        token = DatabaseSessionManager.session_context.set(uuid_token)
+
         if request.url.path.startswith("/graphql"):
             body_bytes = await request.body()
 
@@ -62,13 +66,15 @@ class GraphQLSessionMiddleware(BaseHTTPMiddleware):
             request.state.db = session  # Attach to request so context can access it
             try:
                 response = await call_next(request)
-                # await scoped_session.commit()
                 return response
-            except Exception as exc:
+            except Exception:
                 await session.rollback()
-                raise exc
+                raise
             finally:
-                await session.close()  # type: ignore
+                await session.close()
                 await scoped_session.remove()  # type: ignore
         else:
-            return await call_next(request)
+            try:
+                return await call_next(request)
+            finally:
+                DatabaseSessionManager.session_context.reset(token)

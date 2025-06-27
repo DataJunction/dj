@@ -10,6 +10,7 @@ from functools import lru_cache
 from http import HTTPStatus
 
 from typing import AsyncIterator, List, Optional
+from contextvars import ContextVar
 
 from dotenv import load_dotenv
 from fastapi import Depends
@@ -77,6 +78,8 @@ class DatabaseSessionManager:
     DB session context manager
     """
 
+    session_context: ContextVar[str] = ContextVar("session_id")
+
     def __init__(self):
         self.reader_engine: AsyncEngine | None = None
         self.writer_engine: AsyncEngine | None = None
@@ -103,9 +106,9 @@ class DatabaseSessionManager:
 
     @classmethod
     def create_engine_and_session(
-        self,
+        cls,
         database_config: DatabaseConfig,
-    ) -> tuple[AsyncEngine, AsyncSession]:
+    ) -> tuple[AsyncEngine, async_scoped_session]:
         engine = create_async_engine(
             database_config.uri,
             future=True,
@@ -114,6 +117,7 @@ class DatabaseSessionManager:
             pool_size=database_config.pool_size,
             max_overflow=database_config.max_overflow,
             pool_timeout=database_config.pool_timeout,
+            pool_recycle=database_config.pool_recycle,
             poolclass=AsyncAdaptedQueuePool,
             connect_args={
                 "connect_timeout": database_config.connect_timeout,
@@ -123,15 +127,12 @@ class DatabaseSessionManager:
                 "keepalives_count": database_config.keepalives_count,
             },
         )
-        async_session_factory = async_sessionmaker(
-            bind=engine,
-            autocommit=False,
-            expire_on_commit=False,  # prevents attributes from being expired on commit
-        )
+        async_session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
         # Create a scoped session
         scoped_session = async_scoped_session(  # pragma: no cover
             async_session_factory,
-            scopefunc=asyncio.current_task,
+            scopefunc=cls.session_context.get,
         )
         return engine, scoped_session
 
@@ -150,11 +151,16 @@ class DatabaseSessionManager:
         """
         Close database session
         """
-        if self.engine is None:  # pragma: no cover
+        if (
+            self.reader_engine is None and self.writer_engine is None
+        ):  # pragma: no cover
             raise DJUninitializedResourceException(
                 "DatabaseSessionManager is not initialized",
             )
-        await self.engine.dispose()  # pragma: no cover
+        if self.reader_engine:
+            await self.reader_engine.dispose()  # pragma: no cover
+        if self.writer_engine:
+            await self.writer_engine.dispose()  # pragma: no cover
 
 
 @lru_cache(maxsize=None)
@@ -184,8 +190,8 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
         await session.rollback()  # pragma: no cover
         raise exc  # pragma: no cover
     finally:
-        await session.close()  # type: ignore
-        await scoped_session.remove()  # type: ignore
+        await session_manager.reader_session.remove()  # type: ignore
+        await session_manager.writer_session.remove()  # type: ignore
 
 
 async def refresh_if_needed(session: AsyncSession, obj, attributes: list[str]):

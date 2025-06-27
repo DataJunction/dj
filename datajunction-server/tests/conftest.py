@@ -19,7 +19,7 @@ from typing import (
     List,
     Optional,
 )
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlparse
 
 from psycopg import connect
@@ -56,6 +56,7 @@ from datajunction_server.models.user import OAuthProvider
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
+    DatabaseSessionManager,
     get_query_service_client,
     get_session,
     get_settings,
@@ -381,15 +382,14 @@ def query_service_client(
 
 
 @pytest.fixture
-def mock_session_manager(session: AsyncSession):
-    mock_manager = Mock()
-    mock_manager.writer_session = session
-    mock_manager.reader_session = session
+def mock_session_manager(session_manager_per_worker):
+    manager = DatabaseSessionManager()
+    manager.init_db()
     with patch(
         "datajunction_server.api.graphql.middleware.get_session_manager",
-        return_value=mock_manager,
+        return_value=manager,
     ):
-        yield mock_manager
+        yield manager
 
 
 @pytest_asyncio.fixture
@@ -777,6 +777,24 @@ async def module__client_example_loader(
     return _load_examples
 
 
+@pytest.fixture(scope="session")
+def session_manager_per_worker():
+    """
+    Create a unique session manager per pytest-xdist worker.
+    """
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+    db_suffix = f"test_{worker_id}"
+
+    # Override DB URI per worker (you'll need to support this in get_settings())
+    settings = get_settings()
+    settings.writer_db.uri = settings.writer_db.uri.replace("test", db_suffix)
+
+    manager = DatabaseSessionManager()
+    manager.init_db()
+    yield manager
+    asyncio.run(manager.close())
+
+
 @pytest_asyncio.fixture(scope="module")
 async def module__client(
     module__session: AsyncSession,
@@ -1074,8 +1092,7 @@ def module__postgres_container(request) -> PostgresContainer:
         port=5432,
         driver="psycopg",
     )
-    postgres.start()
-    try:
+    with postgres:
         wait_for_logs(
             postgres,
             r"UTC \[1\] LOG:  database system is ready to accept connections",
@@ -1083,8 +1100,6 @@ def module__postgres_container(request) -> PostgresContainer:
         )
         create_readonly_user(postgres)
         yield postgres
-    finally:
-        postgres.stop()
 
 
 @pytest.fixture(scope="module")
