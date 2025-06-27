@@ -151,9 +151,9 @@ class DatabaseSessionManager:
         """
         Close database session
         """
-        if (
+        if (  # pragma: no cover
             self.reader_engine is None and self.writer_engine is None
-        ):  # pragma: no cover
+        ):
             raise DJUninitializedResourceException(
                 "DatabaseSessionManager is not initialized",
             )
@@ -190,8 +190,7 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
         await session.rollback()  # pragma: no cover
         raise exc  # pragma: no cover
     finally:
-        await session_manager.reader_session.remove()  # type: ignore
-        await session_manager.writer_session.remove()  # type: ignore
+        await scoped_session.remove()  # type: ignore
 
 
 async def refresh_if_needed(session: AsyncSession, obj, attributes: list[str]):
