@@ -6,6 +6,11 @@ import logging
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
+import json
+import pytest
+from starlette.requests import Request
+from starlette.datastructures import Headers
+from starlette.types import Scope
 
 import pytest
 from pytest_mock import MockerFixture
@@ -29,6 +34,7 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
     setup_logging,
+    is_graphql_query,
 )
 
 
@@ -267,3 +273,51 @@ async def test_execute_with_retry_exhausts_retries():
         await execute_with_retry(session, statement, retries=3, base_delay=0.01)
 
     assert session.execute.call_count == 4  # initial try + 3 retries
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path, body, expected",
+    [
+        # Not /graphql
+        ("/not-graphql", json.dumps({"query": "query { users }"}), False),
+        # /graphql with query
+        ("/graphql", json.dumps({"query": "query { users }"}), True),
+        # /graphql with mutation
+        (
+            "/graphql",
+            json.dumps({"query": 'mutation { addUser(name: "Hi") { id } }'}),
+            False,
+        ),
+        # /graphql with invalid JSON
+        ("/graphql", "not json", False),
+        # /graphql with no query key
+        ("/graphql", json.dumps({"foo": "bar"}), False),
+        # /graphql with empty body
+        ("/graphql", "", False),
+    ],
+)
+async def test_is_graphql_query(path, body, expected):
+    """
+    Test the `is_graphql_query` utility function.
+    This function checks if the request is a GraphQL query based on the path and body.
+    """
+    # Build a fake ASGI scope
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": path,
+        "headers": Headers({"content-type": "application/json"}).raw,
+    }
+
+    # Create a receive function that yields the body
+    async def receive() -> dict:
+        return {
+            "type": "http.request",
+            "body": body.encode(),
+            "more_body": False,
+        }
+
+    request = Request(scope, receive)
+    result = await is_graphql_query(request)
+    assert result is expected
