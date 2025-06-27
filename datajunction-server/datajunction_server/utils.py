@@ -11,7 +11,6 @@ from functools import lru_cache
 from http import HTTPStatus
 
 from typing import AsyncIterator, List, Optional
-from contextvars import ContextVar
 
 from dotenv import load_dotenv
 from fastapi import Depends
@@ -79,8 +78,6 @@ class DatabaseSessionManager:
     DB session context manager
     """
 
-    session_context: ContextVar[str] = ContextVar("session_id")
-
     def __init__(self):
         self.reader_engine: AsyncEngine | None = None
         self.writer_engine: AsyncEngine | None = None
@@ -133,7 +130,7 @@ class DatabaseSessionManager:
         # Create a scoped session
         scoped_session = async_scoped_session(  # pragma: no cover
             async_session_factory,
-            scopefunc=cls.session_context.get,
+            scopefunc=asyncio.current_task,
         )
         return engine, scoped_session
 
@@ -199,11 +196,13 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
         if request.method.upper() == "GET" or await is_graphql_query(request)
         else session_manager.writer_session
     )
+    session = None
     try:
         session: AsyncSession = scoped_session()  # type: ignore
         yield session
     except Exception as exc:
-        await session.rollback()  # pragma: no cover
+        if session is not None:
+            await session.rollback()  # pragma: no cover
         raise exc  # pragma: no cover
     finally:
         await scoped_session.remove()  # type: ignore

@@ -381,22 +381,10 @@ def query_service_client(
     yield qs_client
 
 
-@pytest.fixture
-def mock_session_manager(session_manager_per_worker):
-    manager = DatabaseSessionManager()
-    manager.init_db()
-    with patch(
-        "datajunction_server.api.graphql.middleware.get_session_manager",
-        return_value=manager,
-    ):
-        yield manager
-
-
 @pytest_asyncio.fixture
 async def client(
     session: AsyncSession,
     settings_no_qs: Settings,
-    mock_session_manager,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -635,7 +623,6 @@ async def client_qs(
     settings: Settings,
     query_service_client: QueryServiceClient,
     mocker: MockerFixture,
-    mock_session_manager,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
