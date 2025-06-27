@@ -3,6 +3,7 @@ Utility functions.
 """
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -173,6 +174,21 @@ def get_session_manager() -> DatabaseSessionManager:
     return session_manager
 
 
+async def is_graphql_query(request: Request) -> bool:
+    """
+    Check if the request is a GraphQL query and not a mutation.
+    """
+    if request.url.path != "/graphql":
+        return False
+    try:
+        body = await request.body()
+        body_json = json.loads(body)
+        query_text = body_json.get("query", "")
+        return query_text.strip().lower().startswith("query")
+    except Exception:
+        return False
+
+
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """
     Async database session.
@@ -180,7 +196,7 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     session_manager = get_session_manager()
     scoped_session = (
         session_manager.reader_session
-        if request.method.upper() == "GET"
+        if request.method.upper() == "GET" or await is_graphql_query(request)
         else session_manager.writer_session
     )
     try:
