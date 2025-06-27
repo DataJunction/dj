@@ -33,9 +33,8 @@ async def test_middleware_success(module__client: AsyncClient):
         )
 
     assert response.status_code == 200
-    mock_session.commit.assert_awaited_once()
     mock_session.rollback.assert_not_called()
-    # mock_manager.reader_session.remove.assert_awaited_once()
+    mock_manager.reader_session.remove.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -57,6 +56,7 @@ async def test_middleware_failure():
         base_url="http://test",
     ) as test_client:
         mock_session = AsyncMock()
+        mock_session.get_transaction = MagicMock(return_value=MagicMock(is_active=True))
         mock_manager = Mock()
         mock_manager.writer_session = MagicMock(return_value=mock_session)
         mock_manager.writer_session.remove = AsyncMock()
