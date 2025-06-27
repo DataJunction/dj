@@ -94,3 +94,59 @@ async def test_downstream_nodes(
         {"name": "default.avg_repair_order_discounts", "type": "METRIC"},
         {"name": "default.avg_time_to_dispatch", "type": "METRIC"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_downstream_nodes_deactivated(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding downstream nodes with and without deactivated nodes.
+    """
+    response = await module__client_with_roads.delete(
+        "/nodes/default.num_repair_orders",
+    )
+    assert response.status_code == 200
+
+    query = """
+    {
+        downstreamNodes(nodeName: "default.repair_orders_fact", nodeType: METRIC, includeDeactivated: false) {
+            name
+            type
+        }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["downstreamNodes"] == [
+        {"name": "default.avg_repair_price", "type": "METRIC"},
+        {"name": "default.total_repair_cost", "type": "METRIC"},
+        {"name": "default.discounted_orders_rate", "type": "METRIC"},
+        {"name": "default.total_repair_order_discounts", "type": "METRIC"},
+        {"name": "default.avg_repair_order_discounts", "type": "METRIC"},
+        {"name": "default.avg_time_to_dispatch", "type": "METRIC"},
+    ]
+
+    query = """
+    {
+        downstreamNodes(nodeName: "default.repair_orders_fact", nodeType: METRIC, includeDeactivated: true) {
+            name
+            type
+        }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["downstreamNodes"] == [
+        {"name": "default.num_repair_orders", "type": "METRIC"},
+        {"name": "default.avg_repair_price", "type": "METRIC"},
+        {"name": "default.total_repair_cost", "type": "METRIC"},
+        {"name": "default.discounted_orders_rate", "type": "METRIC"},
+        {"name": "default.total_repair_order_discounts", "type": "METRIC"},
+        {"name": "default.avg_repair_order_discounts", "type": "METRIC"},
+        {"name": "default.avg_time_to_dispatch", "type": "METRIC"},
+    ]
