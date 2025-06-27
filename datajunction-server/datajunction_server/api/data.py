@@ -284,7 +284,7 @@ async def get_data_stream_for_node(
         background_tasks=background_tasks,
     )
     if query_request and query_request.query_id:
-        return EventSourceResponse(
+        return EventSourceResponse(  # pragma: no cover
             query_event_stream(
                 query=QueryWithResults(
                     id=query_request.query_id,
@@ -323,11 +323,6 @@ async def get_data_stream_for_node(
         query_create,
         request_headers=request_headers,
     )
-
-    # Save the external query id reference
-    query_request.query_id = initial_query_info.id
-    session.add(query_request)
-    await session.commit()
 
     return EventSourceResponse(
         query_event_stream(

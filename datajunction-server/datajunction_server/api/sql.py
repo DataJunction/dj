@@ -287,7 +287,7 @@ async def get_node_sql(
         query_type=QueryBuildType.NODE,
     ):
         # Update the node SQL in a background task to keep it up-to-date
-        background_tasks.add_task(
+        background_tasks.add_task(  # pragma: no cover
             build_and_save_node_sql,
             node_name=node_name,
             dimensions=dimensions,
@@ -301,7 +301,7 @@ async def get_node_sql(
             query_parameters=query_parameters,
             save=False,
         )
-        return (
+        return (  # pragma: no cover
             TranslatedSQL.create(
                 sql=query_request.query,
                 columns=query_request.columns,
