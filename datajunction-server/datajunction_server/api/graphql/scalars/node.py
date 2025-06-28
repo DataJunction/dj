@@ -105,6 +105,65 @@ class DimensionAttribute:
 
 
 @strawberry.type
+class Node:
+    """
+    A DJ node
+    """
+
+    id: BigInt
+    name: str
+    type: NodeType  # type: ignore
+    current_version: str
+    created_at: datetime.datetime
+    deactivated_at: Optional[datetime.datetime]
+
+    current: "NodeRevision"
+    revisions: List["NodeRevision"]
+
+    tags: List["TagBase"]
+    created_by: User
+
+    @strawberry.field
+    def edited_by(self, root: "DBNode") -> List[str]:
+        """
+        The users who edited this node
+        """
+        return root.edited_by
+
+    @strawberry.field
+    async def upstreams(
+        self,
+        root: "DBNodeRevision",
+        info: Info,
+        depth: int | None = 1,
+    ) -> list["Node"]:
+        """
+        The upstream nodes of this node
+        """
+        from datajunction_server.api.graphql.resolvers.nodes import (
+            resolve_node_upstreams,
+        )
+
+        return await resolve_node_upstreams(info, root)  # type: ignore
+
+    @strawberry.field
+    async def downstreams(
+        self,
+        root: "DBNodeRevision",
+        info: Info,
+        depth: int | None = 1,
+    ) -> list["Node"]:
+        """
+        The downstream nodes of this node
+        """
+        from datajunction_server.api.graphql.resolvers.nodes import (
+            resolve_node_downstreams,
+        )
+
+        return await resolve_node_downstreams(info, root, depth)  # type: ignore
+
+
+@strawberry.type
 class NodeRevision:
     """
     The base fields of a node revision, which does not include joined in entities.
@@ -294,30 +353,3 @@ class TagBase:
     description: str | None
     display_name: str | None
     tag_metadata: JSON | None = strawberry.field(default_factory=dict)
-
-
-@strawberry.type
-class Node:
-    """
-    A DJ node
-    """
-
-    id: BigInt
-    name: str
-    type: NodeType  # type: ignore
-    current_version: str
-    created_at: datetime.datetime
-    deactivated_at: Optional[datetime.datetime]
-
-    current: NodeRevision
-    revisions: List[NodeRevision]
-
-    tags: List[TagBase]
-    created_by: User
-
-    @strawberry.field
-    def edited_by(self, root: "DBNode") -> List[str]:
-        """
-        The users who edited this node
-        """
-        return root.edited_by
