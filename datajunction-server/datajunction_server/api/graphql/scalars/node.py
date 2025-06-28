@@ -168,7 +168,19 @@ class NodeRevision:
         ]
 
     # Dimensions and data graph-related outputs
-    dimension_links: List[DimensionLink]
+    @strawberry.field
+    def dimension_links(self) -> list[DimensionLink]:
+        """
+        Returns the dimension links for this node revision.
+        """
+        return [
+            link
+            for link in self.dimension_links
+            if link.dimension is not None  # handles hard-deleted dimension nodes
+            and link.dimension.deactivated_at
+            is None  # handles deactivated dimension nodes
+        ]
+
     parents: List[NodeNameVersion]
 
     # Materialization-related outputs
