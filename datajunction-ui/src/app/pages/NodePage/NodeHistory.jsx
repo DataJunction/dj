@@ -89,6 +89,27 @@ export default function NodeHistory({ node, djClient }) {
       );
     }
     if (event.activity_type === 'update' && event.entity_type === 'node') {
+      console.log('event!!', event);
+      if (event.details?.old_owners) {
+        return (
+          <div className="history-left">
+            <b style={{ textTransform: 'capitalize' }}>Ownership Change</b> for{' '}
+            {event.entity_type}{' '}
+            <b>
+              <a href={'/nodes/' + event.entity_name}>{event.entity_name}</a>
+            </b>
+            <small>
+              {' '}
+              to{' '}
+              {event.details?.new_owners.map(owner => (
+                <span className="badge version" style={{ margin: '2px' }}>
+                  {owner}
+                </span>
+              ))}
+            </small>
+          </div>
+        );
+      }
       return (
         <div className="history-left">
           <b style={{ textTransform: 'capitalize' }}>{event.activity_type}</b>{' '}
