@@ -224,6 +224,17 @@ class Node(Base):
         default=None,
     )
 
+    owner_associations = relationship(
+        "NodeOwner",
+        back_populates="node",
+        cascade="all, delete-orphan",
+    )
+    owners: Mapped[list[User]] = relationship(
+        "User",
+        secondary="nodeowner",
+        back_populates="owned_nodes",
+    )
+
     revisions: Mapped[List["NodeRevision"]] = relationship(
         "NodeRevision",
         back_populates="node",
@@ -296,6 +307,7 @@ class Node(Base):
             ),
             selectinload(Node.tags),
             selectinload(Node.created_by),
+            selectinload(Node.owners),
         ]
         statement = statement.options(*options)
         if not include_inactive:
