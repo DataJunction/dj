@@ -230,6 +230,7 @@ type Node {
   revisions: [NodeRevision!]!
   tags: [TagBase!]!
   createdBy: User!
+  owners: [User!]!
   editedBy: [String!]!
 }
 
