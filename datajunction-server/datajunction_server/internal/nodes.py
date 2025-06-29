@@ -4,7 +4,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 from http import HTTPStatus
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Union, cast
 
 from fastapi import BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -633,10 +633,24 @@ async def update_node_with_query(
         name,
         options=[
             joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            selectinload(Node.owners),
         ],
-        # for_update=True,
         include_inactive=True,
     )
+    node = cast(Node, node)
+
+    # Check that the user has access to modify this node
+    access_control = access.AccessControlStore(
+        validate_access=validate_access,
+        user=current_user,
+        base_verb=access.ResourceRequestVerb.WRITE,
+    )
+    access_control.add_request_by_node(node)
+    access_control.validate_and_raise()
+
+    if data.owners:
+        await update_node_owners(session, node, data.owners, current_user, save_history)
+
     old_revision = node.current  # type: ignore
     new_revision = await create_new_revision_from_existing(
         session=session,
@@ -764,7 +778,33 @@ async def update_node_with_query(
     )
     await session.refresh(node, ["current"])
     await session.refresh(node.current, ["materializations"])  # type: ignore
+    await session.refresh(node, ["owners"])  # type: ignore
     return node  # type: ignore
+
+
+async def update_node_owners(
+    session: AsyncSession,
+    node: Node,
+    new_owner_usernames: list[str],
+    current_user: User,
+    save_history: Callable,
+):
+    """
+    Update the owners of a node with the given usernames and commit the change
+    """
+    existing_owners = node.owners
+    users = await User.get_by_usernames(session, usernames=new_owner_usernames)
+    node.owners = users
+    session.add(node)
+    await save_history(
+        event=node_update_owners_history_event(
+            node,
+            existing_owners,
+            current_user,
+        ),
+        session=session,
+    )
+    await session.commit()
 
 
 def has_minor_changes(
@@ -796,6 +836,28 @@ def node_update_history_event(new_revision: NodeRevision, current_user: User):
         activity_type=ActivityType.UPDATE,
         details={
             "version": new_revision.version,  # type: ignore
+        },
+        user=current_user.username,
+    )
+
+
+def node_update_owners_history_event(
+    node: Node,
+    old_owners: list[User],
+    current_user: User,
+):
+    """
+    History event for node owner changes
+    """
+    return History(
+        entity_type=EntityType.NODE,
+        entity_name=node.name,
+        node=node.name,
+        activity_type=ActivityType.UPDATE,
+        details={
+            "version": node.current_version,
+            "old_owners": [owner.username for owner in old_owners],
+            "new_owners": [owner.username for owner in node.owners],  # type: ignore
         },
         user=current_user.username,
     )
