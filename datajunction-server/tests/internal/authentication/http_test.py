@@ -90,6 +90,7 @@ def test_dj_http_bearer_w_cookie():
         "created_collections": [],
         "created_nodes": [],
         "created_tags": [],
+        "owned_nodes": [],
     }
 
 
@@ -112,6 +113,7 @@ def test_dj_http_bearer_w_auth_headers():
         "created_collections": [],
         "created_nodes": [],
         "created_tags": [],
+        "owned_nodes": [],
     }
 
 

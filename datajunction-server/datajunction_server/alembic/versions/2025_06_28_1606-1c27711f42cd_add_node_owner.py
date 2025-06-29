@@ -30,6 +30,7 @@ def upgrade():
             sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
             nullable=False,
         ),
+        sa.Column("ownership_type", sa.String(length=50), nullable=True),
         sa.ForeignKeyConstraint(["node_id"], ["node.id"], name="fk_nodeowner_node_id"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], name="fk_nodeowner_user_id"),
         sa.PrimaryKeyConstraint("node_id", "user_id"),
