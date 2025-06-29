@@ -1651,6 +1651,7 @@ class TestNodeCRUD:
         assert data["catalog"]["name"] == "public"
         assert data["schema_"] == "basic"
         assert data["table"] == "comments"
+        assert data["owners"] == [{"username": "dj"}]
         assert data["columns"] == [
             {
                 "name": "id",
@@ -2377,6 +2378,7 @@ class TestNodeCRUD:
             == "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users"
         )
         assert data["status"] == "valid"
+        assert data["owners"] == [{"username": "dj"}]
         assert data["columns"] == [
             {
                 "attributes": [],
@@ -5710,6 +5712,7 @@ ON s.state_region = r.us_region_id""",
     )
     node_data = response.json()
     assert node_data["version"] == "v2.0"
+    assert node_data["owners"] == [{"username": "dj"}]
     response = await client_with_roads.get("/history?node=default.us_state")
     assert [activity["activity_type"] for activity in response.json()] == [
         "restore",

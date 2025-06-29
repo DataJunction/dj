@@ -57,6 +57,7 @@ export const mocks = {
     dimension_links: [],
     created_at: '2024-01-24T16:39:14.028077+00:00',
     tags: [],
+    owners: [{ username: 'dj' }],
     current_version: 'v1.0',
     missing_table: false,
   },
@@ -104,6 +105,7 @@ export const mocks = {
     ],
     created_at: '2023-08-21T16:48:56.841631+00:00',
     tags: [{ name: 'purpose', display_name: 'Purpose' }],
+    owners: [{ username: 'dj' }],
     dimension_links: [],
     incompatible_druid_functions: ['IF'],
     dimensions: [
@@ -302,6 +304,7 @@ export const mocks = {
       mode: 'PUBLISHED',
     },
     tags: [],
+    owners: [{ username: 'dj' }],
   },
 
   mockGetMetricNode: {
@@ -331,6 +334,7 @@ export const mocks = {
       mode: 'PUBLISHED',
     },
     tags: [{ name: 'purpose', displayName: 'Purpose' }],
+    owners: [{ username: 'dj' }],
   },
 
   mockGetTransformNode: {
@@ -352,6 +356,7 @@ export const mocks = {
       mode: 'PUBLISHED',
     },
     tags: [],
+    owners: [{ username: 'dj' }],
   },
 
   attributes: [
@@ -789,6 +794,7 @@ export const mocks = {
     ],
     created_at: '2023-08-21T16:49:01.671395+00:00',
     tags: [],
+    owners: [{ username: 'dj' }],
   },
   mockCubesCube: {
     node_revision_id: 33,

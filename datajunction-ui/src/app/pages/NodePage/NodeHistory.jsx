@@ -89,7 +89,6 @@ export default function NodeHistory({ node, djClient }) {
       );
     }
     if (event.activity_type === 'update' && event.entity_type === 'node') {
-      console.log('event!!', event);
       if (event.details?.old_owners) {
         return (
           <div className="history-left">

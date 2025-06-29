@@ -401,6 +401,7 @@ async def save_node(
     )
     node.current_version = node_revision.version
     node_revision.extra_validation()
+    node.owners.append(current_user)
 
     session.add(node)
     await save_history(
@@ -465,6 +466,7 @@ async def copy_to_new_node(
         tags=node.tags,  # type: ignore
         missing_table=node.missing_table,  # type: ignore
         created_by_id=current_user.id,
+        owners=[current_user],
     )
     new_revision = NodeRevision(
         name=new_name,
@@ -649,7 +651,7 @@ async def update_node_with_query(
     access_control.validate_and_raise()
 
     if data.owners:
-        await update_node_owners(session, node, data.owners, current_user, save_history)
+        await update_owners(session, node, data.owners, current_user, save_history)
 
     old_revision = node.current  # type: ignore
     new_revision = await create_new_revision_from_existing(
@@ -782,26 +784,37 @@ async def update_node_with_query(
     return node  # type: ignore
 
 
-async def update_node_owners(
+async def update_owners(
     session: AsyncSession,
     node: Node,
     new_owner_usernames: list[str],
-    current_user: User,
+    current_user: "User",
     save_history: Callable,
 ):
     """
-    Update the owners of a node with the given usernames and commit the change
+    Update the owners of this node to match the given usernames.
     """
+    from datajunction_server.internal.history import ActivityType, EntityType
+
     existing_owners = node.owners
     users = await User.get_by_usernames(session, usernames=new_owner_usernames)
     node.owners = users
     session.add(node)
+
+    event = History(
+        entity_type=EntityType.NODE,
+        entity_name=node.name,
+        node=node.name,
+        activity_type=ActivityType.UPDATE,
+        details={
+            "version": node.current_version,
+            "old_owners": [owner.username for owner in existing_owners],
+            "new_owners": [owner.username for owner in node.owners],  # type: ignore
+        },
+        user=current_user.username,
+    )
     await save_history(
-        event=node_update_owners_history_event(
-            node,
-            existing_owners,
-            current_user,
-        ),
+        event=event,
         session=session,
     )
     await session.commit()
@@ -836,28 +849,6 @@ def node_update_history_event(new_revision: NodeRevision, current_user: User):
         activity_type=ActivityType.UPDATE,
         details={
             "version": new_revision.version,  # type: ignore
-        },
-        user=current_user.username,
-    )
-
-
-def node_update_owners_history_event(
-    node: Node,
-    old_owners: list[User],
-    current_user: User,
-):
-    """
-    History event for node owner changes
-    """
-    return History(
-        entity_type=EntityType.NODE,
-        entity_name=node.name,
-        node=node.name,
-        activity_type=ActivityType.UPDATE,
-        details={
-            "version": node.current_version,
-            "old_owners": [owner.username for owner in old_owners],
-            "new_owners": [owner.username for owner in node.owners],  # type: ignore
         },
         user=current_user.username,
     )

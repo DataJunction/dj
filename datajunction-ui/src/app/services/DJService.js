@@ -328,7 +328,6 @@ export const DataJunctionAPI = {
     required_dimensions,
     owners,
   ) {
-    console.log('owners', owners);
     try {
       const metricMetadata =
         metric_direction || metric_unit
