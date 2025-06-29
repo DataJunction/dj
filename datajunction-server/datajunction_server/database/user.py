@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
+from datajunction_server.database.nodeowner import NodeOwner
 from datajunction_server.enum import StrEnum
 
 if TYPE_CHECKING:
@@ -72,6 +73,17 @@ class User(Base):
         "NotificationPreference",
         back_populates="user",
     )
+    owned_associations: Mapped[list[NodeOwner]] = relationship(
+        "NodeOwner",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    owned_nodes = relationship(
+        "Node",
+        secondary="nodeowner",
+        back_populates="owners",
+        overlaps="owned_associations,user",
+    )
 
     @classmethod
     async def get_by_username(
@@ -85,3 +97,16 @@ class User(Base):
         statement = select(User).where(User.username == username)
         result = await session.execute(statement)
         return result.unique().scalar_one_or_none()
+
+    @classmethod
+    async def get_by_usernames(
+        cls,
+        session: AsyncSession,
+        usernames: list[str],
+    ) -> Optional["User"]:
+        """
+        Find users by username
+        """
+        statement = select(User).where(User.username.in_(usernames))
+        result = await session.execute(statement)
+        return result.unique().scalars().all()
