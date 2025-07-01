@@ -769,6 +769,12 @@ class GenericNodeOutputModel(BaseModel):
         }
         for k, v in current_dict.items():
             final_dict[k] = v
+
+        final_dict["dimension_links"] = [
+            link
+            for link in final_dict["dimension_links"]
+            if link.dimension.deactivated_at is None
+        ]
         final_dict["node_revision_id"] = final_dict["id"]
         return final_dict
 
