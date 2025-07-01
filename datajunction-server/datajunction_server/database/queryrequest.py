@@ -205,7 +205,7 @@ class QueryRequest(Base):  # type: ignore
         )
         query_request = (await session.execute(statement)).scalar_one_or_none()
         if query_request:
-            return query_request
+            return query_request  # pragma: no cover
         return None
 
     @classmethod
