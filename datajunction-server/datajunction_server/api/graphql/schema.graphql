@@ -268,7 +268,6 @@ type NodeRevision {
   updatedAt: DateTime!
   customMetadata: JSON
   query: String
-  dimensionLinks: [DimensionLink!]!
   parents: [NodeNameVersion!]!
   availability: AvailabilityState
   materializations: [MaterializationConfig!]
@@ -277,6 +276,7 @@ type NodeRevision {
   requiredDimensions: [Column!]
   catalog: Catalog
   columns(attributes: [String!] = null): [Column!]!
+  dimensionLinks: [DimensionLink!]!
   primaryKey: [String!]!
   metricMetadata: MetricMetadata
   extractedMeasures: DecomposedMetric

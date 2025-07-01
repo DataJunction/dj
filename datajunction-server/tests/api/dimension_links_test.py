@@ -1107,3 +1107,88 @@ async def test_dimension_link_cross_join(
     FROM default_DOT_events CROSS JOIN default_DOT_areas
     """
     assert str(parse(response.json()["sql"])) == str(parse(expected))
+
+
+@pytest.mark.asyncio
+async def test_dimension_link_deleted_dimension_node(
+    dimensions_link_client: AsyncClient,
+    link_events_to_users_without_role,
+):
+    """
+    Test dimension links with deleted dimension node
+    """
+    response = await link_events_to_users_without_role()
+    assert response.json() == {
+        "message": "Dimension node default.users has been successfully linked to node "
+        "default.events.",
+    }
+    response = await dimensions_link_client.get("/nodes/default.events")
+    assert [
+        link["dimension"]["name"] for link in response.json()["dimension_links"]
+    ] == ["default.users"]
+
+    gql_find_nodes_query = """
+      query Node {
+        findNodes(names: ["default.events"]) {
+          current {
+            dimensionLinks {
+              dimension {
+                name
+              }
+            }
+          }
+        }
+      }
+    """
+    response = await dimensions_link_client.post(
+        "/graphql",
+        json={"query": gql_find_nodes_query},
+    )
+    assert response.json()["data"]["findNodes"] == [
+        {
+            "current": {"dimensionLinks": [{"dimension": {"name": "default.users"}}]},
+        },
+    ]
+
+    # Deactivate the dimension node
+    response = await dimensions_link_client.delete("/nodes/default.users")
+
+    # The dimension link should be hidden
+    response = await dimensions_link_client.get("/nodes/default.events")
+    assert response.json()["dimension_links"] == []
+    response = await dimensions_link_client.post(
+        "/graphql",
+        json={"query": gql_find_nodes_query},
+    )
+    assert response.json()["data"]["findNodes"] == [{"current": {"dimensionLinks": []}}]
+
+    # Restore the dimension node
+    response = await dimensions_link_client.post("/nodes/default.users/restore")
+    assert response.status_code == 200
+
+    # The dimension link should be recovered
+    response = await dimensions_link_client.get("/nodes/default.events")
+    assert [
+        link["dimension"]["name"] for link in response.json()["dimension_links"]
+    ] == ["default.users"]
+    response = await dimensions_link_client.post(
+        "/graphql",
+        json={"query": gql_find_nodes_query},
+    )
+    assert response.json()["data"]["findNodes"] == [
+        {
+            "current": {"dimensionLinks": [{"dimension": {"name": "default.users"}}]},
+        },
+    ]
+
+    # Hard delete the dimension node
+    response = await dimensions_link_client.delete("/nodes/default.users/hard")
+
+    # The dimension link should be gone
+    response = await dimensions_link_client.get("/nodes/default.events")
+    assert response.json()["dimension_links"] == []
+    response = await dimensions_link_client.post(
+        "/graphql",
+        json={"query": gql_find_nodes_query},
+    )
+    assert response.json()["data"]["findNodes"] == [{"current": {"dimensionLinks": []}}]
