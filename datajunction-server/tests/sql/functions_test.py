@@ -25,6 +25,7 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import (
     BigIntType,
+    BooleanType,
     DateType,
     DecimalType,
     DoubleType,
@@ -2705,6 +2706,9 @@ async def test_max() -> None:
     assert Max.infer_type(ast.Column(ast.Name("x"), _type=BigIntType())) == BigIntType()
     assert Max.infer_type(ast.Column(ast.Name("x"), _type=FloatType())) == FloatType()
     assert Max.infer_type(ast.Column(ast.Name("x"), _type=StringType())) == StringType()
+    assert (
+        Max.infer_type(ast.Column(ast.Name("x"), _type=BooleanType())) == BooleanType()
+    )
     assert Max.infer_type(
         ast.Column(ast.Name("x"), _type=DecimalType(8, 6)),
     ) == DecimalType(8, 6)
