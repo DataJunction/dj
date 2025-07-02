@@ -3241,6 +3241,13 @@ def infer_type(
     return arg.type  # pragma: no cover
 
 
+@Max.register  # type: ignore
+def infer_type(
+    arg: ct.BooleanType,
+) -> ct.BooleanType:
+    return arg.type  # pragma: no cover
+
+
 class MaxBy(Function):
     """
     max_by(val, key) - Returns the value of val corresponding to the maximum value of key.
