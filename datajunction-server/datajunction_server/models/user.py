@@ -4,7 +4,7 @@ Models for users and auth
 
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import ConfigDict, BaseModel
 
 from datajunction_server.database.user import OAuthProvider
 from datajunction_server.models.catalog import CatalogInfo
@@ -22,17 +22,15 @@ class CreatedNode(BaseModel):
     namespace: str
     type: NodeType
     name: str
-    catalog: Optional[CatalogInfo]
-    schema_: Optional[str]
-    table: Optional[str]
+    catalog: Optional[CatalogInfo] = None
+    schema_: Optional[str] = None
+    table: Optional[str] = None
     description: str = ""
     query: Optional[str] = None
     created_at: UTCDatetime
     current_version: str
     missing_table: Optional[bool] = False
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserOutput(BaseModel):
@@ -40,16 +38,14 @@ class UserOutput(BaseModel):
 
     id: int
     username: str
-    email: Optional[str]
-    name: Optional[str]
+    email: Optional[str] = None
+    name: Optional[str] = None
     oauth_provider: OAuthProvider
     is_admin: bool = False
     created_collections: Optional[List[CollectionInfo]] = []
     created_nodes: Optional[List[CreatedNode]] = []
     created_tags: Optional[List[TagOutput]] = []
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserNameOnly(BaseModel):
@@ -58,9 +54,7 @@ class UserNameOnly(BaseModel):
     """
 
     username: str
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserActivity(BaseModel):

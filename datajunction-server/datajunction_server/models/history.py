@@ -9,6 +9,7 @@ from pydantic.main import BaseModel
 from datajunction_server.database.history import History
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.typing import UTCDatetime
+from pydantic import ConfigDict
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
@@ -22,18 +23,16 @@ class HistoryOutput(BaseModel):
     """
 
     id: int
-    entity_type: Optional[EntityType]
-    entity_name: Optional[str]
-    node: Optional[str]
-    activity_type: Optional[ActivityType]
-    user: Optional[str]
+    entity_type: Optional[EntityType] = None
+    entity_name: Optional[str] = None
+    node: Optional[str] = None
+    activity_type: Optional[ActivityType] = None
+    user: Optional[str] = None
     pre: Dict[str, Any]
     post: Dict[str, Any]
     details: Dict[str, Any]
     created_at: UTCDatetime
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 def status_change_history(

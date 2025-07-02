@@ -9,7 +9,7 @@ from datajunction_server.internal.history import ActivityType, EntityType
 
 class NotificationPreferenceModel(BaseModel):
     entity_type: EntityType
-    entity_name: Optional[str]
+    entity_name: Optional[str] = None
     activity_types: List[ActivityType]
     user_id: int
     username: str

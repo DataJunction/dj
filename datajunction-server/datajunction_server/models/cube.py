@@ -4,7 +4,7 @@ Models for cubes.
 
 from typing import List, Optional
 
-from pydantic import Field, root_validator
+from pydantic import model_validator, ConfigDict, Field
 from pydantic.main import BaseModel
 
 from datajunction_server.models.materialization import MaterializationConfigOutput
@@ -29,9 +29,10 @@ class CubeElementMetadata(BaseModel):
     display_name: str
     node_name: str
     type: str
-    partition: Optional[PartitionOutput]
+    partition: Optional[PartitionOutput] = None
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def type_string(cls, values):
         """
         Extracts the type as a string
@@ -45,9 +46,7 @@ class CubeElementMetadata(BaseModel):
                 else NodeType.DIMENSION
             )
         return values
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CubeRevisionMetadata(BaseModel):
@@ -68,16 +67,13 @@ class CubeRevisionMetadata(BaseModel):
     cube_elements: List[CubeElementMetadata]
     cube_node_metrics: List[str]
     cube_node_dimensions: List[str]
-    query: Optional[str]
+    query: Optional[str] = None
     columns: List[ColumnOutput]
-    sql_columns: Optional[List[ColumnOutput]]
+    sql_columns: Optional[List[ColumnOutput]] = None
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]
-    tags: Optional[List[TagOutput]]
-
-    class Config:
-        allow_population_by_field_name = True
-        orm_mode = True
+    tags: Optional[List[TagOutput]] = None
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
 
 
 class DimensionValue(BaseModel):
@@ -86,7 +82,7 @@ class DimensionValue(BaseModel):
     """
 
     value: List[str]
-    count: Optional[int]
+    count: Optional[int] = None
 
 
 class DimensionValues(BaseModel):

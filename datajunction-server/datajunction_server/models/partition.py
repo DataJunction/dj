@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, List, Optional
 from pydantic.main import BaseModel
 
 from datajunction_server.enum import StrEnum
+from pydantic import ConfigDict
 
 if TYPE_CHECKING:
     pass
@@ -47,9 +48,9 @@ class PartitionInput(BaseModel):
     # Temporal partitions will additionally have the following properties:
     #
     # Timestamp granularity
-    granularity: Optional[Granularity]
+    granularity: Optional[Granularity] = None
     # Timestamp format
-    format: Optional[str]
+    format: Optional[str] = None
 
 
 class PartitionBackfill(BaseModel):
@@ -63,11 +64,9 @@ class PartitionBackfill(BaseModel):
     # optionally use `values` to specify specific values
     # Ex: values: [20230901]
     #     range: [20230901, 20231001]
-    values: Optional[List]
-    range: Optional[List]
-
-    class Config:
-        orm_mode = True
+    values: Optional[List] = None
+    range: Optional[List] = None
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PartitionOutput(BaseModel):
@@ -76,12 +75,10 @@ class PartitionOutput(BaseModel):
     """
 
     type_: PartitionType
-    format: Optional[str]
-    granularity: Optional[str]
-    expression: Optional[str]
-
-    class Config:
-        orm_mode = True
+    format: Optional[str] = None
+    granularity: Optional[str] = None
+    expression: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PartitionColumnOutput(BaseModel):
@@ -91,8 +88,8 @@ class PartitionColumnOutput(BaseModel):
 
     name: str
     type_: PartitionType
-    format: Optional[str]
-    expression: Optional[str]
+    format: Optional[str] = None
+    expression: Optional[str] = None
 
 
 class BackfillOutput(BaseModel):
@@ -100,8 +97,6 @@ class BackfillOutput(BaseModel):
     Output model for backfills
     """
 
-    spec: Optional[List[PartitionBackfill]]
-    urls: Optional[List[str]]
-
-    class Config:
-        orm_mode = True
+    spec: Optional[List[PartitionBackfill]] = None
+    urls: Optional[List[str]] = None
+    model_config = ConfigDict(from_attributes=True)

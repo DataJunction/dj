@@ -90,7 +90,7 @@ class DJError(BaseModel):
 
     code: ErrorCode
     message: str
-    debug: Optional[Dict[str, Any]]
+    debug: Optional[Dict[str, Any]] = None
     context: str = ""
 
     def __str__(self) -> str:
@@ -127,7 +127,7 @@ class DJWarning(BaseModel):
 
     code: Optional[ErrorCode] = None
     message: str
-    debug: Optional[Dict[str, Any]]
+    debug: Optional[Dict[str, Any]] = None
 
 
 DBAPIExceptions = Literal[

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, List, Optional
 from pydantic.main import BaseModel
 
 from datajunction_server.models.engine import EngineInfo
+from pydantic import ConfigDict
 
 if TYPE_CHECKING:
     pass
@@ -19,6 +20,4 @@ class CatalogInfo(BaseModel):
 
     name: str
     engines: Optional[List[EngineInfo]] = []
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

@@ -8,6 +8,7 @@ from pydantic.class_validators import root_validator
 from pydantic.main import BaseModel
 
 from datajunction_server.enum import StrEnum
+from pydantic import model_validator, ConfigDict
 
 if TYPE_CHECKING:
     pass
@@ -38,8 +39,8 @@ class CreateMeasure(BaseModel):
     """
 
     name: str
-    display_name: Optional[str]
-    description: Optional[str]
+    display_name: Optional[str] = None
+    description: Optional[str] = None
     columns: List[NodeColumn]
     additive: AggregationRule = AggregationRule.NON_ADDITIVE
 
@@ -49,10 +50,10 @@ class EditMeasure(BaseModel):
     Editable fields on a measure
     """
 
-    display_name: Optional[str]
-    description: Optional[str]
-    columns: Optional[List[NodeColumn]]
-    additive: Optional[AggregationRule]
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    columns: Optional[List[NodeColumn]] = None
+    additive: Optional[AggregationRule] = None
 
 
 class ColumnOutput(BaseModel):
@@ -64,7 +65,8 @@ class ColumnOutput(BaseModel):
     type: str
     node: str
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def transform(cls, values):
         """
         Transforms the values for output
@@ -74,9 +76,7 @@ class ColumnOutput(BaseModel):
             "type": str(values.get("type")),
             "node": values.get("node_revisions")[0].name,
         }
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MeasureOutput(BaseModel):
@@ -85,10 +85,8 @@ class MeasureOutput(BaseModel):
     """
 
     name: str
-    display_name: Optional[str]
-    description: Optional[str]
+    display_name: Optional[str] = None
+    description: Optional[str] = None
     columns: List[ColumnOutput]
     additive: AggregationRule
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

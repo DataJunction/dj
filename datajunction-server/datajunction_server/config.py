@@ -11,7 +11,8 @@ from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
 from cachelib.redis import RedisCache
 from celery import Celery
-from pydantic import BaseModel, BaseSettings
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
     pass
@@ -40,9 +41,7 @@ class Settings(BaseSettings):  # pragma: no cover
     """
     DataJunction configuration.
     """
-
-    class Config:
-        env_nested_delimiter = "__"  # Enables nesting like WRITER_DB__URI
+    model_config = SettingsConfigDict(env_nested_delimiter="__")
 
     name: str = "DJ server"
     description: str = "A DataJunction metrics layer"
@@ -116,12 +115,12 @@ class Settings(BaseSettings):  # pragma: no cover
     google_oauth_client_secret_file: Optional[str] = None
 
     # Interval in seconds with which to expire caching of any indexes
-    index_cache_expire = 60
+    index_cache_expire: int = 60
 
     default_catalog_id: int = 0
 
     # Maximum amount of nodes to return for requests to list all nodes
-    node_list_max = 10000
+    node_list_max: int = 10000
 
     @property
     def celery(self) -> Celery:

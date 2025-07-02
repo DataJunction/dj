@@ -3,7 +3,7 @@
 import hashlib
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field, validator
+from pydantic import field_validator, BaseModel, Field
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
@@ -76,7 +76,7 @@ class MetricComponent(BaseModel):
 
     name: str
     expression: str  # A SQL expression for defining the measure
-    aggregation: str | None
+    aggregation: str | None = None
     rule: AggregationRule
 
 
@@ -123,17 +123,17 @@ class MeasuresMaterialization(BaseModel):
 
     columns: list[ColumnMetadata]
 
-    timestamp_column: str | None = Field(description="Timestamp column name")
+    timestamp_column: str | None = Field(None, description="Timestamp column name")
     timestamp_format: str | None = Field(
-        description="Timestamp format. Example: `yyyyMMdd`",
+        None, description="Timestamp format. Example: `yyyyMMdd`",
     )
 
     granularity: Granularity | None = Field(
-        description="The time granularity for each materialization run. Examples: DAY, HOUR",
+        None, description="The time granularity for each materialization run. Examples: DAY, HOUR",
     )
 
     spark_conf: Dict[str, str] | None = Field(
-        description="Spark config for this materialization.",
+        None, description="Spark config for this materialization.",
     )
     upstream_tables: list[str] = Field(
         description="List of upstream tables used in this materialization.",
@@ -261,7 +261,8 @@ class UpsertCubeMaterialization(BaseModel):
     # Lookback window, only relevant if materialization strategy is INCREMENTAL_TIME
     lookback_window: str | None = "1 DAY"
 
-    @validator("job", pre=True)
+    @field_validator("job", mode="before")
+    @classmethod
     def validate_job(
         cls,
         job: Union[str, MaterializationJobTypeEnum],
@@ -290,7 +291,7 @@ class CombineMaterialization(BaseModel):
     """
 
     node: NodeNameVersion
-    query: str | None
+    query: str | None = None
     columns: List[ColumnMetadata]
     grain: list[str] = Field(
         description="The grain at which the node is being materialized.",
@@ -302,13 +303,13 @@ class CombineMaterialization(BaseModel):
         description="List of measures included in this materialization.",
     )
 
-    timestamp_column: str | None = Field(description="Timestamp column name")
+    timestamp_column: str | None = Field(None, description="Timestamp column name")
     timestamp_format: str | None = Field(
-        description="Timestamp format. Example: `yyyyMMdd`",
+        None, description="Timestamp format. Example: `yyyyMMdd`",
     )
 
     granularity: Granularity | None = Field(
-        description="The time granularity for each materialization run. Examples: DAY, HOUR",
+        None, description="The time granularity for each materialization run. Examples: DAY, HOUR",
     )
     upstream_tables: list[str] = []
 

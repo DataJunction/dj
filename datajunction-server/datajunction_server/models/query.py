@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, List, Optional
 
 import msgpack
-from pydantic import AnyHttpUrl, validator
+from pydantic import RootModel, field_validator, ConfigDict, AnyHttpUrl
 from pydantic.fields import Field
 from pydantic.main import BaseModel
 
@@ -19,12 +19,10 @@ class BaseQuery(BaseModel):
     Base class for query models.
     """
 
-    catalog_name: Optional[str]
+    catalog_name: Optional[str] = None
     engine_name: Optional[str] = None
     engine_version: Optional[str] = None
-
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class QueryCreate(BaseQuery):
@@ -46,10 +44,10 @@ class ColumnMetadata(BaseModel):
 
     name: str
     type: str
-    column: Optional[str]
-    node: Optional[str]
-    semantic_entity: Optional[str]
-    semantic_type: Optional[str]
+    column: Optional[str] = None
+    node: Optional[str] = None
+    semantic_entity: Optional[str] = None
+    semantic_type: Optional[str] = None
 
     def __hash__(self):
         return hash((self.name, self.type))  # pragma: no cover
@@ -70,12 +68,12 @@ class StatementResults(BaseModel):
     row_count: int = 0
 
 
-class QueryResults(BaseModel):
+class QueryResults(RootModel[list[StatementResults]]):
     """
     Results for a given query.
     """
+    pass
 
-    __root__: List[StatementResults]
 
 
 class TableRef(BaseModel):
@@ -106,28 +104,31 @@ class QueryWithResults(BaseModel):
     state: QueryState = QueryState.UNKNOWN
     progress: float = 0.0
 
-    output_table: Optional[TableRef]
+    output_table: Optional[TableRef] = None
     results: QueryResults
     next: Optional[AnyHttpUrl] = None
     previous: Optional[AnyHttpUrl] = None
     errors: List[str]
     links: Optional[List[AnyHttpUrl]] = None
 
-    @validator("scheduled", pre=True)
+    @field_validator("scheduled", mode="before")
+    @classmethod
     def parse_scheduled_date_string(cls, value):
         """
         Convert string date values to datetime
         """
         return datetime.fromisoformat(value) if isinstance(value, str) else value
 
-    @validator("started", pre=True)
+    @field_validator("started", mode="before")
+    @classmethod
     def parse_started_date_string(cls, value):
         """
         Convert string date values to datetime
         """
         return datetime.fromisoformat(value) if isinstance(value, str) else value
 
-    @validator("finished", pre=True)
+    @field_validator("finished", mode="before")
+    @classmethod
     def parse_finisheddate_string(cls, value):
         """
         Convert string date values to datetime

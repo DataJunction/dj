@@ -15,8 +15,8 @@ field_type=IntegerType(), is_optional=True, doc='an optional field'))
 import re
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, Generator, Optional, Tuple, cast
 
-from pydantic import BaseModel, Extra
-from pydantic.class_validators import AnyCallable
+from pydantic import ConfigDict, BaseModel, PrivateAttr
+from typing import Callable
 
 from datajunction_server.enum import StrEnum
 
@@ -48,11 +48,9 @@ class ColumnType(BaseModel):
     """
 
     _initialized = False
-
-    class Config:
-        extra = Extra.allow
-        arbitrary_types_allowed = True
-        underscore_attrs_are_private = False
+    # TODO[pydantic]: The following keys were removed: `underscore_attrs_are_private`.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-config for more information.
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True, underscore_attrs_are_private=False)
 
     def __init__(
         self,
@@ -67,7 +65,7 @@ class ColumnType(BaseModel):
         self._initialized = True
 
     def __repr__(self):
-        return self._repr_string
+        return getattr(self, "_repr_string", super().__repr__())
 
     def __str__(self):
         return self._type_string
@@ -76,7 +74,9 @@ class ColumnType(BaseModel):
         return self
 
     @classmethod
-    def __get_validators__(cls) -> Generator[AnyCallable, None, None]:
+    # TODO[pydantic]: We couldn't refactor `__get_validators__`, please create the `__get_pydantic_core_schema__` manually.
+    # Check https://docs.pydantic.dev/latest/migration/#defining-custom-types for more information.
+    def __get_validators__(cls) -> Generator[Callable, None, None]:
         """
         One or more validators may be yielded which will be called in the
         order to validate the input, each validator will receive as an input
@@ -216,6 +216,7 @@ class DecimalType(NumberType):
             min(precision, DecimalType.max_precision),
             min(scale, DecimalType.max_scale),
         )
+        print("cls._instances", cls._instances)
         cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
         return cls._instances[key]
 
@@ -249,9 +250,8 @@ class NestedField(ColumnType):
     This is where field IDs, names, docs, and nullability are tracked.
     """
 
-    _instances: Dict[
-        Tuple[bool, str, ColumnType, Optional[str]],
-        "NestedField",
+    instances: ClassVar[
+        Dict[Tuple[bool, str, ColumnType, Optional[str]], "NestedField"]
     ] = {}
 
     def __new__(
@@ -267,8 +267,12 @@ class NestedField(ColumnType):
             name = Name(name)
 
         key = (is_optional, name.name, field_type, doc)
-        cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
-        return cls._instances[key]
+        print("cls._instances", cls.instances)
+        # if key not in cls.instances:
+        #     cls.instances[key] = object.__new__(cls)
+
+        cls.instances[key] = cls.instances.get(key) or object.__new__(cls)
+        return cls.instances[key]
 
     def __init__(
         self,

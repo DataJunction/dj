@@ -9,6 +9,7 @@ from pydantic.main import BaseModel
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.models.node_type import NodeType
+from pydantic import ConfigDict
 
 RESERVED_ATTRIBUTE_NAMESPACE = "system"
 
@@ -38,16 +39,14 @@ class MutableAttributeTypeFields(AttributeTypeIdentifier):
 
     description: str
     allowed_node_types: List[NodeType]
-    uniqueness_scope: Optional[List[UniquenessScope]]
+    uniqueness_scope: Optional[List[UniquenessScope]] = None
 
 
 class AttributeTypeBase(MutableAttributeTypeFields):
     """Base attribute type."""
 
     id: int
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ColumnAttributes(str, Enum):

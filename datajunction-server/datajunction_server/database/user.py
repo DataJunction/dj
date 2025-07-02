@@ -71,7 +71,7 @@ class User(Base):
     notification_preferences: Mapped[list["NotificationPreference"]] = relationship(
         "NotificationPreference",
         back_populates="user",
-    )
+    ) 
 
     @classmethod
     async def get_by_username(

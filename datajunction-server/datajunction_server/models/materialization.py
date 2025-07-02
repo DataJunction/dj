@@ -3,7 +3,7 @@
 import enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
-from pydantic import AnyHttpUrl, BaseModel, validator
+from pydantic import RootModel, field_validator, ConfigDict, AnyHttpUrl, BaseModel
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
@@ -121,16 +121,14 @@ class MaterializationConfigOutput(BaseModel):
     """
 
     node_revision_id: int
-    name: Optional[str]
+    name: Optional[str] = None
     config: Dict
     schedule: str
-    job: Optional[str]
+    job: Optional[str] = None
     backfills: List[BackfillOutput]
-    strategy: Optional[str]
-    deactivated_at: UTCDatetime | None
-
-    class Config:
-        orm_mode = True
+    strategy: Optional[str] = None
+    deactivated_at: UTCDatetime | None = None
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MaterializationConfigInfoUnified(
@@ -142,10 +140,9 @@ class MaterializationConfigInfoUnified(
     """
 
 
-class SparkConf(BaseModel):
+class SparkConf(RootModel[dict[str, str]]):
     """Spark configuration"""
-
-    __root__: Dict[str, str] = {}
+    pass
 
 
 class GenericMaterializationConfigInput(BaseModel):
@@ -154,12 +151,12 @@ class GenericMaterializationConfigInput(BaseModel):
     """
 
     # Spark config
-    spark: Optional[SparkConf]
+    spark: Optional[SparkConf] = None
 
     # The time window to lookback when overwriting materialized datasets
     # This will only be used if a time partition was set on the node and
     # the materialization strategy is INCREMENTAL_TIME
-    lookback_window: Optional[str]
+    lookback_window: Optional[str] = None
 
 
 class GenericMaterializationConfig(GenericMaterializationConfigInput):
@@ -168,9 +165,9 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
     and engine combinations
     """
 
-    query: Optional[str]
-    columns: Optional[List[ColumnMetadata]]
-    upstream_tables: Optional[List[str]]
+    query: Optional[str] = None
+    columns: Optional[List[ColumnMetadata]] = None
+    upstream_tables: Optional[List[str]] = None
 
     def temporal_partition(
         self,
@@ -219,11 +216,11 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
 class DruidConf(BaseModel):
     """Druid configuration"""
 
-    granularity: Optional[str]
-    intervals: Optional[List[str]]
-    timestamp_column: Optional[str]
-    timestamp_format: Optional[str]
-    parse_spec_format: Optional[str]
+    granularity: Optional[str] = None
+    intervals: Optional[List[str]] = None
+    timestamp_column: Optional[str] = None
+    timestamp_format: Optional[str] = None
+    parse_spec_format: Optional[str] = None
 
 
 class Measure(BaseModel):
@@ -261,9 +258,9 @@ class GenericCubeConfigInput(GenericMaterializationConfigInput):
     Generic cube materialization config fields that require user input
     """
 
-    dimensions: Optional[List[str]]
-    measures: Optional[Dict[str, MetricMeasures]]
-    metrics: Optional[List[ColumnMetadata]]
+    dimensions: Optional[List[str]] = None
+    measures: Optional[Dict[str, MetricMeasures]] = None
+    metrics: Optional[List[ColumnMetadata]] = None
 
 
 class GenericCubeConfig(GenericCubeConfigInput, GenericMaterializationConfig):
@@ -280,7 +277,7 @@ class DruidCubeConfigInput(GenericCubeConfigInput):
 
     prefix: Optional[str] = ""
     suffix: Optional[str] = ""
-    druid: Optional[DruidConf]
+    druid: Optional[DruidConf] = None
 
 
 class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
@@ -483,7 +480,7 @@ class UpsertMaterialization(BaseModel):
     An upsert object for materialization configs
     """
 
-    name: Optional[str]
+    name: Optional[str] = None
     job: MaterializationJobTypeEnum
     config: Union[
         DruidCubeConfigInput,
@@ -493,7 +490,8 @@ class UpsertMaterialization(BaseModel):
     schedule: str
     strategy: MaterializationStrategy
 
-    @validator("job", pre=True)
+    @field_validator("job", mode="before")
+    @classmethod
     def validate_job(
         cls,
         job: Union[str, MaterializationJobTypeEnum],

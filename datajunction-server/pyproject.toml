@@ -84,7 +84,8 @@ dependencies = [
     "strawberry-graphql>=0.204.0",
 
     # Data validation
-    "pydantic<2",
+    "pydantic<2.11",
+    "pydantic-settings",
 ]
 requires-python = ">=3.10,<4.0"
 readme = "README.md"
