@@ -12,7 +12,7 @@ engines:
     extra_params:
       http_scheme: http
       user: admin
-  - name: postgres
+  - name: dj_system
     version: ''
     type: sqlalchemy
     uri: postgresql+psycopg://readonly_user:readonly_pass@postgres_metadata:5432/dj
@@ -25,4 +25,4 @@ catalogs:
       - trino
   - name: dj
     engines:
-      - postgres
+      - dj_system

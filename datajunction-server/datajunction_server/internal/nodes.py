@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 
-from datajunction_server.api.catalogs import UNKNOWN_CATALOG_ID
 from datajunction_server.api.helpers import (
     get_attribute_type,
     get_node_by_name,
@@ -1760,8 +1759,7 @@ async def upsert_complex_dimension_link(
         link_input.dimension_node,
     )
     if (
-        dimension_node.current.catalog_id != UNKNOWN_CATALOG_ID  # type: ignore
-        and dimension_node.current.catalog is not None  # type: ignore
+        dimension_node.current.catalog.name != settings.seed_setup.virtual_catalog_name  # type: ignore
         and node.current.catalog.name != dimension_node.current.catalog.name  # type: ignore
     ):
         raise DJException(  # pragma: no cover

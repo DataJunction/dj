@@ -4,6 +4,8 @@ from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.base import Base
 from datajunction_server.models.dialect import Dialect
@@ -32,7 +34,11 @@ class Engine(Base):
         sa.BigInteger().with_variant(sa.Integer, "sqlite"),
         primary_key=True,
     )
-    name: Mapped[str]
+    name: Mapped[str] = mapped_column(sa.String, unique=True)
     version: Mapped[str]
     uri: Mapped[Optional[str]]
     dialect: Mapped[Optional[Dialect]] = mapped_column(DialectType())
+
+    async def get_by_name(session: AsyncSession, name: str) -> "Engine":
+        statement = select(Engine).where(Engine.name == name)
+        return (await session.execute(statement)).scalar_one_or_none()
