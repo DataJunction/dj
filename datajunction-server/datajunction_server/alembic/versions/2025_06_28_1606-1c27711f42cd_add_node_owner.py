@@ -19,7 +19,7 @@ depends_on = None
 
 def upgrade():
     op.create_table(
-        "nodeowner",
+        "node_owners",
         sa.Column(
             "node_id",
             sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
@@ -30,18 +30,26 @@ def upgrade():
             sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
             nullable=False,
         ),
-        sa.Column("ownership_type", sa.String(length=50), nullable=True),
-        sa.ForeignKeyConstraint(["node_id"], ["node.id"], name="fk_nodeowner_node_id"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], name="fk_nodeowner_user_id"),
+        sa.Column("ownership_type", sa.String(length=256), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["node_id"],
+            ["node.id"],
+            name="fk_node_owners_node_id",
+        ),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+            name="fk_node_owners_user_id",
+        ),
         sa.PrimaryKeyConstraint("node_id", "user_id"),
     )
-    with op.batch_alter_table("nodeowner", schema=None) as batch_op:
-        batch_op.create_index("idx_nodeowner_node_id", ["node_id"], unique=False)
-        batch_op.create_index("idx_nodeowner_user_id", ["user_id"], unique=False)
+    with op.batch_alter_table("node_owners", schema=None) as batch_op:
+        batch_op.create_index("idx_node_owners_node_id", ["node_id"], unique=False)
+        batch_op.create_index("idx_node_owners_user_id", ["user_id"], unique=False)
 
-    # Autopopulate nodeowner from node.created_by_id
+    # Autopopulate node_owners from node.created_by_id
     op.execute("""
-        INSERT INTO nodeowner (node_id, user_id)
+        INSERT INTO node_owners (node_id, user_id)
         SELECT id, created_by_id
         FROM node
         WHERE created_by_id IS NOT NULL
@@ -49,8 +57,8 @@ def upgrade():
 
 
 def downgrade():
-    with op.batch_alter_table("nodeowner", schema=None) as batch_op:
-        batch_op.drop_index("idx_nodeowner_user_id")
-        batch_op.drop_index("idx_nodeowner_node_id")
+    with op.batch_alter_table("node_owners", schema=None) as batch_op:
+        batch_op.drop_index("idx_node_owners_user_id")
+        batch_op.drop_index("idx_node_owners_node_id")
 
-    op.drop_table("nodeowner")
+    op.drop_table("node_owners")

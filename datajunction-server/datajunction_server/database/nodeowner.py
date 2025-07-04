@@ -14,7 +14,7 @@ class NodeOwner(Base):
     Join table for users and nodes that represents ownership
     """
 
-    __tablename__ = "nodeowner"
+    __tablename__ = "node_owners"
     __table_args__ = (
         Index("idx_nodeowner_node_id", "node_id"),
         Index("idx_nodeowner_user_id", "user_id"),
@@ -35,7 +35,7 @@ class NodeOwner(Base):
         primary_key=True,
     )
     ownership_type: Mapped[str] = mapped_column(
-        String(50),
+        String(256),
         nullable=True,
     )
 
