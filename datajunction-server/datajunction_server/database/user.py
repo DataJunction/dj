@@ -74,6 +74,7 @@ class User(Base):
     notification_preferences: Mapped[list["NotificationPreference"]] = relationship(
         "NotificationPreference",
         back_populates="user",
+        lazy="selectin",
     )
     owned_associations: Mapped[list[NodeOwner]] = relationship(
         "NodeOwner",
@@ -100,13 +101,14 @@ class User(Base):
         """
         Find a user by username
         """
+        statement = select(User).where(User.username == username)
         options = options or [
             selectinload(User.created_nodes),
             selectinload(User.created_collections),
             selectinload(User.created_tags),
             selectinload(User.owned_nodes),
+            selectinload(User.notification_preferences),
         ]
-        statement = select(User).where(User.username == username).options(*options)
         result = await session.execute(statement)
         return result.unique().scalar_one_or_none()
 

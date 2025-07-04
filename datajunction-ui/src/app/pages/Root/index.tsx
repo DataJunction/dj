@@ -1,9 +1,12 @@
-import { useContext } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import DJLogo from '../../icons/DJLogo';
 import { Helmet } from 'react-helmet-async';
 import DJClientContext from '../../providers/djclient';
 import Search from '../../components/Search';
+import NotificationIcon from '../../icons/NotificationIcon';
+import SettingsIcon from '../../icons/SettingsIcon';
+import '../../../styles/nav-bar.css';
 
 // Define the type for the docs sites
 type DocsSites = {
@@ -20,8 +23,24 @@ const docsSites: DocsSites = process.env.REACT_APP_DOCS_SITES
   ? (JSON.parse(process.env.REACT_APP_DOCS_SITES as string) as DocsSites)
   : defaultDocsSites;
 
+interface User {
+  id: number;
+  username: string;
+  email: string;
+}
+
 export function Root() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    async function fetchData() {
+      const current = await djClient.whoami();
+      console.log('current', current);
+      setCurrentUser(current);
+    }
+    fetchData();
+  }, [djClient]);
 
   const handleLogout = async () => {
     await djClient.logout();
@@ -32,10 +51,7 @@ export function Root() {
     <>
       <Helmet>
         <title>DataJunction</title>
-        <meta
-          name="description"
-          content="DataJunction Metrics Platform Webapp"
-        />
+        <meta name="description" content="DataJunction UI" />
       </Helmet>
       <div className="container d-flex align-items-center justify-content-between">
         <div className="header">
@@ -105,13 +121,32 @@ export function Root() {
         {process.env.REACT_DISABLE_AUTH === 'true' ? (
           ''
         ) : (
-          <span className="menu-link">
-            <span className="menu-title">
-              <a href={'/'} onClick={handleLogout}>
-                Logout
-              </a>
+          <div className="menu" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+            <span className="menu-link">
+              <span className="menu-title">
+                <button className="button-right" style={{ height: '2.7rem', width: '2.7rem', color: '#cccccc' }}>
+                  <NotificationIcon />
+                  <span>13</span>
+                </button>
+              </span>
             </span>
-          </span>
+            <span className="menu-link">
+              <span className="menu-title">
+                <button className="button-right" style={{ height: '2.9rem', width: '2.9rem', color: '#cccccc' }}>
+                  <SettingsIcon />
+                  <span style={{background: 'transparent'}}></span>
+                </button>
+              </span>
+            </span>
+            <span className="menu-link">
+              <span className="menu-title">
+                {currentUser !== null ? currentUser.username : ''}
+                {/* <a href={'/'} onClick={handleLogout}>
+                  Logout
+                </a> */}
+              </span>
+            </span>
+          </div>
         )}
       </div>
       <Outlet />
