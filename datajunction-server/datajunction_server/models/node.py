@@ -497,11 +497,12 @@ class MutableNodeFields(BaseModel):
     Node fields that can be changed.
     """
 
-    display_name: Optional[str]
-    description: Optional[str]
+    display_name: str | None
+    description: str | None
     mode: NodeMode = NodeMode.PUBLISHED
-    primary_key: Optional[List[str]]
-    custom_metadata: Optional[Dict]
+    primary_key: list[str] | None
+    custom_metadata: dict | None
+    owners: list[str] | None
 
 
 class MutableNodeQueryField(BaseModel):
@@ -766,6 +767,7 @@ class GenericNodeOutputModel(BaseModel):
             "missing_table": values.get("missing_table"),
             "tags": values.get("tags"),
             "created_by": values.get("created_by").__dict__,
+            "owners": [owner.__dict__ for owner in values.get("owners")],
         }
         for k, v in current_dict.items():
             final_dict[k] = v
@@ -854,6 +856,7 @@ class NodeOutput(GenericNodeOutputModel):
     current_version: str
     missing_table: Optional[bool] = False
     custom_metadata: Optional[Dict] = None
+    owners: list[UserNameOnly]
 
     class Config:
         orm_mode = True
@@ -872,6 +875,7 @@ class NodeOutput(GenericNodeOutputModel):
             selectinload(Node.current).options(*NodeRevision.default_load_options()),
             joinedload(Node.tags),
             selectinload(Node.created_by),
+            selectinload(Node.owners),
         ]
 
 

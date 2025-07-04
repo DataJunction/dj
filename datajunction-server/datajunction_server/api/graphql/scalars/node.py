@@ -322,13 +322,14 @@ class Node:
     deactivated_at: Optional[datetime.datetime]
 
     current: NodeRevision
-    revisions: List[NodeRevision]
+    revisions: list[NodeRevision]
 
-    tags: List[TagBase]
+    tags: list[TagBase]
     created_by: User
+    owners: list[User]
 
     @strawberry.field
-    def edited_by(self, root: "DBNode") -> List[str]:
+    def edited_by(self, root: "DBNode") -> list[str]:
         """
         The users who edited this node
         """

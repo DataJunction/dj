@@ -15,6 +15,7 @@ import { displayMessageAfterSubmit } from '../../../utils/form';
 import { NodeQueryField } from './NodeQueryField';
 import { MetricMetadataFields } from './MetricMetadataFields';
 import { UpstreamNodeField } from './UpstreamNodeField';
+import { OwnersField } from './OwnersField';
 import { TagsField } from './TagsField';
 import { NamespaceField } from './NamespaceField';
 import { AlertMessage } from './AlertMessage';
@@ -50,6 +51,7 @@ export function AddEditNodePage({ extensions = {} }) {
     description: '',
     primary_key: '',
     mode: 'published',
+    owners: [],
   };
 
   const validator = values => {
@@ -112,7 +114,7 @@ export function AddEditNodePage({ extensions = {} }) {
       values.display_name,
       values.description,
       values.type === 'metric'
-        ? `SELECT ${values.aggregate_expression} FROM ${values.upstream_node}`
+        ? `SELECT ${values.aggregate_expression} \n FROM ${values.upstream_node}`
         : values.query,
       values.mode,
       values.namespace,
@@ -146,7 +148,7 @@ export function AddEditNodePage({ extensions = {} }) {
       values.display_name,
       values.description,
       values.type === 'metric'
-        ? `SELECT ${values.aggregate_expression} FROM ${values.upstream_node}`
+        ? `SELECT ${values.aggregate_expression} \n FROM ${values.upstream_node}`
         : values.query,
       values.mode,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
@@ -154,6 +156,7 @@ export function AddEditNodePage({ extensions = {} }) {
       values.metric_unit,
       values.significant_digits,
       values.required_dimensions,
+      values.owners,
     );
     const tagsResponse = await djClient.tagsNode(
       values.name,
@@ -201,6 +204,7 @@ export function AddEditNodePage({ extensions = {} }) {
       query: node.current.query,
       tags: node.tags,
       mode: node.current.mode.toLowerCase(),
+      owners: node.owners,
     };
 
     if (node.type === 'METRIC') {
@@ -244,6 +248,7 @@ export function AddEditNodePage({ extensions = {} }) {
     setSelectPrimaryKey,
     setSelectUpstreamNode,
     setSelectRequiredDims,
+    setSelectOwners,
   ) => {
     // Update fields with existing data to prepare for edit
     const fields = [
@@ -259,12 +264,18 @@ export function AddEditNodePage({ extensions = {} }) {
       'metric_unit',
       'metric_direction',
       'significant_digits',
+      'owners',
     ];
     fields.forEach(field => {
       if (field === 'tags') {
         setFieldValue(
           field,
           data[field].map(tag => tag.name),
+        );
+      } else if (field === 'owners') {
+        setFieldValue(
+          field,
+          data[field].map(owner => owner.username),
         );
       } else {
         setFieldValue(field, data[field] || '', false);
@@ -306,6 +317,15 @@ export function AddEditNodePage({ extensions = {} }) {
         }}
       />,
     );
+    if (data.owners) {
+      setSelectOwners(
+        <OwnersField
+          defaultValue={data.owners.map(owner => {
+            return { value: owner.username, label: owner.username };
+          })}
+        />,
+      );
+    }
   };
 
   return (
@@ -345,6 +365,7 @@ export function AddEditNodePage({ extensions = {} }) {
                   useState(null);
                 const [selectUpstreamNode, setSelectUpstreamNode] =
                   useState(null);
+                const [selectOwners, setSelectOwners] = useState(null);
                 const [selectTags, setSelectTags] = useState(null);
                 const [message, setMessage] = useState('');
 
@@ -361,6 +382,7 @@ export function AddEditNodePage({ extensions = {} }) {
                         setSelectPrimaryKey,
                         setSelectUpstreamNode,
                         setSelectRequiredDims,
+                        setSelectOwners,
                       );
                     }
                   };
@@ -390,6 +412,13 @@ export function AddEditNodePage({ extensions = {} }) {
                           )
                         ) : (
                           ''
+                        )}
+                        <br />
+                        <br />
+                        {action === Action.Edit ? (
+                          selectOwners
+                        ) : (
+                          <OwnersField />
                         )}
                         <br />
                         <br />

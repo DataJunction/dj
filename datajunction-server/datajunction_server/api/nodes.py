@@ -536,15 +536,12 @@ async def create_source(
         current_user=current_user,
         save_history=save_history,
     )
-    node = await Node.get_by_name(  # type: ignore
+
+    return await Node.get_by_name(  # type: ignore
         session,
         node.name,
-        options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
-            joinedload(Node.tags),
-        ],
+        options=NodeOutput.load_options(),
     )
-    return node
 
 
 @router.post(
@@ -664,15 +661,11 @@ async def create_node(
                     current_user=current_user,
                     save_history=save_history,
                 )
-    node = await Node.get_by_name(  # type: ignore
+    return await Node.get_by_name(  # type: ignore
         session,
         node.name,
-        options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
-            joinedload(Node.tags),
-        ],
+        options=NodeOutput.load_options(),
     )
-    return node
 
 
 @router.post(
@@ -741,8 +734,11 @@ async def create_cube(
         current_user=current_user,
         save_history=save_history,
     )
-    node = await Node.get_by_name(session, data.name)  # type: ignore
-    return node
+    return await Node.get_by_name(  # type: ignore
+        session,
+        node.name,
+        options=NodeOutput.load_options(),
+    )
 
 
 @router.post(
@@ -1263,10 +1259,7 @@ async def refresh_source_node(
     source_node = await Node.get_by_name(
         session,
         name,
-        options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
-            joinedload(Node.tags),
-        ],
+        options=NodeOutput.load_options(),
     )
     current_revision = source_node.current  # type: ignore
 
@@ -1396,10 +1389,7 @@ async def refresh_source_node(
     source_node = await Node.get_by_name(
         session,
         name,
-        options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
-            joinedload(Node.tags),
-        ],
+        options=NodeOutput.load_options(),
     )
     await session.refresh(source_node, ["current"])
     return source_node  # type: ignore
@@ -1435,13 +1425,11 @@ async def update_node(
         request_headers=request_headers,
         save_history=save_history,
     )
+
     node = await Node.get_by_name(
         session,
         name,
-        options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
-            joinedload(Node.tags),
-        ],
+        options=NodeOutput.load_options(),
     )
     return node  # type: ignore
 
