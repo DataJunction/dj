@@ -21,6 +21,7 @@ class Dialect(StrEnum):
     SPARK = "spark"
     TRINO = "trino"
     DRUID = "druid"
+    POSTGRES = "postgres"
 
     @classmethod
     def _missing_(cls, value: object) -> "Dialect":
