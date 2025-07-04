@@ -82,7 +82,7 @@ class User(Base):
     )
     owned_nodes = relationship(
         "Node",
-        secondary="nodeowner",
+        secondary="node_owners",
         back_populates="owners",
         overlaps="owned_associations,user",
         lazy="selectin",

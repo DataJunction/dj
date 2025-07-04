@@ -16,21 +16,21 @@ class NodeOwner(Base):
 
     __tablename__ = "node_owners"
     __table_args__ = (
-        Index("idx_nodeowner_node_id", "node_id"),
-        Index("idx_nodeowner_user_id", "user_id"),
+        Index("idx_node_owners_node_id", "node_id"),
+        Index("idx_node_owners_user_id", "user_id"),
     )
 
     node_id: Mapped[int] = mapped_column(
         ForeignKey(
             "node.id",
-            name="fk_nodeowner_node_id",
+            name="fk_node_owners_node_id",
         ),
         primary_key=True,
     )
     user_id: Mapped[int] = mapped_column(
         ForeignKey(
             "users.id",
-            name="fk_nodeowner_user_id",
+            name="fk_node_owners_user_id",
         ),
         primary_key=True,
     )

@@ -231,7 +231,7 @@ class Node(Base):
     )
     owners: Mapped[list[User]] = relationship(
         "User",
-        secondary="nodeowner",
+        secondary="node_owners",
         back_populates="owned_nodes",
     )
 
