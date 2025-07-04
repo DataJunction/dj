@@ -18,6 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from datajunction_server import __version__
 from datajunction_server.api import (
+    analytics,
     attributes,
     catalogs,
     client,
@@ -113,6 +114,7 @@ app.include_router(whoami.router)
 app.include_router(users.router)
 app.include_router(basic.router)
 app.include_router(notifications.router)
+app.include_router(analytics.router)
 
 
 @app.exception_handler(DJException)
