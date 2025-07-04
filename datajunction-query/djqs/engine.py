@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 import duckdb
@@ -84,7 +84,7 @@ def run_query(  # pylint: disable=R0914
 
     settings = get_settings()
     engine_name = query.engine_name or settings.default_engine
-    engine_version = query.engine_version or settings.default_engine_version
+    engine_version = query.engine_version
     engine = settings.find_engine(
         engine_name=engine_name,
         engine_version=engine_version,
@@ -164,6 +164,16 @@ def run_snowflake_query(
     return output
 
 
+def serialize_for_json(obj):
+    if isinstance(obj, list):
+        return [serialize_for_json(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: serialize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, date):
+        return obj.strftime("%Y-%m-%d")  # or '%Y-%m-%d'
+    return obj
+
+
 async def process_query(
     settings: Settings,
     postgres_pool: AsyncConnectionPool,
@@ -221,7 +231,11 @@ async def process_query(
 
     settings.results_backend.add(
         str(query.id),
-        json.dumps([asdict(statement_result) for statement_result in results]),
+        json.dumps(
+            serialize_for_json(
+                [asdict(statement_result) for statement_result in results],
+            ),
+        ),
     )
 
     return QueryResults(
