@@ -10,6 +10,7 @@ from datajunction_server.database.user import OAuthProvider
 from datajunction_server.models.catalog import CatalogInfo
 from datajunction_server.models.collection import CollectionInfo
 from datajunction_server.models.node import NodeType
+from datajunction_server.models.notifications import NotificationPreferenceOutput
 from datajunction_server.models.tag import TagOutput
 from datajunction_server.typing import UTCDatetime
 
@@ -45,6 +46,7 @@ class UserOutput(BaseModel):
     oauth_provider: OAuthProvider
     is_admin: bool = False
     created_collections: Optional[List[CollectionInfo]] = []
+    notification_preferences: Optional[List[NotificationPreferenceOutput]] = []
     created_nodes: Optional[List[CreatedNode]] = []
     owned_nodes: Optional[List[CreatedNode]] = []
     created_tags: Optional[List[TagOutput]] = []

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.construction.utils import try_get_dj_node
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJAuthorizationException, DJError, ErrorCode
-from datajunction_server.models.user import UserOutput
+from datajunction_server.models.user import UserNameOnly
 
 if TYPE_CHECKING:
     from datajunction_server.sql.parsing.ast import Column
@@ -160,7 +160,7 @@ class AccessControlStore(BaseModel):
     """
 
     validate_access: Callable[["AccessControl"], bool]
-    user: Optional[UserOutput]
+    user: Optional[UserNameOnly]
     base_verb: Optional[ResourceRequestVerb] = None
     state: AccessControlState = AccessControlState.DIRECT
     direct_requests: Set[ResourceRequest] = Field(default_factory=set)
