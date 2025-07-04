@@ -1,0 +1,13 @@
+name: Project for DJ system nodes
+description: This project contains system tables and metrics modeled in DJ
+prefix: system.dj
+build:
+  priority:
+  - nodes
+  - node_type
+  - date
+  - node_without_description
+  - is_active
+  - user
+  - number_of_nodes
+# DJ_USER=dj DJ_PWD=dj dj pull system.dj seed
