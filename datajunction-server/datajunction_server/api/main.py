@@ -18,6 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from datajunction_server import __version__
 from datajunction_server.api import (
+    analytics,
     attributes,
     catalogs,
     client,
@@ -118,6 +119,7 @@ def configure_app(app: FastAPI) -> None:
     app.include_router(users.router)
     app.include_router(basic.router)
     app.include_router(notifications.router)
+    app.include_router(analytics.router)
 
     @app.exception_handler(DJException)
     async def dj_exception_handler(
