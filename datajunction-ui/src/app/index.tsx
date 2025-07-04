@@ -8,6 +8,7 @@ import { Helmet } from 'react-helmet-async';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 import { NamespacePage } from './pages/NamespacePage/Loadable';
+import { OverviewPage } from './pages/OverviewPage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
 import RevisionDiff from './pages/NodePage/RevisionDiff';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
@@ -116,6 +117,11 @@ export function App() {
                       <Route path="tags" key="tags">
                         <Route path=":name" element={<TagPage />} />
                       </Route>
+                      <Route
+                        path="overview"
+                        key="overview"
+                        element={<OverviewPage />}
+                      />
                     </>
                   }
                 />
