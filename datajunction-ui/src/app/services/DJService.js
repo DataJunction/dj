@@ -88,6 +88,146 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  analytics: {
+    node_counts_by_active: async function () {
+      const results = await (
+        await fetch(
+          `${DJ_URL}/analytics/data/system.dj.number_of_nodes?dimensions=system.dj.is_active.active_id`,
+          { credentials: 'include' },
+        )
+      ).json();
+      return results.map(row => {
+        return {
+          name:
+            row
+              .find(entry => entry.col === 'system.dj.is_active.active_id')
+              ?.value?.toString() ?? 'unknown',
+          value:
+            row.find(entry => entry.col === 'system.dj.number_of_nodes')
+              ?.value ?? 0,
+        };
+      });
+    },
+    node_counts_by_type: async function () {
+      const results = await (
+        await fetch(
+          `${DJ_URL}/analytics/data/system.dj.number_of_nodes?dimensions=system.dj.node_type.type&filters=system.dj.is_active.active_id=true`,
+          { credentials: 'include' },
+        )
+      ).json();
+      return results.map(row => {
+        return {
+          name:
+            row
+              .find(entry => entry.col === 'system.dj.node_type.type')
+              ?.value?.toString() ?? 'unknown',
+          value:
+            row.find(entry => entry.col === 'system.dj.number_of_nodes')
+              ?.value ?? 0,
+        };
+      });
+    },
+    node_counts_by_status: async function () {
+      const results = await (
+        await fetch(
+          `${DJ_URL}/analytics/data/system.dj.number_of_nodes?dimensions=system.dj.nodes.status&filters=system.dj.is_active.active_id=true`,
+          { credentials: 'include' },
+        )
+      ).json();
+      return results.map(row => {
+        return {
+          name:
+            row
+              .find(entry => entry.col === 'system.dj.nodes.status')
+              ?.value?.toString() ?? 'unknown',
+          value:
+            row.find(entry => entry.col === 'system.dj.number_of_nodes')
+              ?.value ?? 0,
+        };
+      });
+    },
+    node_counts_by_user: async function () {
+      const results = await (
+        await fetch(
+          `${DJ_URL}/analytics/data/system.dj.number_of_nodes?dimensions=system.dj.user.username&dimensions=system.dj.node_type.type&filters=system.dj.is_active.active_id=true`,
+          { credentials: 'include' },
+        )
+      ).json();
+      const pivoted = {};
+      results.forEach(row => {
+        const username = row.find(
+          r => r.col === 'system.dj.user.username',
+        )?.value;
+        const nodeType = row.find(
+          r => r.col === 'system.dj.node_type.type',
+        )?.value;
+        const count = row.find(
+          r => r.col === 'system.dj.number_of_nodes',
+        )?.value;
+        if (!pivoted[username]) {
+          pivoted[username] = { username };
+        }
+        pivoted[username][nodeType] =
+          (pivoted[username][nodeType] || 0) + count;
+      });
+      return Object.entries(pivoted)
+        .map(([username, data]) => {
+          return {
+            username: username,
+            ...data,
+          };
+        })
+        .sort((a, b) => {
+          const sumValues = obj =>
+            Object.entries(obj)
+              .filter(
+                ([key, value]) =>
+                  key !== 'username' && typeof value === 'number',
+              )
+              .reduce((sum, [, value]) => sum + value, 0);
+          return sumValues(b) - sumValues(a);
+        });
+    },
+    node_trends: async function () {
+      const results = await (
+        await fetch(
+          `${DJ_URL}/analytics/data/system.dj.number_of_nodes?dimensions=system.dj.nodes.created_at_week&dimensions=system.dj.node_type.type&filters=system.dj.nodes.created_at_week>=20240101&orderby=system.dj.nodes.created_at_week`,
+          { credentials: 'include' },
+        )
+      ).json();
+      const byDateint = {};
+      results.forEach(row => {
+        const dateint = row.find(
+          r => r.col === 'system.dj.nodes.created_at_week',
+        )?.value;
+        const nodeType = row.find(
+          r => r.col === 'system.dj.node_type.type',
+        )?.value;
+        const count = row.find(
+          r => r.col === 'system.dj.number_of_nodes',
+        )?.value;
+        if (!byDateint[dateint]) {
+          byDateint[dateint] = { date: dateint };
+        }
+        byDateint[dateint][nodeType] =
+          (byDateint[dateint][nodeType] || 0) + count;
+      });
+      return Object.entries(byDateint).map(([dateint, data]) => {
+        return {
+          date: dateint,
+          ...data,
+        };
+      });
+    },
+    dimensions: async function () {
+      return await (
+        await fetch(`${DJ_URL}/analytics/dimensions`, {
+          credentials: 'include',
+        })
+      ).json();
+    },
+  },
+
   logout: async function () {
     return await fetch(`${DJ_URL}/logout/`, {
       credentials: 'include',

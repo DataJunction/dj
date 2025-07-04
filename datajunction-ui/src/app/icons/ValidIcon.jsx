@@ -1,8 +1,8 @@
-const ValidIcon = props => (
+const ValidIcon = ({ width = '25px', height = '25px' }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
-    width="25"
-    height="25"
+    width={width}
+    height={height}
     fill="currentColor"
     className="bi bi-check-circle-fill"
     viewBox="0 0 16 16"
