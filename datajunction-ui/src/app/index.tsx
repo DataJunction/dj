@@ -9,6 +9,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { OverviewPage } from './pages/OverviewPage/Loadable';
+import { SettingsPage } from './pages/SettingsPage/Loadable';
+import { NotificationsPage } from './pages/NotificationsPage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
 import RevisionDiff from './pages/NodePage/RevisionDiff';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
@@ -121,6 +123,16 @@ export function App() {
                         path="overview"
                         key="overview"
                         element={<OverviewPage />}
+                      />
+                      <Route
+                        path="settings"
+                        key="settings"
+                        element={<SettingsPage />}
+                      />
+                      <Route
+                        path="notifications"
+                        key="notifications"
+                        element={<NotificationsPage />}
                       />
                     </>
                   }

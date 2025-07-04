@@ -323,6 +323,41 @@ export const DataJunctionAPI = {
     return results.data.findNodes[0];
   },
 
+  // Fetch basic node info for multiple nodes by name (for Settings page)
+  getNodesByNames: async function (names) {
+    if (!names || names.length === 0) {
+      return [];
+    }
+    const query = `
+      query GetNodesByNames($names: [String!]) {
+        findNodes(names: $names) {
+          name
+          type
+          current {
+            displayName
+            status
+            mode
+          }
+        }
+      }
+    `;
+
+    const results = await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: { names },
+        }),
+      })
+    ).json();
+    return results.data?.findNodes || [];
+  },
+
   getMetric: async function (name) {
     const query = `
       query GetMetric($name: String!) {
@@ -1462,5 +1497,23 @@ export const DataJunctionAPI = {
       status: response.status,
       json: await response.json(),
     };
+  },
+
+  // GET /history/ with only_subscribed filter
+  getSubscribedHistory: async function (limit = 10) {
+    return await (
+      await fetch(`${DJ_URL}/history/?only_subscribed=true&limit=${limit}`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
+  // POST /notifications/mark-read
+  markNotificationsRead: async function () {
+    const response = await fetch(`${DJ_URL}/notifications/mark-read`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    return await response.json();
   },
 };
