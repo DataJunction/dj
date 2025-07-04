@@ -84,6 +84,7 @@ enum Dialect {
   SPARK
   TRINO
   DRUID
+  POSTGRES
 }
 
 type DialectInfo {
