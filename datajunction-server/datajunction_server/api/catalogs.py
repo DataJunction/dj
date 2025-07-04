@@ -25,8 +25,6 @@ _logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["catalogs"])
 
-UNKNOWN_CATALOG_ID = 0
-
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])
 async def list_catalogs(
@@ -148,19 +146,3 @@ async def list_new_engines(
         if not already_set:
             new_engines.append(engine)
     return new_engines
-
-
-async def default_catalog(session: AsyncSession = Depends(get_session)):
-    """
-    Loads a default catalog for nodes that are pure SQL and don't belong in any
-    particular catalog. This typically applies to on-the-fly user-defined dimensions.
-    """
-    statement = select(Catalog).filter(Catalog.id == UNKNOWN_CATALOG_ID)
-    catalogs = (await session.execute(statement)).all()
-    if not catalogs:  # pragma: no cover
-        unknown = Catalog(
-            id=UNKNOWN_CATALOG_ID,
-            name="unknown",
-        )
-        session.add(unknown)
-        await session.commit()

@@ -5,9 +5,11 @@ from functools import partial
 from typing import TYPE_CHECKING, Dict, List, Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer
+from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy_utils import UUIDType
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.engine import Engine
@@ -29,7 +31,7 @@ class Catalog(Base):
         primary_key=True,
     )
     uuid: Mapped[UUID] = mapped_column(UUIDType(), default=uuid4)
-    name: Mapped[str]
+    name: Mapped[str] = mapped_column(String, unique=True)
     engines: Mapped[List[Engine]] = relationship(
         secondary="catalogengines",
         primaryjoin="Catalog.id==CatalogEngines.catalog_id",
@@ -54,6 +56,10 @@ class Catalog(Base):
 
     def __hash__(self) -> int:
         return hash(self.id)
+
+    async def get_by_names(session: AsyncSession, names: list[str]) -> list["Catalog"]:
+        statement = select(Catalog).filter(Catalog.name.in_(names))
+        return (await session.execute(statement)).scalars().all()
 
 
 class CatalogEngines(Base):  # type: ignore
