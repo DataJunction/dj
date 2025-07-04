@@ -2,6 +2,13 @@
 Router for various analytics endpoints, including an overview of nodes
 """
 
+import logging
+import hashlib
+from fastapi import BackgroundTasks, Depends, Query
+from pydantic import BaseModel
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from typing import Any
 from datajunction_server.internal.access.authorization import (
     validate_access,
@@ -12,12 +19,8 @@ from datajunction_server.sql.dag import (
     get_dimension_dag_indegree,
 )
 from datajunction_server.api.sql import get_node_sql
-
-
-from fastapi import BackgroundTasks, Depends, Query
-from pydantic import BaseModel
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.database.user import User
 from datajunction_server.database.node import Node
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
@@ -27,6 +30,7 @@ from datajunction_server.utils import (
     get_session,
 )
 
+logger = logging.getLogger(__name__)
 router = SecureAPIRouter(tags=["Analytics"])
 
 
@@ -67,6 +71,7 @@ async def get_data_for_system_metrics(
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
+    cache: Cache = Depends(get_cache),
 ) -> list[list[RowOutput]]:
     """
     This is not a generic data for metrics endpoint, but rather a specific endpoint for
@@ -81,18 +86,27 @@ async def get_data_for_system_metrics(
     for the metric can be discovered through the usual endpoints.
     """
     # e.g., "system.dj.number_of_nodes"
-    translated_sql, _ = await get_node_sql(
-        metric_name,
-        dimensions=dimensions,
-        filters=filters,
-        orderby=orderby,
-        session=session,
-        current_user=current_user,
-        background_tasks=background_tasks,
-        validate_access=validate_access,
-    )
+    unique_string = f"{metric_name}:{','.join(dimensions)}:{' AND '.join(filters)}"
+    unique_hash = hashlib.sha256(unique_string.encode()).hexdigest()[:16]
+    cache_key = f"system:sql:{metric_name}:{unique_hash}"
+    if not (translated_sql := cache.get(cache_key)):
+        translated_sql, _ = await get_node_sql(
+            metric_name,
+            dimensions=dimensions,
+            filters=filters,
+            orderby=orderby,
+            session=session,
+            current_user=current_user,
+            background_tasks=background_tasks,
+            validate_access=validate_access,
+        )
+        # A long timeout for the cache is fine here, since these are system nodes whose
+        # definitions should only change upon deployment, at which point the cache can be
+        # retriggered
+        background_tasks.add_task(cache.set, cache_key, translated_sql, timeout=86400)
+
     results = await session.execute(text(translated_sql.sql))
-    return [
+    output = [
         [
             RowOutput(
                 value=value,
@@ -104,6 +118,7 @@ async def get_data_for_system_metrics(
         ]
         for row in results
     ]
+    return output
 
 
 class DimensionStats(BaseModel):
