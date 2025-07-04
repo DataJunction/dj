@@ -74,6 +74,7 @@ class User(Base):
     notification_preferences: Mapped[list["NotificationPreference"]] = relationship(
         "NotificationPreference",
         back_populates="user",
+        lazy="selectin",
     )
     owned_associations: Mapped[list[NodeOwner]] = relationship(
         "NodeOwner",
