@@ -153,16 +153,21 @@ async def test_whoami(client: AsyncClient):
     """
     Test the /whoami/ endpoint
     """
+    await client.post(
+        "/basic/user/",
+        data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
+    )
     response = await client.get("/whoami/")
     assert response.status_code in (200, 201)
     assert response.json() == {
         "id": 1,
         "username": "dj",
-        "email": None,
+        "email": "dj@datajunction.io",
         "name": None,
         "oauth_provider": "basic",
         "is_admin": False,
         "created_collections": [],
         "created_nodes": [],
         "created_tags": [],
+        "owned_nodes": [],
     }

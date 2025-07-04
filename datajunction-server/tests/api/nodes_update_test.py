@@ -173,3 +173,38 @@ async def test_update_source_node(
             "type": "double",
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_update_source_node_new_owner(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test updating a source node with a new owner
+    """
+    response = await module__client_with_roads.patch(
+        "/nodes/default.repair_order_details/",
+        json={
+            "columns": [
+                {"name": "repair_order_id", "type": "string"},
+            ],
+            "owners": ["dj"],
+        },
+    )
+    assert response.json()["owners"] == [{"username": "dj"}]
+
+
+@pytest.mark.asyncio
+async def test_update_node_non_existent_owners(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    response = await module__client_with_roads.patch(
+        "/nodes/default.repair_order_details/",
+        json={
+            "columns": [
+                {"name": "repair_order_id", "type": "string"},
+            ],
+            "owners": ["nonexistent_user", "dj"],
+        },
+    )
+    assert response.json()["message"] == "Users not found: nonexistent_user"

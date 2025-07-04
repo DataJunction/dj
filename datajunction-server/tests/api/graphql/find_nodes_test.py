@@ -137,9 +137,12 @@ async def test_find_by_node_type_paginated(
             name
             type
             tags {
-                name
+              name
             }
             currentVersion
+            owners {
+              username
+            }
           }
         }
         pageInfo {
@@ -163,6 +166,7 @@ async def test_find_by_node_type_paginated(
                     "name": "default.repair_orders_fact",
                     "tags": [],
                     "type": "TRANSFORM",
+                    "owners": [{"username": "dj"}],
                 },
             },
             {
@@ -171,6 +175,7 @@ async def test_find_by_node_type_paginated(
                     "name": "default.national_level_agg",
                     "tags": [],
                     "type": "TRANSFORM",
+                    "owners": [{"username": "dj"}],
                 },
             },
         ],

@@ -156,6 +156,9 @@ export const DataJunctionAPI = {
             name
             displayName
           }
+          owners {
+            username
+          }
         }
       }
     `;
@@ -323,6 +326,7 @@ export const DataJunctionAPI = {
     metric_unit,
     significant_digits,
     required_dimensions,
+    owners,
   ) {
     try {
       const metricMetadata =
@@ -346,6 +350,7 @@ export const DataJunctionAPI = {
           primary_key: primary_key,
           metric_metadata: metricMetadata,
           required_dimensions: required_dimensions,
+          owners: owners,
         }),
         credentials: 'include',
       });

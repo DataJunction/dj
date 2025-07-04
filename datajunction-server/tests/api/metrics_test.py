@@ -1089,6 +1089,7 @@ async def test_metric_expression_auto_aliased(module__client_with_roads: AsyncCl
     )
     assert response.status_code == 201
     data = response.json()
+    assert data["owners"] == [{"username": "dj"}]
     assert data["query"] == "SELECT SUM(counts.b) + SUM(counts.b) FROM basic.dreams_4"
     assert data["columns"] == [
         {
