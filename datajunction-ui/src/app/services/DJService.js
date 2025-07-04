@@ -146,6 +146,26 @@ export const DataJunctionAPI = {
         };
       });
     },
+    nodes_without_description: async function () {
+      const results = await (
+        await fetch(
+          `${DJ_URL}/analytics/data/system.dj.node_without_description?dimensions=system.dj.node_type.type&filters=system.dj.is_active.active_id=true`,
+          { credentials: 'include' },
+        )
+      ).json();
+      return results.map(row => {
+        return {
+          name:
+            row
+              .find(entry => entry.col === 'system.dj.node_type.type')
+              ?.value?.toString() ?? 'unknown',
+          value:
+            row.find(
+              entry => entry.col === 'system.dj.node_without_description',
+            )?.value ?? 0,
+        };
+      });
+    },
     node_counts_by_user: async function () {
       const results = await (
         await fetch(
@@ -219,6 +239,7 @@ export const DataJunctionAPI = {
         };
       });
     },
+
     dimensions: async function () {
       return await (
         await fetch(`${DJ_URL}/analytics/dimensions`, {
