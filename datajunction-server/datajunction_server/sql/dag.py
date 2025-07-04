@@ -15,6 +15,7 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import (
+    CubeRelationship,
     Node,
     NodeColumns,
     NodeRelationship,
@@ -1058,3 +1059,63 @@ async def get_dimension_dag_indegree(session, node_names: List[str]) -> Dict[str
     link_counts = {link[0]: link[1] for link in result.unique().all()}
     dimension_dag_indegree = {node.name: link_counts.get(node.id, 0) for node in nodes}
     return dimension_dag_indegree
+
+
+async def get_cubes_using_dimensions(
+    session: AsyncSession,
+    dimension_names: list[str],
+) -> dict[str, int]:
+    """
+    Find cube revisions that use all the specified dimension node
+    """
+    cubes_subquery = (
+        select(NodeRevision.id, Node.name)
+        .select_from(Node)
+        .join(
+            NodeRevision,
+            and_(
+                NodeRevision.node_id == Node.id,
+                Node.current_version == NodeRevision.version,
+            ),
+        )
+        .where(
+            Node.type == NodeType.CUBE,
+            Node.deactivated_at.is_(None),
+        )
+        .subquery()
+    )
+
+    dimensions_subquery = (
+        select(NodeRevision.id, Node.name)
+        .select_from(Node)
+        .join(
+            NodeRevision,
+            and_(
+                NodeRevision.node_id == Node.id,
+                Node.current_version == NodeRevision.version,
+            ),
+        )
+        .where(
+            Node.type == NodeType.DIMENSION,
+            Node.deactivated_at.is_(None),
+        )
+        .subquery()
+    )
+
+    find_statement = (
+        select(
+            dimensions_subquery.c.name,
+            func.count(func.distinct(CubeRelationship.cube_id)).label(
+                "cubes_using_dim",
+            ),
+        )
+        .select_from(cubes_subquery)
+        .join(CubeRelationship, cubes_subquery.c.id == CubeRelationship.cube_id)
+        .join(Column, CubeRelationship.cube_element_id == Column.id)
+        .join(NodeColumns, Column.id == NodeColumns.column_id)
+        .join(dimensions_subquery, NodeColumns.node_id == dimensions_subquery.c.id)
+        .where(dimensions_subquery.c.name.in_(dimension_names))
+        .group_by(dimensions_subquery.c.name)
+    )
+    result = await session.execute(find_statement)
+    return {res[0]: res[1] for res in result.fetchall()}
