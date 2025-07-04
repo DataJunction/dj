@@ -12,6 +12,10 @@ engines:
     extra_params:
       http_scheme: http
       user: admin
+  - name: postgres
+    version: ''
+    type: sqlalchemy
+    uri: postgresql+psycopg://readonly_user:readonly_pass@postgres_metadata:5432/dj
 catalogs:
   - name: warehouse
     engines:
@@ -19,3 +23,6 @@ catalogs:
   - name: tpch
     engines:
       - trino
+  - name: dj
+    engines:
+      - postgres

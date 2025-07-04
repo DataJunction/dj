@@ -31,11 +31,10 @@ def table_columns(
             f"for `table` must be in the format `<catalog>.<schema>.<table>`",
         )
     settings = get_settings()
-
-    if engine and engine_version:
+    if engine:
         engine_config = settings.find_engine(
             engine_name=engine,
-            engine_version=engine_version or settings.default_engine_version,
+            engine_version=engine_version or "",
         )
     else:
         engine_config = settings.find_engine(
