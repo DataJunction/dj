@@ -6,6 +6,7 @@ import DJClientContext from '../../providers/djclient';
 import Search from '../../components/Search';
 import NotificationIcon from '../../icons/NotificationIcon';
 import SettingsIcon from '../../icons/SettingsIcon';
+import '../../../styles/nav-bar.css';
 
 // Define the type for the docs sites
 type DocsSites = {
