@@ -8,6 +8,7 @@ from datajunction_server.database.user import OAuthProvider
 from datajunction_server.models.catalog import CatalogInfo
 from datajunction_server.models.collection import CollectionInfo
 from datajunction_server.models.node import NodeType
+from datajunction_server.models.notifications import NotificationPreferenceOutput
 from datajunction_server.models.tag import TagOutput
 from datajunction_server.typing import UTCDatetime
 
@@ -45,6 +46,10 @@ class UserOutput(BaseModel):
     created_nodes: list[CreatedNode] = Field(default_factory=list)
     owned_nodes: list[CreatedNode] = Field(default_factory=list)
     created_tags: list[TagOutput] = Field(default_factory=list)
+    notification_preferences: list[NotificationPreferenceOutput] = Field(
+        default_factory=list,
+    )
+    last_viewed_notifications_at: UTCDatetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -3,6 +3,7 @@
 import logging
 from http import HTTPStatus
 from typing import Annotated, List, Optional
+from datetime import datetime, timezone
 
 from datajunction_server.models.notifications import NotificationPreferenceModel
 from fastapi import Body, Depends
@@ -161,3 +162,25 @@ async def get_users_for_notification(
     )
     users = [perf.user.username for perf in notification_preferences]
     return users
+
+
+@router.post("/notifications/mark-read")
+async def mark_notifications_read(
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_and_update_current_user),
+) -> JSONResponse:
+    """
+    Mark all notifications as read by updating the user's
+    last_viewed_notifications_at timestamp to now.
+    """
+    current_user.last_viewed_notifications_at = datetime.now(timezone.utc)
+    session.add(current_user)
+    await session.commit()
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Notifications marked as read",
+            "last_viewed_at": current_user.last_viewed_notifications_at.isoformat(),
+        },
+    )
