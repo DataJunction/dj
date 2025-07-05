@@ -1,0 +1,41 @@
+display_name: Nodes
+description: ''
+query: |-
+  SELECT
+    id,
+    N.name,
+    NR.display_name,
+    cast(N.type AS STRING) type,
+    N.namespace,
+    N.created_by_id,
+    N.created_at,
+    CAST(TO_CHAR(CAST(N.created_at AS date), 'YYYYMMDD') AS integer) AS created_at_date,
+    CAST(TO_CHAR(CAST(DATE_TRUNC('week', N.created_at) AS date), 'YYYYMMDD') AS integer) AS created_at_week,
+    N.current_version,
+    CASE WHEN deactivated_at IS NULL THEN true ELSE false END AS is_active,
+    NR.status,
+    NR.description,
+    NR.id AS current_revision_id
+  FROM source.dj_metadata.public.node N
+  JOIN source.dj_metadata.public.noderevision NR ON NR.node_id = N.id AND NR.version = N.current_version
+columns: []
+primary_key:
+- id
+dimension_links:
+- type: join
+  dimension_node: ${prefix}user
+  join_type: left
+  join_on: ${prefix}nodes.created_by_id = ${prefix}user.id
+- type: join
+  dimension_node: ${prefix}date
+  join_type: left
+  join_on: ${prefix}nodes.created_at_date = ${prefix}date.dateint
+- type: join
+  dimension_node: ${prefix}is_active
+  join_type: left
+  join_on: ${prefix}nodes.is_active = ${prefix}is_active.active_id
+- type: join
+  dimension_node: ${prefix}node_type
+  join_type: left
+  join_on: ${prefix}nodes.type = ${prefix}node_type.type_upper
+tags: []

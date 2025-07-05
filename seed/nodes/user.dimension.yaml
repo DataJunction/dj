@@ -1,0 +1,9 @@
+display_name: User
+description: ''
+query: |-
+  SELECT id, username FROM source.dj_metadata.public.users
+columns: []
+primary_key:
+- id
+dimension_links: []
+tags: []

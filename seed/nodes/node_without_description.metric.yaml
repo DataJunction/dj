@@ -1,0 +1,18 @@
+display_name: Node without Description
+description: ''
+query: |-
+  SELECT SUM(CASE
+          WHEN is_active = True AND description IS NULL OR description = '' THEN 1.0
+          ELSE 0.0
+      END) * 1.0 / SUM(CASE
+          WHEN is_active = True THEN 1.0
+          ELSE 0.0
+      END)
+   FROM ${prefix}nodes
+tags: []
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: null
+min_decimal_exponent: null
+max_decimal_exponent: null
