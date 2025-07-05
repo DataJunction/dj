@@ -1,6 +1,9 @@
 import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 
+import ValidIcon from '../../icons/ValidIcon';
+import InvalidIcon from '../../icons/InvalidIcon';
+
 const COLOR_MAPPING = {
   valid: '#00b368',
   invalid: '#b34b00',
