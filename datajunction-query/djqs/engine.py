@@ -165,12 +165,15 @@ def run_snowflake_query(
 
 
 def serialize_for_json(obj):
+    """
+    Handle serialization of date/datetimes for JSON output.
+    """
     if isinstance(obj, list):
         return [serialize_for_json(x) for x in obj]
     if isinstance(obj, dict):
         return {k: serialize_for_json(v) for k, v in obj.items()}
-    if isinstance(obj, date):
-        return obj.strftime("%Y-%m-%d")  # or '%Y-%m-%d'
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
     return obj
 
 

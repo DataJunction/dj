@@ -39,7 +39,7 @@ class DatabaseConfig(BaseModel):
 class SeedSetup(BaseModel):
     # An "unknown" catalog for nodes that are pure SQL and don't belong in any
     # particular catalog. This typically applies to on-the-fly user-defined dimensions.
-    virtual_catalog_name = "unknown"
+    virtual_catalog_name = "default"
 
     # A "DJ System" catalog that contains all system tables modeled in DJ
     system_catalog_name = "dj_metadata"
