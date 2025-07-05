@@ -2,8 +2,6 @@ import * as React from 'react';
 import { useParams } from 'react-router-dom';
 import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
-import ValidIcon from '../../icons/ValidIcon';
-import InvalidIcon from '../../icons/InvalidIcon';
 import { OverviewChart } from './OverviewChart';
 import { NodesByTypeChart } from './NodesByTypeChart';
 import { ByStatusChart } from './ByStatusChart';
@@ -32,7 +30,7 @@ export function OverviewPage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      setNodeTrends(await djClient.analytics.node_trends());
+      // setNodeTrends(await djClient.analytics.node_trends());
       setNodesByUser(await djClient.analytics.node_counts_by_user());
       setDimensionNodes(await djClient.analytics.dimensions());
     };
