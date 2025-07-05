@@ -58,6 +58,9 @@ class Catalog(Base):
         return hash(self.id)
 
     async def get_by_names(session: AsyncSession, names: list[str]) -> list["Catalog"]:
+        """
+        Get catalogs by their names.
+        """
         statement = select(Catalog).filter(Catalog.name.in_(names))
         return (await session.execute(statement)).scalars().all()
 

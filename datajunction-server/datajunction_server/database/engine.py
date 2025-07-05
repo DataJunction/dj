@@ -40,5 +40,8 @@ class Engine(Base):
     dialect: Mapped[Optional[Dialect]] = mapped_column(DialectType())
 
     async def get_by_name(session: AsyncSession, name: str) -> "Engine":
+        """
+        Get an engine by its name.
+        """
         statement = select(Engine).where(Engine.name == name)
         return (await session.execute(statement)).scalar_one_or_none()
