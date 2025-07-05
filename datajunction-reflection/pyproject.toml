@@ -18,13 +18,12 @@ dependencies = [
     "python-dotenv==0.19.2",
     "requests>=2.26.0",
     "pydantic<2.0",
+    "pytz",
 ]
-requires-python = ">=3.8,<4.0"
+requires-python = ">=3.10,<4.0"
 readme = "README.md"
 license = {text = "MIT"}
 classifiers = [
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
