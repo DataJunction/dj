@@ -63,6 +63,7 @@ async def test_catalog_list(
         "data": {
             "listCatalogs": [
                 {"name": "unknown"},
+                {"name": "dj_metadata"},
                 {"name": "dev"},
                 {"name": "test"},
                 {"name": "prod"},

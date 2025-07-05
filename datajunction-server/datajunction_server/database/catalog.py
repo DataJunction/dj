@@ -5,7 +5,15 @@ from functools import partial
 from typing import TYPE_CHECKING, Dict, List, Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy_utils import UUIDType
 from sqlalchemy import select
@@ -13,7 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.engine import Engine
+from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.typing import UTCDatetime
+from datajunction_server.utils import get_settings
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
@@ -25,13 +35,14 @@ class Catalog(Base):
     """
 
     __tablename__ = "catalog"
+    __table_args__ = (UniqueConstraint("name", name="uq_catalog_name"),)
 
     id: Mapped[int] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"),
         primary_key=True,
     )
     uuid: Mapped[UUID] = mapped_column(UUIDType(), default=uuid4)
-    name: Mapped[str] = mapped_column(String, unique=True)
+    name: Mapped[str] = mapped_column(String)
     engines: Mapped[List[Engine]] = relationship(
         secondary="catalogengines",
         primaryjoin="Catalog.id==CatalogEngines.catalog_id",
@@ -63,6 +74,28 @@ class Catalog(Base):
         """
         statement = select(Catalog).filter(Catalog.name.in_(names))
         return (await session.execute(statement)).scalars().all()
+
+    async def get_by_name(session: AsyncSession, name: str) -> Optional["Catalog"]:
+        """
+        Get catalog by its name.
+        """
+        statement = select(Catalog).where(Catalog.name == name)
+        return (await session.execute(statement)).scalar_one_or_none()
+
+    async def get_virtual_catalog(session: AsyncSession) -> "Catalog":
+        """
+        Get the virtual catalog
+        """
+        settings = get_settings()
+        catalog = await Catalog.get_by_name(
+            session,
+            settings.seed_setup.virtual_catalog_name,
+        )
+        if not catalog:
+            raise DJDoesNotExistException(
+                f"Virtual catalog {settings.seed_setup.virtual_catalog_name} does not exist.",
+            )
+        return catalog
 
 
 class CatalogEngines(Base):  # type: ignore

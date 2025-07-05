@@ -24,6 +24,7 @@ from datajunction_server.construction.build_v2 import compile_node_ast
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
+from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import History
 from datajunction_server.database.materialization import Materialization
@@ -277,7 +278,10 @@ async def create_node_revision(
         raise DJException(
             f"Cannot create nodes with multi-catalog dependencies: {set(catalog_ids)}",
         )
-    catalog_id = next(iter(catalog_ids), settings.default_catalog_id)
+    catalog_id = next(
+        iter(catalog_ids),
+        (await Catalog.get_virtual_catalog(session)).id,
+    )
     parent_refs = (
         (
             await session.execute(
