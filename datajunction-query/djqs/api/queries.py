@@ -93,8 +93,12 @@ async def submit_query(  # pylint: disable=too-many-arguments
         )
 
     # Set default catalog and engine if not explicitly specified in submitted query
-    data["engine_name"] = data.get("engine_name") or settings.default_engine
-    data["engine_version"] = data.get("engine_version")
+    if not data.get("engine_name") and not data.get("engine_version"):
+        data["engine_name"] = settings.default_engine
+        data["engine_version"] = settings.default_engine_version
+    else:
+        data["engine_name"] = data.get("engine_name") or settings.default_engine
+        data["engine_version"] = data.get("engine_version") or ""
     data["catalog_name"] = data.get("catalog_name") or settings.default_catalog
 
     create_query = QueryCreate(**data)

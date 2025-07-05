@@ -203,7 +203,6 @@ async def test_crud_materialization(module__client_with_basic: AsyncClient):
             "dialect": "spark",
         },
     )
-
     response = await client_with_query_service.get(
         "/nodes/basic.transform.country_agg/",
     )
