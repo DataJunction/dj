@@ -39,5 +39,13 @@ class NodeOwner(Base):
         nullable=True,
     )
 
-    node = relationship("Node", back_populates="owner_associations")
-    user = relationship("User", back_populates="owned_associations")
+    node = relationship(
+        "Node",
+        back_populates="owner_associations",
+        viewonly=True,
+    )
+    user = relationship(
+        "User",
+        back_populates="owned_associations",
+        viewonly=True,
+    )
