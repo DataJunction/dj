@@ -1,0 +1,8 @@
+display_name: Date
+description: ''
+query: 'SELECT 1 AS dateint '
+columns: []
+primary_key:
+- dateint
+dimension_links: []
+tags: []

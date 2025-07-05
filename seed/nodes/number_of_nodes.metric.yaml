@@ -1,0 +1,12 @@
+display_name: Number of Nodes
+description: ''
+query: |-
+  SELECT COUNT(id)
+   FROM ${prefix}nodes
+tags: []
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: null
+min_decimal_exponent: null
+max_decimal_exponent: null

@@ -1,0 +1,12 @@
+display_name: Number of Materializations
+description: ''
+query: |-
+  SELECT COUNT(id)
+   FROM ${prefix}materialization
+tags: []
+required_dimensions: []
+direction: null
+unit: null
+significant_digits: null
+min_decimal_exponent: null
+max_decimal_exponent: null

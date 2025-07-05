@@ -1,0 +1,15 @@
+display_name: Is Active
+description: ''
+query: |-
+  SELECT
+    active_id, active_status
+  FROM
+  VALUES
+      (true, 'Active'),
+      (false, 'Deactivated')
+  AS t (active_id, active_status);
+columns: []
+primary_key:
+- active_id
+dimension_links: []
+tags: []
