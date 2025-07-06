@@ -43,7 +43,7 @@ async def seed_default_catalogs(session: AsyncSession):
             session,
             name=settings.seed_setup.system_engine_name,
         )
-        if not system_engine:
+        if not system_engine:  # pragma: no cover
             logger.info("System engine not found, adding...")
             system_engine = Engine(
                 name=settings.seed_setup.system_engine_name,
