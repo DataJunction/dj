@@ -92,7 +92,7 @@ class Catalog(Base):
             settings.seed_setup.virtual_catalog_name,
         )
         if not catalog:
-            raise DJDoesNotExistException(
+            raise DJDoesNotExistException(  # pragma: no cover
                 f"Virtual catalog {settings.seed_setup.virtual_catalog_name} does not exist.",
             )
         return catalog
