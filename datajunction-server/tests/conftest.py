@@ -41,7 +41,7 @@ from testcontainers.postgres import PostgresContainer
 
 from datajunction_server.api.main import app
 from datajunction_server.api.attributes import default_attribute_types
-from datajunction_server.api.catalogs import default_catalog
+from datajunction_server.internal.seed import seed_default_catalogs
 from datajunction_server.config import DatabaseConfig, Settings
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
@@ -390,7 +390,7 @@ async def client(
     Create a client for testing APIs.
     """
     await default_attribute_types(session)
-    await default_catalog(session)
+    await seed_default_catalogs(session)
 
     def get_session_override() -> AsyncSession:
         return session
@@ -636,7 +636,7 @@ async def client_qs(
     )
     await session.execute(statement)
     await default_attribute_types(session)
-    await default_catalog(session)
+    await seed_default_catalogs(session)
 
     def get_query_service_client_override(
         request: Request = None,
@@ -800,7 +800,7 @@ async def module__client(
     )
     await module__session.execute(statement)
     await default_attribute_types(module__session)
-    await default_catalog(module__session)
+    await seed_default_catalogs(module__session)
 
     def get_query_service_client_override(
         request: Request = None,

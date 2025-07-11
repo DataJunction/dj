@@ -56,6 +56,7 @@ class SQLTranspilationPlugin:
 @dialect_plugin(Dialect.SPARK.value)
 @dialect_plugin(Dialect.TRINO.value)
 @dialect_plugin(Dialect.DRUID.value)
+@dialect_plugin(Dialect.POSTGRES.value)
 class SQLGlotTranspilationPlugin(SQLTranspilationPlugin):
     """
     Implement sqlglot as a transpilation option

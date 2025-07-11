@@ -22,7 +22,6 @@ Below is a list of all useful server settings.
 | `transpilation_plugins`        | `List[str]`       | `["default", "sqlglot"]`         | Enabled transpilation plugins. |
 | `dj_logical_timestamp_format` | `str \| None` | `"${dj_logical_timestamp}"` | Macro for logical timestamp substitution. |
 | `secret`                       | `str`             | `"a-fake-secretkey"`             | 128-bit secret for JWT and encryption. |
-| `default_catalog_id` | `int`        | `0`     | Default catalog ID for new nodes. |
 | `index_cache_expire` | `int`        | `60`    | Interval in seconds before cache expiration for indexes. |
 | `node_list_max`      | `int`        | `10000` | Max number of nodes returned in a list request. |
 

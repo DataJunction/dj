@@ -1,0 +1,15 @@
+name: DJ System Metadata
+description: This project contains DJ system metadata modeled in DJ itself.
+prefix: system.dj
+build:
+  priority:
+  - materialization
+  - nodes
+  - dimension_link
+  - number_of_materializations
+  - node_type
+  - date
+  - node_without_description
+  - is_active
+  - user
+  - number_of_nodes

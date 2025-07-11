@@ -1,0 +1,20 @@
+display_name: Materialization
+description: ''
+query: |-
+  SELECT
+    M.name,
+    M.id,
+    M.node_revision_id,
+    M.job,
+    M.strategy,
+    M.schedule
+  FROM source.dj_metadata.public.materialization M
+columns: []
+primary_key:
+- id
+dimension_links:
+- type: join
+  dimension_node: ${prefix}nodes
+  join_type: left
+  join_on: ${prefix}materialization.node_revision_id = ${prefix}nodes.current_revision_id
+tags: []

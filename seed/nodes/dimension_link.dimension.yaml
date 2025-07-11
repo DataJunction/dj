@@ -1,0 +1,17 @@
+display_name: Dimension Link
+description: ''
+query: |-
+  SELECT
+    id,
+    dimension_id,
+    node_revision_id
+  FROM source.dj_metadata.public.dimensionlink
+columns: []
+primary_key:
+- id
+dimension_links:
+- type: join
+  dimension_node: ${prefix}nodes
+  join_type: left
+  join_on: ${prefix}dimension_link.dimension_id = ${prefix}nodes.id
+tags: []
