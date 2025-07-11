@@ -88,82 +88,78 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  querySystemMetric: async function ({
+    metric,
+    dimensions = [],
+    filters = [],
+    orderby = [],
+  }) {
+    const params = new URLSearchParams();
+    dimensions.forEach(d => params.append('dimensions', d));
+    filters.forEach(f => params.append('filters', f));
+    orderby.forEach(o => params.append('orderby', o));
+
+    const url = `${DJ_URL}/analytics/data/${metric}?${params.toString()}`;
+    const res = await fetch(url, { credentials: 'include' });
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch metric data ${metric}: ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  querySystemMetricSingleDimension: async function ({
+    metric,
+    dimension,
+    filters = [],
+    orderby = [],
+  }) {
+    const results = await DataJunctionAPI.querySystemMetric({
+      metric: metric,
+      dimensions: [dimension],
+      filters: filters,
+      orderby: orderby,
+    });
+    return results.map(row => {
+      return {
+        name:
+          row.find(entry => entry.col === dimension)?.value?.toString() ??
+          'unknown',
+        value: row.find(entry => entry.col === metric)?.value ?? 0,
+      };
+    });
+  },
+
   analytics: {
     node_counts_by_active: async function () {
-      const results = await (
-        await fetch(
-          `${DJ_URL}/analytics/data/system.dj.number_of_nodes?dimensions=system.dj.is_active.active_id`,
-          { credentials: 'include' },
-        )
-      ).json();
-      return results.map(row => {
-        return {
-          name:
-            row
-              .find(entry => entry.col === 'system.dj.is_active.active_id')
-              ?.value?.toString() ?? 'unknown',
-          value:
-            row.find(entry => entry.col === 'system.dj.number_of_nodes')
-              ?.value ?? 0,
-        };
+      return DataJunctionAPI.querySystemMetricSingleDimension({
+        metric: 'system.dj.number_of_nodes',
+        dimension: 'system.dj.is_active.active_id',
+        // filters: ['system.dj.is_active.active_id=true'],
       });
     },
     node_counts_by_type: async function () {
-      const results = await (
-        await fetch(
-          `${DJ_URL}/analytics/data/system.dj.number_of_nodes?dimensions=system.dj.node_type.type&filters=system.dj.is_active.active_id=true`,
-          { credentials: 'include' },
-        )
-      ).json();
-      return results.map(row => {
-        return {
-          name:
-            row
-              .find(entry => entry.col === 'system.dj.node_type.type')
-              ?.value?.toString() ?? 'unknown',
-          value:
-            row.find(entry => entry.col === 'system.dj.number_of_nodes')
-              ?.value ?? 0,
-        };
+      return DataJunctionAPI.querySystemMetricSingleDimension({
+        metric: 'system.dj.number_of_nodes',
+        dimension: 'system.dj.node_type.type',
+        filters: ['system.dj.is_active.active_id=true'],
+        orderby: ['system.dj.node_type.type'],
       });
     },
     node_counts_by_status: async function () {
-      const results = await (
-        await fetch(
-          `${DJ_URL}/analytics/data/system.dj.number_of_nodes?dimensions=system.dj.nodes.status&filters=system.dj.is_active.active_id=true`,
-          { credentials: 'include' },
-        )
-      ).json();
-      return results.map(row => {
-        return {
-          name:
-            row
-              .find(entry => entry.col === 'system.dj.nodes.status')
-              ?.value?.toString() ?? 'unknown',
-          value:
-            row.find(entry => entry.col === 'system.dj.number_of_nodes')
-              ?.value ?? 0,
-        };
+      return DataJunctionAPI.querySystemMetricSingleDimension({
+        metric: 'system.dj.number_of_nodes',
+        dimension: 'system.dj.nodes.status',
+        filters: ['system.dj.is_active.active_id=true'],
+        orderby: ['system.dj.nodes.status'],
       });
     },
     nodes_without_description: async function () {
-      const results = await (
-        await fetch(
-          `${DJ_URL}/analytics/data/system.dj.node_without_description?dimensions=system.dj.node_type.type&filters=system.dj.is_active.active_id=true`,
-          { credentials: 'include' },
-        )
-      ).json();
-      return results.map(row => {
-        return {
-          name:
-            row
-              .find(entry => entry.col === 'system.dj.node_type.type')
-              ?.value?.toString() ?? 'unknown',
-          value:
-            row.find(
-              entry => entry.col === 'system.dj.node_without_description',
-            )?.value ?? 0,
-        };
+      return DataJunctionAPI.querySystemMetricSingleDimension({
+        metric: 'system.dj.node_without_description',
+        dimension: 'system.dj.node_type.type',
+        filters: ['system.dj.is_active.active_id=true'],
+        orderby: ['system.dj.node_type.type'],
       });
     },
     node_counts_by_user: async function () {

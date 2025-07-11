@@ -1,8 +1,6 @@
 import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import {
-  PieChart,
-  Pie,
   Legend,
   Tooltip,
   ResponsiveContainer,
@@ -11,17 +9,14 @@ import {
   XAxis,
   YAxis,
   Bar,
-  Cell,
 } from 'recharts';
 
 const COLOR_MAPPING = {
   source: '#00C49F',
-  dimension: '#FFBB28', //'#FF8042',
+  dimension: '#FFBB28',
   transform: '#0088FE',
-  metric: '#ff91a3', //'#FFBB28',
+  metric: '#FF91A3',
   cube: '#AA46BE',
-  valid: '#00b368',
-  invalid: '#b34b00',
 };
 
 export const TrendsPanel = () => {
@@ -36,7 +31,7 @@ export const TrendsPanel = () => {
   }, [djClient]);
 
   return (
-    <div className="chart-box">
+    <div className="chart-box" style={{ maxWidth: '60%', flex: '1 1 20%' }}>
       <div className="chart-title">Trends</div>
       <ResponsiveContainer width="100%" height={400}>
         <BarChart
