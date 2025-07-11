@@ -228,11 +228,13 @@ class Node(Base):
         "NodeOwner",
         back_populates="node",
         cascade="all, delete-orphan",
+        overlaps="owners",
     )
     owners: Mapped[list[User]] = relationship(
         "User",
         secondary="node_owners",
         back_populates="owned_nodes",
+        overlaps="owner_associations",
     )
 
     revisions: Mapped[List["NodeRevision"]] = relationship(

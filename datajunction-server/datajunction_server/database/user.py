@@ -79,6 +79,7 @@ class User(Base):
         "NodeOwner",
         back_populates="user",
         cascade="all, delete-orphan",
+        viewonly=True,
     )
     owned_nodes = relationship(
         "Node",
@@ -86,6 +87,7 @@ class User(Base):
         back_populates="owners",
         overlaps="owned_associations,user",
         lazy="selectin",
+        viewonly=True,
     )
 
     @classmethod
