@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 
-from datajunction_server.api.catalogs import UNKNOWN_CATALOG_ID
 from datajunction_server.api.helpers import (
     get_attribute_type,
     get_node_by_name,
@@ -25,6 +24,7 @@ from datajunction_server.construction.build_v2 import compile_node_ast
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
+from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import History
 from datajunction_server.database.materialization import Materialization
@@ -278,7 +278,10 @@ async def create_node_revision(
         raise DJException(
             f"Cannot create nodes with multi-catalog dependencies: {set(catalog_ids)}",
         )
-    catalog_id = next(iter(catalog_ids), settings.default_catalog_id)
+    catalog_id = next(
+        iter(catalog_ids),
+        (await Catalog.get_virtual_catalog(session)).id,
+    )
     parent_refs = (
         (
             await session.execute(
@@ -1760,7 +1763,7 @@ async def upsert_complex_dimension_link(
         link_input.dimension_node,
     )
     if (
-        dimension_node.current.catalog_id != UNKNOWN_CATALOG_ID  # type: ignore
+        dimension_node.current.catalog.name != settings.seed_setup.virtual_catalog_name  # type: ignore
         and dimension_node.current.catalog is not None  # type: ignore
         and node.current.catalog.name != dimension_node.current.catalog.name  # type: ignore
     ):

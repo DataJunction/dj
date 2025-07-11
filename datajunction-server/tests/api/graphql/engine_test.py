@@ -56,6 +56,12 @@ async def test_engine_list(
     assert data == {
         "data": {
             "listEngines": [
+                {
+                    "dialect": "POSTGRES",
+                    "name": "dj_system",
+                    "uri": "postgresql+psycopg://readonly_user:readonly_pass@postgres_metadata:5432/dj",
+                    "version": "",
+                },
                 {"name": "spark", "uri": None, "version": "2.4.4", "dialect": "SPARK"},
                 {"name": "spark", "uri": None, "version": "3.3.0", "dialect": "SPARK"},
                 {"name": "spark", "uri": None, "version": "3.3.1", "dialect": "SPARK"},
@@ -88,6 +94,10 @@ async def test_list_dialects(
                 {
                     "name": "spark",
                     "pluginClass": "SQLTranspilationPlugin",
+                },
+                {
+                    "name": "postgres",
+                    "pluginClass": "SQLGlotTranspilationPlugin",
                 },
                 {
                     "name": "druid",

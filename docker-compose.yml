@@ -36,6 +36,22 @@ services:
       start_period: 10s
       timeout: 5s
 
+  dj-seed:
+    image: python:3.11-slim
+    container_name: dj-seed
+    profiles: ["demo"]
+    depends_on:
+      - dj
+    networks:
+      - core
+    working_dir: /seed
+    volumes:
+      - ./seed:/seed
+    command: >
+      /bin/bash -c "
+      pip install datajunction && python init_system_nodes.py
+      "
+
   postgres_metadata:
     container_name: postgres_metadata
     image: postgres:latest

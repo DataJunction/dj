@@ -10,7 +10,7 @@ from datajunction_server.api import setup_logging  # noqa
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
@@ -42,7 +42,7 @@ from datajunction_server.api import (
 
 from datajunction_server.api.access.authentication import basic, whoami
 from datajunction_server.api.attributes import default_attribute_types
-from datajunction_server.api.catalogs import default_catalog
+from datajunction_server.internal.seed import seed_default_catalogs
 from datajunction_server.api.graphql.main import graphql_app, schema as graphql_schema  # noqa: F401
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.errors import DJException
@@ -53,8 +53,6 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-
-dependencies = [Depends(default_attribute_types), Depends(default_catalog)]
 
 
 @asynccontextmanager
@@ -69,7 +67,7 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     session_factory = get_session_manager().get_writer_session_factory()
     async with session_factory() as session:
         await default_attribute_types(session)
-        await default_catalog(session)
+        await seed_default_catalogs(session)
 
     yield
 
@@ -115,14 +113,6 @@ app.include_router(whoami.router)
 app.include_router(users.router)
 app.include_router(basic.router)
 app.include_router(notifications.router)
-
-
-@app.on_event("startup")
-async def startup():
-    """
-    Initialize FastAPI cache when the server starts up
-    """
-    FastAPICache.init(InMemoryBackend(), prefix="inmemory-cache")  # pragma: no cover
 
 
 @app.exception_handler(DJException)

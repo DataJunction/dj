@@ -36,6 +36,21 @@ class DatabaseConfig(BaseModel):
     keepalives_count: int = 5
 
 
+class SeedSetup(BaseModel):
+    # An "unknown" catalog for nodes that are pure SQL and don't belong in any
+    # particular catalog. This typically applies to on-the-fly user-defined dimensions.
+    virtual_catalog_name = "unknown"
+
+    # A "DJ System" catalog that contains all system tables modeled in DJ
+    system_catalog_name = "dj_metadata"
+
+    # The engine for DJ's postgres metadata db
+    system_engine_name = "dj_system"
+
+    # The namespace for system tables modeled in DJ
+    system_namespace = "system.dj"
+
+
 class Settings(BaseSettings):  # pragma: no cover
     """
     DataJunction configuration.
@@ -118,8 +133,6 @@ class Settings(BaseSettings):  # pragma: no cover
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire = 60
 
-    default_catalog_id: int = 0
-
     # Maximum amount of nodes to return for requests to list all nodes
     node_list_max = 10000
 
@@ -145,3 +158,5 @@ class Settings(BaseSettings):  # pragma: no cover
             password=parsed.password,
             db=parsed.path.strip("/"),
         )
+
+    seed_setup: SeedSetup = SeedSetup()

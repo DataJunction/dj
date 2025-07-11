@@ -940,6 +940,7 @@ PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
     "float": FloatType(),
     "double": DoubleType(),
     "date": DateType(),
+    "datetime": TimestampType(),
     "time": TimeType(),
     "timestamp": TimestampType(),
     "timestamptz": TimestamptzType(),
@@ -947,8 +948,10 @@ PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
     "str": StringType(),
     "uuid": UUIDType(),
     "byte": BinaryType(),
+    "bytes": BinaryType(),
     "binary": BinaryType(),
     "none": NullType(),
     "null": NullType(),
     "wildcard": WildcardType(),
+    "dict": StringType(),
 }
