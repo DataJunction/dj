@@ -1,5 +1,5 @@
 """
-Router for various analytics endpoints, including an overview of nodes
+Router for various system overview metrics
 """
 
 import logging
@@ -31,10 +31,10 @@ from datajunction_server.utils import (
 )
 
 logger = logging.getLogger(__name__)
-router = SecureAPIRouter(tags=["Analytics"])
+router = SecureAPIRouter(tags=["System"])
 
 
-@router.get("/analytics/metrics")
+@router.get("/system/metrics")
 async def list_system_metrics(
     session: AsyncSession = Depends(get_session),
 ):
@@ -58,7 +58,7 @@ class RowOutput(BaseModel):
     col: str
 
 
-@router.get("/analytics/data/{metric_name}")
+@router.get("/system/data/{metric_name}")
 async def get_data_for_system_metrics(
     metric_name: str,
     dimensions: list[str] = Query([]),
@@ -82,7 +82,7 @@ async def get_data_for_system_metrics(
     This setup circumvents going to the query service to get metric data, since all system
     metrics can be computed directly from the database.
 
-    For a list of available system metrics, see the `/analytics/metrics` endpoint. All dimensions
+    For a list of available system metrics, see the `/system/metrics` endpoint. All dimensions
     for the metric can be discovered through the usual endpoints.
     """
     # e.g., "system.dj.number_of_nodes"
@@ -131,7 +131,7 @@ class DimensionStats(BaseModel):
     cube_count: int
 
 
-@router.get("/analytics/dimensions", response_model=list[DimensionStats])
+@router.get("/system/dimensions", response_model=list[DimensionStats])
 async def dimensions_(
     session: AsyncSession = Depends(get_session),
 ) -> list[DimensionStats]:
