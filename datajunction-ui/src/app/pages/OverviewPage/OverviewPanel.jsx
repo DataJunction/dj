@@ -26,7 +26,7 @@ export const OverviewPanel = () => {
   return (
     <div className="chart-box" style={{ flex: '0 0 2%' }}>
       <div className="chart-title">Overview</div>
-      <div className="jss314">
+      <div className="horiz-box">
         {nodesByActive
           ?.filter(entry => entry.name === 'true')
           .map(entry => (
@@ -36,24 +36,15 @@ export const OverviewPanel = () => {
             >
               <NodeIcon color="#FFBB28" style={{ marginTop: '0.75em' }} />
               <div style={{ display: 'inline-grid', alignItems: 'center' }}>
-                <strong
-                  class="jss315"
-                  style={{
-                    margin: '0 12px',
-                    fontSize: '20px',
-                    textAlign: 'left',
-                  }}
-                >
-                  {entry.value}
-                </strong>
-                <span style={{ fontSize: 'smaller', padding: '5px 12px' }}>
+                <strong className="horiz-box-value">{entry.value}</strong>
+                <span className={'horiz-box-label'}>
                   {entry.name === 'true' ? 'Active Nodes' : 'Deactivated'}
                 </span>
               </div>
             </div>
           ))}
       </div>
-      <div className="jss314">
+      <div className="horiz-box">
         {nodesByStatus?.map(entry => (
           <div
             className="jss316 badge"
@@ -82,7 +73,6 @@ export const OverviewPanel = () => {
             </span>
             <div style={{ display: 'inline-flex', alignItems: 'center' }}>
               <strong
-                class="jss315"
                 style={{
                   color: COLOR_MAPPING[entry.name.toLowerCase()],
                   margin: '0 2px',
@@ -99,8 +89,6 @@ export const OverviewPanel = () => {
           </div>
         ))}
       </div>
-      {/* <ByStatusPanel /> */}
-      {/* <NodeMetadataPanel /> */}
     </div>
   );
 };

@@ -23,7 +23,7 @@ export const ByStatusPanel = () => {
   return (
     <>
       <div className="chart-box" style={{ flex: '0 0 2%' }}>
-        <div className="jss314">
+        <div className="horiz-box">
           <div className="chart-title">Nodes By Status</div>
           {nodesByStatus?.map(entry => (
             <div
@@ -48,17 +48,14 @@ export const ByStatusPanel = () => {
 
               <div style={{ display: 'inline-grid', alignItems: 'center' }}>
                 <strong
-                  class="jss315"
+                  class="horiz-box-value"
                   style={{
                     color: COLOR_MAPPING[entry.name.toLowerCase()],
-                    margin: '0 12px',
-                    fontSize: '20px',
-                    textAlign: 'left',
                   }}
                 >
                   {entry.value}
                 </strong>
-                <span style={{ fontSize: 'smaller', padding: '5px 12px' }}>
+                <span className={'horiz-box-label'}>
                   {entry.name.toLowerCase()} nodes
                 </span>
               </div>
