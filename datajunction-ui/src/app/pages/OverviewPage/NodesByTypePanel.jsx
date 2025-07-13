@@ -1,7 +1,7 @@
 import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
-import { WithoutDescriptionPanel } from './WithoutDescriptionPanel';
 import NodeIcon from '../../icons/NodeIcon';
+import '../../../styles/overview.css';
 
 const COLOR_MAPPING = {
   source: '#00C49F',
@@ -13,7 +13,7 @@ const COLOR_MAPPING = {
   invalid: '#B34B00',
 };
 
-export const NodesByTypeChart = () => {
+export const NodesByTypePanel = () => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [nodesByType, setNodesByType] = useState(null);
 
@@ -25,23 +25,19 @@ export const NodesByTypeChart = () => {
   }, [djClient]);
 
   return (
-    <div
-      className="chart-box"
-      style={{ flex: '0 0 30%', width: 'fit-content' }}
-    >
+    <div className="chart-box" style={{ flex: '0 0 30%', maxWidth: '350px' }}>
       <div className="chart-title">Nodes by Type</div>
-      <div className="jss314">
+      <div className="horiz-box">
         {nodesByType?.map(entry => (
-          <div className="jss313">
+          <div className="vert-box">
             <NodeIcon color={COLOR_MAPPING[entry.name]} />
-            <strong class="jss315" style={{ color: COLOR_MAPPING[entry.name] }}>
+            <strong style={{ color: COLOR_MAPPING[entry.name] }}>
               {entry.value}
             </strong>
             <span>{entry.name}s</span>
           </div>
         ))}
       </div>
-      {/* <WithoutDescriptionPanel /> */}
     </div>
   );
 };
