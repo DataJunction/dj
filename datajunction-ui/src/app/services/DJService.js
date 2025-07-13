@@ -99,7 +99,7 @@ export const DataJunctionAPI = {
     filters.forEach(f => params.append('filters', f));
     orderby.forEach(o => params.append('orderby', o));
 
-    const url = `${DJ_URL}/analytics/data/${metric}?${params.toString()}`;
+    const url = `${DJ_URL}/system/data/${metric}?${params.toString()}`;
     const res = await fetch(url, { credentials: 'include' });
 
     if (!res.ok) {
@@ -135,7 +135,6 @@ export const DataJunctionAPI = {
       return DataJunctionAPI.querySystemMetricSingleDimension({
         metric: 'system.dj.number_of_nodes',
         dimension: 'system.dj.is_active.active_id',
-        // filters: ['system.dj.is_active.active_id=true'],
       });
     },
     node_counts_by_type: async function () {
@@ -165,7 +164,7 @@ export const DataJunctionAPI = {
     node_counts_by_user: async function () {
       const results = await (
         await fetch(
-          `${DJ_URL}/analytics/data/system.dj.number_of_nodes?dimensions=system.dj.user.username&dimensions=system.dj.node_type.type&filters=system.dj.is_active.active_id=true`,
+          `${DJ_URL}/system/data/system.dj.number_of_nodes?dimensions=system.dj.user.username&dimensions=system.dj.node_type.type&filters=system.dj.is_active.active_id=true`,
           { credentials: 'include' },
         )
       ).json();
@@ -207,7 +206,7 @@ export const DataJunctionAPI = {
     node_trends: async function () {
       const results = await (
         await fetch(
-          `${DJ_URL}/analytics/data/system.dj.number_of_nodes?dimensions=system.dj.nodes.created_at_week&dimensions=system.dj.node_type.type&filters=system.dj.nodes.created_at_week>=20240101&orderby=system.dj.nodes.created_at_week`,
+          `${DJ_URL}/system/data/system.dj.number_of_nodes?dimensions=system.dj.nodes.created_at_week&dimensions=system.dj.node_type.type&filters=system.dj.nodes.created_at_week>=20240101&orderby=system.dj.nodes.created_at_week`,
           { credentials: 'include' },
         )
       ).json();
@@ -235,10 +234,18 @@ export const DataJunctionAPI = {
         };
       });
     },
+    materialization_counts_by_type: async function () {
+      return DataJunctionAPI.querySystemMetricSingleDimension({
+        metric: 'system.dj.number_of_materializations',
+        dimension: 'system.dj.node_type.type',
+        filters: ['system.dj.is_active.active_id=true'],
+        orderby: ['system.dj.node_type.type'],
+      });
+    },
 
     dimensions: async function () {
       return await (
-        await fetch(`${DJ_URL}/analytics/dimensions`, {
+        await fetch(`${DJ_URL}/system/dimensions`, {
           credentials: 'include',
         })
       ).json();
