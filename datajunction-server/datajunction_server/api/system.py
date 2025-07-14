@@ -5,15 +5,14 @@ Router for various system overview metrics
 import logging
 import hashlib
 from fastapi import BackgroundTasks, Depends, Query
-from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from typing import Any
 from datajunction_server.internal.access.authorization import (
     validate_access,
 )
 from datajunction_server.models import access
+from datajunction_server.models.system import DimensionStats, RowOutput
 from datajunction_server.sql.dag import (
     get_cubes_using_dimensions,
     get_dimension_dag_indegree,
@@ -28,6 +27,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
     get_current_user,
     get_session,
+    get_settings,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,21 +41,17 @@ async def list_system_metrics(
     """
     Returns a list of DJ system metrics (available as metric nodes in DJ).
     """
+    settings = get_settings()
+    print(
+        "!!settings.seed_setup.system_namespace",
+        settings.seed_setup.system_namespace,
+    )
     metrics = await Node.find_by(
         session=session,
-        namespace="system.dj",
+        namespace=settings.seed_setup.system_namespace,
         node_types=[NodeType.METRIC],
     )
     return [m.name for m in metrics]
-
-
-class RowOutput(BaseModel):
-    """
-    Output model for node counts.
-    """
-
-    value: Any
-    col: str
 
 
 @router.get("/system/data/{metric_name}")
@@ -103,7 +99,7 @@ async def get_data_for_system_metrics(
         # A long timeout for the cache is fine here, since these are system nodes whose
         # definitions should only change upon deployment, at which point the cache can be
         # retriggered
-        background_tasks.add_task(cache.set, cache_key, translated_sql, timeout=86400)
+        background_tasks.add_task(cache.set, cache_key, translated_sql, timeout=8640000)
 
     results = await session.execute(text(translated_sql.sql))
     output = [
@@ -121,22 +117,13 @@ async def get_data_for_system_metrics(
     return output
 
 
-class DimensionStats(BaseModel):
-    """
-    Output model for dimension statistics.
-    """
-
-    name: str
-    indegree: int = 0
-    cube_count: int
-
-
 @router.get("/system/dimensions", response_model=list[DimensionStats])
-async def dimensions_(
+async def dimensions_stats(
     session: AsyncSession = Depends(get_session),
 ) -> list[DimensionStats]:
     """
-    List all available dimensions.
+    List dimensions statistics, including the indegree of the dimension in the DAG
+    and the number of cubes that use the dimension.
     """
     find_available_dimensions = select(Node.name).where(
         Node.type == NodeType.DIMENSION,
