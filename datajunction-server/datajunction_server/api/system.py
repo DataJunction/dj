@@ -42,10 +42,6 @@ async def list_system_metrics(
     Returns a list of DJ system metrics (available as metric nodes in DJ).
     """
     settings = get_settings()
-    print(
-        "!!settings.seed_setup.system_namespace",
-        settings.seed_setup.system_namespace,
-    )
     metrics = await Node.find_by(
         session=session,
         namespace=settings.seed_setup.system_namespace,
