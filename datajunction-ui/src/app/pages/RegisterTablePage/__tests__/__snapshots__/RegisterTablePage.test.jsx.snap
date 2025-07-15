@@ -9,9 +9,9 @@ HTMLCollection [
     <svg
       class="bi bi-check-circle-fill"
       fill="currentColor"
-      height="25"
+      height="25px"
       viewBox="0 0 16 16"
-      width="25"
+      width="25px"
       xmlns="http://www.w3.org/2000/svg"
     >
       <path
