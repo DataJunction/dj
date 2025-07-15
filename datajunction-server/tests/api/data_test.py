@@ -1622,7 +1622,7 @@ class TestAvailabilityState:
         response = await module__client_with_account_revenue.post(
             "/data/default.revenue/availability/",
             json={
-                "catalog": "default",
+                "catalog": "basic",
                 "schema_": "accounting",
                 "table": "revenue",
                 "valid_through_ts": 20230101,
@@ -1644,7 +1644,7 @@ class TestAvailabilityState:
         node_dict = AvailabilityStateBase.from_orm(revenue.current.availability).dict()
         assert node_dict == {
             "valid_through_ts": 20230101,
-            "catalog": "default",
+            "catalog": "basic",
             "min_temporal_partition": ["2022", "01", "01"],
             "table": "revenue",
             "max_temporal_partition": ["2023", "01", "01"],
@@ -1682,7 +1682,7 @@ class TestAvailabilityState:
             "message": (
                 "Cannot set availability state, source nodes require availability states "
                 "to match the set table: default.accounting.large_pmts does not match "
-                "default.accounting.revenue "
+                "basic.accounting.revenue "
             ),
             "errors": [],
             "warnings": [],

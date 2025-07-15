@@ -476,8 +476,6 @@ async def test_ast_compile_lateral_view_explode4(
     Test lateral view explode of an upstream column
     """
     await client.post("/namespaces/default/")
-    response = await client.post("/catalogs/", json={"name": "default"})
-    assert response.status_code in (200, 201)
     response = await client.post(
         "/nodes/source/",
         json={

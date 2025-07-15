@@ -62,7 +62,7 @@ async def test_catalog_list(
     assert response.json() == {
         "data": {
             "listCatalogs": [
-                {"name": "unknown"},
+                {"name": "default"},
                 {"name": "dj_metadata"},
                 {"name": "dev"},
                 {"name": "test"},

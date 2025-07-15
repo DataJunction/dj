@@ -4259,7 +4259,7 @@ class TestValidateNodes:
         )
         data = response.json()
         assert data["message"] == (
-            "Cannot link dimension to node, because catalogs do not match: default, public"
+            "Cannot link dimension to node, because catalogs do not match: basic, public"
         )
 
     @pytest.mark.asyncio
