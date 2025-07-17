@@ -44,12 +44,12 @@ services:
       - dj
     networks:
       - core
-    working_dir: /seed
+    working_dir: /dj-seed
     volumes:
-      - ./seed:/seed
+      - ./datajunction-clients/python:/dj-seed
     command: >
       /bin/bash -c "
-      pip install datajunction && python init_system_nodes.py
+      pip install -e . && python seed/init_system_nodes.py
       "
 
   postgres_metadata:
