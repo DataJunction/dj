@@ -39,6 +39,12 @@ path = "datajunction/__about__.py"
 [project.scripts]
 dj = "datajunction.cli:main"
 
+[tool.hatch.build.targets.wheel]
+packages = ["datajunction"]
+include = [
+  "datajunction/seed/**"
+]
+
 [tool.pdm]
 [tool.pdm.build]
 includes = ["datajunction"]

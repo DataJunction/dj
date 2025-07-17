@@ -12,8 +12,17 @@ session.post("/basic/login/", data={"username": "dj", "password": "dj"})
 
 dj = DJBuilder(requests_session=session)
 
-tables = ["node", "noderevision", "users", "materialization", "node_owners",
-          "availabilitystate", "backfill", "collection", "dimensionlink"]
+tables = [
+    "node",
+    "noderevision",
+    "users",
+    "materialization",
+    "node_owners",
+    "availabilitystate",
+    "backfill",
+    "collection",
+    "dimensionlink",
+]
 
 for table in tables:
     try:
