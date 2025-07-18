@@ -272,7 +272,10 @@ async def create_node_revision(
     )
     new_parents = [node.name for node in node_validator.dependencies_map]
     catalog_ids = [
-        node.catalog_id for node in node_validator.dependencies_map if node.catalog_id
+        node.catalog_id
+        for node in node_validator.dependencies_map
+        if node.catalog_id
+        and node.catalog.name != settings.seed_setup.virtual_catalog_name
     ]
     if node_revision.mode == NodeMode.PUBLISHED and not len(set(catalog_ids)) <= 1:
         raise DJException(
