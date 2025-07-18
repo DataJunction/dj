@@ -13,10 +13,6 @@ SERVICE_SETUP = (  # type: ignore
         {"name": "draft"},
     ),
     (
-        "/catalogs/",
-        {"name": "default"},
-    ),
-    (
         "/engines/",
         {"name": "spark", "version": "3.1.1", "dialect": "spark"},
     ),
@@ -35,6 +31,14 @@ SERVICE_SETUP = (  # type: ignore
     (
         "/catalogs/",
         {"name": "public"},
+    ),
+    (
+        "/catalogs/",
+        {"name": "basic"},
+    ),
+    (
+        "/catalogs/basic/engines/",
+        [{"name": "spark", "version": "3.1.1", "dialect": "spark"}],
     ),
     (
         "/engines/",
@@ -1399,7 +1403,7 @@ ACCOUNT_REVENUE = (  # type: ignore
             "description": "A source table for account type data",
             "mode": "published",
             "name": "default.account_type_table",
-            "catalog": "default",
+            "catalog": "basic",
             "schema_": "accounting",
             "table": "account_type_table",
         },
@@ -1415,7 +1419,7 @@ ACCOUNT_REVENUE = (  # type: ignore
             "description": "A source table for different types of payments",
             "mode": "published",
             "name": "default.payment_type_table",
-            "catalog": "default",
+            "catalog": "basic",
             "schema_": "accounting",
             "table": "payment_type_table",
         },
@@ -1433,7 +1437,7 @@ ACCOUNT_REVENUE = (  # type: ignore
             "description": "All repair orders",
             "mode": "published",
             "name": "default.revenue",
-            "catalog": "default",
+            "catalog": "basic",
             "schema_": "accounting",
             "table": "revenue",
         },
