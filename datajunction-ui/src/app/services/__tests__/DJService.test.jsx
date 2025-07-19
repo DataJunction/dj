@@ -1138,4 +1138,368 @@ describe('DataJunctionAPI', () => {
       },
     );
   });
+
+  it('calls node_counts_by_type correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          {
+            value: 'cube',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 226,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+        [
+          {
+            value: 'dimension',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 241,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+        [
+          {
+            value: 'metric',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 2853,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+        [
+          {
+            value: 'source',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 540,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+        [
+          {
+            value: 'transform',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 663,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+      ]),
+    );
+    const results = await DataJunctionAPI.system.node_counts_by_type();
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/system/data/system.dj.number_of_nodes?dimensions=system.dj.node_type.type&filters=system.dj.is_active.active_id%3Dtrue&orderby=system.dj.node_type.type`,
+      {
+        credentials: 'include',
+      },
+    );
+    expect(results).toEqual([
+      { name: 'cube', value: 226 },
+      { name: 'dimension', value: 241 },
+      { name: 'metric', value: 2853 },
+      { name: 'source', value: 540 },
+      { name: 'transform', value: 663 },
+    ]);
+  });
+
+  it('calls node_counts_by_active correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          {
+            value: false,
+            col: 'system.dj.is_active.active_id',
+          },
+          {
+            value: 3136,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+        [
+          {
+            value: true,
+            col: 'system.dj.is_active.active_id',
+          },
+          {
+            value: 4523,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+      ]),
+    );
+    const results = await DataJunctionAPI.system.node_counts_by_active();
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/system/data/system.dj.number_of_nodes?dimensions=system.dj.is_active.active_id`,
+      {
+        credentials: 'include',
+      },
+    );
+    expect(results).toEqual([
+      { name: 'false', value: 3136 },
+      { name: 'true', value: 4523 },
+    ]);
+  });
+
+  it('calls node_counts_by_status correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          {
+            value: 'VALID',
+            col: 'system.dj.nodes.status',
+          },
+          {
+            value: 4333,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+        [
+          {
+            value: 'INVALID',
+            col: 'system.dj.nodes.status',
+          },
+          {
+            value: 190,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+      ]),
+    );
+    const results = await DataJunctionAPI.system.node_counts_by_status();
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/system/data/system.dj.number_of_nodes?dimensions=system.dj.nodes.status&filters=system.dj.is_active.active_id%3Dtrue&orderby=system.dj.nodes.status`,
+      {
+        credentials: 'include',
+      },
+    );
+    expect(results).toEqual([
+      { name: 'VALID', value: 4333 },
+      { name: 'INVALID', value: 190 },
+    ]);
+  });
+
+  it('calls nodes_without_description correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          {
+            value: 'cube',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 0.1,
+            col: 'system.dj.node_without_description',
+          },
+        ],
+        [
+          {
+            value: 'dimension',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 0.2,
+            col: 'system.dj.node_without_description',
+          },
+        ],
+        [
+          {
+            value: 'metric',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 0.3,
+            col: 'system.dj.node_without_description',
+          },
+        ],
+        [
+          {
+            value: 'source',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 0.4,
+            col: 'system.dj.node_without_description',
+          },
+        ],
+        [
+          {
+            value: 'transform',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 0.5,
+            col: 'system.dj.node_without_description',
+          },
+        ],
+      ]),
+    );
+    const results = await DataJunctionAPI.system.nodes_without_description();
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/system/data/system.dj.node_without_description?dimensions=system.dj.node_type.type&filters=system.dj.is_active.active_id%3Dtrue&orderby=system.dj.node_type.type`,
+      {
+        credentials: 'include',
+      },
+    );
+    expect(results).toEqual([
+      { name: 'cube', value: 0.1 },
+      { name: 'dimension', value: 0.2 },
+      { name: 'metric', value: 0.3 },
+      { name: 'source', value: 0.4 },
+      { name: 'transform', value: 0.5 },
+    ]);
+  });
+  it('calls node_trends correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          {
+            value: 20250630,
+            col: 'system.dj.nodes.created_at_week',
+          },
+          {
+            value: 'metric',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 42,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+        [
+          {
+            value: 20250707,
+            col: 'system.dj.nodes.created_at_week',
+          },
+          {
+            value: 'dimension',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 21,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+        [
+          {
+            value: 20250707,
+            col: 'system.dj.nodes.created_at_week',
+          },
+          {
+            value: 'metric',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 9,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+        [
+          {
+            value: 20250714,
+            col: 'system.dj.nodes.created_at_week',
+          },
+          {
+            value: 'metric',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 3,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+        [
+          {
+            value: 20250714,
+            col: 'system.dj.nodes.created_at_week',
+          },
+          {
+            value: 'dimension',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 7,
+            col: 'system.dj.number_of_nodes',
+          },
+        ],
+      ]),
+    );
+    const results = await DataJunctionAPI.system.node_trends();
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/system/data/system.dj.number_of_nodes?dimensions=system.dj.nodes.created_at_week&dimensions=system.dj.node_type.type&filters=system.dj.nodes.created_at_week>=20240101&orderby=system.dj.nodes.created_at_week`,
+      {
+        credentials: 'include',
+      },
+    );
+    expect(results).toEqual([
+      { date: 20250630, metric: 42 },
+      { date: 20250707, dimension: 21, metric: 9 },
+      { date: 20250714, dimension: 7, metric: 3 },
+    ]);
+  });
+
+  it('calls materialization_counts_by_type correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          {
+            value: 'cube',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 76,
+            col: 'system.dj.number_of_materializations',
+          },
+        ],
+        [
+          {
+            value: 'dimension',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 3,
+            col: 'system.dj.number_of_materializations',
+          },
+        ],
+        [
+          {
+            value: 'transform',
+            col: 'system.dj.node_type.type',
+          },
+          {
+            value: 9,
+            col: 'system.dj.number_of_materializations',
+          },
+        ],
+      ]),
+    );
+    const results =
+      await DataJunctionAPI.system.materialization_counts_by_type();
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/system/data/system.dj.number_of_materializations?dimensions=system.dj.node_type.type&filters=system.dj.is_active.active_id%3Dtrue&orderby=system.dj.node_type.type`,
+      {
+        credentials: 'include',
+      },
+    );
+    expect(results).toEqual([
+      { name: 'cube', value: 76 },
+      { name: 'dimension', value: 3 },
+      { name: 'transform', value: 9 },
+    ]);
+  });
+
+  it('calls system.dimensions correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify([]));
+    const results = await DataJunctionAPI.system.dimensions();
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/system/dimensions`, {
+      credentials: 'include',
+    });
+  });
 });

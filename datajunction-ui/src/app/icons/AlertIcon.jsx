@@ -5,6 +5,7 @@ const AlertIcon = props => (
     viewBox="0 0 24 24"
     version="1.1"
     xmlns="http://www.w3.org/2000/svg"
+    {...props}
   >
     <title>alert_fill</title>
     <g id="page-1" stroke="none" strokeWidth="1" fill="none" fillRule="evenodd">
