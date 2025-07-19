@@ -1,24 +1,23 @@
 import { render, screen } from '@testing-library/react';
 import { OverviewPage } from '../index';
 
-// Mock child panels
-jest.mock('../index', () => ({
+jest.mock('../OverviewPanel', () => ({
   OverviewPanel: () => <div data-testid="overview-panel">OverviewPanel</div>,
 }));
-jest.mock('./NodesByTypePanel', () => ({
+jest.mock('../NodesByTypePanel', () => ({
   NodesByTypePanel: () => (
     <div data-testid="nodes-by-type-panel">NodesByTypePanel</div>
   ),
 }));
-jest.mock('./GovernanceWarningsPanel', () => ({
+jest.mock('../GovernanceWarningsPanel', () => ({
   GovernanceWarningsPanel: () => (
     <div data-testid="governance-warnings-panel">GovernanceWarningsPanel</div>
   ),
 }));
-jest.mock('./TrendsPanel', () => ({
+jest.mock('../TrendsPanel', () => ({
   TrendsPanel: () => <div data-testid="trends-panel">TrendsPanel</div>,
 }));
-jest.mock('./DimensionNodeUsagePanel', () => ({
+jest.mock('../DimensionNodeUsagePanel', () => ({
   DimensionNodeUsagePanel: () => (
     <div data-testid="dimension-node-usage-panel">DimensionNodeUsagePanel</div>
   ),
