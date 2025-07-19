@@ -15,7 +15,7 @@ describe('<OverviewPanel />', () => {
     ];
 
     const mockDjClient = {
-      analytics: {
+      system: {
         node_counts_by_active: jest.fn().mockResolvedValue(mockNodesByActive),
         node_counts_by_status: jest.fn().mockResolvedValue(mockNodesByStatus),
       },
@@ -28,8 +28,8 @@ describe('<OverviewPanel />', () => {
     );
 
     await waitFor(() => {
-      expect(mockDjClient.analytics.node_counts_by_active).toHaveBeenCalled();
-      expect(mockDjClient.analytics.node_counts_by_status).toHaveBeenCalled();
+      expect(mockDjClient.system.node_counts_by_active).toHaveBeenCalled();
+      expect(mockDjClient.system.node_counts_by_status).toHaveBeenCalled();
     });
 
     // Chart title
@@ -53,7 +53,7 @@ describe('<OverviewPanel />', () => {
 
   it('renders no badges if data is empty', async () => {
     const mockDjClient = {
-      analytics: {
+      system: {
         node_counts_by_active: jest.fn().mockResolvedValue([]),
         node_counts_by_status: jest.fn().mockResolvedValue([]),
       },
@@ -66,8 +66,8 @@ describe('<OverviewPanel />', () => {
     );
 
     await waitFor(() => {
-      expect(mockDjClient.analytics.node_counts_by_active).toHaveBeenCalled();
-      expect(mockDjClient.analytics.node_counts_by_status).toHaveBeenCalled();
+      expect(mockDjClient.system.node_counts_by_active).toHaveBeenCalled();
+      expect(mockDjClient.system.node_counts_by_status).toHaveBeenCalled();
     });
 
     expect(screen.getByText('Overview')).toBeInTheDocument();

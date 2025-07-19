@@ -47,7 +47,7 @@ describe('<TrendsPanel />', () => {
     ];
 
     const mockDjClient = {
-      analytics: {
+      system: {
         node_trends: jest.fn().mockResolvedValue(mockNodeTrends),
       },
     };
@@ -59,7 +59,7 @@ describe('<TrendsPanel />', () => {
     );
 
     await waitFor(() => {
-      expect(mockDjClient.analytics.node_trends).toHaveBeenCalled();
+      expect(mockDjClient.system.node_trends).toHaveBeenCalled();
     });
 
     // Chart title
@@ -98,7 +98,7 @@ describe('<TrendsPanel />', () => {
 
   it('renders with empty trends', async () => {
     const mockDjClient = {
-      analytics: {
+      system: {
         node_trends: jest.fn().mockResolvedValue([]),
       },
     };
@@ -110,7 +110,7 @@ describe('<TrendsPanel />', () => {
     );
 
     await waitFor(() => {
-      expect(mockDjClient.analytics.node_trends).toHaveBeenCalled();
+      expect(mockDjClient.system.node_trends).toHaveBeenCalled();
     });
 
     expect(screen.getByText('Trends')).toBeInTheDocument();

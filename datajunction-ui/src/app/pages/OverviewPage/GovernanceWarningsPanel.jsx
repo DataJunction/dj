@@ -19,9 +19,9 @@ export const GovernanceWarningsPanel = () => {
   useEffect(() => {
     const fetchData = async () => {
       setNodesWithoutDescription(
-        await djClient.analytics.nodes_without_description(),
+        await djClient.system.nodes_without_description(),
       );
-      setDimensionNodes(await djClient.analytics.dimensions());
+      setDimensionNodes(await djClient.system.dimensions());
     };
     fetchData().catch(console.error);
   }, [djClient]);

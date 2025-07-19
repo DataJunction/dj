@@ -20,9 +20,9 @@ export const NodesByTypePanel = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      setNodesByType(await djClient.analytics.node_counts_by_type());
+      setNodesByType(await djClient.system.node_counts_by_type());
       setMaterializationsByType(
-        await djClient.analytics.materialization_counts_by_type(),
+        await djClient.system.materialization_counts_by_type(),
       );
     };
     fetchData().catch(console.error);

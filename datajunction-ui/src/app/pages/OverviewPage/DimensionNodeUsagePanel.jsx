@@ -7,7 +7,7 @@ export const DimensionNodeUsagePanel = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      setDimensionNodes(await djClient.analytics.dimensions());
+      setDimensionNodes(await djClient.system.dimensions());
     };
     fetchData().catch(console.error);
   }, [djClient]);

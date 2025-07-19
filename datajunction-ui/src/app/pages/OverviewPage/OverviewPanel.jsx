@@ -17,8 +17,8 @@ export const OverviewPanel = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      setNodesByActive(await djClient.analytics.node_counts_by_active());
-      setNodesByStatus(await djClient.analytics.node_counts_by_status());
+      setNodesByActive(await djClient.system.node_counts_by_active());
+      setNodesByStatus(await djClient.system.node_counts_by_status());
     };
     fetchData().catch(console.error);
   }, [djClient]);

@@ -25,7 +25,7 @@ export const TrendsPanel = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      setNodeTrends(await djClient.analytics.node_trends());
+      setNodeTrends(await djClient.system.node_trends());
     };
     fetchData().catch(console.error);
   }, [djClient]);
