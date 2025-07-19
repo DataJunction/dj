@@ -11,7 +11,7 @@ describe('<DimensionNodeUsagePanel />', () => {
     ];
 
     const mockDjClient = {
-      analytics: {
+      system: {
         dimensions: jest.fn().mockResolvedValue(mockDimensions),
       },
     };
@@ -24,7 +24,7 @@ describe('<DimensionNodeUsagePanel />', () => {
 
     // Wait for the API to be called
     await waitFor(() => {
-      expect(mockDjClient.analytics.dimensions).toHaveBeenCalled();
+      expect(mockDjClient.system.dimensions).toHaveBeenCalled();
     });
 
     // Check that rows are rendered
@@ -52,7 +52,7 @@ describe('<DimensionNodeUsagePanel />', () => {
 
   it('handles empty dimensions gracefully', async () => {
     const mockDjClient = {
-      analytics: {
+      system: {
         dimensions: jest.fn().mockResolvedValue([]),
       },
     };
@@ -64,7 +64,7 @@ describe('<DimensionNodeUsagePanel />', () => {
     );
 
     await waitFor(() => {
-      expect(mockDjClient.analytics.dimensions).toHaveBeenCalled();
+      expect(mockDjClient.system.dimensions).toHaveBeenCalled();
     });
 
     // Table should still be there, but no rows

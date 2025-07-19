@@ -16,7 +16,7 @@ describe('<GovernanceWarningsPanel />', () => {
     ];
 
     const mockDjClient = {
-      analytics: {
+      system: {
         nodes_without_description: jest
           .fn()
           .mockResolvedValue(mockNodesWithoutDescription),
@@ -32,10 +32,8 @@ describe('<GovernanceWarningsPanel />', () => {
 
     // Wait for both calls to be made and data rendered
     await waitFor(() => {
-      expect(
-        mockDjClient.analytics.nodes_without_description,
-      ).toHaveBeenCalled();
-      expect(mockDjClient.analytics.dimensions).toHaveBeenCalled();
+      expect(mockDjClient.system.nodes_without_description).toHaveBeenCalled();
+      expect(mockDjClient.system.dimensions).toHaveBeenCalled();
     });
 
     // Check missing description badges
@@ -56,7 +54,7 @@ describe('<GovernanceWarningsPanel />', () => {
 
   it('shows fallback if no data returned', async () => {
     const mockDjClient = {
-      analytics: {
+      system: {
         nodes_without_description: jest.fn().mockResolvedValue([]),
         dimensions: jest.fn().mockResolvedValue([]),
       },
@@ -69,10 +67,8 @@ describe('<GovernanceWarningsPanel />', () => {
     );
 
     await waitFor(() => {
-      expect(
-        mockDjClient.analytics.nodes_without_description,
-      ).toHaveBeenCalled();
-      expect(mockDjClient.analytics.dimensions).toHaveBeenCalled();
+      expect(mockDjClient.system.nodes_without_description).toHaveBeenCalled();
+      expect(mockDjClient.system.dimensions).toHaveBeenCalled();
     });
 
     // Should show fallback value for orphaned nodes

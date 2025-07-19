@@ -130,7 +130,7 @@ export const DataJunctionAPI = {
     });
   },
 
-  analytics: {
+  system: {
     node_counts_by_active: async function () {
       return DataJunctionAPI.querySystemMetricSingleDimension({
         metric: 'system.dj.number_of_nodes',
@@ -160,48 +160,6 @@ export const DataJunctionAPI = {
         filters: ['system.dj.is_active.active_id=true'],
         orderby: ['system.dj.node_type.type'],
       });
-    },
-    node_counts_by_user: async function () {
-      const results = await (
-        await fetch(
-          `${DJ_URL}/system/data/system.dj.number_of_nodes?dimensions=system.dj.user.username&dimensions=system.dj.node_type.type&filters=system.dj.is_active.active_id=true`,
-          { credentials: 'include' },
-        )
-      ).json();
-      const pivoted = {};
-      results.forEach(row => {
-        const username = row.find(
-          r => r.col === 'system.dj.user.username',
-        )?.value;
-        const nodeType = row.find(
-          r => r.col === 'system.dj.node_type.type',
-        )?.value;
-        const count = row.find(
-          r => r.col === 'system.dj.number_of_nodes',
-        )?.value;
-        if (!pivoted[username]) {
-          pivoted[username] = { username };
-        }
-        pivoted[username][nodeType] =
-          (pivoted[username][nodeType] || 0) + count;
-      });
-      return Object.entries(pivoted)
-        .map(([username, data]) => {
-          return {
-            username: username,
-            ...data,
-          };
-        })
-        .sort((a, b) => {
-          const sumValues = obj =>
-            Object.entries(obj)
-              .filter(
-                ([key, value]) =>
-                  key !== 'username' && typeof value === 'number',
-              )
-              .reduce((sum, [, value]) => sum + value, 0);
-          return sumValues(b) - sumValues(a);
-        });
     },
     node_trends: async function () {
       const results = await (
