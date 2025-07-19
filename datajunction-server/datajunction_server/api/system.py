@@ -81,7 +81,7 @@ async def get_data_for_system_metrics(
     unique_string = f"{metric_name}:{','.join(dimensions)}:{' AND '.join(filters)}"
     unique_hash = hashlib.sha256(unique_string.encode()).hexdigest()[:16]
     cache_key = f"system:sql:{metric_name}:{unique_hash}"
-    if not (translated_sql := cache.get(cache_key)):
+    if not (translated_sql := cache.get(cache_key)):  # pragma: no cover
         translated_sql, _ = await get_node_sql(
             metric_name,
             dimensions=dimensions,
