@@ -15,7 +15,7 @@ export const ByStatusPanel = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      setNodesByStatus(await djClient.analytics.node_counts_by_status());
+      setNodesByStatus(await djClient.system.node_counts_by_status());
     };
     fetchData().catch(console.error);
   }, [djClient]);

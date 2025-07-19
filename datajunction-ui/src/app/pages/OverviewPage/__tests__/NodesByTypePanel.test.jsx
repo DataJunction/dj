@@ -14,7 +14,7 @@ describe('<NodesByTypePanel />', () => {
     ];
 
     const mockDjClient = {
-      analytics: {
+      system: {
         node_counts_by_type: jest.fn().mockResolvedValue(mockNodesByType),
         materialization_counts_by_type: jest
           .fn()
@@ -30,9 +30,9 @@ describe('<NodesByTypePanel />', () => {
 
     // Wait for async calls to complete
     await waitFor(() => {
-      expect(mockDjClient.analytics.node_counts_by_type).toHaveBeenCalled();
+      expect(mockDjClient.system.node_counts_by_type).toHaveBeenCalled();
       expect(
-        mockDjClient.analytics.materialization_counts_by_type,
+        mockDjClient.system.materialization_counts_by_type,
       ).toHaveBeenCalled();
     });
 
@@ -59,7 +59,7 @@ describe('<NodesByTypePanel />', () => {
 
   it('renders nothing if no data returned', async () => {
     const mockDjClient = {
-      analytics: {
+      system: {
         node_counts_by_type: jest.fn().mockResolvedValue([]),
         materialization_counts_by_type: jest.fn().mockResolvedValue([]),
       },
@@ -72,9 +72,9 @@ describe('<NodesByTypePanel />', () => {
     );
 
     await waitFor(() => {
-      expect(mockDjClient.analytics.node_counts_by_type).toHaveBeenCalled();
+      expect(mockDjClient.system.node_counts_by_type).toHaveBeenCalled();
       expect(
-        mockDjClient.analytics.materialization_counts_by_type,
+        mockDjClient.system.materialization_counts_by_type,
       ).toHaveBeenCalled();
     });
 

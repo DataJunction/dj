@@ -10,7 +10,7 @@ describe('<ByStatusPanel />', () => {
     ];
 
     const mockDjClient = {
-      analytics: {
+      system: {
         node_counts_by_status: jest.fn().mockResolvedValue(mockNodeCounts),
       },
     };
@@ -22,7 +22,7 @@ describe('<ByStatusPanel />', () => {
     );
 
     await waitFor(() => {
-      expect(mockDjClient.analytics.node_counts_by_status).toHaveBeenCalled();
+      expect(mockDjClient.system.node_counts_by_status).toHaveBeenCalled();
     });
 
     // Check that counts are rendered
