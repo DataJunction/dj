@@ -52,6 +52,7 @@ export const GovernanceWarningsPanel = () => {
                 color: COLOR_MAPPING[entry.name.toLowerCase()],
                 backgroundColor: COLOR_MAPPING[entry.name.toLowerCase()] + '10',
               }}
+              key={entry.name}
             >
               <strong>{Math.round(entry.value * 100)}%</strong>{' '}
               <span>{entry.name.toLowerCase()}s</span>

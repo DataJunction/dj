@@ -34,7 +34,7 @@ export const NodesByTypePanel = () => {
         <div className="chart-title">Nodes by Type</div>
         <div className="horiz-box">
           {nodesByType?.map(entry => (
-            <div className="vert-box">
+            <div className="vert-box" key={entry.name}>
               <NodeIcon color={COLOR_MAPPING[entry.name]} />
               <strong style={{ color: COLOR_MAPPING[entry.name] }}>
                 {entry.value}
@@ -48,7 +48,7 @@ export const NodesByTypePanel = () => {
         <div className="chart-title">Materializations by Type</div>
         <div className="horiz-box">
           {materializationsByType?.map(entry => (
-            <div className="vert-box">
+            <div className="vert-box" key={entry.name}>
               <NodeIcon color={COLOR_MAPPING[entry.name]} />
               <strong style={{ color: COLOR_MAPPING[entry.name] }}>
                 {entry.value}
