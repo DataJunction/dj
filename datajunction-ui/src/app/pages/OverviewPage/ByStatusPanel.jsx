@@ -29,6 +29,7 @@ export const ByStatusPanel = () => {
             <div
               className="jss316 badge"
               style={{ color: '#000', margin: '0.2em' }}
+              key={entry.name}
             >
               <span style={{ color: COLOR_MAPPING[entry.name.toLowerCase()] }}>
                 {entry.name === 'VALID' ? (
@@ -48,7 +49,7 @@ export const ByStatusPanel = () => {
 
               <div style={{ display: 'inline-grid', alignItems: 'center' }}>
                 <strong
-                  class="horiz-box-value"
+                  className="horiz-box-value"
                   style={{
                     color: COLOR_MAPPING[entry.name.toLowerCase()],
                   }}
