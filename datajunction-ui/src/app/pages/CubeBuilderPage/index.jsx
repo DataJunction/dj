@@ -79,7 +79,6 @@ export function CubeBuilderPage() {
   };
 
   const patchNode = async (values, setStatus) => {
-    console.log('values!', values);
     const { status, json } = await djClient.patchCube(
       values.name,
       values.display_name,
@@ -132,7 +131,6 @@ export function CubeBuilderPage() {
         })}
       />,
     );
-    console.log('data.owners', data.owners);
     if (data.owners) {
       setSelectOwners(
         <OwnersField
