@@ -172,7 +172,6 @@ describe('CubeBuilderPage', () => {
     mockDjClient.createCube.mockResolvedValue({ status: 201, json: {} });
     mockDjClient.namespaces.mockResolvedValue(['default']);
     mockDjClient.getCubeForEditing.mockResolvedValue(mockCube);
-    // mockDjClient.node.mockResolvedValue(mockCube);
     mockDjClient.listTags.mockResolvedValue([]);
     mockDjClient.tagsNode.mockResolvedValue([]);
     mockDjClient.patchCube.mockResolvedValue({ status: 201, json: {} });
