@@ -12,6 +12,7 @@ import NodeNameField from '../../components/forms/NodeNameField';
 import { MetricsSelect } from './MetricsSelect';
 import { DimensionsSelect } from './DimensionsSelect';
 import { TagsField } from '../AddEditNodePage/TagsField';
+import { OwnersField } from '../AddEditNodePage/OwnersField';
 
 export function CubeBuilderPage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -30,6 +31,7 @@ export function CubeBuilderPage() {
     dimensions: [],
     filters: [],
     tags: [],
+    owners: [],
   };
 
   const handleSubmit = (values, { setSubmitting, setStatus }) => {
@@ -77,6 +79,7 @@ export function CubeBuilderPage() {
   };
 
   const patchNode = async (values, setStatus) => {
+    console.log('values!', values);
     const { status, json } = await djClient.patchCube(
       values.name,
       values.display_name,
@@ -85,6 +88,7 @@ export function CubeBuilderPage() {
       values.metrics,
       values.dimensions,
       values.filters || [],
+      values.owners,
     );
     const tagsResponse = await djClient.tagsNode(
       values.name,
@@ -106,10 +110,15 @@ export function CubeBuilderPage() {
     }
   };
 
-  const updateFieldsWithNodeData = (data, setFieldValue, setSelectTags) => {
-    setFieldValue('display_name', data.display_name || '', false);
-    setFieldValue('description', data.description || '', false);
-    setFieldValue('mode', data.mode || 'draft', false);
+  const updateFieldsWithNodeData = (
+    data,
+    setFieldValue,
+    setSelectTags,
+    setSelectOwners,
+  ) => {
+    setFieldValue('display_name', data.current.displayName || '', false);
+    setFieldValue('description', data.current.description || '', false);
+    setFieldValue('mode', data.current.mode.toLowerCase() || 'draft', false);
     setFieldValue(
       'tags',
       data.tags.map(tag => tag.name),
@@ -119,10 +128,20 @@ export function CubeBuilderPage() {
     setSelectTags(
       <TagsField
         defaultValue={data.tags.map(t => {
-          return { value: t.name, label: t.display_name };
+          return { value: t.name, label: t.displayName };
         })}
       />,
     );
+    console.log('data.owners', data.owners);
+    if (data.owners) {
+      setSelectOwners(
+        <OwnersField
+          defaultValue={data.owners.map(owner => {
+            return { value: owner.username, label: owner.username };
+          })}
+        />,
+      );
+    }
   };
 
   const staticFieldsInEdit = () => (
@@ -159,14 +178,20 @@ export function CubeBuilderPage() {
           {function Render({ isSubmitting, status, setFieldValue, props }) {
             const [node, setNode] = useState([]);
             const [selectTags, setSelectTags] = useState(null);
+            const [selectOwners, setSelectOwners] = useState(null);
 
             // Get cube
             useEffect(() => {
               const fetchData = async () => {
                 if (name) {
-                  const cube = await djClient.cube(name);
+                  const cube = await djClient.getCubeForEditing(name);
                   setNode(cube);
-                  updateFieldsWithNodeData(cube, setFieldValue, setSelectTags);
+                  updateFieldsWithNodeData(
+                    cube,
+                    setFieldValue,
+                    setSelectTags,
+                    setSelectOwners,
+                  );
                 }
               };
               fetchData().catch(console.error);
@@ -243,6 +268,7 @@ export function CubeBuilderPage() {
                       </Field>
                     </div>
                     {action === Action.Edit ? selectTags : <TagsField />}
+                    {action === Action.Edit ? selectOwners : <OwnersField />}
                     <button
                       type="submit"
                       disabled={isSubmitting}

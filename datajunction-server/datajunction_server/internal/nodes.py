@@ -587,9 +587,24 @@ async def update_any_node(
         include_inactive=True,
         options=[
             selectinload(Node.current).options(*NodeRevision.default_load_options()),
+            selectinload(Node.owners),
         ],
         raise_if_not_exists=True,
     )
+    node = cast(Node, node)
+
+    # Check that the user has access to modify this node
+    access_control = access.AccessControlStore(
+        validate_access=validate_access,
+        user=current_user,
+        base_verb=access.ResourceRequestVerb.WRITE,
+    )
+    access_control.add_request_by_node(node)
+    access_control.validate_and_raise()
+
+    if data.owners:
+        await update_owners(session, node, data.owners, current_user, save_history)
+
     if node.type == NodeType.CUBE:  # type: ignore
         node = await Node.get_cube_by_name(session, name)
         node_revision = await update_cube_node(
@@ -646,19 +661,6 @@ async def update_node_with_query(
         include_inactive=True,
     )
     node = cast(Node, node)
-
-    # Check that the user has access to modify this node
-    access_control = access.AccessControlStore(
-        validate_access=validate_access,
-        user=current_user,
-        base_verb=access.ResourceRequestVerb.WRITE,
-    )
-    access_control.add_request_by_node(node)
-    access_control.validate_and_raise()
-
-    if data.owners:
-        await update_owners(session, node, data.owners, current_user, save_history)
-
     old_revision = node.current  # type: ignore
     new_revision = await create_new_revision_from_existing(
         session=session,
