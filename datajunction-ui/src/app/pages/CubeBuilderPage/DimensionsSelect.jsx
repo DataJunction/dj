@@ -30,16 +30,14 @@ export const DimensionsSelect = ({ cube }) => {
     const fetchData = async () => {
       let cubeDimensions = undefined;
       if (cube) {
-        cubeDimensions = cube?.cube_elements
-          .filter(element => element.type === 'dimension')
-          .map(cubeDim => {
-            return {
-              value: cubeDim.node_name + '.' + cubeDim.name,
-              label:
-                labelize(cubeDim.name) +
-                (cubeDim.properties?.includes('primary_key') ? ' (PK)' : ''),
-            };
-          });
+        cubeDimensions = cube?.current.cubeDimensions.map(cubeDim => {
+          return {
+            value: cubeDim.name,
+            label:
+              labelize(cubeDim.attribute) +
+              (cubeDim.properties?.includes('primary_key') ? ' (PK)' : ''),
+          };
+        });
         setDefaultDimensions(cubeDimensions);
         setValue(cubeDimensions.map(m => m.value));
       }

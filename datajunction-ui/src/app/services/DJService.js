@@ -224,6 +224,57 @@ export const DataJunctionAPI = {
     return results.data.findNodes[0];
   },
 
+  getCubeForEditing: async function (name) {
+    const query = `
+      query GetCubeForEditing($name: String!) {
+        findNodes(names: [$name]) {
+          name
+          type
+          owners {
+            username
+          }
+          current {
+            displayName
+            description
+            mode
+            cubeMetrics {
+              name
+            }
+            cubeDimensions {
+              name
+              attribute
+              properties
+            }
+          }
+          tags {
+            name
+            displayName
+          }
+        }
+      }
+    `;
+
+    const results = await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: {
+            name: name,
+          },
+        }),
+      })
+    ).json();
+    if (results.data.findNodes.length === 0) {
+      return null;
+    }
+    return results.data.findNodes[0];
+  },
+
   nodes: async function (prefix) {
     const queryParams = prefix ? `?prefix=${prefix}` : '';
     return await (
@@ -396,6 +447,7 @@ export const DataJunctionAPI = {
     metrics,
     dimensions,
     filters,
+    owners,
   ) {
     const response = await fetch(`${DJ_URL}/nodes/${name}`, {
       method: 'PATCH',
@@ -409,6 +461,7 @@ export const DataJunctionAPI = {
         dimensions: dimensions,
         filters: filters || [],
         mode: mode,
+        owners: owners,
       }),
       credentials: 'include',
     });
