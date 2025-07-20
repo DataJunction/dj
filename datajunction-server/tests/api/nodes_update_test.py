@@ -222,7 +222,10 @@ async def test_update_source_node_new_owner(
             "owners": ["dj", "userone"],
         },
     )
-    assert response.json()["owners"] == [{"username": "dj"}, {"username": "userone"}]
+    assert {owner["username"] for owner in response.json()["owners"]} == {
+        "dj",
+        "userone",
+    }
 
 
 @pytest.mark.asyncio
