@@ -4,6 +4,7 @@ from unittest import mock
 
 import pytest
 from httpx import AsyncClient
+import pytest_asyncio
 
 from datajunction_server.models.node import NodeStatus
 
@@ -175,10 +176,40 @@ async def test_update_source_node(
     ]
 
 
+@pytest_asyncio.fixture(scope="module")
+async def user_one(module__client_with_roads: AsyncClient):
+    await module__client_with_roads.post(
+        "/basic/user/",
+        data={
+            "email": "userone@datajunction.io",
+            "username": "userone",
+            "password": "userone",
+        },
+    )
+
+
+@pytest_asyncio.fixture(scope="module")
+async def cube(module__client_with_roads: AsyncClient):
+    await module__client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
+            "dimensions": [
+                "default.hard_hat.country",
+                "default.dispatcher.company_name",
+            ],
+            "description": "Cube of various metrics related to repairs",
+            "mode": "published",
+            "name": "default.repair_orders_cube",
+        },
+    )
+
+
 @pytest.mark.asyncio
 async def test_update_source_node_new_owner(
     module__client_with_roads: AsyncClient,
-) -> None:
+    user_one,
+):
     """
     Test updating a source node with a new owner
     """
@@ -188,10 +219,33 @@ async def test_update_source_node_new_owner(
             "columns": [
                 {"name": "repair_order_id", "type": "string"},
             ],
-            "owners": ["dj"],
+            "owners": ["dj", "userone"],
         },
     )
+    assert {owner["username"] for owner in response.json()["owners"]} == {
+        "dj",
+        "userone",
+    }
+
+
+@pytest.mark.asyncio
+async def test_update_cube_node_new_owner(
+    module__client_with_roads: AsyncClient,
+    user_one,
+    cube,
+):
+    """
+    Test updating a cube with new owners
+    """
+    response = await module__client_with_roads.get("/nodes/default.repair_orders_cube/")
     assert response.json()["owners"] == [{"username": "dj"}]
+    response = await module__client_with_roads.patch(
+        "/nodes/default.repair_orders_cube/",
+        json={
+            "owners": ["userone"],
+        },
+    )
+    assert response.json()["owners"] == [{"username": "userone"}]
 
 
 @pytest.mark.asyncio
