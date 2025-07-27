@@ -2,9 +2,7 @@
 
 from datetime import datetime, timezone
 from functools import partial
-import hashlib
 from http import HTTPStatus
-import json
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
@@ -408,39 +406,3 @@ class QueryRequest(Base):  # type: ignore
             ],
             "orderby": orders,
         }
-
-    @classmethod
-    async def build_cache_key(
-        cls,
-        session: AsyncSession,
-        query_type: QueryBuildType,
-        nodes: List[str],
-        dimensions: List[str],
-        filters: List[str],
-        engine_name: Optional[str],
-        engine_version: Optional[str],
-        limit: Optional[int],
-        orderby: List[str],
-        other_args: Optional[Dict[str, Any]] = None,
-    ) -> Optional["QueryRequest"]:
-        """
-        Returns a cache key for the query request.
-        """
-        versioned_request = await cls.to_versioned_query_request(
-            session=session,
-            nodes=nodes,
-            dimensions=dimensions,
-            filters=filters,
-            orderby=orderby,
-            query_type=QueryBuildType(query_type),
-        )
-        versioned_with_metadata = {
-            **versioned_request,
-            "engine_name": engine_name,
-            "engine_version": engine_version,
-            "limit": limit,
-            "other_args": other_args,
-        }
-        serialized = json.dumps(versioned_with_metadata, sort_keys=True)
-        digest = hashlib.sha256(serialized.encode()).hexdigest()
-        return f"sql:{query_type}:{digest}"
