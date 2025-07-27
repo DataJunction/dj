@@ -7,6 +7,8 @@ from fastapi import BackgroundTasks, Request
 
 from datajunction_server.internal.caching.interface import Cache
 
+logger = logging.getLogger(__name__)
+
 
 class DataClassLike(Protocol):
     __dataclass_fields__: dict
@@ -14,8 +16,6 @@ class DataClassLike(Protocol):
 
 ResultType = TypeVar("ResultType")
 ParamsType = TypeVar("ParamsType", dict, DataClassLike)
-
-logger = logging.getLogger(__name__)
 
 
 class CacheManager(ABC, Generic[ParamsType, ResultType]):
@@ -92,16 +92,13 @@ class RefreshAheadCacheManager(CacheManager):
         no_store = "no-store" in cache_control
         no_cache = "no-cache" in cache_control
 
-        cached = None
-        if not no_cache and not no_store:
-            key = await self.build_cache_key(request, params)
-            cached = self.cache.get(key)
-            if cached is not None:
-                # Return cached results immediately and schedule async cache refresh
-                background_tasks.add_task(self._refresh_cache, key, request, params)
+        if not no_cache:
+            key: str = await self.build_cache_key(request, params)
+            if cached := self.cache.get(key):
+                if not no_store:
+                    background_tasks.add_task(self._refresh_cache, key, request, params)
                 return cached
 
-        # Cache miss or no_cache header present: compute fresh value
         logger.info("Cache miss or no-cache header present, computing fresh value.")
         result = await self.fallback(request, params)
 
