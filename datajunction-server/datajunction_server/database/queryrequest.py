@@ -1,5 +1,6 @@
 """Query request schema."""
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
@@ -406,3 +407,177 @@ class QueryRequest(Base):  # type: ignore
             ],
             "orderby": orders,
         }
+
+
+@dataclass(order=True)
+class VersionedNodeKey:
+    """
+    A versioned key for a node, used to identify it in query requests.
+    """
+
+    name: str
+    version: str | None = None
+
+    def __str__(self) -> str:
+        return f"{self.name}@{self.version}" if self.version else self.name
+
+    def __eq__(self, value):
+        if isinstance(value, VersionedNodeKey):
+            return self.name == value.name and self.version == value.version
+        elif isinstance(value, str):
+            node_key = self.parse(value)
+            return self.name == node_key.name and self.version == node_key.version
+        return False
+
+    def __hash__(self) -> int:
+        return hash((self.name, self.version))
+
+    @classmethod
+    def from_node(cls, node: Node) -> "VersionedNodeKey":
+        """
+        Creates a versioned node key from a Node object.
+        """
+        return cls(name=node.name, version=node.current_version)
+
+    @classmethod
+    def parse(cls, node_key: str) -> "VersionedNodeKey":
+        """
+        Parses the versioned node key into a dictionary.
+        """
+        if "@" in node_key:
+            node_key, version = node_key.split("@", 1)
+            return VersionedNodeKey(name=node_key, version=version)
+        return VersionedNodeKey(name=node_key, version=None)
+
+
+@dataclass
+class VersionedQueryKey:
+    """
+    A versioned query request encapsulates the logic to version nodes, dimensions,
+    filters, and order by statements.
+    """
+
+    nodes: list[VersionedNodeKey]
+    parents: list[VersionedNodeKey]
+    dimensions: list[VersionedNodeKey]
+    filters: list[str]
+    orderby: list[str]
+
+    @classmethod
+    async def version_query_request(
+        cls,
+        session,
+        nodes,
+        dimensions,
+        filters,
+        orderby,
+    ) -> "VersionedQueryKey":
+        """
+        Encapsulates the logic to version nodes, dimensions, filters, and orderby.
+        """
+        nodes_objs = await cls.resolve_nodes(session, nodes)
+        dim_nodes = await cls.resolve_dimensions(session, dimensions)
+        filters_resolved = await cls.rewrite_filters(session, filters)
+        orderby_resolved = await cls.rewrite_orderby(session, orderby)
+        parents = [parent for node in nodes_objs for parent in node.current.parents]
+        return VersionedQueryKey(
+            nodes=[VersionedNodeKey.from_node(node) for node in nodes_objs],
+            parents=sorted({VersionedNodeKey.from_node(parent) for parent in parents}),
+            dimensions=[
+                VersionedNodeKey(
+                    dim,
+                    dim_node.current_version
+                    if dim_node
+                    else nodes_objs[0].current_version,
+                )
+                for dim, dim_node in zip(dimensions, dim_nodes)
+            ],
+            filters=filters_resolved,
+            orderby=orderby_resolved,
+        )
+
+    @staticmethod
+    async def resolve_nodes(session, nodes) -> list[Node]:
+        return await Node.get_by_names(
+            session,
+            nodes,
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.columns),
+                    selectinload(NodeRevision.parents).options(
+                        joinedload(Node.current),
+                    ),
+                ),
+            ],
+        )
+
+    @staticmethod
+    async def resolve_dimensions(session, dimensions) -> list[Node]:
+        return await Node.get_by_names(
+            session,
+            [".".join(dim.split(".")[:-1]) for dim in dimensions],
+        )
+
+    @staticmethod
+    async def rewrite_filters(session, filters) -> list[str]:
+        results = []
+        for filter_ in filters:
+            if not filter_:
+                continue
+            ast_tree = parse(f"SELECT 1 WHERE {filter_}")
+            for col in ast_tree.select.where.find_all(ast.Column):  # type: ignore
+                if isinstance(col.parent, ast.Subscript):
+                    if isinstance(col.parent.index, ast.Lambda):
+                        col.role = str(col.parent.index)
+                    else:
+                        col.role = col.parent.index.identifier()  # type: ignore
+                    col.parent.swap(col)
+                dim_node = await Node.get_by_name(
+                    session,
+                    ".".join(col.identifier().split(".")[:-1]),
+                    options=[],
+                )
+                if dim_node:
+                    col.alias_or_name.name = to_namespaced_name(
+                        f"{col.alias_or_name.name}"
+                        f"{'[' + col.role + ']' if col.role else ''}"
+                        f"@{dim_node.current_version}",
+                    )
+            results.append(str(ast_tree.select.where))
+        return results
+
+    @staticmethod
+    async def rewrite_orderby(session, orderby) -> list[str]:
+        results = []
+        for order in orderby:
+            parts = order.split(" ")
+            node_name = parts[0]
+            order_by_node = await Node.get_by_name(session, node_name, options=[])
+            if not order_by_node:
+                order_by_node = await Node.get_by_name(
+                    session,
+                    ".".join(node_name.split(".")[:-1]),
+                    options=[],
+                )
+            if order_by_node:
+                parts[0] = str(VersionedNodeKey.from_node(order_by_node))
+            results.append(" ".join(parts))
+        return results
+
+
+@dataclass
+class QueryRequestKey:
+    """
+    A cacheable query request encapsulates the logic to build a cache key for a query request.
+    """
+
+    key: VersionedQueryKey
+    query_type: QueryBuildType
+    engine_name: str
+    engine_version: str
+    limit: int | None
+    include_all_columns: bool
+    preaggregate: bool
+    use_materialized: bool
+    query_parameters: dict
+    other_args: dict

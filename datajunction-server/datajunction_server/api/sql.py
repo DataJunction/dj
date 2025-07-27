@@ -11,10 +11,12 @@ from typing import Any, List, Optional, Tuple, cast
 from fastapi import BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.internal.caching.noop_cache import NoOpCache
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
-from datajunction_server.internal.queryrequest import build_cache_key
+from datajunction_server.internal.caching.query_cache_manager import (
+    QueryCacheManager,
+    QueryRequestParams,
+)
 from datajunction_server.api.helpers import (
     assemble_column_metadata,
     build_sql_for_multiple_metrics,
@@ -96,58 +98,29 @@ async def get_measures_sql_for_cube_v2(
     and others are aggregations on measures in parent node B, this endpoint will generate
     two measures queries, one for A and one for B.
     """
-    from datajunction_server.construction.build_v2 import (
-        get_measures_query,
+    query_cache_manager = QueryCacheManager(
+        cache=cache,
+        query_type=QueryBuildType.MEASURES,
     )
-
-    cache_control = request.headers.get("Cache-Control", "").lower()
-    metrics = list(OrderedDict.fromkeys(metrics))
-
-    if not isinstance(cache, NoOpCache):
-        cache_key = await build_cache_key(
-            session=session,
+    return await query_cache_manager.get_or_load(
+        background_tasks,
+        request,
+        QueryRequestParams(
             query_type=QueryBuildType.MEASURES,
             nodes=metrics,
             dimensions=dimensions,
             filters=filters,
             engine_name=engine_name,
             engine_version=engine_version,
-            limit=None,
             orderby=orderby,
-            other_args={
-                "include_all_columns": include_all_columns,
-                "preaggregate": preaggregate,
-                "use_materialized": use_materialized,
-                "query_parameters": json.loads(query_params),
-            },
-        )
-        if results := cache.get(cache_key):
-            _logger.debug("Cache hit for measures SQL: %s", cache_key)
-            return results
-
-    measures_query = await get_measures_query(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions,
-        filters=filters,
-        orderby=orderby,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        current_user=current_user,
-        validate_access=validate_access,
-        include_all_columns=include_all_columns,
-        use_materialized=use_materialized,
-        preagg_requested=preaggregate,
-        query_parameters=json.loads(query_params),
+            query_params=query_params,
+            include_all_columns=include_all_columns,
+            preaggregate=preaggregate,
+            use_materialized=use_materialized,
+            current_user=current_user,
+            validate_access=validate_access,
+        ),
     )
-    if "no-store" not in cache_control:
-        background_tasks.add_task(
-            cache.set,
-            cache_key,
-            measures_query,
-            timeout=86400 * 300,
-        )
-    return measures_query
 
 
 async def build_and_save_node_sql(
