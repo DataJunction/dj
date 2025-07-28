@@ -1,0 +1,72 @@
+/* Overview page css */
+
+.chart-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2em;
+  margin: 2em 2em;
+}
+
+.chart-box {
+  display: flex;
+  flex-grow: 1;
+  flex-direction: column;
+  flex: 1 1 300px;
+  min-width: 300px;
+  max-width: fit-content;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  background-color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  padding: calc(1.3rem);
+}
+
+.chart-title {
+  padding-bottom: 10px;
+  font-size: calc(1.3rem);
+  font-weight: 400;
+  margin: 0;
+  text-align: center;
+  color: rgb(110, 110, 110);
+  font-family: Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.235;
+  letter-spacing: 0.00735em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vert-box {
+  display: flex;
+  padding: 1em 1em;
+  font-size: 18px;
+  align-items: center;
+  flex-direction: column;
+}
+.vert-box span {
+  opacity: 0.6;
+  font-size: 13px;
+}
+
+.horiz-box {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+}
+.horiz-box-value {
+  margin: 0 12px;
+  font-size: 20px;
+  text-align: left;
+}
+.horiz-box-label {
+  font-size: smaller;
+  padding: 5px 12px;
+}
+
+.jss316 {
+  display: inline-block;
+  padding: 0.2em;
+  font-size: 18px;
+  align-items: center;
+  flex-direction: column;
+}
