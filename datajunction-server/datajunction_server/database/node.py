@@ -68,6 +68,10 @@ class NodeRelationship(Base):
     """
 
     __tablename__ = "noderelationship"
+    __table_args__ = (
+        Index("idx_noderelationship_parent_id", "parent_id"),
+        Index("idx_noderelationship_child_id", "child_id"),
+    )
 
     parent_id: Mapped[int] = mapped_column(
         ForeignKey("node.id", name="fk_noderelationship_parent_id_node"),
@@ -90,6 +94,7 @@ class CubeRelationship(Base):
     """
 
     __tablename__ = "cube"
+    __table_args__ = (Index("idx_cube_cube_id", "cube_id"),)
 
     cube_id: Mapped[int] = mapped_column(
         ForeignKey("noderevision.id", name="fk_cube_cube_id_noderevision"),
@@ -219,6 +224,19 @@ class Node(Base):
         default=None,
     )
 
+    owner_associations = relationship(
+        "NodeOwner",
+        back_populates="node",
+        cascade="all, delete-orphan",
+        overlaps="owners",
+    )
+    owners: Mapped[list[User]] = relationship(
+        "User",
+        secondary="node_owners",
+        back_populates="owned_nodes",
+        overlaps="owner_associations",
+    )
+
     revisions: Mapped[List["NodeRevision"]] = relationship(
         "NodeRevision",
         back_populates="node",
@@ -291,6 +309,7 @@ class Node(Base):
             ),
             selectinload(Node.tags),
             selectinload(Node.created_by),
+            selectinload(Node.owners),
         ]
         statement = statement.options(*options)
         if not include_inactive:
@@ -408,15 +427,15 @@ class Node(Base):
     async def find_by(
         cls,
         session: AsyncSession,
-        names: Optional[List[str]] = None,
-        fragment: Optional[str] = None,
-        node_types: Optional[List[NodeType]] = None,
-        tags: Optional[List[str]] = None,
-        edited_by: Optional[str] = None,
-        namespace: Optional[str] = None,
-        limit: Optional[int] = 100,
-        before: Optional[str] = None,
-        after: Optional[str] = None,
+        names: list[str] | None = None,
+        fragment: str | None = None,
+        node_types: list[NodeType] | None = None,
+        tags: list[str] | None = None,
+        edited_by: str | None = None,
+        namespace: str | None = None,
+        limit: int | None = 100,
+        before: str | None = None,
+        after: str | None = None,
         options: list[ExecutableOption] = None,
     ) -> List["Node"]:
         """
@@ -985,6 +1004,7 @@ class NodeColumns(Base):
     """
 
     __tablename__ = "nodecolumns"
+    __table_args__ = (Index("idx_nodecolumns_node_id", "node_id"),)
 
     node_id: Mapped[int] = mapped_column(
         ForeignKey("noderevision.id", name="fk_nodecolumns_node_id_noderevision"),

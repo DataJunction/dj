@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
-from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.materializations import decompose_expression
@@ -1652,6 +1651,7 @@ class TestNodeCRUD:
         assert data["catalog"]["name"] == "public"
         assert data["schema_"] == "basic"
         assert data["table"] == "comments"
+        assert data["owners"] == [{"username": "dj"}]
         assert data["columns"] == [
             {
                 "name": "id",
@@ -2378,6 +2378,7 @@ class TestNodeCRUD:
             == "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users"
         )
         assert data["status"] == "valid"
+        assert data["owners"] == [{"username": "dj"}]
         assert data["columns"] == [
             {
                 "attributes": [],
@@ -3090,18 +3091,6 @@ GROUP BY
           FROM default_DOT_total_amount_in_region_from_struct_transform
         """
         assert str(parse(response.json()["sql"])) == str(parse(expected))
-
-        # Check that this query request has been saved
-        query_request = (await session.execute(select(QueryRequest))).scalars().all()
-        assert len(query_request) == 1
-        assert query_request[0].nodes == [
-            "default.total_amount_in_region_from_struct_transform@v1.0",
-        ]
-        assert query_request[0].dimensions == ["location_hierarchy@v1.0"]
-        assert query_request[0].filters == []
-        assert query_request[0].orderby == []
-        assert query_request[0].limit is None
-        assert query_request[0].query_type == QueryBuildType.NODE
 
     @pytest.mark.asyncio
     async def test_node_with_incremental_time_materialization(
@@ -4270,7 +4259,7 @@ class TestValidateNodes:
         )
         data = response.json()
         assert data["message"] == (
-            "Cannot link dimension to node, because catalogs do not match: default, public"
+            "Cannot link dimension to node, because catalogs do not match: basic, public"
         )
 
     @pytest.mark.asyncio
@@ -5723,6 +5712,7 @@ ON s.state_region = r.us_region_id""",
     )
     node_data = response.json()
     assert node_data["version"] == "v2.0"
+    assert node_data["owners"] == [{"username": "dj"}]
     response = await client_with_roads.get("/history?node=default.us_state")
     assert [activity["activity_type"] for activity in response.json()] == [
         "restore",

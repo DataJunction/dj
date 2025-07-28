@@ -25,8 +25,6 @@ _logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["catalogs"])
 
-UNKNOWN_CATALOG_ID = 0
-
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])
 async def list_catalogs(
@@ -79,6 +77,16 @@ async def add_catalog(
             detail=f"Catalog already exists: `{data.name}`",
         )
 
+    existing_engines = await Engine.get_by_names(
+        session,
+        [eng.name for eng in data.engines or []],
+    )
+    existing_engine_names = {e.name for e in existing_engines}
+    missing_engines = [
+        engine
+        for engine in data.engines or []
+        if engine.name not in existing_engine_names
+    ]
     catalog = Catalog(
         name=data.name,
         engines=[
@@ -88,8 +96,9 @@ async def add_catalog(
                 uri=engine.uri,
                 dialect=engine.dialect,
             )
-            for engine in data.engines  # type: ignore
-        ],
+            for engine in missing_engines  # type: ignore
+        ]
+        + existing_engines,
     )
     catalog.engines.extend(
         await list_new_engines(
@@ -148,19 +157,3 @@ async def list_new_engines(
         if not already_set:
             new_engines.append(engine)
     return new_engines
-
-
-async def default_catalog(session: AsyncSession = Depends(get_session)):
-    """
-    Loads a default catalog for nodes that are pure SQL and don't belong in any
-    particular catalog. This typically applies to on-the-fly user-defined dimensions.
-    """
-    statement = select(Catalog).filter(Catalog.id == UNKNOWN_CATALOG_ID)
-    catalogs = (await session.execute(statement)).all()
-    if not catalogs:
-        unknown = Catalog(
-            id=UNKNOWN_CATALOG_ID,
-            name="unknown",
-        )
-        session.add(unknown)
-        await session.commit()

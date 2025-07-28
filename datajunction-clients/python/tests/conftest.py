@@ -4,6 +4,7 @@ Fixtures for testing DJ client.
 
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 import asyncio
+from contextlib import asynccontextmanager
 import os
 from http.client import HTTPException
 from pathlib import Path
@@ -13,8 +14,8 @@ from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 from cachelib import SimpleCache
-from datajunction_server.api.main import app
-from datajunction_server.config import Settings
+from datajunction_server.api.main import create_app
+from datajunction_server.config import Settings, DatabaseConfig
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
@@ -27,7 +28,7 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
-from fastapi import Request
+from fastapi import FastAPI, Request
 from pytest_mock import MockerFixture
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -103,8 +104,9 @@ def module__settings(module_mocker: MockerFixture) -> Iterator[Settings]:
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri="sqlite://")
     settings = Settings(
-        index="sqlite://",
+        writer_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -286,6 +288,8 @@ def module__server(  # pylint: disable=too-many-statements
     """
     Create a mock server for testing APIs that contains a mock query service.
     """
+    from datajunction_server.api.attributes import default_attribute_types
+    from datajunction_server.internal.seed import seed_default_catalogs
 
     def get_query_service_client_override(
         request: Request = None,  # pylint: disable=unused-argument
@@ -298,11 +302,22 @@ def module__server(  # pylint: disable=too-many-statements
     def get_settings_override() -> Settings:
         return module__settings
 
+    @asynccontextmanager
+    async def noop_lifespan(app: FastAPI):
+        """
+        Lifespan context for initializing and tearing down app-wide resources, like the FastAPI cache
+        """
+        await default_attribute_types(module__session)
+        await seed_default_catalogs(module__session)
+
+        yield
+
     module_mocker.patch(
         "datajunction_server.api.materializations.get_query_service_client",
         get_query_service_client_override,
     )
 
+    app = create_app(lifespan=noop_lifespan)
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
     app.dependency_overrides[get_query_service_client] = (
@@ -347,7 +362,7 @@ def module__postgres_container(request) -> PostgresContainer:
     """
     postgres = PostgresContainer(
         image="postgres:latest",
-        user="dj",
+        username="dj",
         password="dj",
         dbname=request.module.__name__,
         port=5432,

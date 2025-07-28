@@ -39,6 +39,7 @@ from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     get_and_update_current_user,
+    get_current_user,
     get_query_service_client,
     get_session,
     get_settings,
@@ -184,7 +185,7 @@ async def get_data(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
@@ -259,7 +260,7 @@ async def get_data_stream_for_node(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
@@ -283,7 +284,7 @@ async def get_data_stream_for_node(
         background_tasks=background_tasks,
     )
     if query_request and query_request.query_id:
-        return EventSourceResponse(
+        return EventSourceResponse(  # pragma: no cover
             query_event_stream(
                 query=QueryWithResults(
                     id=query_request.query_id,
@@ -322,11 +323,6 @@ async def get_data_stream_for_node(
         query_create,
         request_headers=request_headers,
     )
-
-    # Save the external query id reference
-    query_request.query_id = initial_query_info.id
-    session.add(query_request)
-    await session.commit()
 
     return EventSourceResponse(
         query_event_stream(
@@ -379,7 +375,7 @@ async def get_data_for_metrics(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
@@ -437,7 +433,7 @@ async def get_data_stream_for_metrics(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),

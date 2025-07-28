@@ -3,6 +3,7 @@ Fixtures for testing.
 """
 
 import asyncio
+from collections import namedtuple
 import os
 import re
 from http.client import HTTPException
@@ -18,7 +19,10 @@ from typing import (
     List,
     Optional,
 )
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import urlparse
+
+from psycopg import connect
 
 import duckdb
 import httpx
@@ -36,7 +40,9 @@ from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
 
 from datajunction_server.api.main import app
-from datajunction_server.config import Settings
+from datajunction_server.api.attributes import default_attribute_types
+from datajunction_server.internal.seed import seed_default_catalogs
+from datajunction_server.config import DatabaseConfig, Settings
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
@@ -50,6 +56,7 @@ from datajunction_server.models.user import OAuthProvider
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
+    DatabaseSessionManager,
     get_query_service_client,
     get_session,
     get_settings,
@@ -65,6 +72,7 @@ EXAMPLE_TOKEN = (
     "B0-ConD6tpjMjFxNrp2KD4vwaS0oGsDJGqXlMo0MOhe9lHMLraXzOQ6xDgDFHiFert"
     "Fc0T_9jYkcpmVDPl9pgPf55R.sKF18rttq1OZ_EjZqw8Www"
 )
+PostgresCluster = namedtuple("PostgresCluster", ["writer", "reader"])
 
 
 @pytest.fixture(autouse=True)
@@ -85,8 +93,16 @@ def settings(
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri=postgres_container.get_connection_url())
+    reader_db = DatabaseConfig(
+        uri=postgres_container.get_connection_url().replace(
+            "dj:dj@",
+            "readonly_user:readonly@",
+        ),
+    )
     settings = Settings(
-        index=postgres_container.get_connection_url(),
+        writer_db=writer_db,
+        reader_db=reader_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -117,8 +133,16 @@ def settings_no_qs(
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri=postgres_container.get_connection_url())
+    reader_db = DatabaseConfig(
+        uri=postgres_container.get_connection_url().replace(
+            "dj:dj@",
+            "readonly_user:readonly@",
+        ),
+    )
     settings = Settings(
-        index=postgres_container.get_connection_url(),
+        writer_db=writer_db,
+        reader_db=reader_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -177,6 +201,7 @@ def postgres_container() -> PostgresContainer:
             r"UTC \[1\] LOG:  database system is ready to accept connections",
             10,
         )
+        create_readonly_user(postgres)
         yield postgres
 
 
@@ -356,26 +381,16 @@ def query_service_client(
     yield qs_client
 
 
-@pytest.fixture
-def mock_session_manager(session: AsyncSession):
-    mock_manager = Mock()
-    mock_manager.session.return_value = session
-    with patch(
-        "datajunction_server.api.graphql.middleware.get_session_manager",
-        return_value=mock_manager,
-    ):
-        yield
-
-
 @pytest_asyncio.fixture
 async def client(
     session: AsyncSession,
     settings_no_qs: Settings,
-    mock_session_manager,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
     """
+    await default_attribute_types(session)
+    await seed_default_catalogs(session)
 
     def get_session_override() -> AsyncSession:
         return session
@@ -397,11 +412,7 @@ async def client(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as test_client:
-        test_client.headers.update(
-            {
-                "Authorization": f"Bearer {EXAMPLE_TOKEN}",
-            },
-        )
+        test_client.headers.update({"Authorization": f"Bearer {EXAMPLE_TOKEN}"})
         test_client.app = app
         yield test_client
 
@@ -607,53 +618,80 @@ def compare_query_strings_fixture():
 
 
 @pytest_asyncio.fixture
-async def client_with_query_service_example_loader(
+async def client_qs(
     session: AsyncSession,
     settings: Settings,
     query_service_client: QueryServiceClient,
     mocker: MockerFixture,
-) -> Callable[[Optional[List[str]]], AsyncClient]:
+) -> AsyncGenerator[AsyncClient, None]:
     """
-    Provides a callable fixture for loading examples into a test client
-    fixture that additionally has a mocked query service.
+    Create a client for testing APIs.
     """
+    statement = insert(User).values(
+        username="dj",
+        email=None,
+        name=None,
+        oauth_provider="basic",
+        is_admin=False,
+    )
+    await session.execute(statement)
+    await default_attribute_types(session)
+    await seed_default_catalogs(session)
 
     def get_query_service_client_override(
         request: Request = None,
     ) -> QueryServiceClient:
         return query_service_client
 
-    def get_session_override() -> AsyncSession:
-        return session
-
     def get_settings_override() -> Settings:
         return settings
 
+    def default_validate_access() -> ValidateAccessFn:
+        def _(access_control: AccessControl):
+            access_control.approve_all()
+
+        return _
+
+    def get_session_override() -> AsyncSession:
+        return session
+
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
+    app.dependency_overrides[validate_access] = default_validate_access
     app.dependency_overrides[get_query_service_client] = (
         get_query_service_client_override
     )
 
-    # The test client includes a signed and encrypted JWT in the authorization headers.
-    # Even though the user is mocked to always return a "dj" user, this allows for the
-    # JWT logic to be tested on all requests.
-    client = AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://test",
-    )
-    client.headers.update(
-        {
-            "Authorization": f"Bearer {EXAMPLE_TOKEN}",
-        },
-    )
-    mocker.patch(
+    with mocker.patch(
         "datajunction_server.api.materializations.get_query_service_client",
-        get_query_service_client_override,
-    )
+        return_value=query_service_client,
+    ):
+        async with AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as test_client:
+            test_client.headers.update(
+                {
+                    "Authorization": f"Bearer {EXAMPLE_TOKEN}",
+                },
+            )
+            test_client.app = app
+            yield test_client
+
+        app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def client_with_query_service_example_loader(
+    client_qs: AsyncClient,
+) -> Callable[[Optional[List[str]]], AsyncClient]:
+    """
+    Provides a callable fixture for loading examples into a test client
+    fixture that additionally has a mocked query service.
+    """
 
     def _load_examples(examples_to_load: Optional[List[str]] = None):
-        return load_examples_in_client(client, examples_to_load)
+        return load_examples_in_client(client_qs, examples_to_load)
 
     return _load_examples
 
@@ -726,15 +764,21 @@ async def module__client_example_loader(
     return _load_examples
 
 
-@pytest.fixture(scope="module")
-def module__mock_session_manager(module__session: AsyncSession):
-    mock_manager = Mock()
-    mock_manager.session.return_value = module__session
-    with patch(
-        "datajunction_server.api.graphql.middleware.get_session_manager",
-        return_value=mock_manager,
-    ):
-        yield
+@pytest.fixture(scope="session")
+def session_manager_per_worker():
+    """
+    Create a unique session manager per pytest-xdist worker.
+    """
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+    db_suffix = f"test_{worker_id}"
+
+    settings = get_settings()
+    settings.writer_db.uri = settings.writer_db.uri.replace("test", db_suffix)
+
+    manager = DatabaseSessionManager()
+    manager.init_db()
+    yield manager
+    asyncio.run(manager.close())
 
 
 @pytest_asyncio.fixture(scope="module")
@@ -743,7 +787,6 @@ async def module__client(
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,
     module_mocker: MockerFixture,
-    module__mock_session_manager,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -756,6 +799,8 @@ async def module__client(
         is_admin=False,
     )
     await module__session.execute(statement)
+    await default_attribute_types(module__session)
+    await seed_default_catalogs(module__session)
 
     def get_query_service_client_override(
         request: Request = None,
@@ -821,6 +866,7 @@ async def module__session(
         expire_on_commit=False,
     )
     async with async_session_factory() as session:
+        session.remove = AsyncMock(return_value=None)
         yield session
 
     async with engine.begin() as conn:
@@ -839,8 +885,16 @@ def module__settings(
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri=module__postgres_container.get_connection_url())
+    reader_db = DatabaseConfig(
+        uri=module__postgres_container.get_connection_url().replace(
+            "dj:dj@",
+            "readonly_user:readonly@",
+        ),
+    )
     settings = Settings(
-        index=module__postgres_container.get_connection_url(),
+        writer_db=writer_db,
+        reader_db=reader_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -873,8 +927,9 @@ def regular_settings(
     """
     Custom settings for unit tests.
     """
+    writer_db = DatabaseConfig(uri=module__postgres_container.get_connection_url())
     settings = Settings(
-        index=module__postgres_container.get_connection_url(),
+        writer_db=writer_db,
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
@@ -978,6 +1033,38 @@ async def module__client_with_examples(
     return await module__client_example_loader(None)
 
 
+def create_readonly_user(postgres: PostgresContainer):
+    """
+    Create a read-only user in the Postgres container.
+    """
+    url = urlparse(postgres.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=url.path.lstrip("/"),
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        # Create read-only user
+        conn.execute("DROP ROLE IF EXISTS readonly_user")
+        conn.execute("CREATE ROLE readonly_user WITH LOGIN PASSWORD 'readonly'")
+
+        # Create dj if it doesn't exist
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM pg_database WHERE datname = 'dj'")
+            if not cur.fetchone():
+                cur.execute("CREATE DATABASE dj")
+
+        # Grant permissions to readonly_user
+        conn.execute("GRANT CONNECT ON DATABASE dj TO readonly_user")
+        conn.execute("GRANT USAGE ON SCHEMA public TO readonly_user")
+        conn.execute("GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user")
+        conn.execute(
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_user",
+        )
+
+
 @pytest.fixture(scope="module")
 def module__postgres_container(request) -> PostgresContainer:
     """
@@ -997,6 +1084,7 @@ def module__postgres_container(request) -> PostgresContainer:
             r"UTC \[1\] LOG:  database system is ready to accept connections",
             10,
         )
+        create_readonly_user(postgres)
         yield postgres
 
 

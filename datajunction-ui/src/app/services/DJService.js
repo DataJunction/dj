@@ -156,6 +156,9 @@ export const DataJunctionAPI = {
             name
             displayName
           }
+          owners {
+            username
+          }
         }
       }
     `;
@@ -218,6 +221,57 @@ export const DataJunctionAPI = {
         }),
       })
     ).json();
+    return results.data.findNodes[0];
+  },
+
+  getCubeForEditing: async function (name) {
+    const query = `
+      query GetCubeForEditing($name: String!) {
+        findNodes(names: [$name]) {
+          name
+          type
+          owners {
+            username
+          }
+          current {
+            displayName
+            description
+            mode
+            cubeMetrics {
+              name
+            }
+            cubeDimensions {
+              name
+              attribute
+              properties
+            }
+          }
+          tags {
+            name
+            displayName
+          }
+        }
+      }
+    `;
+
+    const results = await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: {
+            name: name,
+          },
+        }),
+      })
+    ).json();
+    if (results.data.findNodes.length === 0) {
+      return null;
+    }
     return results.data.findNodes[0];
   },
 
@@ -323,6 +377,7 @@ export const DataJunctionAPI = {
     metric_unit,
     significant_digits,
     required_dimensions,
+    owners,
   ) {
     try {
       const metricMetadata =
@@ -346,6 +401,7 @@ export const DataJunctionAPI = {
           primary_key: primary_key,
           metric_metadata: metricMetadata,
           required_dimensions: required_dimensions,
+          owners: owners,
         }),
         credentials: 'include',
       });
@@ -391,6 +447,7 @@ export const DataJunctionAPI = {
     metrics,
     dimensions,
     filters,
+    owners,
   ) {
     const response = await fetch(`${DJ_URL}/nodes/${name}`, {
       method: 'PATCH',
@@ -404,6 +461,7 @@ export const DataJunctionAPI = {
         dimensions: dimensions,
         filters: filters || [],
         mode: mode,
+        owners: owners,
       }),
       credentials: 'include',
     });

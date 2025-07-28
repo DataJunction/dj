@@ -10,7 +10,12 @@ from strawberry.types import Info
 from datajunction_server.api.graphql.scalars import BigInt
 from datajunction_server.api.graphql.scalars.availabilitystate import AvailabilityState
 from datajunction_server.api.graphql.scalars.catalog_engine import Catalog
-from datajunction_server.api.graphql.scalars.column import Column, NodeName, Partition
+from datajunction_server.api.graphql.scalars.column import (
+    Column,
+    NodeName,
+    NodeNameVersion,
+    Partition,
+)
 from datajunction_server.api.graphql.scalars.materialization import (
     MaterializationConfig,
 )
@@ -163,8 +168,20 @@ class NodeRevision:
         ]
 
     # Dimensions and data graph-related outputs
-    dimension_links: List[DimensionLink]
-    parents: List[NodeName]
+    @strawberry.field
+    def dimension_links(self) -> list[DimensionLink]:
+        """
+        Returns the dimension links for this node revision.
+        """
+        return [
+            link
+            for link in self.dimension_links
+            if link.dimension is not None  # handles hard-deleted dimension nodes
+            and link.dimension.deactivated_at
+            is None  # handles deactivated dimension nodes
+        ]
+
+    parents: List[NodeNameVersion]
 
     # Materialization-related outputs
     availability: Optional[AvailabilityState] = None
@@ -305,13 +322,14 @@ class Node:
     deactivated_at: Optional[datetime.datetime]
 
     current: NodeRevision
-    revisions: List[NodeRevision]
+    revisions: list[NodeRevision]
 
-    tags: List[TagBase]
+    tags: list[TagBase]
     created_by: User
+    owners: list[User]
 
     @strawberry.field
-    def edited_by(self, root: "DBNode") -> List[str]:
+    def edited_by(self, root: "DBNode") -> list[str]:
         """
         The users who edited this node
         """

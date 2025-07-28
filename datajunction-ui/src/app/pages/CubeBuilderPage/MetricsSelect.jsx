@@ -24,14 +24,12 @@ export const MetricsSelect = ({ cube }) => {
   useEffect(() => {
     const fetchData = async () => {
       if (cube) {
-        const cubeMetrics = cube?.cube_elements
-          .filter(element => element.type === 'metric')
-          .map(metric => {
-            return {
-              value: metric.node_name,
-              label: metric.node_name,
-            };
-          });
+        const cubeMetrics = cube?.current.cubeMetrics.map(metric => {
+          return {
+            value: metric.name,
+            label: metric.name,
+          };
+        });
         setDefaultMetrics(cubeMetrics);
         await setValue(cubeMetrics.map(m => m.value));
       }

@@ -56,9 +56,32 @@ def test_pull(
     Test `dj pull <namespace> <dir>`
     """
     test_args = ["dj", "pull", "default", tmp_path.absolute().as_posix()]
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            main(builder_client=builder_client)
+    assert len(os.listdir(tmp_path)) == 30
+
+
+def test_seed():
+    """
+    Test `dj seed`
+    """
+    builder_client = mock.MagicMock()
+
+    test_args = ["dj", "seed"]
     with patch.object(sys, "argv", test_args):
         main(builder_client=builder_client)
-    assert len(os.listdir(tmp_path)) == 30
+
+    func_names = [mock_call[0] for mock_call in builder_client.mock_calls]
+    assert "basic_login" in func_names
+    assert "register_table" in func_names
+    assert "create_dimension" in func_names
+    assert "create_metric" in func_names
+    assert "dimension().link_complex_dimension" in func_names
 
 
 def test_help(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name

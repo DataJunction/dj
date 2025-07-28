@@ -10,10 +10,13 @@ const mockDjClient = {
   createCube: jest.fn(),
   namespaces: jest.fn(),
   cube: jest.fn(),
+  getCubeForEditing: jest.fn(),
   node: jest.fn(),
   listTags: jest.fn(),
   tagsNode: jest.fn(),
   patchCube: jest.fn(),
+  users: jest.fn(),
+  whoami: jest.fn(),
 };
 
 const mockMetrics = [
@@ -23,81 +26,44 @@ const mockMetrics = [
 ];
 
 const mockCube = {
-  node_revision_id: 102,
-  node_id: 33,
-  type: 'cube',
   name: 'default.repair_orders_cube',
-  display_name: 'Default: Repair Orders Cube',
-  version: 'v4.0',
-  description: 'Repairs cube',
-  availability: null,
-  cube_elements: [
+  type: 'CUBE',
+  owners: [
     {
-      name: 'default_DOT_total_repair_cost',
-      display_name: 'Total Repair Cost',
-      node_name: 'default.total_repair_cost',
-      type: 'metric',
-      partition: null,
-    },
-    {
-      name: 'default_DOT_num_repair_orders',
-      display_name: 'Num Repair Orders',
-      node_name: 'default.num_repair_orders',
-      type: 'metric',
-      partition: null,
-    },
-    {
-      name: 'country',
-      display_name: 'Country',
-      node_name: 'default.hard_hat',
-      type: 'dimension',
-      partition: null,
-    },
-    {
-      name: 'state',
-      display_name: 'State',
-      node_name: 'default.hard_hat',
-      type: 'dimension',
-      partition: null,
+      username: 'someone@example.com',
     },
   ],
-  query: '',
-  columns: [
+  current: {
+    displayName: 'Default: Repair Orders Cube',
+    description: 'Repairs cube',
+    mode: 'DRAFT',
+    cubeMetrics: [
+      {
+        name: 'default.total_repair_cost',
+      },
+      {
+        name: 'default.num_repair_orders',
+      },
+    ],
+    cubeDimensions: [
+      {
+        name: 'default.hard_hat.country',
+        attribute: 'country',
+        properties: ['dimension'],
+      },
+      {
+        name: 'default.hard_hat.state',
+        attribute: 'state',
+        properties: ['dimension'],
+      },
+    ],
+  },
+  tags: [
     {
-      name: 'default.total_repair_cost',
-      display_name: 'Total Repair Cost',
-      type: 'double',
-      attributes: [],
-      dimension: null,
-      partition: null,
-    },
-    {
-      name: 'default.num_repair_orders',
-      display_name: 'Num Repair Orders',
-      type: 'bigint',
-      attributes: [],
-      dimension: null,
-      partition: null,
-    },
-    {
-      name: 'default.hard_hat.country',
-      display_name: 'Country',
-      type: 'string',
-      attributes: [],
-      dimension: null,
-      partition: null,
-    },
-    {
-      name: 'default.hard_hat.state',
-      display_name: 'State',
-      type: 'string',
-      attributes: [],
-      dimension: null,
-      partition: null,
+      name: 'repairs',
+      displayName: 'Repairs Domain',
     },
   ],
-  updated_at: '2023-12-03T06:51:09.598532+00:00',
-  materializations: [],
 };
 
 const mockCommonDimensions = [
@@ -205,11 +171,12 @@ describe('CubeBuilderPage', () => {
     mockDjClient.commonDimensions.mockResolvedValue(mockCommonDimensions);
     mockDjClient.createCube.mockResolvedValue({ status: 201, json: {} });
     mockDjClient.namespaces.mockResolvedValue(['default']);
-    mockDjClient.cube.mockResolvedValue(mockCube);
-    mockDjClient.node.mockResolvedValue(mockCube);
+    mockDjClient.getCubeForEditing.mockResolvedValue(mockCube);
     mockDjClient.listTags.mockResolvedValue([]);
     mockDjClient.tagsNode.mockResolvedValue([]);
     mockDjClient.patchCube.mockResolvedValue({ status: 201, json: {} });
+    mockDjClient.users.mockResolvedValue([{ username: 'dj' }]);
+    mockDjClient.whoami.mockResolvedValue({ username: 'dj' });
 
     window.scrollTo = jest.fn();
   });
@@ -342,7 +309,7 @@ describe('CubeBuilderPage', () => {
     );
     expect(screen.getAllByText('Edit')[0]).toBeInTheDocument();
     await waitFor(() => {
-      expect(mockDjClient.cube).toHaveBeenCalled();
+      expect(mockDjClient.getCubeForEditing).toHaveBeenCalled();
     });
     await waitFor(() => {
       expect(mockDjClient.metrics).toHaveBeenCalled();
@@ -398,6 +365,7 @@ describe('CubeBuilderPage', () => {
           'default.date_dim.year',
           'default.date_dim.dateint',
         ],
+        [],
         [],
       );
     });
