@@ -94,7 +94,7 @@ class Settings(BaseSettings):  # pragma: no cover
 
     # SQLAlchemy engine config
     db_pool_size = 20
-    db_max_overflow = -1  # Unlimited overflow
+    db_max_overflow = 20
     db_pool_timeout = 10
     db_connect_timeout = 5
     db_pool_pre_ping = True
