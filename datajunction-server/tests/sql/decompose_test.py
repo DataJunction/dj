@@ -24,7 +24,7 @@ def test_simple_sum():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="sales_amount_sum_a1b27bc7",
+            name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -32,7 +32,7 @@ def test_simple_sum():
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT SUM(sales_amount_sum_a1b27bc7) FROM parent_node"),
+        parse("SELECT SUM(sales_amount_sum_b5a3cefe) FROM parent_node"),
     )
 
 
@@ -46,7 +46,7 @@ def test_sum_with_cast():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="sales_amount_sum_a1b27bc7",
+            name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -55,7 +55,7 @@ def test_sum_with_cast():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT CAST(SUM(sales_amount_sum_a1b27bc7) AS DOUBLE) * 100.0 FROM parent_node",
+            "SELECT CAST(SUM(sales_amount_sum_b5a3cefe) AS DOUBLE) * 100.0 FROM parent_node",
         ),
     )
 
@@ -65,7 +65,7 @@ def test_sum_with_cast():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="sales_amount_sum_a1b27bc7",
+            name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -73,7 +73,7 @@ def test_sum_with_cast():
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT 100.0 * SUM(sales_amount_sum_a1b27bc7) FROM parent_node"),
+        parse("SELECT 100.0 * SUM(sales_amount_sum_b5a3cefe) FROM parent_node"),
     )
 
 
@@ -87,7 +87,7 @@ def test_sum_with_coalesce():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="sales_amount_sum_a1b27bc7",
+            name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -95,7 +95,7 @@ def test_sum_with_coalesce():
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT COALESCE(SUM(sales_amount_sum_a1b27bc7), 0) FROM parent_node"),
+        parse("SELECT COALESCE(SUM(sales_amount_sum_b5a3cefe), 0) FROM parent_node"),
     )
 
     extractor = MetricComponentExtractor.from_query_string(
@@ -104,7 +104,7 @@ def test_sum_with_coalesce():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="sales_amount_sum_bc5c6414",
+            name="sales_amount_sum_65a3b528",
             expression="COALESCE(sales_amount, 0)",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -112,7 +112,7 @@ def test_sum_with_coalesce():
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT SUM(sales_amount_sum_bc5c6414) FROM parent_node"),
+        parse("SELECT SUM(sales_amount_sum_65a3b528) FROM parent_node"),
     )
 
 
@@ -126,13 +126,13 @@ def test_multiple_sums():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="sales_amount_sum_a1b27bc7",
+            name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
-            name="fraud_sales_sum_0a5d6799",
+            name="fraud_sales_sum_0e1bc4a2",
             expression="fraud_sales",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -141,8 +141,8 @@ def test_multiple_sums():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT SUM(sales_amount_sum_a1b27bc7) + "
-            "SUM(fraud_sales_sum_0a5d6799) FROM parent_node",
+            "SELECT SUM(sales_amount_sum_b5a3cefe) + "
+            "SUM(fraud_sales_sum_0e1bc4a2) FROM parent_node",
         ),
     )
 
@@ -150,11 +150,25 @@ def test_multiple_sums():
         "SELECT SUM(sales_amount) - SUM(fraud_sales) FROM parent_node",
     )
     measures, derived_sql = extractor.extract()
+    expected_measures = [
+        MetricComponent(
+            name="sales_amount_sum_b5a3cefe",
+            expression="sales_amount",
+            aggregation="SUM",
+            rule=AggregationRule(type=Aggregability.FULL),
+        ),
+        MetricComponent(
+            name="fraud_sales_sum_0e1bc4a2",
+            expression="fraud_sales",
+            aggregation="SUM",
+            rule=AggregationRule(type=Aggregability.FULL),
+        ),
+    ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT SUM(sales_amount_sum_a1b27bc7) - "
-            "SUM(fraud_sales_sum_0a5d6799) FROM parent_node",
+            "SELECT SUM(sales_amount_sum_b5a3cefe) - "
+            "SUM(fraud_sales_sum_0e1bc4a2) FROM parent_node",
         ),
     )
 
@@ -169,7 +183,7 @@ def test_nested_functions():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="sales_amount_sum_d511860a",
+            name="sales_amount_sum_090066cf",
             expression="ROUND(COALESCE(sales_amount, 0) * 1.1)",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -177,7 +191,7 @@ def test_nested_functions():
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT SUM(sales_amount_sum_d511860a) FROM parent_node"),
+        parse("SELECT SUM(sales_amount_sum_090066cf) FROM parent_node"),
     )
 
     extractor = MetricComponentExtractor.from_query_string(
@@ -186,7 +200,7 @@ def test_nested_functions():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="sales_amount_sum_bc5c6414",
+            name="sales_amount_sum_65a3b528",
             expression="COALESCE(sales_amount, 0)",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -194,7 +208,7 @@ def test_nested_functions():
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT LN(SUM(sales_amount_sum_bc5c6414) + 1) FROM parent_node"),
+        parse("SELECT LN(SUM(sales_amount_sum_65a3b528) + 1) FROM parent_node"),
     )
 
 
@@ -209,13 +223,13 @@ def test_average():
 
     expected_measures = [
         MetricComponent(
-            name="sales_amount_count_a1b27bc7",
+            name="sales_amount_count_b5a3cefe",
             expression="sales_amount",
             aggregation="COUNT",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
-            name="sales_amount_sum_a1b27bc7",
+            name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -224,8 +238,8 @@ def test_average():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT SUM(sales_amount_sum_a1b27bc7) / "
-            "SUM(sales_amount_count_a1b27bc7) FROM parent_node",
+            "SELECT SUM(sales_amount_sum_b5a3cefe) / "
+            "SUM(sales_amount_count_b5a3cefe) FROM parent_node",
         ),
     )
 
@@ -240,13 +254,13 @@ def test_rate():
     measures, derived_sql = extractor.extract()
     expected_measures0 = [
         MetricComponent(
-            name="clicks_sum_c9e9e0fc",
+            name="clicks_sum_c45fd8cf",
             expression="clicks",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
-            name="impressions_sum_87e980e6",
+            name="impressions_sum_3be0a0e7",
             expression="impressions",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -255,7 +269,7 @@ def test_rate():
     assert measures == expected_measures0
     assert str(derived_sql) == str(
         parse(
-            "SELECT SUM(clicks_sum_c9e9e0fc) / SUM(impressions_sum_87e980e6) FROM parent_node",
+            "SELECT SUM(clicks_sum_c45fd8cf) / SUM(impressions_sum_3be0a0e7) FROM parent_node",
         ),
     )
 
@@ -265,13 +279,13 @@ def test_rate():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="clicks_sum_c9e9e0fc",
+            name="clicks_sum_c45fd8cf",
             expression="clicks",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
-            name="impressions_sum_87e980e6",
+            name="impressions_sum_3be0a0e7",
             expression="impressions",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -280,8 +294,8 @@ def test_rate():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT 1.0 * SUM(clicks_sum_c9e9e0fc) / "
-            "NULLIF(SUM(impressions_sum_87e980e6), 0) FROM parent_node",
+            "SELECT 1.0 * SUM(clicks_sum_c45fd8cf) / "
+            "NULLIF(SUM(impressions_sum_3be0a0e7), 0) FROM parent_node",
         ),
     )
 
@@ -293,8 +307,8 @@ def test_rate():
     assert measures == expected_measures0
     assert str(derived_sql) == str(
         parse(
-            "SELECT CAST(CAST(SUM(clicks_sum_c9e9e0fc) AS INT) AS DOUBLE) / "
-            "CAST(SUM(impressions_sum_87e980e6) AS DOUBLE) FROM parent_node",
+            "SELECT CAST(CAST(SUM(clicks_sum_c45fd8cf) AS INT) AS DOUBLE) / "
+            "CAST(SUM(impressions_sum_3be0a0e7) AS DOUBLE) FROM parent_node",
         ),
     )
 
@@ -304,13 +318,13 @@ def test_rate():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="clicks_sum_c9e9e0fc",
+            name="clicks_sum_c45fd8cf",
             expression="clicks",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
-            name="impressions_sum_87e980e6",
+            name="impressions_sum_3be0a0e7",
             expression="impressions",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -319,8 +333,8 @@ def test_rate():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT COALESCE(SUM(clicks_sum_c9e9e0fc) / "
-            "SUM(impressions_sum_87e980e6), 0) FROM parent_node",
+            "SELECT COALESCE(SUM(clicks_sum_c45fd8cf) / "
+            "SUM(impressions_sum_3be0a0e7), 0) FROM parent_node",
         ),
     )
 
@@ -331,13 +345,13 @@ def test_rate():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="clicks_sum_c9e9e0fc",
+            name="clicks_sum_c45fd8cf",
             expression="clicks",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
-            name="impressions_sum_87e980e6",
+            name="impressions_sum_3be0a0e7",
             expression="impressions",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -346,8 +360,8 @@ def test_rate():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT IF(SUM(clicks_sum_c9e9e0fc) > 0, CAST(SUM(impressions_sum_87e980e6) AS DOUBLE)"
-            " / CAST(SUM(clicks_sum_c9e9e0fc) AS DOUBLE), NULL) FROM parent_node",
+            "SELECT IF(SUM(clicks_sum_c45fd8cf) > 0, CAST(SUM(impressions_sum_3be0a0e7) AS DOUBLE)"
+            " / CAST(SUM(clicks_sum_c45fd8cf) AS DOUBLE), NULL) FROM parent_node",
         ),
     )
 
@@ -357,13 +371,13 @@ def test_rate():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="clicks_sum_c9e9e0fc",
+            name="clicks_sum_c45fd8cf",
             expression="clicks",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
-            name="views_sum_59a14a57",
+            name="views_sum_d8e39817",
             expression="views",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -372,7 +386,7 @@ def test_rate():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT ln(sum(clicks_sum_c9e9e0fc) + 1) / sum(views_sum_59a14a57) FROM parent_node",
+            "SELECT ln(sum(clicks_sum_c45fd8cf) + 1) / sum(views_sum_d8e39817) FROM parent_node",
         ),
     )
 
@@ -387,7 +401,7 @@ def test_max_if():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="condition_max_98f2d913",
+            name="condition_max_f04b0c57",
             expression="IF(condition, 1, 0)",
             aggregation="MAX",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -395,7 +409,7 @@ def test_max_if():
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT MAX(condition_max_98f2d913) FROM parent_node"),
+        parse("SELECT MAX(condition_max_f04b0c57) FROM parent_node"),
     )
 
 
@@ -412,13 +426,13 @@ def test_fraction_with_if():
 
     expected_measures = [
         MetricComponent(
-            name="action_sum_d0b4f8e5",
+            name="action_sum_c9802ccb",
             expression="COALESCE(action, 0)",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
-            name="action_two_sum_0c8945fc",
+            name="action_two_sum_05d921a8",
             expression="COALESCE(action_two, 0)",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -427,9 +441,9 @@ def test_fraction_with_if():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT IF(SUM(action_sum_d0b4f8e5) > 0, "
-            "CAST(SUM(action_two_sum_0c8945fc) AS DOUBLE) / "
-            "CAST(SUM(action_sum_d0b4f8e5) AS DOUBLE), NULL) FROM parent_node",
+            "SELECT IF(SUM(action_sum_c9802ccb) > 0, "
+            "CAST(SUM(action_two_sum_05d921a8) AS DOUBLE) / "
+            "CAST(SUM(action_sum_c9802ccb) AS DOUBLE), NULL) FROM parent_node",
         ),
     )
 
@@ -444,7 +458,7 @@ def test_count():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="action_action_event_ts_count_59b28b54",
+            name="action_action_event_ts_count_7d582e65",
             expression="IF(action = 1, action_event_ts, 0)",
             aggregation="COUNT",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -452,7 +466,7 @@ def test_count():
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT SUM(action_action_event_ts_count_59b28b54) FROM parent_node"),
+        parse("SELECT SUM(action_action_event_ts_count_7d582e65) FROM parent_node"),
     )
 
 
@@ -466,7 +480,7 @@ def test_count_distinct_rate():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="user_id_distinct_e8701ad4",
+            name="user_id_distinct_7f092f23",
             expression="user_id",
             aggregation=None,
             rule=AggregationRule(
@@ -475,7 +489,7 @@ def test_count_distinct_rate():
             ),
         ),
         MetricComponent(
-            name="action_count_418c5509",
+            name="action_count_50d753fd",
             expression="action",
             aggregation="COUNT",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -484,8 +498,8 @@ def test_count_distinct_rate():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT COUNT( DISTINCT user_id_distinct_e8701ad4) / "
-            "SUM(action_count_418c5509) FROM parent_node",
+            "SELECT COUNT( DISTINCT user_id_distinct_7f092f23) / "
+            "SUM(action_count_50d753fd) FROM parent_node",
         ),
     )
 
@@ -500,7 +514,7 @@ def test_any_value():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="sales_amount_any_value_a1b27bc7",
+            name="sales_amount_any_value_b5a3cefe",
             expression="sales_amount",
             aggregation="ANY_VALUE",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -508,7 +522,7 @@ def test_any_value():
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT ANY_VALUE(sales_amount_any_value_a1b27bc7) FROM parent_node"),
+        parse("SELECT ANY_VALUE(sales_amount_any_value_b5a3cefe) FROM parent_node"),
     )
 
 
@@ -536,13 +550,13 @@ def test_multiple_aggregations_with_conditions():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="region_sales_amount_sum_55eb544e",
+            name="region_sales_amount_sum_5467b14a",
             expression="IF(region = 'US', sales_amount, 0)",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
-            name="region_account_id_distinct_11ca6967",
+            name="region_account_id_distinct_ee608f27",
             expression="IF(region = 'US', account_id, NULL)",
             aggregation=None,
             rule=AggregationRule(
@@ -554,8 +568,8 @@ def test_multiple_aggregations_with_conditions():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT SUM(region_sales_amount_sum_55eb544e) + "
-            "COUNT(DISTINCT region_account_id_distinct_11ca6967) FROM parent_node",
+            "SELECT SUM(region_sales_amount_sum_5467b14a) + "
+            "COUNT(DISTINCT region_account_id_distinct_ee608f27) FROM parent_node",
         ),
     )
 
@@ -566,23 +580,23 @@ def test_multiple_aggregations_with_conditions():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="a_max_0cc175b9",
+            name="a_max_0f00346b",
             expression="a",
             aggregation="MAX",
-            rule=AggregationRule(type=Aggregability.FULL),
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
         MetricComponent(
-            name="b_max_92eb5ffe",
+            name="b_max_6d64a2e5",
             expression="b",
             aggregation="MAX",
-            rule=AggregationRule(type=Aggregability.FULL),
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT CAST(coalesce(max(a_max_0cc175b9), max(b_max_92eb5ffe), 0) AS DOUBLE) + "
-            "CAST(coalesce(max(a_max_0cc175b9), max(b_max_92eb5ffe)) AS DOUBLE) FROM parent_node",
+            "SELECT CAST(coalesce(max(a_max_0f00346b), max(b_max_6d64a2e5), 0) AS DOUBLE) + "
+            "CAST(coalesce(max(a_max_0f00346b), max(b_max_6d64a2e5)) AS DOUBLE) FROM parent_node",
         ),
     )
 
@@ -635,13 +649,13 @@ def test_count_if():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="field_a_count_if_c1f2ed10",
+            name="field_a_count_if_3979ffbd",
             expression="ARRAY_CONTAINS(field_a, 'xyz')",
             aggregation="COUNT_IF",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
-            name="count_3389dae3",
+            name="count_58ac32c5",
             expression="*",
             aggregation="COUNT",
             rule=AggregationRule(type=Aggregability.FULL),
@@ -650,7 +664,7 @@ def test_count_if():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT  CAST(SUM(field_a_count_if_c1f2ed10) AS FLOAT) / SUM(count_3389dae3) "
+            "SELECT  CAST(SUM(field_a_count_if_3979ffbd) AS FLOAT) / SUM(count_58ac32c5) "
             "FROM parent_node",
         ),
     )
@@ -668,13 +682,13 @@ def test_metric_query_with_aliases():
     measures, derived_sql = extractor.extract()
     expected_measures = [
         MetricComponent(
-            name="time_to_dispatch_count_bf99afd6",
+            name="time_to_dispatch_count_3bc9baed",
             expression="CAST(time_to_dispatch AS INT)",
             aggregation="COUNT",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
         MetricComponent(
-            name="time_to_dispatch_sum_bf99afd6",
+            name="time_to_dispatch_sum_3bc9baed",
             expression="CAST(time_to_dispatch AS INT)",
             aggregation="SUM",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
@@ -683,8 +697,8 @@ def test_metric_query_with_aliases():
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT SUM(time_to_dispatch_sum_bf99afd6) / "
-            "SUM(time_to_dispatch_count_bf99afd6) FROM default.repair_orders_fact",
+            "SELECT SUM(time_to_dispatch_sum_3bc9baed) / "
+            "SUM(time_to_dispatch_count_3bc9baed) FROM default.repair_orders_fact",
         ),
     )
 

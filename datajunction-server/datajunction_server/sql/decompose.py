@@ -59,7 +59,7 @@ class MetricComponentExtractor:
             # Normalize metric queries with aliases
             parent_node_alias = self._query_ast.select.from_.relations[  # type: ignore
                 0
-            ].primary.alias
+            ].primary.alias  # type: ignore
             if parent_node_alias:
                 for col in self._query_ast.find_all(ast.Column):
                     if (
@@ -83,6 +83,13 @@ class MetricComponentExtractor:
             self._extracted = True
         return self._components, self._query_ast
 
+    def _short_hash(self, expression: str) -> str:
+        """
+        Generates a short hash for the given expression.
+        """
+        signature = expression + str(self._query_ast.select.from_)
+        return hashlib.md5(signature.encode("utf-8")).hexdigest()[:8]
+
     def _simple_associative_agg(self, func: ast.Function) -> list[MetricComponent]:
         """
         Handles decomposition for a single-argument associative aggregation function.
@@ -105,7 +112,7 @@ class MetricComponentExtractor:
         expression = str(arg)
         # TODO: we should only hash on the lowercase version of the expression, but we can't
         # do this migration until after we get versioned measures
-        short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
+        short_hash = self._short_hash(expression)
 
         return [
             MetricComponent(
@@ -186,7 +193,7 @@ class MetricComponentExtractor:
         arg = func.args[0]
         component_name = "_".join([str(col) for col in arg.find_all(ast.Column)])
         expression = str(arg)
-        short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
+        short_hash = self._short_hash(expression)
         return [
             MetricComponent(
                 name=f"{component_name}_{dj_functions.Sum.__name__.lower()}_{short_hash}",
