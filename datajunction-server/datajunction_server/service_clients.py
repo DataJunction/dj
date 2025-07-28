@@ -192,6 +192,7 @@ class QueryServiceClient:
             headers={
                 **self.requests_session.headers,
                 **QueryServiceClient.filtered_headers(request_headers),
+                "accept": "application/json",
             }
             if request_headers
             else self.requests_session.headers,
@@ -200,7 +201,7 @@ class QueryServiceClient:
         response_data = response.json()
         if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response_data['message']}",
+                message=f"Error response from query service: {response_data}",
                 errors=[
                     DJError(code=ErrorCode.QUERY_SERVICE_ERROR, message=error)
                     for error in response_data["errors"]

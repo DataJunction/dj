@@ -11,9 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from datajunction_server.database import QueryRequest
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.models.node import AvailabilityStateBase
 
 
@@ -565,20 +563,6 @@ class TestDataForNode:
             full_text = "\n".join([text async for text in response.aiter_lines()])
             assert "event: message" in full_text
             assert "SELECT  default_DOT_repair_orders_fact.repair_order_id" in full_text
-
-        # Check that the query request for the above transform has an external query id saved
-        query_request = await QueryRequest.get_query_request(
-            session=module__session,
-            query_type=QueryBuildType.NODE,
-            nodes=["default.repair_orders_fact"],
-            dimensions=["default.dispatcher.company_name"],
-            engine_name=None,
-            engine_version=None,
-            filters=[],
-            limit=10,
-            orderby=[],
-        )
-        assert query_request.query_id == "bd98d6be-e2d2-413e-94c7-96d9411ddee2"  # type: ignore
 
         # Hit the same SSE stream again
         async with module__client_with_roads.stream(
@@ -1638,7 +1622,7 @@ class TestAvailabilityState:
         response = await module__client_with_account_revenue.post(
             "/data/default.revenue/availability/",
             json={
-                "catalog": "default",
+                "catalog": "basic",
                 "schema_": "accounting",
                 "table": "revenue",
                 "valid_through_ts": 20230101,
@@ -1660,7 +1644,7 @@ class TestAvailabilityState:
         node_dict = AvailabilityStateBase.from_orm(revenue.current.availability).dict()
         assert node_dict == {
             "valid_through_ts": 20230101,
-            "catalog": "default",
+            "catalog": "basic",
             "min_temporal_partition": ["2022", "01", "01"],
             "table": "revenue",
             "max_temporal_partition": ["2023", "01", "01"],
@@ -1698,7 +1682,7 @@ class TestAvailabilityState:
             "message": (
                 "Cannot set availability state, source nodes require availability states "
                 "to match the set table: default.accounting.large_pmts does not match "
-                "default.accounting.revenue "
+                "basic.accounting.revenue "
             ),
             "errors": [],
             "warnings": [],

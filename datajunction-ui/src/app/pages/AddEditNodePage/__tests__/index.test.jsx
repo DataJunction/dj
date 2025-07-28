@@ -66,6 +66,20 @@ export const initializeMockDJClient = () => {
           { name: 'second', label: 'Second' },
         ],
       }),
+      users: jest.fn().mockReturnValue([
+        {
+          id: 123,
+          username: 'test_user',
+        },
+        {
+          id: 1111,
+          username: 'dj',
+        },
+      ]),
+      whoami: jest.fn().mockReturnValue({
+        id: 123,
+        username: 'test_user',
+      }),
     },
   };
 };

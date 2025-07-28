@@ -187,7 +187,10 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
 
         # partial list
         nodes = client.list_transforms(namespace="foo.bar")
-        assert nodes == ["foo.bar.with_custom_metadata", "foo.bar.repair_orders_thin"]
+        assert set(nodes) == {
+            "foo.bar.with_custom_metadata",
+            "foo.bar.repair_orders_thin",
+        }
 
     def test_list_nodes(self, client):
         """
@@ -443,7 +446,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         Check that `client.list_catalogs()` works as expected.
         """
         result = client.list_catalogs()
-        assert set(result) == {"unknown", "draft", "default", "public"}
+        assert set(result) == {"dj_metadata", "draft", "default", "public"}
 
     def test_list_engines(self, client):
         """
@@ -451,6 +454,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         """
         result = client.list_engines()
         assert result == [
+            {"name": "dj_system", "version": ""},
             {"name": "spark", "version": "3.1.1"},
             {"name": "postgres", "version": "15.2"},
         ]

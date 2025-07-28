@@ -84,6 +84,7 @@ enum Dialect {
   SPARK
   TRINO
   DRUID
+  POSTGRES
 }
 
 type DialectInfo {
@@ -230,6 +231,7 @@ type Node {
   revisions: [NodeRevision!]!
   tags: [TagBase!]!
   createdBy: User!
+  owners: [User!]!
   editedBy: [String!]!
 }
 
@@ -251,6 +253,11 @@ type NodeName {
   name: String!
 }
 
+type NodeNameVersion {
+  name: String!
+  currentVersion: String!
+}
+
 type NodeRevision {
   id: Union!
   type: NodeType!
@@ -263,8 +270,7 @@ type NodeRevision {
   updatedAt: DateTime!
   customMetadata: JSON
   query: String
-  dimensionLinks: [DimensionLink!]!
-  parents: [NodeName!]!
+  parents: [NodeNameVersion!]!
   availability: AvailabilityState
   materializations: [MaterializationConfig!]
   schema_: String
@@ -272,6 +278,7 @@ type NodeRevision {
   requiredDimensions: [Column!]
   catalog: Catalog
   columns(attributes: [String!] = null): [Column!]!
+  dimensionLinks: [DimensionLink!]!
   primaryKey: [String!]!
   metricMetadata: MetricMetadata
   extractedMeasures: DecomposedMetric
@@ -404,6 +411,9 @@ type Query {
 
     """The node type to filter the downstream nodes on."""
     nodeType: NodeType = null
+
+    """Whether to include deactivated nodes in the result."""
+    includeDeactivated: Boolean! = false
   ): [Node!]!
 
   """Get measures SQL for a list of metrics, dimensions, and filters."""

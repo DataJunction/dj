@@ -46,6 +46,7 @@ class UserOutput(BaseModel):
     is_admin: bool = False
     created_collections: Optional[List[CollectionInfo]] = []
     created_nodes: Optional[List[CreatedNode]] = []
+    owned_nodes: Optional[List[CreatedNode]] = []
     created_tags: Optional[List[TagOutput]] = []
 
     class Config:

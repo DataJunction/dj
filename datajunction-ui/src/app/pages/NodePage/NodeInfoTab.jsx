@@ -259,6 +259,23 @@ export default function NodeInfoTab({ node }) {
       <div className="list-group-item d-flex">
         <div className="d-flex gap-2 w-100 justify-content-between py-3">
           <div>
+            <h6 className="mb-0 w-100">Owners</h6>
+            <p className="mb-0 opacity-75">
+              {node?.owners.map(owner => (
+                <span
+                  className="badge node_type__transform"
+                  style={{ margin: '2px', fontSize: '16px', cursor: 'pointer' }}
+                >
+                  {owner.username}
+                </span>
+              ))}
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="list-group-item d-flex">
+        <div className="d-flex gap-2 w-100 justify-content-between py-3">
+          <div>
             <h6 className="mb-0 w-100">Version</h6>
 
             <p className="mb-0 opacity-75">

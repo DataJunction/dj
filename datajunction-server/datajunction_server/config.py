@@ -11,16 +11,53 @@ from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
 from cachelib.redis import RedisCache
 from celery import Celery
-from pydantic import BaseSettings
+from pydantic import BaseModel, BaseSettings
 
 if TYPE_CHECKING:
     pass
+
+
+class DatabaseConfig(BaseModel):
+    """
+    Metadata database configuration.
+    """
+
+    uri: str
+    pool_size: int = 20
+    max_overflow: int = 100
+    pool_timeout: int = 10
+    pool_recycle: int = 300
+    connect_timeout: int = 5
+    pool_pre_ping: bool = True
+    echo: bool = False
+    keepalives: int = 1
+    keepalives_idle: int = 30
+    keepalives_interval: int = 10
+    keepalives_count: int = 5
+
+
+class SeedSetup(BaseModel):
+    # An "default" catalog for nodes that are pure SQL and don't belong in any
+    # particular catalog. This typically applies to on-the-fly user-defined dimensions.
+    virtual_catalog_name = "default"
+
+    # A "DJ System" catalog that contains all system tables modeled in DJ
+    system_catalog_name = "dj_metadata"
+
+    # The engine for DJ's postgres metadata db
+    system_engine_name = "dj_system"
+
+    # The namespace for system tables modeled in DJ
+    system_namespace = "system.dj"
 
 
 class Settings(BaseSettings):  # pragma: no cover
     """
     DataJunction configuration.
     """
+
+    class Config:
+        env_nested_delimiter = "__"  # Enables nesting like WRITER_DB__URI
 
     name: str = "DJ server"
     description: str = "A DataJunction metrics layer"
@@ -29,8 +66,14 @@ class Settings(BaseSettings):  # pragma: no cover
     # A list of hostnames that are allowed to make cross-site HTTP requests
     cors_origin_whitelist: List[str] = ["http://localhost:3000"]
 
-    # SQLAlchemy URI for the metadata database.
-    index: str = "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj"
+    # Config for the metadata database, with support for writer and reader clusters
+    # `writer_db` is the primary database used for write operations
+    # [optional] `reader_db` is used for read operations and defaults to `writer_db`
+    # if no dedicated read replica is configured.
+    writer_db: DatabaseConfig = DatabaseConfig(
+        uri="postgresql+psycopg://dj:dj@postgres_metadata:5432/dj",
+    )
+    reader_db: DatabaseConfig = writer_db
 
     # Directory where the repository lives. This should have 2 subdirectories, "nodes" and
     # "databases".
@@ -90,20 +133,6 @@ class Settings(BaseSettings):  # pragma: no cover
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire = 60
 
-    default_catalog_id: int = 0
-
-    # SQLAlchemy engine config
-    db_pool_size = 20
-    db_max_overflow = 20
-    db_pool_timeout = 10
-    db_connect_timeout = 5
-    db_pool_pre_ping = True
-    db_echo = False
-    db_keepalives = 1
-    db_keepalives_idle = 30
-    db_keepalives_interval = 10
-    db_keepalives_count = 5
-
     # Maximum amount of nodes to return for requests to list all nodes
     node_list_max = 10000
 
@@ -129,3 +158,5 @@ class Settings(BaseSettings):  # pragma: no cover
             password=parsed.password,
             db=parsed.path.strip("/"),
         )
+
+    seed_setup: SeedSetup = SeedSetup()

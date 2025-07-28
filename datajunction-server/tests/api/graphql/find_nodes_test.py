@@ -137,9 +137,12 @@ async def test_find_by_node_type_paginated(
             name
             type
             tags {
-                name
+              name
             }
             currentVersion
+            owners {
+              username
+            }
           }
         }
         pageInfo {
@@ -163,6 +166,7 @@ async def test_find_by_node_type_paginated(
                     "name": "default.repair_orders_fact",
                     "tags": [],
                     "type": "TRANSFORM",
+                    "owners": [{"username": "dj"}],
                 },
             },
             {
@@ -171,6 +175,7 @@ async def test_find_by_node_type_paginated(
                     "name": "default.national_level_agg",
                     "tags": [],
                     "type": "TRANSFORM",
+                    "owners": [{"username": "dj"}],
                 },
             },
         ],
@@ -617,6 +622,7 @@ async def test_find_transform(
             current {
                 parents {
                     name
+                    currentVersion
                 }
                 materializations {
                     name
@@ -661,9 +667,11 @@ async def test_find_transform(
                 "parents": [
                     {
                         "name": "default.repair_orders",
+                        "currentVersion": "v1.0",
                     },
                     {
                         "name": "default.repair_order_details",
+                        "currentVersion": "v1.0",
                     },
                 ],
                 "extractedMeasures": None,

@@ -168,6 +168,10 @@ async def test_dialects_list(
             "plugin_class": "SQLTranspilationPlugin",
         },
         {
+            "name": "postgres",
+            "plugin_class": "SQLGlotTranspilationPlugin",
+        },
+        {
             "name": "druid",
             "plugin_class": "SQLTranspilationPlugin",
         },

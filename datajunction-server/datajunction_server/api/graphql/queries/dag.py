@@ -54,6 +54,12 @@ async def downstream_nodes(
             description="The node type to filter the downstream nodes on.",
         ),
     ] = None,
+    include_deactivated: Annotated[
+        bool,
+        strawberry.argument(
+            description="Whether to include deactivated nodes in the result.",
+        ),
+    ] = False,
     *,
     info: Info,
 ) -> list[Node]:
@@ -61,4 +67,9 @@ async def downstream_nodes(
     Return a list of downstream nodes for a given node.
     """
     session = info.context["session"]
-    return await get_downstream_nodes(session, node_name=node_name, node_type=node_type)  # type: ignore
+    return await get_downstream_nodes(  # type: ignore
+        session,
+        node_name=node_name,
+        node_type=node_type,
+        include_deactivated=include_deactivated,
+    )

@@ -1,0 +1,18 @@
+display_name: Node Type
+description: ''
+query: |-
+  SELECT
+    type, type_upper
+  FROM
+  VALUES
+      ('source', 'SOURCE'),
+      ('transform', 'TRANSFORM'),
+      ('dimension', 'DIMENSION'),
+      ('metric', 'METRIC'),
+      ('cube', 'CUBE')
+  AS t (type, type_upper);
+columns: []
+primary_key:
+- type_upper
+dimension_links: []
+tags: []

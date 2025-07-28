@@ -18,10 +18,6 @@ EXAMPLES = (  # type: ignore
         {"name": "draft"},
     ),
     (
-        "/catalogs/",
-        {"name": "default"},
-    ),
-    (
         "/engines/",
         {"name": "spark", "version": "3.1.1", "dialect": "spark"},
     ),
