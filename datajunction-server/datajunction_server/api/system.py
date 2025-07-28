@@ -51,7 +51,7 @@ async def list_system_metrics(
 
 
 @router.get("/system/data/{metric_name}")
-async def get_data_for_system_metrics(
+async def get_data_for_system_metric(
     metric_name: str,
     dimensions: list[str] = Query([]),
     filters: list[str] = Query([]),
