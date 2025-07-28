@@ -88,6 +88,128 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  querySystemMetric: async function ({
+    metric,
+    dimensions = [],
+    filters = [],
+    orderby = [],
+  }) {
+    const params = new URLSearchParams();
+    dimensions.forEach(d => params.append('dimensions', d));
+    filters.forEach(f => params.append('filters', f));
+    orderby.forEach(o => params.append('orderby', o));
+
+    const url = `${DJ_URL}/system/data/${metric}?${params.toString()}`;
+    const res = await fetch(url, { credentials: 'include' });
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch metric data ${metric}: ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  querySystemMetricSingleDimension: async function ({
+    metric,
+    dimension,
+    filters = [],
+    orderby = [],
+  }) {
+    const results = await DataJunctionAPI.querySystemMetric({
+      metric: metric,
+      dimensions: [dimension],
+      filters: filters,
+      orderby: orderby,
+    });
+    return results.map(row => {
+      return {
+        name:
+          row.find(entry => entry.col === dimension)?.value?.toString() ??
+          'unknown',
+        value: row.find(entry => entry.col === metric)?.value ?? 0,
+      };
+    });
+  },
+
+  system: {
+    node_counts_by_active: async function () {
+      return DataJunctionAPI.querySystemMetricSingleDimension({
+        metric: 'system.dj.number_of_nodes',
+        dimension: 'system.dj.is_active.active_id',
+      });
+    },
+    node_counts_by_type: async function () {
+      return DataJunctionAPI.querySystemMetricSingleDimension({
+        metric: 'system.dj.number_of_nodes',
+        dimension: 'system.dj.node_type.type',
+        filters: ['system.dj.is_active.active_id=true'],
+        orderby: ['system.dj.node_type.type'],
+      });
+    },
+    node_counts_by_status: async function () {
+      return DataJunctionAPI.querySystemMetricSingleDimension({
+        metric: 'system.dj.number_of_nodes',
+        dimension: 'system.dj.nodes.status',
+        filters: ['system.dj.is_active.active_id=true'],
+        orderby: ['system.dj.nodes.status'],
+      });
+    },
+    nodes_without_description: async function () {
+      return DataJunctionAPI.querySystemMetricSingleDimension({
+        metric: 'system.dj.node_without_description',
+        dimension: 'system.dj.node_type.type',
+        filters: ['system.dj.is_active.active_id=true'],
+        orderby: ['system.dj.node_type.type'],
+      });
+    },
+    node_trends: async function () {
+      const results = await (
+        await fetch(
+          `${DJ_URL}/system/data/system.dj.number_of_nodes?dimensions=system.dj.nodes.created_at_week&dimensions=system.dj.node_type.type&filters=system.dj.nodes.created_at_week>=20240101&orderby=system.dj.nodes.created_at_week`,
+          { credentials: 'include' },
+        )
+      ).json();
+      const byDateint = {};
+      results.forEach(row => {
+        const dateint = row.find(
+          r => r.col === 'system.dj.nodes.created_at_week',
+        )?.value;
+        const nodeType = row.find(
+          r => r.col === 'system.dj.node_type.type',
+        )?.value;
+        const count = row.find(
+          r => r.col === 'system.dj.number_of_nodes',
+        )?.value;
+        if (!byDateint[dateint]) {
+          byDateint[dateint] = { date: dateint };
+        }
+        byDateint[dateint][nodeType] =
+          (byDateint[dateint][nodeType] || 0) + count;
+      });
+      return Object.entries(byDateint).map(([dateint, data]) => {
+        return {
+          date: dateint,
+          ...data,
+        };
+      });
+    },
+    materialization_counts_by_type: async function () {
+      return DataJunctionAPI.querySystemMetricSingleDimension({
+        metric: 'system.dj.number_of_materializations',
+        dimension: 'system.dj.node_type.type',
+        filters: ['system.dj.is_active.active_id=true'],
+        orderby: ['system.dj.node_type.type'],
+      });
+    },
+
+    dimensions: async function () {
+      return await (
+        await fetch(`${DJ_URL}/system/dimensions`, {
+          credentials: 'include',
+        })
+      ).json();
+    },
+  },
+
   logout: async function () {
     return await fetch(`${DJ_URL}/logout/`, {
       credentials: 'include',

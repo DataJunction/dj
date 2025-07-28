@@ -15,6 +15,6 @@ primary_key:
 dimension_links:
 - type: join
   dimension_node: ${prefix}nodes
-  join_type: left
+  join_type: inner
   join_on: ${prefix}materialization.node_revision_id = ${prefix}nodes.current_revision_id
 tags: []

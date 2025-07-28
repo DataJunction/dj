@@ -242,9 +242,9 @@ async def build_and_save_node_sql(
 
 async def get_node_sql(
     node_name: str,
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
-    orderby: List[str] = Query([]),
+    dimensions: List[str] = [],
+    filters: List[str] = [],
+    orderby: List[str] = [],
     limit: Optional[int] = None,
     *,
     session: AsyncSession = Depends(get_session),
