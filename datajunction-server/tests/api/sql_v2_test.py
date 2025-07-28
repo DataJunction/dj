@@ -572,7 +572,7 @@ async def test_measures_sql_with_filters__v2(
             )
             SELECT
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_dispatcher_id,
-              SUM(price * discount) AS price_discount_sum_017d55a8
+              SUM(price * discount) AS price_discount_sum_e4ba5456
             FROM default_DOT_repair_orders_fact_built
             GROUP BY default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_dispatcher_id
             """,
@@ -586,10 +586,10 @@ async def test_measures_sql_with_filters__v2(
                     "type": "int",
                 },
                 {
-                    "column": "price_discount_sum_017d55a8",
-                    "name": "price_discount_sum_017d55a8",
+                    "column": "price_discount_sum_e4ba5456",
+                    "name": "price_discount_sum_e4ba5456",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.price_discount_sum_017d55a8",
+                    "semantic_entity": "default.repair_orders_fact.price_discount_sum_e4ba5456",
                     "semantic_type": "measure",
                     "type": "double",
                 },
@@ -637,8 +637,8 @@ async def test_measures_sql_with_filters__v2(
             )
             SELECT
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_dispatcher_id,
-              SUM(price * discount) AS price_discount_sum_017d55a8,
-              COUNT(price * discount) AS price_discount_count_017d55a8
+              SUM(price * discount) AS price_discount_sum_e4ba5456,
+              COUNT(price * discount) AS price_discount_count_e4ba5456
             FROM default_DOT_repair_orders_fact_built
             GROUP BY  default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_dispatcher_id
             """,
@@ -652,18 +652,18 @@ async def test_measures_sql_with_filters__v2(
                     "type": "int",
                 },
                 {
-                    "column": "price_discount_sum_017d55a8",
-                    "name": "price_discount_sum_017d55a8",
+                    "column": "price_discount_sum_e4ba5456",
+                    "name": "price_discount_sum_e4ba5456",
                     "node": mock.ANY,
                     "semantic_entity": mock.ANY,
                     "semantic_type": "measure",
                     "type": "double",
                 },
                 {
-                    "column": "price_discount_count_017d55a8",
-                    "name": "price_discount_count_017d55a8",
+                    "column": "price_discount_count_e4ba5456",
+                    "name": "price_discount_count_e4ba5456",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.price_discount_count_017d55a8",
+                    "semantic_entity": "default.repair_orders_fact.price_discount_count_e4ba5456",
                     "semantic_type": "measure",
                     "type": "bigint",
                 },
@@ -762,9 +762,9 @@ async def test_measures_sql_with_filters__v2(
               default_DOT_repair_orders_fact_built.default_DOT_us_state_DOT_state_name,
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
               default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_last_name,
-              COUNT(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_count_bf99afd6,
-              SUM(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_sum_bf99afd6,
-              SUM(total_repair_cost) AS total_repair_cost_sum_9bdaf803
+              COUNT(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_count_3bc9baed,
+              SUM(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_sum_3bc9baed,
+              SUM(total_repair_cost) AS total_repair_cost_sum_67874507
             FROM default_DOT_repair_orders_fact_built
             GROUP BY
               default_DOT_repair_orders_fact_built.default_DOT_us_state_DOT_state_name,
@@ -797,26 +797,26 @@ async def test_measures_sql_with_filters__v2(
                     "type": "string",
                 },
                 {
-                    "column": "time_to_dispatch_count_bf99afd6",
-                    "name": "time_to_dispatch_count_bf99afd6",
+                    "column": "time_to_dispatch_count_3bc9baed",
+                    "name": "time_to_dispatch_count_3bc9baed",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.time_to_dispatch_count_bf99afd6",
+                    "semantic_entity": "default.repair_orders_fact.time_to_dispatch_count_3bc9baed",
                     "semantic_type": "measure",
                     "type": "bigint",
                 },
                 {
-                    "column": "time_to_dispatch_sum_bf99afd6",
-                    "name": "time_to_dispatch_sum_bf99afd6",
+                    "column": "time_to_dispatch_sum_3bc9baed",
+                    "name": "time_to_dispatch_sum_3bc9baed",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.time_to_dispatch_sum_bf99afd6",
+                    "semantic_entity": "default.repair_orders_fact.time_to_dispatch_sum_3bc9baed",
                     "semantic_type": "measure",
                     "type": "bigint",
                 },
                 {
-                    "column": "total_repair_cost_sum_9bdaf803",
-                    "name": "total_repair_cost_sum_9bdaf803",
+                    "column": "total_repair_cost_sum_67874507",
+                    "name": "total_repair_cost_sum_67874507",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.total_repair_cost_sum_9bdaf803",
+                    "semantic_entity": "default.repair_orders_fact.total_repair_cost_sum_67874507",
                     "semantic_type": "measure",
                     "type": "double",
                 },
@@ -891,8 +891,8 @@ async def test_measures_sql_with_filters__v2(
             SELECT
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
               default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_last_name,
-              COUNT(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_count_bf99afd6,
-              SUM(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_sum_bf99afd6
+              COUNT(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_count_3bc9baed,
+              SUM(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_sum_3bc9baed
             FROM default_DOT_repair_orders_fact_built
             GROUP BY
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
@@ -971,8 +971,8 @@ async def test_measures_sql_with_filters__v2(
             SELECT
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
               default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_last_name,
-              COUNT(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_count_bf99afd6,
-              SUM(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_sum_bf99afd6
+              COUNT(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_count_3bc9baed,
+              SUM(CAST(time_to_dispatch AS INT)) AS time_to_dispatch_sum_3bc9baed
             FROM default_DOT_repair_orders_fact_built
             GROUP BY
               default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
@@ -1193,13 +1193,13 @@ async def create_metric_distinct_single_column(client: AsyncClient):
         {
             "aggregation": None,
             "expression": "hard_hat_id",
-            "name": "hard_hat_id_distinct_c311610d",
+            "name": "hard_hat_id_distinct_ac37a223",
             "rule": {"level": ["hard_hat_id"], "type": "limited"},
         },
     ]
     assert (
         metric_data["derived_expression"]
-        == "COUNT( DISTINCT hard_hat_id_distinct_c311610d)"
+        == "COUNT( DISTINCT hard_hat_id_distinct_ac37a223)"
     )
     return metric_name
 
@@ -1221,13 +1221,13 @@ async def create_metric_distinct_expression(client: AsyncClient):
         {
             "aggregation": None,
             "expression": "IF(hard_hat_id = 1, 1, 0)",
-            "name": "hard_hat_id_distinct_276dd924",
+            "name": "hard_hat_id_distinct_0291ee39",
             "rule": {"level": ["IF(hard_hat_id = 1, 1, 0)"], "type": "limited"},
         },
     ]
     assert (
         metric_data["derived_expression"]
-        == "COUNT( DISTINCT hard_hat_id_distinct_276dd924)"
+        == "COUNT( DISTINCT hard_hat_id_distinct_0291ee39)"
     )
     return metric_name
 
@@ -1298,10 +1298,10 @@ async def test_measures_sql_agg_distinct_metric(
     )
     SELECT
       default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
-      COUNT(price) AS price_count_78a5eb43,
-      SUM(price) AS price_sum_78a5eb43,
-      hard_hat_id AS hard_hat_id_distinct_c311610d,
-      IF(hard_hat_id = 1, 1, 0) AS hard_hat_id_distinct_276dd924
+      COUNT(price) AS price_count_935e7117,
+      SUM(price) AS price_sum_935e7117,
+      hard_hat_id AS hard_hat_id_distinct_ac37a223,
+      IF(hard_hat_id = 1, 1, 0) AS hard_hat_id_distinct_0291ee39
     FROM default_DOT_repair_orders_fact_built
     GROUP BY
       default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
@@ -1391,9 +1391,9 @@ async def test_measures_sql_simple_agg_metric(
     )
     SELECT
       default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
-      COUNT(price) AS price_count_78a5eb43,
-      SUM(price) AS price_sum_78a5eb43,
-      COUNT(repair_order_id) AS repair_order_id_count_0b7dfba0
+      COUNT(price) AS price_count_935e7117,
+      SUM(price) AS price_sum_935e7117,
+      COUNT(repair_order_id) AS repair_order_id_count_bd241964
     FROM default_DOT_repair_orders_fact_built
     GROUP BY  default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name
     """
@@ -1570,8 +1570,8 @@ async def test_measures_sql_local_dimensions(
     )
     SELECT
       default_DOT_hard_hat_built.default_DOT_hard_hat_DOT_hire_date,
-      COUNT(CAST(NOW() AS DATE) - default_DOT_hard_hat_DOT_hire_date) AS hire_date_count_9b06ca5d,
-      SUM(CAST(NOW() AS DATE) - default_DOT_hard_hat_DOT_hire_date) AS hire_date_sum_9b06ca5d
+      COUNT(CAST(NOW() AS DATE) - default_DOT_hard_hat_DOT_hire_date) AS hire_date_count_3ce5a421,
+      SUM(CAST(NOW() AS DATE) - default_DOT_hard_hat_DOT_hire_date) AS hire_date_sum_3ce5a421
     FROM default_DOT_hard_hat_built
     GROUP BY
       default_DOT_hard_hat_built.default_DOT_hard_hat_DOT_hire_date
@@ -1614,7 +1614,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
             {
                 "aggregation": "SUM",
                 "expression": "default.local_hard_hats_2.hard_hat_id",
-                "name": "default_DOT_local_hard_hats_2_DOT_hard_hat_id_sum_edfc4090",
+                "name": "default_DOT_local_hard_hats_2_DOT_hard_hat_id_sum_bf8a8419",
                 "rule": {
                     "level": None,
                     "type": "full",
@@ -1623,7 +1623,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
         ]
         assert (
             data["derived_expression"]
-            == "SUM(default_DOT_local_hard_hats_2_DOT_hard_hat_id_sum_edfc4090)"
+            == "SUM(default_DOT_local_hard_hats_2_DOT_hard_hat_id_sum_bf8a8419)"
         )
         response = await module__client_with_roads.get(
             "/sql/measures/v2",
@@ -1676,7 +1676,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
             {
                 "aggregation": None,
                 "expression": "default.municipality_dim.contact_name",
-                "name": "default_DOT_municipality_dim_DOT_contact_name_distinct_8a8441e2",
+                "name": "default_DOT_municipality_dim_DOT_contact_name_distinct_bc16351d",
                 "rule": {
                     "level": ["default.municipality_dim.contact_name"],
                     "type": "limited",
@@ -1685,7 +1685,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
         ]
         assert (
             data["derived_expression"]
-            == "COUNT( DISTINCT default_DOT_municipality_dim_DOT_contact_name_distinct_8a8441e2)"
+            == "COUNT( DISTINCT default_DOT_municipality_dim_DOT_contact_name_distinct_bc16351d)"
         )
         response = await module__client_with_roads.get(
             "/sql/measures/v2",
@@ -1737,7 +1737,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
         )
         SELECT
           default_DOT_repair_orders_fact_built.default_DOT_municipality_dim_DOT_contact_name,
-          default_DOT_municipality_dim_DOT_contact_name AS default_DOT_municipality_dim_DOT_contact_name_distinct_8a8441e2
+          default_DOT_municipality_dim_DOT_contact_name AS default_DOT_municipality_dim_DOT_contact_name_distinct_bc16351d
         FROM default_DOT_repair_orders_fact_built
         GROUP BY
           default_DOT_repair_orders_fact_built.default_DOT_municipality_dim_DOT_contact_name,
@@ -1780,7 +1780,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                 "aggregation": None,
                 "expression": "IF(default.hard_hat.state = 'NY', default.hard_hat.first_name, "
                 "NULL)",
-                "name": "default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_da41d3a0",
+                "name": "default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_1a99d6a7",
                 "rule": {
                     "level": [
                         "IF(default.hard_hat.state = 'NY', "
@@ -1791,7 +1791,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
             },
         ]
         assert data["derived_expression"] == (
-            "COUNT( DISTINCT default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_da41d3a0)"
+            "COUNT( DISTINCT default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_1a99d6a7)"
         )
         response = await module__client_with_roads.get(
             "/sql/measures/v2",
@@ -1852,7 +1852,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
           default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_city,
           default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_first_name,
           default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_state,
-          IF(default_DOT_hard_hat_DOT_state = 'NY', default_DOT_hard_hat_DOT_first_name, NULL) AS default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_da41d3a0
+          IF(default_DOT_hard_hat_DOT_state = 'NY', default_DOT_hard_hat_DOT_first_name, NULL) AS default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_1a99d6a7
         FROM default_DOT_repair_orders_fact_built
         GROUP BY
           default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_city,
