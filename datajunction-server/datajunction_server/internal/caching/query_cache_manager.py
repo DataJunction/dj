@@ -65,6 +65,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
         The fallback function to call if the cache is not hit. This should be overridden
         in subclasses.
         """
+        print("params.use_materialized!!", params.use_materialized)
         async with session_context(request) as session:
             nodes = list(OrderedDict.fromkeys(params.nodes))
             measures_query = await get_measures_query(

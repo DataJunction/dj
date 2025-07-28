@@ -45,7 +45,7 @@ class CacheManager(ABC, Generic[ParamsType, ResultType]):
         Generic cache key function which sorts and hashes the context keys.
         """
         if hasattr(params, "__dataclass_fields__"):
-            data = params.__dict__
+            data = params.__dict__  # pragma: no cover
         elif isinstance(params, dict):
             data = params
         else:

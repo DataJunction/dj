@@ -317,6 +317,10 @@ def module__server(  # pylint: disable=too-many-statements
         get_query_service_client_override,
     )
 
+    module_mocker.patch(
+        "datajunction_server.internal.caching.query_cache_manager.session_context",
+        return_value=module__session,
+    )
     app = create_app(lifespan=noop_lifespan)
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
