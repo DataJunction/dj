@@ -100,9 +100,9 @@ def test_get_engine(
     settings.index = connection_url
     mocker.patch("datajunction_server.utils.get_settings", return_value=settings)
     engine = get_engine()
-    assert engine.pool.size() == settings.db_pool_size
-    assert engine.pool.timeout() == settings.db_pool_timeout
-    assert engine.pool._max_overflow == settings.db_max_overflow
+    assert engine.pool.size() == settings.db_pool_size  # type: ignore
+    assert engine.pool.timeout() == settings.db_pool_timeout  # type: ignore
+    assert engine.pool.overflow() == -settings.db_max_overflow  # type: ignore
 
 
 def test_get_query_service_client(mocker: MockerFixture, settings: Settings) -> None:
@@ -164,14 +164,14 @@ async def test_get_and_update_current_user(session: AsyncSession):
     # Confirm that the user was upserted
     result = await session.execute(select(User).where(User.username == "userfoo"))
     found_user = result.unique().scalar_one_or_none()
-    assert found_user.id == 1
-    assert found_user.username == "userfoo"
+    assert found_user.id == 1  # type: ignore
+    assert found_user.username == "userfoo"  # type: ignore
     assert (
-        found_user.password is None
+        found_user.password is None  # type: ignore
     )  # If the user is added via upsert, auth is externally managed
-    assert found_user.name == "djuser"
-    assert found_user.email == "userfoo@datajunction.io"
-    assert found_user.oauth_provider == "basic"
+    assert found_user.name == "djuser"  # type: ignore
+    assert found_user.email == "userfoo@datajunction.io"  # type: ignore
+    assert found_user.oauth_provider == "basic"  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -189,8 +189,8 @@ async def test_execute_with_retry_success_after_flaky_connection():
         "node2",
     ]
     session.execute.side_effect = [
-        OperationalError("flaky", None, None),
-        OperationalError("still flaky", None, None),
+        OperationalError("flaky", None, None),  # type: ignore
+        OperationalError("still flaky", None, None),  # type: ignore
         mock_result,
     ]
 
@@ -209,7 +209,7 @@ async def test_execute_with_retry_exhausts_retries():
     statement = MagicMock()
 
     # Always fail
-    session.execute.side_effect = OperationalError("permanent fail", None, None)
+    session.execute.side_effect = OperationalError("permanent fail", None, None)  # type: ignore
 
     with pytest.raises(DJDatabaseException):
         await execute_with_retry(session, statement, retries=3, base_delay=0.01)
