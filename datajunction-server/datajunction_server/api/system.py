@@ -114,7 +114,7 @@ async def get_data_for_system_metric(
 
 
 @router.get("/system/dimensions", response_model=list[DimensionStats])
-async def dimensions_stats(
+async def get_dimensions_stats(
     session: AsyncSession = Depends(get_session),
 ) -> list[DimensionStats]:
     """
