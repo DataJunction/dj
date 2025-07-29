@@ -36,6 +36,7 @@ from datajunction_server.api import (
     nodes,
     notifications,
     sql,
+    system,
     tags,
     users,
 )
@@ -118,6 +119,7 @@ def configure_app(app: FastAPI) -> None:
     app.include_router(users.router)
     app.include_router(basic.router)
     app.include_router(notifications.router)
+    app.include_router(system.router)
 
     @app.exception_handler(DJException)
     async def dj_exception_handler(
