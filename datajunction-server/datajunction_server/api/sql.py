@@ -106,7 +106,6 @@ async def get_measures_sql_for_cube_v2(
         background_tasks,
         request,
         QueryRequestParams(
-            query_type=QueryBuildType.MEASURES,
             nodes=metrics,
             dimensions=dimensions,
             filters=filters,
