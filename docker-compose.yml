@@ -213,7 +213,7 @@ services:
       - "8181:8888"
     volumes:
       - ./notebooks:/home/jovyan/notebooks
-      - ./datajunction-clients/python:/home/jovyan/notebooks/datajunction
+      - ./datajunction-clients/python:/home/jovyan/notebooks/djclient
     environment:
       JUPYTER_ENABLE_LAB: "yes"
     depends_on:
@@ -221,7 +221,7 @@ services:
         condition: service_healthy
     command: >
       /bin/bash -c "
-      pip install -e /home/jovyan/notebooks/datajunction/ && \
+      pip install --no-cache-dir -e /home/jovyan/notebooks/djclient && \
       if [ ! -f /home/jovyan/notebooks/.notebook_executed ]; then \
         jupyter execute '/home/jovyan/notebooks/Modeling the Roads Example Database.ipynb' && \
         touch /home/jovyan/notebooks/.notebook_executed; \
