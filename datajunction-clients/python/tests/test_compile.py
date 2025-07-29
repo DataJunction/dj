@@ -5,7 +5,7 @@ Test YAML project related things
 # pylint: disable=unused-argument
 import os
 from typing import Callable
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -83,6 +83,7 @@ def test_compiled_project__cleanup_namespace():
     assert cp.errors[0]["error"] == "foo error"
 
 
+@patch("datajunction.compile.os.path.isdir", MagicMock(return_value=False))
 def test_find_project_root():
     """
     Test finding the project root

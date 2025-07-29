@@ -153,14 +153,14 @@ def test_database_session_manager(
     session_manager.init_db()
 
     writer_engine = cast(AsyncEngine, session_manager.writer_engine)
-    writer_engine.pool.size() == settings.writer_db.pool_size
-    writer_engine.pool.timeout() == settings.writer_db.pool_timeout
-    writer_engine.pool.overflow() == settings.writer_db.max_overflow
+    writer_engine.pool.size() == settings.writer_db.pool_size  # type: ignore
+    writer_engine.pool.timeout() == settings.writer_db.pool_timeout  # type: ignore
+    writer_engine.pool.overflow() == settings.writer_db.max_overflow  # type: ignore
 
     reader_engine = cast(AsyncEngine, session_manager.reader_engine)
-    reader_engine.pool.size() == settings.reader_db.pool_size
-    reader_engine.pool.timeout() == settings.reader_db.pool_timeout
-    reader_engine.pool.overflow() == settings.reader_db.max_overflow
+    reader_engine.pool.size() == settings.reader_db.pool_size  # type: ignore
+    reader_engine.pool.timeout() == settings.reader_db.pool_timeout  # type: ignore
+    reader_engine.pool.overflow() == settings.reader_db.max_overflow  # type: ignore
 
 
 def test_get_query_service_client(mocker: MockerFixture, settings: Settings) -> None:
@@ -222,14 +222,14 @@ async def test_get_and_update_current_user(session: AsyncSession):
     # Confirm that the user was upserted
     result = await session.execute(select(User).where(User.username == "userfoo"))
     found_user = result.unique().scalar_one_or_none()
-    assert found_user.id == 1
-    assert found_user.username == "userfoo"
+    assert found_user.id == 1  # type: ignore
+    assert found_user.username == "userfoo"  # type: ignore
     assert (
-        found_user.password is None
+        found_user.password is None  # type: ignore
     )  # If the user is added via upsert, auth is externally managed
-    assert found_user.name == "djuser"
-    assert found_user.email == "userfoo@datajunction.io"
-    assert found_user.oauth_provider == "basic"
+    assert found_user.name == "djuser"  # type: ignore
+    assert found_user.email == "userfoo@datajunction.io"  # type: ignore
+    assert found_user.oauth_provider == "basic"  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -247,8 +247,8 @@ async def test_execute_with_retry_success_after_flaky_connection():
         "node2",
     ]
     session.execute.side_effect = [
-        OperationalError("flaky", None, None),
-        OperationalError("still flaky", None, None),
+        OperationalError("flaky", None, None),  # type: ignore
+        OperationalError("still flaky", None, None),  # type: ignore
         mock_result,
     ]
 
@@ -267,7 +267,7 @@ async def test_execute_with_retry_exhausts_retries():
     statement = MagicMock()
 
     # Always fail
-    session.execute.side_effect = OperationalError("permanent fail", None, None)
+    session.execute.side_effect = OperationalError("permanent fail", None, None)  # type: ignore
 
     with pytest.raises(DJDatabaseException):
         await execute_with_retry(session, statement, retries=3, base_delay=0.01)
