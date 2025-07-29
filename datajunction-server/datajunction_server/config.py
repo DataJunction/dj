@@ -133,6 +133,9 @@ class Settings(BaseSettings):  # pragma: no cover
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire = 60
 
+    # Cache expiration for SQL endpoints
+    query_cache_timeout = 86400 * 300
+
     # Maximum amount of nodes to return for requests to list all nodes
     node_list_max = 10000
 

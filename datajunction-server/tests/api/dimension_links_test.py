@@ -1007,6 +1007,7 @@ FROM default_DOT_events"""
     )
     assert response.status_code == 200
     response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
+    response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
     response_data = response.json()
     expected_sql = """
     WITH default_DOT_events AS (

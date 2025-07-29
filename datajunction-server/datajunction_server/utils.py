@@ -3,6 +3,7 @@ Utility functions.
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import logging
 import os
@@ -206,6 +207,16 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
         raise exc  # pragma: no cover
     finally:
         await scoped_session.remove()  # type: ignore
+
+
+@asynccontextmanager
+async def session_context(request: Request):
+    gen = get_session(request)
+    session = await gen.__anext__()
+    try:
+        yield session
+    finally:
+        await gen.aclose()  # type: ignore
 
 
 async def refresh_if_needed(session: AsyncSession, obj, attributes: list[str]):
