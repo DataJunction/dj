@@ -49,7 +49,6 @@ async def test_build_cache_key_calls_versioning():
         cache = CachelibCache()
         manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
         params = QueryRequestParams(
-            query_type=QueryBuildType.MEASURES,
             nodes=["foo"],
             dimensions=["dim1"],
             filters=[],
@@ -73,7 +72,6 @@ async def test_fallback_calls_get_measures_query():
         cache = CachelibCache()
         manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
         params = QueryRequestParams(
-            query_type=QueryBuildType.MEASURES,
             nodes=["foo"],
             dimensions=["dim1"],
             filters=[],
@@ -101,7 +99,6 @@ async def test_get_or_load_respects_cache_control():
             cache = CachelibCache()
             manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
             params = QueryRequestParams(
-                query_type=QueryBuildType.MEASURES,
                 nodes=["foo"],
                 dimensions=["dim1"],
                 filters=[],
@@ -137,6 +134,59 @@ async def test_get_or_load_respects_cache_control():
 
 
 @pytest.mark.asyncio
+async def test_build_cache_key(
+    module__session: AsyncSession,
+    module__client_with_roads: AsyncClient,
+):
+    """
+    Check that the cache key is built correctly with versioning.
+    """
+    with patch(
+        "datajunction_server.internal.caching.query_cache_manager.session_context",
+        return_value=module__session,
+    ):
+        cache = CachelibCache()
+        manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+        params1 = QueryRequestParams(
+            nodes=["default.avg_repair_price", "default.num_repair_orders"],
+            dimensions=["default.dispatcher.company_name", "default.hard_hat.state"],
+            filters=["default.hard_hat.state = 'CA'", "default.hard_hat.state = 'NY'"],
+            engine_name=None,
+            engine_version=None,
+            limit=1000,
+            orderby=[],
+            other_args=None,
+            include_all_columns=False,
+            use_materialized=True,
+            preaggregate=True,
+            query_params="{}",
+        )
+        # Shuffled ordering
+        params2 = QueryRequestParams(
+            nodes=["default.num_repair_orders", "default.avg_repair_price"],
+            dimensions=["default.hard_hat.state", "default.dispatcher.company_name"],
+            filters=["default.hard_hat.state = 'NY'", "default.hard_hat.state = 'CA'"],
+            engine_name=None,
+            engine_version=None,
+            limit=1000,
+            orderby=[],
+            other_args=None,
+            include_all_columns=False,
+            use_materialized=True,
+            preaggregate=True,
+            query_params="{}",
+        )
+        request = DummyRequest()
+        key1 = await manager.build_cache_key(request, params1)
+        key2 = await manager.build_cache_key(request, params2)
+        assert key1.startswith("sql:measures:")
+        assert key2.startswith("sql:measures:")
+        assert key1 == key2
+        # expected_key = "sql:measures:versioned123"
+        # assert key == expected_key
+
+
+@pytest.mark.asyncio
 async def test_measures_get_or_load(
     module__session: AsyncSession,
     module__client_with_roads: AsyncClient,
@@ -151,7 +201,6 @@ async def test_measures_get_or_load(
         cache = CachelibCache()
         manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
         params = QueryRequestParams(
-            query_type=QueryBuildType.MEASURES,
             nodes=["default.avg_repair_price", "default.num_repair_orders"],
             dimensions=["default.dispatcher.company_name"],
             filters=["default.hard_hat.state = 'CA'"],

@@ -23,7 +23,6 @@ class QueryRequestParams:
     Parameters for a query request. These are the inputs when requesting SQL building.
     """
 
-    query_type: QueryBuildType
     nodes: list[str]
     dimensions: list[str]
     filters: list[str]
@@ -65,7 +64,6 @@ class QueryCacheManager(RefreshAheadCacheManager):
         The fallback function to call if the cache is not hit. This should be overridden
         in subclasses.
         """
-        print("params.use_materialized!!", params.use_materialized)
         async with session_context(request) as session:
             nodes = list(OrderedDict.fromkeys(params.nodes))
             measures_query = await get_measures_query(
@@ -96,9 +94,9 @@ class QueryCacheManager(RefreshAheadCacheManager):
         async with session_context(request) as session:
             versioned_request = await VersionedQueryKey.version_query_request(
                 session=session,
-                nodes=params.nodes,
-                dimensions=params.dimensions,
-                filters=params.filters,
+                nodes=sorted(params.nodes),
+                dimensions=sorted(params.dimensions),
+                filters=sorted(params.filters),
                 orderby=params.orderby or [],
             )
             query_request = QueryRequestKey(
