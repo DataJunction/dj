@@ -466,39 +466,39 @@ class VersionedQueryKey:
     @classmethod
     async def version_query_request(
         cls,
-        session,
-        nodes,
-        dimensions,
-        filters,
-        orderby,
+        session: AsyncSession,
+        nodes: list[str],
+        dimensions: list[str],
+        filters: list[str],
+        orderby: list[str],
     ) -> "VersionedQueryKey":
         """
-        Encapsulates the logic to version nodes, dimensions, filters, and orderby.
+        Versions a query request (e.g., nodes, dimensions, filters, and orderby).
         """
-        nodes_objs = await cls.resolve_nodes(session, nodes)
-        dim_nodes = await cls.resolve_dimensions(session, dimensions)
-        filters_resolved = await cls.rewrite_filters(session, filters)
-        orderby_resolved = await cls.rewrite_orderby(session, orderby)
-        parents = [parent for node in nodes_objs for parent in node.current.parents]
+        versioned_nodes, versioned_parents = await cls.version_nodes(session, nodes)
+        versioned_dims = await cls.version_dimensions(
+            session,
+            dimensions,
+            current_node=versioned_nodes[0],
+        )
         return VersionedQueryKey(
-            nodes=[VersionedNodeKey.from_node(node) for node in nodes_objs],
-            parents=sorted({VersionedNodeKey.from_node(parent) for parent in parents}),
-            dimensions=[
-                VersionedNodeKey(
-                    dim,
-                    dim_node.current_version
-                    if dim_node
-                    else nodes_objs[0].current_version,
-                )
-                for dim, dim_node in zip(dimensions, dim_nodes)
-            ],
-            filters=filters_resolved,
-            orderby=orderby_resolved,
+            nodes=versioned_nodes,
+            parents=versioned_parents,
+            dimensions=versioned_dims,
+            filters=await cls.version_filters(session, filters),
+            orderby=await cls.version_orderby(session, orderby),
         )
 
     @staticmethod
-    async def resolve_nodes(session, nodes) -> list[Node]:
-        return await Node.get_by_names(
+    async def version_nodes(
+        session: AsyncSession,
+        nodes: list[str],
+    ) -> tuple[list[VersionedNodeKey], list[VersionedNodeKey]]:
+        """
+        Creates a versioned node key for each node in the list of nodes, and
+        returns a list of versioned parents for the nodes.
+        """
+        nodes_objs = await Node.get_by_names(
             session,
             nodes,
             options=[
@@ -510,57 +510,114 @@ class VersionedQueryKey:
                 ),
             ],
         )
+        versioned_parents = sorted(
+            {
+                VersionedNodeKey.from_node(parent)
+                for node in nodes_objs
+                for parent in node.current.parents
+            },
+        )
+        versioned_nodes = [VersionedNodeKey.from_node(node) for node in nodes_objs]
+        return versioned_nodes, versioned_parents
 
     @staticmethod
-    async def resolve_dimensions(session, dimensions) -> list[Node]:
-        return await Node.get_by_names(
+    async def version_dimensions(
+        session: AsyncSession,
+        dimensions: list[str],
+        current_node: VersionedNodeKey | None = None,
+    ) -> list[VersionedNodeKey]:
+        """
+        Versions the dimensions by creating a versioned node key for each dimension.
+        """
+        dimension_nodes = await Node.get_by_names(
             session,
             [".".join(dim.split(".")[:-1]) for dim in dimensions],
         )
+        return [
+            VersionedNodeKey(
+                dim,
+                dim_node.current_version
+                if dim_node
+                else current_node.version
+                if current_node
+                else None,
+            )
+            for dim, dim_node in zip(dimensions, dimension_nodes)
+        ]
 
     @staticmethod
-    async def rewrite_filters(session, filters) -> list[str]:
+    async def version_filters(session: AsyncSession, filters: list[str]) -> list[str]:
+        """
+        Versions the filters by parsing them and replacing dimension / metrics references
+        with their versioned node keys.
+        """
         results = []
         for filter_ in filters:
             if not filter_:
-                continue
+                continue  # pragma: no cover
             ast_tree = parse(f"SELECT 1 WHERE {filter_}")
             for col in ast_tree.select.where.find_all(ast.Column):  # type: ignore
+                # Extract role if column is subscripted
                 if isinstance(col.parent, ast.Subscript):
                     if isinstance(col.parent.index, ast.Lambda):
-                        col.role = str(col.parent.index)
+                        col.role = str(col.parent.index)  # pragma: no cover
                     else:
                         col.role = col.parent.index.identifier()  # type: ignore
                     col.parent.swap(col)
-                dim_node = await Node.get_by_name(
+
+                # Try resolving as metric node first
+                col_name = col.identifier()
+                metric_node = await Node.get_by_name(
                     session,
-                    ".".join(col.identifier().split(".")[:-1]),
+                    col_name,
                     options=[],
                 )
-                if dim_node:
-                    col.alias_or_name.name = to_namespaced_name(
-                        f"{col.alias_or_name.name}"
-                        f"{'[' + col.role + ']' if col.role else ''}"
-                        f"@{dim_node.current_version}",
+                if metric_node:
+                    versioned_node_name = str(VersionedNodeKey.from_node(metric_node))
+                    col.name = to_namespaced_name(versioned_node_name)
+                else:
+                    # Fallback to dimension node
+                    dim_node_name = ".".join(col_name.split(".")[:-1])
+                    dim_node = await Node.get_by_name(
+                        session,
+                        dim_node_name,
+                        options=[],
                     )
+                    if dim_node:
+                        col.alias_or_name.name = to_namespaced_name(
+                            f"{col.alias_or_name.name}"
+                            f"{'[' + col.role + ']' if col.role else ''}"
+                            f"@{dim_node.current_version}",
+                        )
             results.append(str(ast_tree.select.where))
         return results
 
     @staticmethod
-    async def rewrite_orderby(session, orderby) -> list[str]:
+    async def version_orderby(session: AsyncSession, orderby: list[str]) -> list[str]:
+        """
+        This handles versioning two types of ORDER BY clauses:
+        * dimension order bys: <dimension attribute> <ordering>
+        * metric order bys: <metric node name> <ordering>
+        """
         results = []
         for order in orderby:
             parts = order.split(" ")
-            node_name = parts[0]
-            order_by_node = await Node.get_by_name(session, node_name, options=[])
-            if not order_by_node:
-                order_by_node = await Node.get_by_name(
+            order_by_col = parts[0]
+            order_by_metric_node = await Node.get_by_name(
+                session,
+                order_by_col,
+                options=[],
+            )
+            if order_by_metric_node:
+                # If it was a metric node in the order by clause, version the metric node
+                parts[0] = str(VersionedNodeKey.from_node(order_by_metric_node))
+            else:
+                # Otherwise it is a dimension attribute
+                versioned_dim = await VersionedQueryKey.version_dimensions(
                     session,
-                    ".".join(node_name.split(".")[:-1]),
-                    options=[],
+                    [order_by_col],
                 )
-            if order_by_node:
-                parts[0] = str(VersionedNodeKey.from_node(order_by_node))
+                parts[0] = str(versioned_dim[0])
             results.append(" ".join(parts))
         return results
 
