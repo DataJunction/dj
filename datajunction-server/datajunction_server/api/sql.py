@@ -8,17 +8,23 @@ from collections import OrderedDict
 from http import HTTPStatus
 from typing import Any, List, Optional, Tuple, cast
 
-from fastapi import BackgroundTasks, Depends, Query
+from fastapi import BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.internal.caching.query_cache_manager import (
+    QueryCacheManager,
+    QueryRequestParams,
+)
 from datajunction_server.api.helpers import (
     assemble_column_metadata,
     build_sql_for_multiple_metrics,
     get_query,
     validate_orderby,
 )
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.database import Engine, Node
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
@@ -33,7 +39,6 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.sql import GeneratedSQL
 from datajunction_server.models.user import UserOutput
 from datajunction_server.utils import (
-    Settings,
     get_current_user,
     get_session,
     get_settings,
@@ -70,7 +75,7 @@ async def get_measures_sql_for_cube_v2(
             "for the metrics and dimensions in the cube"
         ),
     ),
-    settings: Settings = Depends(get_settings),
+    cache: Cache = Depends(get_cache),
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
@@ -79,6 +84,8 @@ async def get_measures_sql_for_cube_v2(
         validate_access,
     ),
     use_materialized: bool = True,
+    background_tasks: BackgroundTasks,
+    request: Request,
 ) -> List[GeneratedSQL]:
     """
     Return measures SQL for a set of metrics with dimensions and filters.
@@ -91,25 +98,27 @@ async def get_measures_sql_for_cube_v2(
     and others are aggregations on measures in parent node B, this endpoint will generate
     two measures queries, one for A and one for B.
     """
-    from datajunction_server.construction.build_v2 import (
-        get_measures_query,
+    query_cache_manager = QueryCacheManager(
+        cache=cache,
+        query_type=QueryBuildType.MEASURES,
     )
-
-    metrics = list(OrderedDict.fromkeys(metrics))
-    return await get_measures_query(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions,
-        filters=filters,
-        orderby=orderby,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        current_user=current_user,
-        validate_access=validate_access,
-        include_all_columns=include_all_columns,
-        use_materialized=use_materialized,
-        preagg_requested=preaggregate,
-        query_parameters=json.loads(query_params),
+    return await query_cache_manager.get_or_load(
+        background_tasks,
+        request,
+        QueryRequestParams(
+            nodes=metrics,
+            dimensions=dimensions,
+            filters=filters,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            orderby=orderby,
+            query_params=query_params,
+            include_all_columns=include_all_columns,
+            preaggregate=preaggregate,
+            use_materialized=use_materialized,
+            current_user=current_user,
+            validate_access=validate_access,
+        ),
     )
 
 

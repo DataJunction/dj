@@ -336,7 +336,7 @@ class Node(Base):
         include_inactive: bool = False,
     ) -> List["Node"]:
         """
-        Get a node by name
+        Get nodes by names
         """
         statement = select(Node).where(Node.name.in_(names))
         options = options or [

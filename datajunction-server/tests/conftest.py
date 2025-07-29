@@ -412,9 +412,13 @@ async def client(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as test_client:
-        test_client.headers.update({"Authorization": f"Bearer {EXAMPLE_TOKEN}"})
-        test_client.app = app
-        yield test_client
+        with patch(
+            "datajunction_server.internal.caching.query_cache_manager.session_context",
+            return_value=session,
+        ):
+            test_client.headers.update({"Authorization": f"Bearer {EXAMPLE_TOKEN}"})
+            test_client.app = app
+            yield test_client
 
     app.dependency_overrides.clear()
 
@@ -791,6 +795,7 @@ async def module__client(
     """
     Create a client for testing APIs.
     """
+
     statement = insert(User).values(
         username="dj",
         email=None,
@@ -835,13 +840,17 @@ async def module__client(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as test_client:
-        test_client.headers.update(
-            {
-                "Authorization": f"Bearer {EXAMPLE_TOKEN}",
-            },
-        )
-        test_client.app = app
-        yield test_client
+        with patch(
+            "datajunction_server.internal.caching.query_cache_manager.session_context",
+            return_value=module__session,
+        ):
+            test_client.headers.update(
+                {
+                    "Authorization": f"Bearer {EXAMPLE_TOKEN}",
+                },
+            )
+            test_client.app = app
+            yield test_client
 
     app.dependency_overrides.clear()
 

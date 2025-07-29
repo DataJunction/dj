@@ -1887,6 +1887,7 @@ async def remove_dimension_link(
         session=session,
         name=link_identifier.dimension_node,
         node_type=NodeType.DIMENSION,
+        include_inactive=True,
     )
     removed = False
 
