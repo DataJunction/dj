@@ -13,8 +13,10 @@ from datajunction_server.database.queryrequest import (
 from datajunction_server.database.user import User
 from datajunction_server.models import access
 from datajunction_server.models.sql import GeneratedSQL
-from datajunction_server.utils import session_context
+from datajunction_server.utils import session_context, get_settings
 from datajunction_server.construction.build_v2 import get_measures_query
+
+settings = get_settings()
 
 
 @dataclass
@@ -45,7 +47,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
     """
 
     _cache_key_prefix = "sql"
-    default_timeout = 86400 * 300
+    default_timeout = settings.query_cache_timeout
 
     def __init__(self, cache: Cache, query_type: QueryBuildType):
         self.cache = cache

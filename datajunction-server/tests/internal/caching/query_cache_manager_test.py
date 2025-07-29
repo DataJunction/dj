@@ -182,8 +182,6 @@ async def test_build_cache_key(
         assert key1.startswith("sql:measures:")
         assert key2.startswith("sql:measures:")
         assert key1 == key2
-        # expected_key = "sql:measures:versioned123"
-        # assert key == expected_key
 
 
 @pytest.mark.asyncio
