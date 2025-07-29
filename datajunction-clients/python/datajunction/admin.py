@@ -1,9 +1,13 @@
 """DataJunction admin client module."""
 
+import logging
 from typing import Optional
 
 from datajunction.builder import DJBuilder
 from datajunction.exceptions import DJClientException
+
+
+_logger = logging.getLogger(__name__)
 
 
 class DJAdmin(DJBuilder):  # pylint: disable=too-many-public-methods
@@ -33,6 +37,10 @@ class DJAdmin(DJBuilder):  # pylint: disable=too-many-public-methods
             )
         except DJClientException as exc:  # pragma: no cover
             if skip_if_exists and "already exists" in str(exc):
+                _logger.info(
+                    "Catalog `%s` already exists, skipping creation.",
+                    name,
+                )
                 return
             raise exc
 
