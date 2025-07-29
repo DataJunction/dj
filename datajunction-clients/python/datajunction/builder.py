@@ -462,9 +462,9 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                         "metric_metadata": models.MetricMetadata(
                             direction=direction,
                             unit=unit,
-                            significant_digits=significant_digits,  # type: ignore
-                            min_decimal_exponent=min_decimal_exponent,  # type: ignore
-                            max_decimal_exponent=max_decimal_exponent,  # type: ignore
+                            significant_digits=significant_digits,
+                            min_decimal_exponent=min_decimal_exponent,
+                            max_decimal_exponent=max_decimal_exponent,
                         ),
                     }
                     if direction or unit
