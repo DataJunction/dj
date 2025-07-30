@@ -1125,6 +1125,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
                 join_sql=link.join_sql,
                 join_type=link.join_type,
                 join_cardinality=link.join_cardinality,
+                role=link.role,
                 materialization_conf=link.materialization_conf,
             )
             for link in old_revision.dimension_links
@@ -1819,14 +1820,11 @@ async def upsert_complex_dimension_link(
 
     # Create a new revision for the node to capture the dimension link changes in a new version
     node = cast(Node, node)
-    new_revision = copy_existing_node_revision(node.current, current_user)
-    new_revision.version = str(Version.parse(node.current_version).next_major_version())
-    node.current_version = new_revision.version
-    new_revision.node = node
-    session.add(new_revision)
-    await session.commit()
-    await session.refresh(new_revision)
-    await session.refresh(new_revision, ["dimension_links"])
+    new_revision = await create_new_revision_for_dimension_link_update(
+        session,
+        node,
+        current_user,
+    )
 
     # Find an existing dimension link if there is already one defined for this node
     existing_link = [
@@ -1871,6 +1869,7 @@ async def upsert_complex_dimension_link(
                 "join_sql": link_input.join_on,
                 "join_cardinality": link_input.join_cardinality,
                 "role": link_input.role,
+                "version": node.current_version,
             },
             user=current_user.username,
         ),
@@ -1930,8 +1929,16 @@ async def remove_dimension_link(
             )
         await session.commit()
 
+    # Create a new revision for dimension link removal
+    node = cast(Node, node)
+    new_revision = await create_new_revision_for_dimension_link_update(
+        session,
+        node,
+        current_user,
+    )
+
     # Delete the dimension link if one exists
-    for link in node.current.dimension_links:  # type: ignore
+    for link in new_revision.dimension_links:  # type: ignore
         if (
             link.dimension_id == dimension_node.id  # pragma: no cover
             and link.role == link_identifier.role  # pragma: no cover
@@ -1955,6 +1962,7 @@ async def remove_dimension_link(
             node=node.name,  # type: ignore
             activity_type=ActivityType.DELETE,
             details={
+                "version": node.current_version,
                 "dimension": dimension_node.name,
                 "role": link_identifier.role,
             },
@@ -1963,7 +1971,7 @@ async def remove_dimension_link(
         session=session,
     )
     await session.commit()
-    await session.refresh(node.current)  # type: ignore
+    await session.refresh(new_revision)  # type: ignore
     await session.refresh(node)
     return JSONResponse(
         status_code=201,
@@ -1981,6 +1989,27 @@ async def remove_dimension_link(
             ),
         },
     )
+
+
+async def create_new_revision_for_dimension_link_update(
+    session: AsyncSession,
+    node: Node,
+    current_user: User,
+) -> NodeRevision:
+    """
+    Create a new revision for the node to capture the dimension link changes in a new version
+    """
+    new_revision = copy_existing_node_revision(node.current, current_user)
+    new_revision.version = str(Version.parse(node.current_version).next_major_version())
+    node.current_version = new_revision.version
+    new_revision.node = node
+
+    session.add(new_revision)
+    await session.commit()
+    await session.refresh(new_revision)
+    await session.refresh(new_revision, ["dimension_links"])
+
+    return new_revision
 
 
 async def propagate_valid_status(

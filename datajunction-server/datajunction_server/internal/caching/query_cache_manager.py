@@ -40,6 +40,15 @@ class QueryRequestParams:
     preaggregate: bool = False
     query_params: str | None = None
 
+    def __repr__(self):
+        return (
+            f"QueryRequestParams(nodes={self.nodes}, dimensions={self.dimensions},"
+            f" filters={self.filters}, engine_name={self.engine_name}, engine_version={self.engine_version},"
+            f" limit={self.limit}, orderby={self.orderby}, other_args={self.other_args},"
+            f" include_all_columns={self.include_all_columns}, use_materialized={self.use_materialized},"
+            f" preaggregate={self.preaggregate}, query_params={self.query_params})"
+        )
+
 
 class QueryCacheManager(RefreshAheadCacheManager):
     """
@@ -50,7 +59,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
     default_timeout = settings.query_cache_timeout
 
     def __init__(self, cache: Cache, query_type: QueryBuildType):
-        self.cache = cache
+        super().__init__(cache)
         self.query_type = query_type
 
     @property
