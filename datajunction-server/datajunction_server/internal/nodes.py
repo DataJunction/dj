@@ -2000,7 +2000,7 @@ async def create_new_revision_for_dimension_link_update(
     Create a new revision for the node to capture the dimension link changes in a new version
     """
     new_revision = copy_existing_node_revision(node.current, current_user)
-    new_revision.version = str(Version.parse(node.current_version).next_major_version())
+    new_revision.version = str(Version.parse(node.current_version).next_minor_version())
     node.current_version = new_revision.version
     new_revision.node = node
 

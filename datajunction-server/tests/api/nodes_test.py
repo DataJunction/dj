@@ -52,9 +52,9 @@ async def test_read_node(client_with_roads: AsyncClient) -> None:
     data = response.json()
 
     assert response.status_code == 200
-    assert data["version"] == "v1.0"
+    assert data["version"] == "v1.2"
     assert data["node_id"] == 1
-    assert data["node_revision_id"] == 1
+    assert data["node_revision_id"] > 1
     assert data["type"] == "source"
 
     response = await client_with_roads.get("/nodes/default.nothing/")
@@ -5817,7 +5817,14 @@ class TestCopyNode:
         )
         copied = (await client_with_roads.get("/nodes/default.contractor")).json()
         original = (await client_with_roads.get("/nodes/default.repair_order")).json()
-        for field in ["name", "node_id", "node_revision_id", "updated_at"]:
+        for field in [
+            "name",
+            "node_id",
+            "node_revision_id",
+            "updated_at",
+            "version",
+            "current_version",
+        ]:
             copied[field] = mock.ANY
         copied_dimension_links = sorted(
             copied["dimension_links"],
@@ -6089,6 +6096,8 @@ class TestCopyNode:
                 key=lambda link: link["dimension"]["name"],
             )
             copied["dimension_links"] = mock.ANY
+            copied["current_version"] = mock.ANY
+            copied["version"] = mock.ANY
             original["dimension_links"] = sorted(
                 original["dimension_links"],
                 key=lambda link: link["dimension"]["name"],

@@ -93,7 +93,7 @@ async def test_versioning_nodes(module__session, module__client_with_roads):
     ]
     assert versioned_nodes[0] == expected_nodes
     assert versioned_nodes[1] == [
-        VersionedNodeKey(name="default.repair_orders_fact", version="v1.0"),
+        VersionedNodeKey(name="default.repair_orders_fact", version="v1.4"),
     ]
     versioned_nodes = await VersionedQueryKey.version_nodes(
         module__session,
@@ -109,7 +109,7 @@ async def test_versioning_nodes(module__session, module__client_with_roads):
     )
     assert versioned_dimensions == [
         VersionedNodeKey(name="default.dispatcher.company_name", version="v1.0"),
-        VersionedNodeKey(name="default.hard_hat.state", version="v1.0"),
+        VersionedNodeKey(name="default.hard_hat.state", version="v1.1"),
     ]
 
 
@@ -121,8 +121,8 @@ async def test_versioning_filters(module__session, module__client_with_roads):
         filters,
     )
     assert len(versioned_filters) == 2
-    assert versioned_filters[0] == "default.hard_hat.state@v1.0 = 'CA'"
-    assert versioned_filters[1] == "default.hard_hat.state@v1.0 = 'NY'"
+    assert versioned_filters[0] == "default.hard_hat.state@v1.1 = 'CA'"
+    assert versioned_filters[1] == "default.hard_hat.state@v1.1 = 'NY'"
 
     filters = [
         "default.hard_hat.state = 'CA' OR default.hard_hat.state = 'AB'",
@@ -134,9 +134,9 @@ async def test_versioning_filters(module__session, module__client_with_roads):
     )
     assert (
         versioned_filters[0]
-        == "default.hard_hat.state@v1.0 = 'CA' OR default.hard_hat.state@v1.0 = 'AB'"
+        == "default.hard_hat.state@v1.1 = 'CA' OR default.hard_hat.state@v1.1 = 'AB'"
     )
-    assert versioned_filters[1] == "default.hard_hat.state@v1.0 IN ('A', 'B')"
+    assert versioned_filters[1] == "default.hard_hat.state@v1.1 IN ('A', 'B')"
 
 
 @pytest.mark.asyncio
@@ -146,7 +146,7 @@ async def test_versioning_orderby(module__session, module__client_with_roads):
         module__session,
         orderby,
     )
-    assert versioned_orderby[0] == "default.hard_hat.state@v1.0 DESC"
+    assert versioned_orderby[0] == "default.hard_hat.state@v1.1 DESC"
     assert versioned_orderby[1] == "default.dispatcher.company_name@v1.0 ASC"
 
 
@@ -171,14 +171,14 @@ async def test_version_query_request(module__session, module__client_with_roads)
             VersionedNodeKey(name="default.avg_repair_price", version="v1.0"),
             VersionedNodeKey(name="default.num_repair_orders", version="v1.0"),
         ],
-        parents=[VersionedNodeKey(name="default.repair_orders_fact", version="v1.0")],
+        parents=[VersionedNodeKey(name="default.repair_orders_fact", version="v1.4")],
         dimensions=[
             VersionedNodeKey(name="default.dispatcher.company_name", version="v1.0"),
-            VersionedNodeKey(name="default.hard_hat.state", version="v1.0"),
+            VersionedNodeKey(name="default.hard_hat.state", version="v1.1"),
         ],
         filters=[
-            "default.hard_hat.state@v1.0 = 'CA'",
-            "default.hard_hat.state@v1.0 = 'NY'",  # dimension
+            "default.hard_hat.state@v1.1 = 'CA'",
+            "default.hard_hat.state@v1.1 = 'NY'",  # dimension
             "default.avg_repair_price@v1.0 > 20",  # metric
         ],
         orderby=[
@@ -210,13 +210,13 @@ async def test_version_query_request_missing_nodes(
             VersionedNodeKey(name="default.avg_repair_price", version="v1.0"),
             VersionedNodeKey(name="default.num_repair_orders", version="v1.0"),
         ],
-        parents=[VersionedNodeKey(name="default.repair_orders_fact", version="v1.0")],
+        parents=[VersionedNodeKey(name="default.repair_orders_fact", version="v1.4")],
         dimensions=[
             VersionedNodeKey(name="default.dispatcher.company_name", version="v1.0"),
-            VersionedNodeKey(name="default.hard_hat.state", version="v1.0"),
+            VersionedNodeKey(name="default.hard_hat.state", version="v1.1"),
         ],
         filters=[
-            "default.hard_hat.state@v1.0 = 'NY'",
+            "default.hard_hat.state@v1.1 = 'NY'",
             "default.bogus.bad > 10",
         ],
         orderby=[
@@ -244,11 +244,11 @@ async def test_version_query_request_filter_on_dim_role(
             VersionedNodeKey(name="default.avg_repair_price", version="v1.0"),
             VersionedNodeKey(name="default.num_repair_orders", version="v1.0"),
         ],
-        parents=[VersionedNodeKey(name="default.repair_orders_fact", version="v1.0")],
+        parents=[VersionedNodeKey(name="default.repair_orders_fact", version="v1.4")],
         dimensions=[
             VersionedNodeKey(name="default.dispatcher.company_name", version="v1.0"),
-            VersionedNodeKey(name="default.hard_hat.state", version="v1.0"),
+            VersionedNodeKey(name="default.hard_hat.state", version="v1.1"),
         ],
-        filters=["default.hard_hat.state[stuff]@v1.0 = 'NY'"],
+        filters=["default.hard_hat.state[stuff]@v1.1 = 'NY'"],
         orderby=[],
     )
