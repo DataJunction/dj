@@ -2401,7 +2401,7 @@ async def test_cube_materialization_metadata(
                     "measure_name": "discount_sum_62846f49",
                     "node": {
                         "name": "default.repair_orders_fact",
-                        "version": "v1.0",
+                        "version": "v1.4",
                         "display_name": "Repair Orders Fact",
                     },
                 },
@@ -2409,7 +2409,7 @@ async def test_cube_materialization_metadata(
                     "measure_name": "count_3389dae3",
                     "node": {
                         "name": "default.repair_orders_fact",
-                        "version": "v1.0",
+                        "version": "v1.4",
                         "display_name": "Repair Orders Fact",
                     },
                 },
@@ -2429,7 +2429,7 @@ async def test_cube_materialization_metadata(
                     "measure_name": "repair_order_id_count_0b7dfba0",
                     "node": {
                         "name": "default.repair_orders_fact",
-                        "version": "v1.0",
+                        "version": "v1.4",
                         "display_name": "Repair Orders Fact",
                     },
                 },
@@ -2449,7 +2449,7 @@ async def test_cube_materialization_metadata(
                     "measure_name": "price_count_78a5eb43",
                     "node": {
                         "name": "default.repair_orders_fact",
-                        "version": "v1.0",
+                        "version": "v1.4",
                         "display_name": "Repair Orders Fact",
                     },
                 },
@@ -2457,7 +2457,7 @@ async def test_cube_materialization_metadata(
                     "measure_name": "price_sum_78a5eb43",
                     "node": {
                         "name": "default.repair_orders_fact",
-                        "version": "v1.0",
+                        "version": "v1.4",
                         "display_name": "Repair Orders Fact",
                     },
                 },
@@ -2477,7 +2477,7 @@ async def test_cube_materialization_metadata(
                     "measure_name": "total_repair_cost_sum_9bdaf803",
                     "node": {
                         "name": "default.repair_orders_fact",
-                        "version": "v1.0",
+                        "version": "v1.4",
                         "display_name": "Repair Orders Fact",
                     },
                 },
@@ -2497,7 +2497,7 @@ async def test_cube_materialization_metadata(
                     "measure_name": "price_discount_sum_017d55a8",
                     "node": {
                         "name": "default.repair_orders_fact",
-                        "version": "v1.0",
+                        "version": "v1.4",
                         "display_name": "Repair Orders Fact",
                     },
                 },
@@ -2518,7 +2518,7 @@ async def test_cube_materialization_metadata(
                     "measure_name": "price_sum_78a5eb43",
                     "node": {
                         "name": "default.repair_order_details",
-                        "version": "v1.0",
+                        "version": "v1.2",
                         "display_name": "default.roads.repair_order_details",
                     },
                 },
@@ -2727,10 +2727,10 @@ async def test_cube_materialization_metadata(
             ],
             "node": {
                 "name": "default.repair_orders_fact",
-                "version": "v1.0",
+                "version": "v1.4",
                 "display_name": "Repair Orders Fact",
             },
-            "output_table_name": "default_repair_orders_fact_v1_0_c9390406463b348e",
+            "output_table_name": "default_repair_orders_fact_v1_4_d8f6c506f384d9d2",
             "query": mock.ANY,
             "spark_conf": None,
             "timestamp_column": "default_DOT_hard_hat_DOT_hire_date",
@@ -2844,10 +2844,10 @@ async def test_cube_materialization_metadata(
             ],
             "node": {
                 "name": "default.repair_order_details",
-                "version": "v1.0",
+                "version": "v1.2",
                 "display_name": "default.roads.repair_order_details",
             },
-            "output_table_name": "default_repair_order_details_v1_0_5bf367d2fc7c255d",
+            "output_table_name": "default_repair_order_details_v1_2_3b3141d8060dd808",
             "query": mock.ANY,
             "spark_conf": None,
             "timestamp_column": "default_DOT_hard_hat_DOT_hire_date",
@@ -3276,57 +3276,57 @@ async def test_cube_materialization_metadata(
     expected_combiner = """
     SELECT
       COALESCE(
-        default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_hard_hat_DOT_country,
-        default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_hard_hat_DOT_country
+        default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_hard_hat_DOT_country,
+        default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_hard_hat_DOT_country
       ) default_DOT_hard_hat_DOT_country,
       COALESCE(
-        default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_hard_hat_DOT_postal_code,
-        default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_hard_hat_DOT_postal_code
+        default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_hard_hat_DOT_postal_code,
+        default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_hard_hat_DOT_postal_code
       ) default_DOT_hard_hat_DOT_postal_code,
       COALESCE(
-        default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_hard_hat_DOT_city,
-        default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_hard_hat_DOT_city
+        default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_hard_hat_DOT_city,
+        default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_hard_hat_DOT_city
       ) default_DOT_hard_hat_DOT_city,
       COALESCE(
-        default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_hard_hat_DOT_hire_date,
-        default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_hard_hat_DOT_hire_date
+        default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_hard_hat_DOT_hire_date,
+        default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_hard_hat_DOT_hire_date
       ) default_DOT_hard_hat_DOT_hire_date,
       COALESCE(
-        default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_hard_hat_DOT_state,
-        default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_hard_hat_DOT_state
+        default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_hard_hat_DOT_state,
+        default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_hard_hat_DOT_state
       ) default_DOT_hard_hat_DOT_state,
       COALESCE(
-        default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_dispatcher_DOT_company_name,
-        default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_dispatcher_DOT_company_name
+        default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_dispatcher_DOT_company_name,
+        default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_dispatcher_DOT_company_name
       ) default_DOT_dispatcher_DOT_company_name,
       COALESCE(
-        default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_municipality_dim_DOT_local_region,
-        default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_municipality_dim_DOT_local_region
+        default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_municipality_dim_DOT_local_region,
+        default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_municipality_dim_DOT_local_region
       ) default_DOT_municipality_dim_DOT_local_region,
-      default_repair_orders_fact_v1_0_c9390406463b348e.discount_sum_62846f49,
-      default_repair_orders_fact_v1_0_c9390406463b348e.count_3389dae3,
-      default_repair_orders_fact_v1_0_c9390406463b348e.repair_order_id_count_0b7dfba0,
-      default_repair_orders_fact_v1_0_c9390406463b348e.price_count_78a5eb43,
-      default_repair_orders_fact_v1_0_c9390406463b348e.price_sum_78a5eb43,
-      default_repair_orders_fact_v1_0_c9390406463b348e.total_repair_cost_sum_9bdaf803,
-      default_repair_orders_fact_v1_0_c9390406463b348e.price_discount_sum_017d55a8,
-      default_repair_order_details_v1_0_5bf367d2fc7c255d.price_sum_78a5eb43
-    FROM default_repair_orders_fact_v1_0_c9390406463b348e
-    FULL OUTER JOIN default_repair_order_details_v1_0_5bf367d2fc7c255d
-      ON default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_hard_hat_DOT_country =
-        default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_hard_hat_DOT_country
-        AND default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_hard_hat_DOT_postal_code =
-          default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_hard_hat_DOT_postal_code
-        AND default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_hard_hat_DOT_city =
-          default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_hard_hat_DOT_city
-        AND default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_hard_hat_DOT_hire_date =
-          default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_hard_hat_DOT_hire_date
-        AND default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_hard_hat_DOT_state =
-          default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_hard_hat_DOT_state
-        AND default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_dispatcher_DOT_company_name =
-          default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_dispatcher_DOT_company_name
-        AND default_repair_orders_fact_v1_0_c9390406463b348e.default_DOT_municipality_dim_DOT_local_region =
-          default_repair_order_details_v1_0_5bf367d2fc7c255d.default_DOT_municipality_dim_DOT_local_region
+      default_repair_orders_fact_v1_4_d8f6c506f384d9d2.discount_sum_62846f49,
+      default_repair_orders_fact_v1_4_d8f6c506f384d9d2.count_3389dae3,
+      default_repair_orders_fact_v1_4_d8f6c506f384d9d2.repair_order_id_count_0b7dfba0,
+      default_repair_orders_fact_v1_4_d8f6c506f384d9d2.price_count_78a5eb43,
+      default_repair_orders_fact_v1_4_d8f6c506f384d9d2.price_sum_78a5eb43,
+      default_repair_orders_fact_v1_4_d8f6c506f384d9d2.total_repair_cost_sum_9bdaf803,
+      default_repair_orders_fact_v1_4_d8f6c506f384d9d2.price_discount_sum_017d55a8,
+      default_repair_order_details_v1_2_3b3141d8060dd808.price_sum_78a5eb43
+    FROM default_repair_orders_fact_v1_4_d8f6c506f384d9d2
+    FULL OUTER JOIN default_repair_order_details_v1_2_3b3141d8060dd808
+      ON default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_hard_hat_DOT_country =
+        default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_hard_hat_DOT_country
+        AND default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_hard_hat_DOT_postal_code =
+          default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_hard_hat_DOT_postal_code
+        AND default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_hard_hat_DOT_city =
+          default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_hard_hat_DOT_city
+        AND default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_hard_hat_DOT_hire_date =
+          default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_hard_hat_DOT_hire_date
+        AND default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_hard_hat_DOT_state =
+          default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_hard_hat_DOT_state
+        AND default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_dispatcher_DOT_company_name =
+          default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_dispatcher_DOT_company_name
+        AND default_repair_orders_fact_v1_4_d8f6c506f384d9d2.default_DOT_municipality_dim_DOT_local_region =
+          default_repair_order_details_v1_2_3b3141d8060dd808.default_DOT_municipality_dim_DOT_local_region
     """
     assert str(parse(results["combiners"][0]["query"])) == str(parse(expected_combiner))
 

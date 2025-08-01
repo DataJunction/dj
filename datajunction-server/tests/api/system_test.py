@@ -180,78 +180,26 @@ async def test_system_metric_data(
 
 
 @pytest.mark.asyncio
-async def test_system_dimension_stats(module__client_with_roads: AsyncClient) -> None:
+async def test_system_dimension_stats(module__client_with_system: AsyncClient) -> None:
     """
     Test ``GET /system/dimensions``.
     """
-    response = await module__client_with_roads.get("/system/dimensions")
+    response = await module__client_with_system.get("/system/dimensions")
     data = response.json()
 
     assert response.status_code == 200
     assert data == [
-        {
-            "cube_count": 0,
-            "indegree": 2,
-            "name": "default.repair_order",
-        },
-        {
-            "cube_count": 0,
-            "indegree": 1,
-            "name": "default.contractor",
-        },
-        {
-            "cube_count": 0,
-            "indegree": 2,
-            "name": "default.hard_hat",
-        },
-        {
-            "cube_count": 0,
-            "indegree": 0,
-            "name": "default.hard_hat_2",
-        },
-        {
-            "cube_count": 0,
-            "indegree": 2,
-            "name": "default.hard_hat_to_delete",
-        },
-        {
-            "cube_count": 0,
-            "indegree": 0,
-            "name": "default.local_hard_hats",
-        },
-        {
-            "cube_count": 0,
-            "indegree": 0,
-            "name": "default.local_hard_hats_1",
-        },
-        {
-            "cube_count": 0,
-            "indegree": 0,
-            "name": "default.local_hard_hats_2",
-        },
-        {
-            "cube_count": 0,
-            "indegree": 2,
-            "name": "default.us_state",
-        },
-        {
-            "cube_count": 0,
-            "indegree": 3,
-            "name": "default.dispatcher",
-        },
-        {
-            "cube_count": 0,
-            "indegree": 2,
-            "name": "default.municipality_dim",
-        },
-        {
-            "cube_count": 0,
-            "indegree": 0,
-            "name": "system.dj.nodes",
-        },
-        {
-            "cube_count": 0,
-            "indegree": 1,
-            "name": "system.dj.node_type",
-        },
+        {"name": "default.dispatcher", "indegree": 3, "cube_count": 0},
+        {"name": "default.hard_hat_to_delete", "indegree": 2, "cube_count": 0},
+        {"name": "default.us_state", "indegree": 2, "cube_count": 0},
+        {"name": "default.municipality_dim", "indegree": 2, "cube_count": 0},
+        {"name": "default.hard_hat", "indegree": 2, "cube_count": 0},
+        {"name": "default.repair_order", "indegree": 2, "cube_count": 0},
+        {"name": "default.contractor", "indegree": 1, "cube_count": 0},
+        {"name": "system.dj.node_type", "indegree": 1, "cube_count": 0},
+        {"name": "default.hard_hat_2", "indegree": 0, "cube_count": 0},
+        {"name": "default.local_hard_hats", "indegree": 0, "cube_count": 0},
+        {"name": "default.local_hard_hats_1", "indegree": 0, "cube_count": 0},
+        {"name": "default.local_hard_hats_2", "indegree": 0, "cube_count": 0},
+        {"name": "system.dj.nodes", "indegree": 0, "cube_count": 0},
     ]

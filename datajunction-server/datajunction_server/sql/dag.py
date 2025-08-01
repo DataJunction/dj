@@ -1053,6 +1053,14 @@ async def get_dimension_dag_indegree(session, node_names: List[str]) -> Dict[str
             func.count(DimensionLink.id),
         )
         .where(DimensionLink.dimension_id.in_(dimension_ids))
+        .join(NodeRevision, DimensionLink.node_revision_id == NodeRevision.id)
+        .join(
+            Node,
+            and_(
+                Node.id == NodeRevision.node_id,
+                Node.current_version == NodeRevision.version,
+            ),
+        )
         .group_by(DimensionLink.dimension_id)
     )
     result = await session.execute(statement)

@@ -414,7 +414,7 @@ async def test_caching_measures_sql_requests(
     """
     response = (await measures_sql_request()).json()
     results = cachelib_cache.get(
-        "sql:measures:1826e11f22d3f585c8393e0de55d51cdd13c9f57eb1b191bb3a97dc0b9fae574",
+        "sql:measures:0724d697da80c4a1833c10fae756a39bbbcba3afb43ac3b40e378ab76d820359",
     )
     assert results is not None
 
@@ -428,7 +428,7 @@ async def test_caching_measures_sql_requests(
 
     # Check that the measures SQL request was cached
     results = cachelib_cache.get(
-        "sql:measures:0b7c4d1e7fd27627b076c557b396b456624e6cb5ade414332b02ed8196917d9d",
+        "sql:measures:5de7f86b5840a0caecfec918705b7edcc09ecca16bc84d2589a5a6aadc10c894",
     )
     assert results is not None
 
