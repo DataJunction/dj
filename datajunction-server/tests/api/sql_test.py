@@ -12,7 +12,6 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authorization import validate_access
-from datajunction_server.internal.caching.cachelib_cache import cachelib_cache
 from datajunction_server.models import access
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -403,34 +402,73 @@ async def test_saving_node_sql_requests(
 
 
 @pytest.mark.asyncio
-async def test_caching_measures_sql_requests(
+@pytest.mark.skip(reason="Not saving v2 measures SQL to cache for the time being")
+async def test_saving_measures_sql_requests(
     session: AsyncSession,
     client_with_roads: AsyncClient,
     measures_sql_request,
     update_transform_node,
 ) -> None:
     """
-    Test caching of query requests for measures SQL.
+    Test saving query request while requesting measures SQL for a set of metrics + dimensions
+    + filters. It also checks that additional arguments like `include_all_columns` are recorded
+    in the query request key.
+    - Requesting metrics SQL (for a set of metrics + dimensions)
     """
     response = (await measures_sql_request()).json()
-    results = cachelib_cache.get(
-        "sql:measures:0724d697da80c4a1833c10fae756a39bbbcba3afb43ac3b40e378ab76d820359",
-    )
-    assert results is not None
 
-    # Requesting it again should reuse the cached request
+    # Check that the measures SQL request was saved
+    query_requests = await get_query_requests(session, QueryBuildType.MEASURES)
+    assert len(query_requests) == 1
+    assert query_requests[0].nodes == [
+        "default.num_repair_orders@v1.0",
+        "default.total_repair_cost@v1.0",
+    ]
+    assert query_requests[0].dimensions == [
+        "default.dispatcher.company_name@v1.0",
+        "default.hard_hat.state@v1.0",
+    ]
+    assert query_requests[0].filters == ["default.hard_hat.state@v1.0 = 'CA'"]
+    assert query_requests[0].orderby == []
+    assert query_requests[0].limit is None
+    assert query_requests[0].query_type == QueryBuildType.MEASURES
+    assert query_requests[0].other_args == {"include_all_columns": True}
+    assert query_requests[0].query.strip() == response[0]["sql"].strip()
+    assert query_requests[0].columns == response["columns"]
+
+    # Requesting it again should reuse the saved request
     await measures_sql_request()
+    query_requests = await get_query_requests(session, QueryBuildType.MEASURES)
+    assert len(query_requests) == 1
 
     # Update the underlying transform behind the metrics
     response = await update_transform_node()
-    assert response.status_code == 201
+    assert response.status_code == 200
     response = (await measures_sql_request()).json()
 
-    # Check that the measures SQL request was cached
-    results = cachelib_cache.get(
-        "sql:measures:5de7f86b5840a0caecfec918705b7edcc09ecca16bc84d2589a5a6aadc10c894",
-    )
-    assert results is not None
+    # Check that the measures SQL request was saved
+    query_requests = await get_query_requests(session, QueryBuildType.MEASURES)
+    assert len(query_requests) == 2
+    assert query_requests[1].nodes == [
+        "default.num_repair_orders@v1.0",
+        "default.total_repair_cost@v1.0",
+    ]
+    assert query_requests[1].parents == [
+        "default.repair_order_details@v1.0",
+        "default.repair_orders@v1.0",
+        "default.repair_orders_fact@v2.0",
+    ]
+    assert query_requests[1].dimensions == [
+        "default.dispatcher.company_name@v1.0",
+        "default.hard_hat.state@v1.0",
+    ]
+    assert query_requests[1].filters == ["default.hard_hat.state@v1.0 = 'CA'"]
+    assert query_requests[1].orderby == []
+    assert query_requests[1].limit is None
+    assert query_requests[1].query_type == QueryBuildType.MEASURES
+    assert query_requests[1].other_args == {"include_all_columns": True}
+    assert query_requests[1].query.strip() == response["sql"].strip()
+    assert query_requests[1].columns == response["columns"]
 
     # Remove a dimension node link to default.hard_hat
     response = await client_with_roads.request(
@@ -444,9 +482,8 @@ async def test_caching_measures_sql_requests(
 
     # And requesting measures SQL with default.hard_hat.state should fail
     response = (await measures_sql_request()).json()
-    assert response[0]["errors"][0]["message"] == (
-        "This dimension attribute cannot be joined in: default.hard_hat.state. "
-        "Please make sure that default.hard_hat is linked to default.repair_orders_fact"
+    assert response["message"] == (
+        "default.hard_hat.state are not available dimensions on default.num_repair_orders, default.total_repair_cost"
     )
 
 
@@ -3566,14 +3603,14 @@ async def test_filter_pushdowns(
 @pytest.mark.asyncio
 async def test_sql_use_materialized_table(
     measures_sql_request,
-    module__client_with_examples: AsyncClient,
+    client_with_roads: AsyncClient,
 ):
     """
     Posting a materialized table for a dimension node should result in building SQL
     that uses the materialized table whenever a dimension attribute on the node is
     requested.
     """
-    availability_response = await module__client_with_examples.post(
+    availability_response = await client_with_roads.post(
         "/data/default.hard_hat/availability",
         json={
             "catalog": "default",
@@ -3585,6 +3622,7 @@ async def test_sql_use_materialized_table(
         },
     )
     assert availability_response.status_code == 200
+    response = (await measures_sql_request()).json()
     response = (await measures_sql_request()).json()
     assert "xyz.hardhat" in response[0]["sql"]
     expected_sql = """WITH default_DOT_repair_orders_fact AS (

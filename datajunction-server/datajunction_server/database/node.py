@@ -350,7 +350,9 @@ class Node(Base):
             statement = statement.where(is_(Node.deactivated_at, None))
         result = await session.execute(statement)
         nodes = result.unique().scalars().all()
-        return nodes
+        nodes_by_name = {node.name: node for node in nodes}
+        ordered_nodes = [nodes_by_name[name] for name in names if name in nodes_by_name]
+        return ordered_nodes
 
     @classmethod
     async def get_cube_by_name(

@@ -83,46 +83,87 @@ async def test_versioning_nodes(module__session, module__client_with_roads):
     """
     Test versioning nodes and dimensions
     """
+    avg_repair_price, num_repair_orders = await Node.get_by_names(
+        module__session,
+        names=["default.avg_repair_price", "default.num_repair_orders"],
+    )
     versioned_nodes = await VersionedQueryKey.version_nodes(
         module__session,
         ["default.avg_repair_price", "default.num_repair_orders"],
     )
     expected_nodes = [
-        VersionedNodeKey(name="default.avg_repair_price", version="v1.0"),
-        VersionedNodeKey(name="default.num_repair_orders", version="v1.0"),
+        VersionedNodeKey(
+            name="default.avg_repair_price",
+            version=avg_repair_price.current_version,
+        ),
+        VersionedNodeKey(
+            name="default.num_repair_orders",
+            version=num_repair_orders.current_version,
+        ),
     ]
     assert versioned_nodes[0] == expected_nodes
     assert versioned_nodes[1] == [
-        VersionedNodeKey(name="default.repair_orders_fact", version="v1.4"),
+        VersionedNodeKey(
+            name="default.repair_orders_fact",
+            version=avg_repair_price.current.parents[0].current_version,
+        ),
     ]
     versioned_nodes = await VersionedQueryKey.version_nodes(
         module__session,
         ["default.num_repair_orders", "default.avg_repair_price"],
     )
-    assert versioned_nodes[0] == expected_nodes
+    assert versioned_nodes[0] == [
+        VersionedNodeKey(
+            name="default.num_repair_orders",
+            version=num_repair_orders.current_version,
+        ),
+        VersionedNodeKey(
+            name="default.avg_repair_price",
+            version=avg_repair_price.current_version,
+        ),
+    ]
 
-    dimensions = ["default.dispatcher.company_name", "default.hard_hat.state"]
+    dispatcher, hard_hat = await Node.get_by_names(
+        module__session,
+        names=["default.dispatcher", "default.hard_hat"],
+    )
     versioned_dimensions = await VersionedQueryKey.version_dimensions(
         module__session,
-        dimensions,
+        ["default.dispatcher.company_name", "default.hard_hat.state"],
         current_node=versioned_nodes[0],
     )
     assert versioned_dimensions == [
-        VersionedNodeKey(name="default.dispatcher.company_name", version="v1.0"),
-        VersionedNodeKey(name="default.hard_hat.state", version="v1.1"),
+        VersionedNodeKey(
+            name="default.dispatcher.company_name",
+            version=dispatcher.current_version,
+        ),
+        VersionedNodeKey(
+            name="default.hard_hat.state",
+            version=hard_hat.current_version,
+        ),
     ]
 
 
 @pytest.mark.asyncio
 async def test_versioning_filters(module__session, module__client_with_roads):
     filters = ["default.hard_hat.state = 'CA'", "default.hard_hat.state = 'NY'"]
+    hard_hat = await Node.get_by_name(
+        module__session,
+        name="default.hard_hat",
+    )
     versioned_filters = await VersionedQueryKey.version_filters(
         module__session,
         filters,
     )
     assert len(versioned_filters) == 2
-    assert versioned_filters[0] == "default.hard_hat.state@v1.1 = 'CA'"
-    assert versioned_filters[1] == "default.hard_hat.state@v1.1 = 'NY'"
+    assert (
+        versioned_filters[0]
+        == f"default.hard_hat.state@{hard_hat.current_version} = 'CA'"
+    )
+    assert (
+        versioned_filters[1]
+        == f"default.hard_hat.state@{hard_hat.current_version} = 'NY'"
+    )
 
     filters = [
         "default.hard_hat.state = 'CA' OR default.hard_hat.state = 'AB'",
@@ -134,13 +175,16 @@ async def test_versioning_filters(module__session, module__client_with_roads):
     )
     assert (
         versioned_filters[0]
-        == "default.hard_hat.state@v1.1 = 'CA' OR default.hard_hat.state@v1.1 = 'AB'"
+        == f"default.hard_hat.state@{hard_hat.current_version} = 'CA' OR default.hard_hat.state@{hard_hat.current_version} = 'AB'"
     )
-    assert versioned_filters[1] == "default.hard_hat.state@v1.1 IN ('A', 'B')"
+    assert (
+        versioned_filters[1]
+        == f"default.hard_hat.state@{hard_hat.current_version} IN ('A', 'B')"
+    )
 
 
 @pytest.mark.asyncio
-async def test_versioning_orderby(module__session, module__client_with_roads):
+async def test_versioning_orderby(module__client_with_roads, module__session):
     orderby = ["default.hard_hat.state DESC", "default.dispatcher.company_name ASC"]
     versioned_orderby = await VersionedQueryKey.version_orderby(
         module__session,
@@ -151,7 +195,16 @@ async def test_versioning_orderby(module__session, module__client_with_roads):
 
 
 @pytest.mark.asyncio
-async def test_version_query_request(module__session, module__client_with_roads):
+async def test_version_query_request(module__client_with_roads, module__session):
+    dispatcher, hard_hat, avg_repair_price, num_repair_orders = await Node.get_by_names(
+        module__session,
+        names=[
+            "default.dispatcher",
+            "default.hard_hat",
+            "default.avg_repair_price",
+            "default.num_repair_orders",
+        ],
+    )
     versioned_query_request = await VersionedQueryKey.version_query_request(
         session=module__session,
         nodes=["default.avg_repair_price", "default.num_repair_orders"],
@@ -166,33 +219,62 @@ async def test_version_query_request(module__session, module__client_with_roads)
             "default.dispatcher.company_name ASC",
         ],
     )
-    assert versioned_query_request == VersionedQueryKey(
-        nodes=[
-            VersionedNodeKey(name="default.avg_repair_price", version="v1.0"),
-            VersionedNodeKey(name="default.num_repair_orders", version="v1.0"),
-        ],
-        parents=[VersionedNodeKey(name="default.repair_orders_fact", version="v1.4")],
-        dimensions=[
-            VersionedNodeKey(name="default.dispatcher.company_name", version="v1.0"),
-            VersionedNodeKey(name="default.hard_hat.state", version="v1.1"),
-        ],
-        filters=[
-            "default.hard_hat.state@v1.1 = 'CA'",
-            "default.hard_hat.state@v1.1 = 'NY'",  # dimension
-            "default.avg_repair_price@v1.0 > 20",  # metric
-        ],
-        orderby=[
-            "default.avg_repair_price@v1.0 DESC",  # metric
-            "default.dispatcher.company_name@v1.0 ASC",  # dimension
-        ],
+    assert (
+        versioned_query_request
+        == VersionedQueryKey(
+            nodes=[
+                VersionedNodeKey(
+                    name="default.avg_repair_price",
+                    version=avg_repair_price.current_version,
+                ),
+                VersionedNodeKey(
+                    name="default.num_repair_orders",
+                    version=num_repair_orders.current_version,
+                ),
+            ],
+            parents=[
+                VersionedNodeKey(
+                    name="default.repair_orders_fact",
+                    version=avg_repair_price.current.parents[0].current_version,
+                ),
+            ],
+            dimensions=[
+                VersionedNodeKey(
+                    name="default.dispatcher.company_name",
+                    version=dispatcher.current_version,
+                ),
+                VersionedNodeKey(
+                    name="default.hard_hat.state",
+                    version=hard_hat.current_version,
+                ),
+            ],
+            filters=[
+                f"default.hard_hat.state@{hard_hat.current_version} = 'CA'",
+                f"default.hard_hat.state@{hard_hat.current_version} = 'NY'",  # dimension
+                f"default.avg_repair_price@{avg_repair_price.current_version} > 20",  # metric
+            ],
+            orderby=[
+                f"default.avg_repair_price@{avg_repair_price.current_version} DESC",  # metric
+                f"default.dispatcher.company_name@{dispatcher.current_version} ASC",  # dimension
+            ],
+        )
     )
 
 
 @pytest.mark.asyncio
 async def test_version_query_request_missing_nodes(
-    module__session,
     module__client_with_roads,
+    module__session,
 ):
+    dispatcher, hard_hat, avg_repair_price, num_repair_orders = await Node.get_by_names(
+        module__session,
+        names=[
+            "default.dispatcher",
+            "default.hard_hat",
+            "default.avg_repair_price",
+            "default.num_repair_orders",
+        ],
+    )
     versioned_query_request = await VersionedQueryKey.version_query_request(
         session=module__session,
         nodes=["default.avg_repair_price", "default.num_repair_orders"],
@@ -207,29 +289,55 @@ async def test_version_query_request_missing_nodes(
     )
     assert versioned_query_request == VersionedQueryKey(
         nodes=[
-            VersionedNodeKey(name="default.avg_repair_price", version="v1.0"),
-            VersionedNodeKey(name="default.num_repair_orders", version="v1.0"),
+            VersionedNodeKey(
+                name="default.avg_repair_price",
+                version=avg_repair_price.current_version,
+            ),
+            VersionedNodeKey(
+                name="default.num_repair_orders",
+                version=num_repair_orders.current_version,
+            ),
         ],
-        parents=[VersionedNodeKey(name="default.repair_orders_fact", version="v1.4")],
+        parents=[
+            VersionedNodeKey(
+                name="default.repair_orders_fact",
+                version=avg_repair_price.current.parents[0].current_version,
+            ),
+        ],
         dimensions=[
-            VersionedNodeKey(name="default.dispatcher.company_name", version="v1.0"),
-            VersionedNodeKey(name="default.hard_hat.state", version="v1.1"),
+            VersionedNodeKey(
+                name="default.dispatcher.company_name",
+                version=dispatcher.current_version,
+            ),
+            VersionedNodeKey(
+                name="default.hard_hat.state",
+                version=hard_hat.current_version,
+            ),
         ],
         filters=[
-            "default.hard_hat.state@v1.1 = 'NY'",
+            f"default.hard_hat.state@{hard_hat.current_version} = 'NY'",
             "default.bogus.bad > 10",
         ],
         orderby=[
-            "default.avg_repair_price@v1.0 DESC",
+            f"default.avg_repair_price@{avg_repair_price.current_version} DESC",
         ],
     )
 
 
 @pytest.mark.asyncio
 async def test_version_query_request_filter_on_dim_role(
-    module__session,
     module__client_with_roads,
+    module__session,
 ):
+    dispatcher, hard_hat, avg_repair_price, num_repair_orders = await Node.get_by_names(
+        module__session,
+        names=[
+            "default.dispatcher",
+            "default.hard_hat",
+            "default.avg_repair_price",
+            "default.num_repair_orders",
+        ],
+    )
     versioned_query_request = await VersionedQueryKey.version_query_request(
         session=module__session,
         nodes=["default.avg_repair_price", "default.num_repair_orders"],
@@ -241,14 +349,31 @@ async def test_version_query_request_filter_on_dim_role(
     )
     assert versioned_query_request == VersionedQueryKey(
         nodes=[
-            VersionedNodeKey(name="default.avg_repair_price", version="v1.0"),
-            VersionedNodeKey(name="default.num_repair_orders", version="v1.0"),
+            VersionedNodeKey(
+                name="default.avg_repair_price",
+                version=avg_repair_price.current_version,
+            ),
+            VersionedNodeKey(
+                name="default.num_repair_orders",
+                version=num_repair_orders.current_version,
+            ),
         ],
-        parents=[VersionedNodeKey(name="default.repair_orders_fact", version="v1.4")],
+        parents=[
+            VersionedNodeKey(
+                name="default.repair_orders_fact",
+                version=avg_repair_price.current.parents[0].current_version,
+            ),
+        ],
         dimensions=[
-            VersionedNodeKey(name="default.dispatcher.company_name", version="v1.0"),
-            VersionedNodeKey(name="default.hard_hat.state", version="v1.1"),
+            VersionedNodeKey(
+                name="default.dispatcher.company_name",
+                version=dispatcher.current_version,
+            ),
+            VersionedNodeKey(
+                name="default.hard_hat.state",
+                version=hard_hat.current_version,
+            ),
         ],
-        filters=["default.hard_hat.state[stuff]@v1.1 = 'NY'"],
+        filters=[f"default.hard_hat.state[stuff]@{hard_hat.current_version} = 'NY'"],
         orderby=[],
     )

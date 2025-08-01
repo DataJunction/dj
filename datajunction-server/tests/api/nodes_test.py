@@ -6095,7 +6095,12 @@ class TestCopyNode:
                 copied["dimension_links"],
                 key=lambda link: link["dimension"]["name"],
             )
+            assert sorted(original["parents"], key=lambda node: node["name"]) == sorted(
+                copied["parents"],
+                key=lambda node: node["name"],
+            )
             copied["dimension_links"] = mock.ANY
+            copied["parents"] = mock.ANY
             copied["current_version"] = mock.ANY
             copied["version"] = mock.ANY
             original["dimension_links"] = sorted(
