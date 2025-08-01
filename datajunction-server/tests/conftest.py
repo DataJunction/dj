@@ -5,6 +5,7 @@ Fixtures for testing.
 import asyncio
 from collections import namedtuple
 import os
+import pathlib
 import re
 from http.client import HTTPException
 from typing import (
@@ -1079,11 +1080,13 @@ def module__postgres_container(request) -> PostgresContainer:
     """
     Setup postgres container
     """
+    path = pathlib.Path(request.module.__file__).resolve()
+    dbname = f"test_{hash(path)}"
     postgres = PostgresContainer(
         image="postgres:latest",
         username="dj",
         password="dj",
-        dbname=request.module.__name__,
+        dbname=dbname,
         port=5432,
         driver="psycopg",
     )
