@@ -270,6 +270,7 @@ async def test_link_complex_dimension_without_role(
                 "join_sql": "default.events.user_id = default.users.user_id AND "
                 "default.events.event_end_date = default.users.snapshot_date",
                 "role": None,
+                "version": "v1.2",
             },
         ),
         (
@@ -280,6 +281,7 @@ async def test_link_complex_dimension_without_role(
                 "join_sql": "default.events.user_id = default.users.user_id AND "
                 "default.events.event_start_date = default.users.snapshot_date",
                 "role": None,
+                "version": "v1.1",
             },
         ),
     ]
@@ -390,7 +392,7 @@ async def test_link_complex_dimension_with_role(
     response = await dimensions_link_client.get("/nodes/default.events")
     assert sorted(
         response.json()["dimension_links"],
-        key=lambda x: x["role"],
+        key=lambda x: x["role"] or "",
     ) == sorted(
         [
             {

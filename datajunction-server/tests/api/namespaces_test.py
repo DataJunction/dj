@@ -345,125 +345,122 @@ async def test_hard_delete_namespace(client_with_namespaced_roads: AsyncClient):
         "/namespaces/foo.bar/hard/?cascade=true",
     )
     assert hard_delete_response.json() == {
+        "message": "The namespace `foo.bar` has been completely removed.",
         "impact": {
-            "foo.bar": {"namespace": "foo.bar", "status": "deleted"},
             "foo.bar.avg_length_of_employment": [],
             "foo.bar.avg_repair_order_discounts": [],
             "foo.bar.avg_repair_price": [],
             "foo.bar.avg_time_to_dispatch": [],
-            "foo.bar.baf": {"namespace": "foo.bar.baf", "status": "deleted"},
-            "foo.bar.baz": {"namespace": "foo.bar.baz", "status": "deleted"},
-            "foo.bar.bif.d": {"namespace": "foo.bar.bif.d", "status": "deleted"},
             "foo.bar.contractor": [
                 {
-                    "effect": "broken link",
                     "name": "foo.bar.repair_type",
                     "status": "valid",
+                    "effect": "broken link",
                 },
             ],
             "foo.bar.contractors": [],
             "foo.bar.dispatcher": [
                 {
-                    "effect": "broken link",
-                    "name": "foo.bar.repair_orders",
-                    "status": "valid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "foo.bar.repair_order_details",
-                    "status": "valid",
-                },
-                {
-                    "effect": "broken link",
                     "name": "foo.bar.num_repair_orders",
                     "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "effect": "broken link",
                     "name": "foo.bar.total_repair_cost",
                     "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "effect": "broken link",
                     "name": "foo.bar.total_repair_order_discounts",
                     "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.repair_orders",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.repair_order_details",
+                    "status": "valid",
+                    "effect": "broken link",
                 },
             ],
             "foo.bar.dispatchers": [],
             "foo.bar.hard_hat": [
                 {
-                    "effect": "broken link",
-                    "name": "foo.bar.repair_orders",
-                    "status": "valid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "foo.bar.repair_order_details",
-                    "status": "valid",
-                },
-                {
-                    "effect": "broken link",
                     "name": "foo.bar.num_repair_orders",
                     "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "effect": "broken link",
                     "name": "foo.bar.total_repair_cost",
                     "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "effect": "broken link",
                     "name": "foo.bar.total_repair_order_discounts",
                     "status": "valid",
+                    "effect": "broken link",
                 },
-            ],
-            "foo.bar.hard_hat_state": [
                 {
-                    "effect": "downstream node is now invalid",
-                    "name": "foo.bar.local_hard_hats",
-                    "status": "invalid",
+                    "name": "foo.bar.repair_orders",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.repair_order_details",
+                    "status": "valid",
+                    "effect": "broken link",
                 },
             ],
             "foo.bar.hard_hats": [
                 {
-                    "effect": "downstream node is now invalid",
                     "name": "foo.bar.local_hard_hats",
                     "status": "invalid",
+                    "effect": "downstream node is now invalid",
+                },
+            ],
+            "foo.bar.hard_hat_state": [
+                {
+                    "name": "foo.bar.local_hard_hats",
+                    "status": "invalid",
+                    "effect": "downstream node is now invalid",
                 },
             ],
             "foo.bar.local_hard_hats": [],
             "foo.bar.municipality": [
                 {
-                    "effect": "downstream node is now invalid",
                     "name": "foo.bar.municipality_dim",
                     "status": "invalid",
+                    "effect": "downstream node is now invalid",
                 },
             ],
             "foo.bar.municipality_dim": [
                 {
-                    "effect": "broken link",
-                    "name": "foo.bar.repair_orders",
-                    "status": "valid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "foo.bar.repair_order_details",
-                    "status": "valid",
-                },
-                {
-                    "effect": "broken link",
                     "name": "foo.bar.num_repair_orders",
                     "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "effect": "broken link",
                     "name": "foo.bar.total_repair_cost",
                     "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "effect": "broken link",
                     "name": "foo.bar.total_repair_order_discounts",
                     "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.repair_orders",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.repair_order_details",
+                    "status": "valid",
+                    "effect": "broken link",
                 },
             ],
             "foo.bar.municipality_municipality_type": [],
@@ -471,36 +468,36 @@ async def test_hard_delete_namespace(client_with_namespaced_roads: AsyncClient):
             "foo.bar.num_repair_orders": [],
             "foo.bar.repair_order": [
                 {
-                    "effect": "broken link",
                     "name": "foo.bar.total_repair_order_discounts",
                     "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "effect": "broken link",
                     "name": "foo.bar.repair_orders",
                     "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "effect": "broken link",
                     "name": "foo.bar.repair_order_details",
                     "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "effect": "broken link",
                     "name": "foo.bar.total_repair_cost",
                     "status": "valid",
+                    "effect": "broken link",
                 },
             ],
             "foo.bar.repair_order_details": [
                 {
-                    "effect": "downstream node is now invalid",
                     "name": "foo.bar.total_repair_cost",
                     "status": "invalid",
+                    "effect": "downstream node is now invalid",
                 },
                 {
-                    "effect": "downstream node is now invalid",
                     "name": "foo.bar.total_repair_order_discounts",
                     "status": "invalid",
+                    "effect": "downstream node is now invalid",
                 },
             ],
             "foo.bar.repair_orders": [],
@@ -509,15 +506,18 @@ async def test_hard_delete_namespace(client_with_namespaced_roads: AsyncClient):
             "foo.bar.total_repair_order_discounts": [],
             "foo.bar.us_region": [
                 {
-                    "effect": "downstream node is now invalid",
                     "name": "foo.bar.us_state",
                     "status": "invalid",
+                    "effect": "downstream node is now invalid",
                 },
             ],
             "foo.bar.us_state": [],
             "foo.bar.us_states": [],
+            "foo.bar": {"namespace": "foo.bar", "status": "deleted"},
+            "foo.bar.baz": {"namespace": "foo.bar.baz", "status": "deleted"},
+            "foo.bar.baf": {"namespace": "foo.bar.baf", "status": "deleted"},
+            "foo.bar.bif.d": {"namespace": "foo.bar.bif.d", "status": "deleted"},
         },
-        "message": "The namespace `foo.bar` has been completely removed.",
     }
     list_namespaces_response = await client_with_namespaced_roads.get(
         "/namespaces/",

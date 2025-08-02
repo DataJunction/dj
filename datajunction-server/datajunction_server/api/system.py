@@ -131,11 +131,14 @@ async def get_dimensions_stats(
 
     node_indegrees = await get_dimension_dag_indegree(session, dimension_node_names)
     cubes_using_dims = await get_cubes_using_dimensions(session, dimension_node_names)
-    return [
-        DimensionStats(
-            name=dim,
-            indegree=node_indegrees.get(dim, 0),
-            cube_count=cubes_using_dims.get(dim, 0),
-        )
-        for dim in dimension_node_names
-    ]
+    return sorted(
+        [
+            DimensionStats(
+                name=dim,
+                indegree=node_indegrees.get(dim, 0),
+                cube_count=cubes_using_dims.get(dim, 0),
+            )
+            for dim in dimension_node_names
+        ],
+        key=lambda stats: -stats.indegree,
+    )
