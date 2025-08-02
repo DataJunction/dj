@@ -197,7 +197,7 @@ def test_antlr4_arithmetic_unary_op():
 
     query_ast = parse("SELECT ~a")
     assert query_ast.select.projection[0] == ast.ArithmeticUnaryOp(
-        op=ast.ArithmeticUnaryOpKind.Tilde,
+        op=ast.ArithmeticUnaryOpKind.BitwiseNot,
         expr=ast.Column(name=ast.Name(name="a")),
     )
     assert "~a" in str(query_ast)

@@ -395,7 +395,7 @@ def _(ctx: sbp.ArithmeticUnaryContext):
         return ast.ArithmeticUnaryOp(op=ast.ArithmeticUnaryOpKind.Plus, expr=value_expr)
     if ctx.TILDE():
         return ast.ArithmeticUnaryOp(
-            op=ast.ArithmeticUnaryOpKind.Tilde,
+            op=ast.ArithmeticUnaryOpKind.BitwiseNot,
             expr=value_expr,
         )
     raise DJParseException("blah")

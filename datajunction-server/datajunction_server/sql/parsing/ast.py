@@ -1466,7 +1466,7 @@ class ArithmeticUnaryOpKind(DJEnum):
 
     Minus = "-"
     Plus = "+"
-    Tilde = "~"
+    BitwiseNot = "~"
 
     def __str__(self):
         return self.value
