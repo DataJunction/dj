@@ -1080,7 +1080,7 @@ async def test_spark_sql_full(
     # Reading the node should yield the materialization config
     response = await module__client_with_roads.get("/nodes/default.hard_hat/")
     data = response.json()
-    assert data["version"] == "v1.0"
+    assert data["version"] == "v1.1"
     materialization_query = data["materializations"][0]["config"]["query"]
     assert str(parse(materialization_query)) == str(
         parse(load_expected_file("spark_sql.full.query.sql")),
@@ -1133,7 +1133,7 @@ async def test_spark_sql_full(
     # materialization config but is not included directly in the materialization query
     response = await module__client_with_roads.get("/nodes/default.hard_hat/")
     data = response.json()
-    assert data["version"] == "v1.0"
+    assert data["version"] == "v1.1"
     assert len(data["materializations"]) == 2
 
     expected_query = load_expected_file("spark_sql.full.partition.query.sql")
@@ -1174,7 +1174,7 @@ async def test_spark_sql_full(
     )
     assert module__query_service_client.run_backfill.call_args_list[0].args == (  # type: ignore
         "default.hard_hat",
-        "v1.0",
+        "v1.1",
         "dimension",
         "spark_sql__full__birth_date__country",
         [

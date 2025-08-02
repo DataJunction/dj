@@ -498,26 +498,31 @@ class VersionedQueryKey:
         Creates a versioned node key for each node in the list of nodes, and
         returns a list of versioned parents for the nodes.
         """
-        nodes_objs = await Node.get_by_names(
-            session,
-            nodes,
-            options=[
-                joinedload(Node.current).options(
-                    selectinload(NodeRevision.columns),
-                    selectinload(NodeRevision.parents).options(
-                        joinedload(Node.current),
+        nodes_objs = {
+            node.name: node
+            for node in await Node.get_by_names(
+                session,
+                nodes,
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.columns),
+                        selectinload(NodeRevision.parents).options(
+                            joinedload(Node.current),
+                        ),
                     ),
-                ),
-            ],
-        )
+                ],
+            )
+        }
         versioned_parents = sorted(
             {
                 VersionedNodeKey.from_node(parent)
-                for node in nodes_objs
+                for node in nodes_objs.values()
                 for parent in node.current.parents
             },
         )
-        versioned_nodes = [VersionedNodeKey.from_node(node) for node in nodes_objs]
+        versioned_nodes = [
+            VersionedNodeKey.from_node(nodes_objs[node_name]) for node_name in nodes
+        ]
         return versioned_nodes, versioned_parents
 
     @staticmethod
@@ -529,20 +534,24 @@ class VersionedQueryKey:
         """
         Versions the dimensions by creating a versioned node key for each dimension.
         """
-        dimension_nodes = await Node.get_by_names(
-            session,
-            [".".join(dim.split(".")[:-1]) for dim in dimensions],
-        )
+        node_names = [".".join(dim.split(".")[:-1]) for dim in dimensions]
+        dimension_nodes = {
+            node.name: node
+            for node in await Node.get_by_names(
+                session,
+                [".".join(dim.split(".")[:-1]) for dim in dimensions],
+            )
+        }
         return [
             VersionedNodeKey(
                 dim,
-                dim_node.current_version
-                if dim_node
+                dimension_nodes[name].current_version
+                if dimension_nodes[name]
                 else current_node.version
                 if current_node
                 else None,
             )
-            for dim, dim_node in zip(dimensions, dimension_nodes)
+            for dim, name in zip(dimensions, node_names)
         ]
 
     @staticmethod

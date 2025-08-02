@@ -37,7 +37,7 @@ async def test_find_by_node_type(
     data = response.json()
     assert data["data"]["findNodes"] == [
         {
-            "currentVersion": "v1.0",
+            "currentVersion": "v1.4",
             "name": "default.repair_orders_fact",
             "tags": [],
             "type": "TRANSFORM",
@@ -162,7 +162,7 @@ async def test_find_by_node_type_paginated(
         "edges": [
             {
                 "node": {
-                    "currentVersion": "v1.0",
+                    "currentVersion": "v1.4",
                     "name": "default.repair_orders_fact",
                     "tags": [],
                     "type": "TRANSFORM",
@@ -266,7 +266,7 @@ async def test_find_by_node_type_paginated(
         "edges": [
             {
                 "node": {
-                    "currentVersion": "v1.0",
+                    "currentVersion": "v1.4",
                     "name": "default.repair_orders_fact",
                     "tags": [],
                     "type": "TRANSFORM",
@@ -509,7 +509,7 @@ async def test_find_by_names(
                     },
                 ],
             },
-            "currentVersion": "v1.0",
+            "currentVersion": "v1.2",
             "name": "default.repair_orders",
             "type": "SOURCE",
         },
@@ -667,11 +667,11 @@ async def test_find_transform(
                 "parents": [
                     {
                         "name": "default.repair_orders",
-                        "currentVersion": "v1.0",
+                        "currentVersion": "v1.2",
                     },
                     {
                         "name": "default.repair_order_details",
-                        "currentVersion": "v1.0",
+                        "currentVersion": "v1.2",
                     },
                 ],
                 "extractedMeasures": None,
@@ -954,38 +954,69 @@ async def test_find_node_with_revisions(
                 "name": "default.repair_orders_fact",
                 "type": "TRANSFORM",
                 "revisions": [
+                    {"displayName": "Repair Orders Fact", "dimensionLinks": []},
                     {
                         "displayName": "Repair Orders Fact",
                         "dimensionLinks": [
                             {
-                                "dimension": {
-                                    "name": "default.dispatcher",
-                                },
-                                "joinSql": "default.repair_orders_fact.dispatcher_id = "
-                                "default.dispatcher.dispatcher_id",
+                                "dimension": {"name": "default.municipality_dim"},
+                                "joinSql": "default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id",
+                            },
+                        ],
+                    },
+                    {
+                        "displayName": "Repair Orders Fact",
+                        "dimensionLinks": [
+                            {
+                                "dimension": {"name": "default.municipality_dim"},
+                                "joinSql": "default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id",
                             },
                             {
-                                "dimension": {
-                                    "name": "default.hard_hat",
-                                },
-                                "joinSql": "default.repair_orders_fact.hard_hat_id = "
-                                "default.hard_hat.hard_hat_id",
+                                "dimension": {"name": "default.hard_hat"},
+                                "joinSql": "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id",
+                            },
+                        ],
+                    },
+                    {
+                        "displayName": "Repair Orders Fact",
+                        "dimensionLinks": [
+                            {
+                                "dimension": {"name": "default.municipality_dim"},
+                                "joinSql": "default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id",
+                            },
+                            {
+                                "dimension": {"name": "default.hard_hat"},
+                                "joinSql": "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id",
+                            },
+                            {
+                                "dimension": {"name": "default.hard_hat_to_delete"},
+                                "joinSql": "default.repair_orders_fact.hard_hat_id = default.hard_hat_to_delete.hard_hat_id",
+                            },
+                        ],
+                    },
+                    {
+                        "displayName": "Repair Orders Fact",
+                        "dimensionLinks": [
+                            {
+                                "dimension": {"name": "default.municipality_dim"},
+                                "joinSql": "default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id",
+                            },
+                            {
+                                "dimension": {"name": "default.hard_hat"},
+                                "joinSql": "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id",
                             },
                             {
                                 "dimension": {"name": "default.hard_hat_to_delete"},
                                 "joinSql": "default.repair_orders_fact.hard_hat_id = default.hard_hat_to_delete.hard_hat_id",
                             },
                             {
-                                "dimension": {
-                                    "name": "default.municipality_dim",
-                                },
-                                "joinSql": "default.repair_orders_fact.municipality_id = "
-                                "default.municipality_dim.municipality_id",
+                                "dimension": {"name": "default.dispatcher"},
+                                "joinSql": "default.repair_orders_fact.dispatcher_id = default.dispatcher.dispatcher_id",
                             },
                         ],
                     },
                 ],
-                "currentVersion": "v1.0",
+                "currentVersion": "v1.4",
                 "createdBy": {
                     "email": None,
                     "id": 1,
@@ -1001,10 +1032,7 @@ async def test_find_node_with_revisions(
                 "name": "default.national_level_agg",
                 "type": "TRANSFORM",
                 "revisions": [
-                    {
-                        "displayName": "National Level Agg",
-                        "dimensionLinks": [],
-                    },
+                    {"displayName": "National Level Agg", "dimensionLinks": []},
                 ],
                 "currentVersion": "v1.0",
                 "createdBy": {
@@ -1022,10 +1050,7 @@ async def test_find_node_with_revisions(
                 "name": "default.regional_level_agg",
                 "type": "TRANSFORM",
                 "revisions": [
-                    {
-                        "displayName": "Regional Level Agg",
-                        "dimensionLinks": [],
-                    },
+                    {"displayName": "Regional Level Agg", "dimensionLinks": []},
                 ],
                 "currentVersion": "v1.0",
                 "createdBy": {
@@ -1171,7 +1196,7 @@ async def test_find_by_with_filtering_on_columns(
             "current": {
                 "columns": [],
             },
-            "currentVersion": "v1.0",
+            "currentVersion": "v1.2",
             "name": "default.repair_orders",
             "type": "SOURCE",
         },

@@ -79,6 +79,7 @@ async def test_get_history_node(module__client_with_roads: AsyncClient):
                 "join_sql": "default.repair_order.municipality_id = "
                 "default.municipality_dim.municipality_id",
                 "role": None,
+                "version": "v1.4",
             },
             "entity_name": "default.repair_order",
             "entity_type": "link",
@@ -97,6 +98,7 @@ async def test_get_history_node(module__client_with_roads: AsyncClient):
                 "join_sql": "default.repair_order.hard_hat_id = "
                 "default.hard_hat_to_delete.hard_hat_id",
                 "role": None,
+                "version": "v1.3",
             },
             "entity_name": "default.repair_order",
             "entity_type": "link",
@@ -115,6 +117,7 @@ async def test_get_history_node(module__client_with_roads: AsyncClient):
                 "join_sql": "default.repair_order.hard_hat_id = "
                 "default.hard_hat.hard_hat_id",
                 "role": None,
+                "version": "v1.2",
             },
             "entity_name": "default.repair_order",
             "entity_type": "link",
@@ -133,6 +136,7 @@ async def test_get_history_node(module__client_with_roads: AsyncClient):
                 "join_sql": "default.repair_order.dispatcher_id = "
                 "default.dispatcher.dispatcher_id",
                 "role": None,
+                "version": "v1.1",
             },
             "entity_name": "default.repair_order",
             "entity_type": "link",
@@ -237,6 +241,7 @@ async def test_get_history_only_subscribed(module__client_with_roads: AsyncClien
                 "join_sql": "default.repair_order.municipality_id = default.municipality_dim.municipality_id",
                 "join_cardinality": "many_to_one",
                 "role": None,
+                "version": "v1.4",
             },
             "created_at": mock.ANY,
         },
@@ -254,6 +259,7 @@ async def test_get_history_only_subscribed(module__client_with_roads: AsyncClien
                 "join_sql": "default.repair_order.hard_hat_id = default.hard_hat_to_delete.hard_hat_id",
                 "join_cardinality": "many_to_one",
                 "role": None,
+                "version": "v1.3",
             },
             "created_at": mock.ANY,
         },
@@ -271,6 +277,7 @@ async def test_get_history_only_subscribed(module__client_with_roads: AsyncClien
                 "join_sql": "default.repair_order.hard_hat_id = default.hard_hat.hard_hat_id",
                 "join_cardinality": "many_to_one",
                 "role": None,
+                "version": "v1.2",
             },
             "created_at": mock.ANY,
         },
@@ -288,6 +295,7 @@ async def test_get_history_only_subscribed(module__client_with_roads: AsyncClien
                 "join_sql": "default.repair_order.dispatcher_id = default.dispatcher.dispatcher_id",
                 "join_cardinality": "many_to_one",
                 "role": None,
+                "version": "v1.1",
             },
             "created_at": mock.ANY,
         },
