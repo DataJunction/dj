@@ -175,3 +175,29 @@ def test_query_parameters():
             quote_style="",
         ),
     ]
+
+
+def test_antlr4_arithmetic_unary_op():
+    """
+    Test parsing arithmetic unary operations
+    """
+    query_ast = parse("SELECT -a")
+    assert query_ast.select.projection[0] == ast.ArithmeticUnaryOp(
+        op=ast.ArithmeticUnaryOpKind.Minus,
+        expr=ast.Column(name=ast.Name(name="a")),
+    )
+    assert "-a" in str(query_ast)
+
+    query_ast = parse("SELECT +a")
+    assert query_ast.select.projection[0] == ast.ArithmeticUnaryOp(
+        op=ast.ArithmeticUnaryOpKind.Plus,
+        expr=ast.Column(name=ast.Name(name="a")),
+    )
+    assert "+a" in str(query_ast)
+
+    query_ast = parse("SELECT ~a")
+    assert query_ast.select.projection[0] == ast.ArithmeticUnaryOp(
+        op=ast.ArithmeticUnaryOpKind.BitwiseNot,
+        expr=ast.Column(name=ast.Name(name="a")),
+    )
+    assert "~a" in str(query_ast)
