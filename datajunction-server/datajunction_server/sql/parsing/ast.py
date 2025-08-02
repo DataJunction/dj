@@ -1459,6 +1459,36 @@ class UnaryOp(Operation):
         raise DJParseException(f"Unary operation {self.op} not supported!")
 
 
+class ArithmeticUnaryOpKind(DJEnum):
+    """
+    Arithmetic unary operations
+    """
+
+    Minus = "-"
+    Plus = "+"
+    BitwiseNot = "~"
+
+    def __str__(self):
+        return self.value
+
+
+@dataclass(eq=False)
+class ArithmeticUnaryOp(Operation):
+    """
+    An operation that operates on a single expression
+    """
+
+    op: ArithmeticUnaryOpKind
+    expr: Expression
+
+    def __str__(self) -> str:
+        return f"{self.op}{self.expr}"
+
+    @property
+    def type(self) -> ColumnType:
+        return self.expr.type
+
+
 class BinaryOpKind(DJEnum):
     """
     The DJ AST accepted binary operations
