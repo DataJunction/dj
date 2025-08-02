@@ -384,6 +384,24 @@ def _(ctx: sbp.BooleanValueContext):
 
 
 @visit.register
+def _(ctx: sbp.ArithmeticUnaryContext):
+    value_expr = visit(ctx.valueExpression())
+    if ctx.MINUS():
+        return ast.ArithmeticUnaryOp(
+            op=ast.ArithmeticUnaryOpKind.Minus,
+            expr=value_expr,
+        )
+    if ctx.PLUS():
+        return ast.ArithmeticUnaryOp(op=ast.ArithmeticUnaryOpKind.Plus, expr=value_expr)
+    if ctx.TILDE():
+        return ast.ArithmeticUnaryOp(
+            op=ast.ArithmeticUnaryOpKind.Tilde,
+            expr=value_expr,
+        )
+    raise DJParseException("blah")
+
+
+@visit.register
 def _(ctx: sbp.PredicatedContext):
     if value_expr := ctx.valueExpression():
         if not ctx.predicate():
