@@ -9,7 +9,6 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
-from datajunction_server.internal.nodes import derive_sql_column
 from datajunction_server.models.cube import CubeElementMetadata
 from datajunction_server.models.node import ColumnOutput
 from datajunction_server.models.query import ColumnMetadata
@@ -2299,14 +2298,13 @@ async def test_derive_sql_column():
     """
     Test that SQL column name are properly derived from cube elements
     """
-    sql_column = await derive_sql_column(
-        CubeElementMetadata(
-            name="foo_DOT_bar_DOT_baz_DOT_revenue",
-            display_name="Revenue",
-            node_name="foo.bar.baz",
-            type="metric",
-        ),
+    cube_element = CubeElementMetadata(
+        name="foo_DOT_bar_DOT_baz_DOT_revenue",
+        display_name="Revenue",
+        node_name="foo.bar.baz",
+        type="metric",
     )
+    sql_column = cube_element.derive_sql_column()
     expected_sql_column = ColumnOutput(
         name="foo_DOT_bar_DOT_baz_DOT_revenue",
         display_name="Revenue",
@@ -2315,14 +2313,13 @@ async def test_derive_sql_column():
     assert sql_column.name == expected_sql_column.name
     assert sql_column.display_name == expected_sql_column.display_name
     assert sql_column.type == expected_sql_column.type
-    sql_column = await derive_sql_column(
-        CubeElementMetadata(
-            name="owner",
-            display_name="Owner",
-            node_name="foo.bar.baz",
-            type="dimension",
-        ),
+    cube_element = CubeElementMetadata(
+        name="owner",
+        display_name="Owner",
+        node_name="foo.bar.baz",
+        type="dimension",
     )
+    sql_column = cube_element.derive_sql_column()
     expected_sql_column = ColumnOutput(
         name="foo_DOT_bar_DOT_baz_DOT_owner",
         display_name="Owner",
@@ -3314,3 +3311,20 @@ async def test_get_all_cubes(
     assert response.is_success
     data = response.json()
     assert len([cube for cube in data if cube["name"] == "default.repairs_cube_9"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_cube_version(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Test getting cube metadata for one revision
+    """
+    response = await client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube/versions/v1.0",
+    )
+    assert response.is_success
+    data = response.json()
+    assert data["name"] == "default.repairs_cube"
+    assert data["version"] == "v1.0"
+    assert len(data["metric_measures"]) == 6

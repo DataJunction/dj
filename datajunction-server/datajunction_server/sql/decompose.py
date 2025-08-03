@@ -104,7 +104,9 @@ class MetricComponentExtractor:
             )
 
         expression = str(arg)
-        short_hash = hashlib.md5(expression.lower().encode("utf-8")).hexdigest()[:8]
+        # TODO: we should only hash on the lowercase version of the expression, but we can't
+        # do this migration until after we get versioned measures
+        short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
 
         return [
             MetricComponent(

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
 from pydantic import Extra
-from sqlalchemy import JSON
+from sqlalchemy import JSON, desc
 from sqlalchemy import Column as SqlalchemyColumn
 from sqlalchemy import (
     DateTime,
@@ -908,6 +908,13 @@ class NodeRevision(
         """
         return [(element, element.node_revision()) for element in self.cube_elements]
 
+    def metric_node_revisions(self) -> list[Optional["NodeRevision"]]:
+        """
+        Cube elements along with their nodes
+        """
+        node_revisions = [element.node_revision() for element in self.cube_elements]
+        return [rev for rev in node_revisions if rev.type == NodeType.METRIC]
+
     def cube_metrics(self) -> List[Node]:
         """
         Cube node's metrics
@@ -1006,6 +1013,96 @@ class NodeRevision(
         not actually copy anything
         """
         return None
+
+    def _find_cube_by_statement(
+        name: str | None = None,
+        version: str | None = None,
+        catalog: str | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ):
+        from datajunction_server.database.measure import ConcreteMeasure
+
+        if not version or version == "latest":
+            version_condition = NodeRevision.version == Node.current_version
+        else:
+            version_condition = NodeRevision.version == version
+
+        statement = (
+            select(NodeRevision)
+            .select_from(Node)
+            .where(is_(Node.deactivated_at, None))
+            .join(
+                NodeRevision,
+                (NodeRevision.name == Node.name) & (version_condition),
+            )
+            .options(
+                selectinload(NodeRevision.columns),
+                selectinload(  # Ensure availability is loaded for filtering
+                    NodeRevision.availability,
+                ),
+                selectinload(NodeRevision.materializations).selectinload(
+                    Materialization.backfills,
+                ),
+                selectinload(NodeRevision.cube_elements)
+                .selectinload(Column.node_revisions)
+                .options(
+                    joinedload(NodeRevision.node),
+                    selectinload(NodeRevision.concrete_measures).options(
+                        selectinload(ConcreteMeasure.upstream_revision),
+                    ),
+                ),
+                selectinload(NodeRevision.node).options(selectinload(Node.tags)),
+            )
+        )
+        if name:
+            statement = statement.where(Node.name == name)
+        else:
+            statement = statement.order_by(desc(NodeRevision.updated_at))
+        if catalog:
+            statement = statement.join(
+                AvailabilityState,
+                NodeRevision.availability,
+            ).where(
+                AvailabilityState.catalog == catalog,
+            )
+        offset = (page - 1) * page_size
+        statement = statement.offset(offset).limit(page_size)
+        return statement
+
+    @classmethod
+    async def get_cube_revision(
+        cls,
+        session: AsyncSession,
+        name: str,
+        version: str | None = None,
+    ) -> Optional["NodeRevision"]:
+        """
+        Get a cube by name
+        """
+        statement = NodeRevision._find_cube_by_statement(name=name, version=version)
+        result = await session.execute(statement)
+        return result.unique().scalar_one_or_none()
+
+    @classmethod
+    async def get_cube_revisions(
+        cls,
+        session: AsyncSession,
+        catalog: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> list["NodeRevision"]:
+        """
+        Returns cube revision metadata for the latest version of all cubes, with pagination.
+        Optionally filters by the catalog in which the cube is available.
+        """
+        statement = NodeRevision._find_cube_by_statement(
+            catalog=catalog,
+            page=page,
+            page_size=page_size,
+        )
+        result = await session.execute(statement)
+        return result.unique().scalars().all()
 
 
 class NodeColumns(Base):

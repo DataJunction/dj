@@ -116,3 +116,18 @@ class ConcreteMeasureOut(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class ConcreteMeasureKey(BaseModel):
+    """
+    Base concrete measure fields.
+    """
+
+    name: str
+    expression: str
+    aggregation: str
+    rule: dict[str, str | None]
+    upstream_revision: NodeRevisionNameVersion
+
+    class Config:
+        orm_mode = True

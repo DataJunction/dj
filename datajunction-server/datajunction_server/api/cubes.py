@@ -17,8 +17,8 @@ from datajunction_server.internal.access.authentication.http import SecureAPIRou
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.internal.materializations import build_cube_materialization
 from datajunction_server.internal.nodes import (
-    get_single_cube_revision_metadata,
     get_all_cube_revisions_metadata,
+    get_single_cube_revision_metadata,
 )
 from datajunction_server.models import access
 from datajunction_server.models.cube import (
@@ -88,6 +88,19 @@ async def get_cube(
     Get information on a cube
     """
     return await get_single_cube_revision_metadata(session, name)
+
+
+@router.get("/cubes/{name}/versions/{version}", name="Get a Cube Revision")
+async def get_cube_by_version(
+    name: str,
+    version: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+) -> CubeRevisionMetadata:
+    """
+    Get information on a specific cube revision
+    """
+    return await get_single_cube_revision_metadata(session, name, version=version)
 
 
 @router.get("/cubes/{name}/materialization", name="Cube Materialization Config")
