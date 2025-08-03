@@ -31,6 +31,7 @@ from datajunction_server.utils import (
 )
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 router = SecureAPIRouter(tags=["System"])
 
 
@@ -41,7 +42,6 @@ async def list_system_metrics(
     """
     Returns a list of DJ system metrics (available as metric nodes in DJ).
     """
-    settings = get_settings()
     metrics = await Node.find_by(
         session=session,
         namespace=settings.seed_setup.system_namespace,
@@ -95,7 +95,12 @@ async def get_data_for_system_metric(
         # A long timeout for the cache is fine here, since these are system nodes whose
         # definitions should only change upon deployment, at which point the cache can be
         # retriggered
-        background_tasks.add_task(cache.set, cache_key, translated_sql, timeout=8640000)
+        background_tasks.add_task(
+            cache.set,
+            cache_key,
+            translated_sql,
+            timeout=settings.query_cache_timeout,
+        )
 
     results = await session.execute(text(translated_sql.sql))
     output = [
