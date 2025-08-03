@@ -55,7 +55,7 @@ class MetricComponentExtractor:
         Decomposes the metric query into its constituent aggregatable components and
         constructs a SQL query derived from those components.
         """
-        if not self._extracted:
+        if not self._extracted and self._query_ast.select.from_:
             # Normalize metric queries with aliases
             parent_node_alias = self._query_ast.select.from_.relations[  # type: ignore
                 0
@@ -104,7 +104,7 @@ class MetricComponentExtractor:
             )
 
         expression = str(arg)
-        short_hash = hashlib.md5(expression.encode("utf-8")).hexdigest()[:8]
+        short_hash = hashlib.md5(expression.lower().encode("utf-8")).hexdigest()[:8]
 
         return [
             MetricComponent(

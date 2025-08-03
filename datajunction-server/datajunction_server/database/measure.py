@@ -2,13 +2,26 @@
 
 from typing import List, Optional
 
-from sqlalchemy import BigInteger, Enum, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
+from sqlalchemy import (
+    BigInteger,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    JSON,
+    TypeDecorator,
+    select,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
 from datajunction_server.models.base import labelize
 from datajunction_server.models.measure import AggregationRule
+from datajunction_server.database.node import NodeRevision
+from datajunction_server.models.cube_materialization import (
+    AggregationRule as MeasureAggregationRule,
+)
 
 
 class Measure(Base):  # type: ignore
@@ -41,4 +54,148 @@ class Measure(Base):  # type: ignore
     additive: Mapped[AggregationRule] = mapped_column(
         Enum(AggregationRule),
         default=AggregationRule.NON_ADDITIVE,
+    )
+
+
+class MeasureAggregationRuleType(TypeDecorator):
+    impl = JSON
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, MeasureAggregationRule):
+            return value.json()
+        raise ValueError(f"Expected AggregationRule, got {type(value)}")
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return MeasureAggregationRule.parse_raw(value)
+
+
+class ConcreteMeasure(Base):
+    """
+    A ConcreteMeasure represents a binding of a measure expression and aggregation rule
+    to a concrete node revision in the data graph.
+    """
+
+    __tablename__ = "concrete_measures"
+
+    id: Mapped[int] = mapped_column(BigInteger(), primary_key=True)
+
+    # Stable, versioned name used in compiled SQL
+    name: Mapped[str] = mapped_column(unique=True)
+
+    # TODO: Link to the abstract measure definition, which could reference multiple
+    # concrete measures. This lets us track semantic meaning vs. physical binding.
+    # measure_id: Mapped[int] = mapped_column(ForeignKey("measures.id"))
+
+    # The specific versioned node this measure binds to, and guarantees that the expression
+    # resolves safely against this schema.
+    upstream_revision_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "noderevision.id",
+            name="fk_concrete_measure_upstream_revision_id_noderevision",
+            ondelete="CASCADE",
+        ),
+    )
+    upstream_revision: Mapped["NodeRevision"] = relationship(
+        "NodeRevision",
+        lazy="selectin",
+    )
+
+    # A logical SQL expression
+    expression: Mapped[str]
+
+    # How to aggregate the resolved expression (e.g., SUM, COUNT, AVG)
+    aggregation: Mapped[str]
+
+    # Additivity or rollup rule - tells the planner if this measure can be summed,
+    # needs special handling, or is non-additive.
+    rule: Mapped[MeasureAggregationRule] = mapped_column(MeasureAggregationRuleType)
+
+    # Associated node revisions that use this measure
+    used_by_node_revisions: Mapped[list["NodeRevision"]] = relationship(
+        secondary="node_revision_concrete_measures",
+        back_populates="concrete_measures",
+        lazy="selectin",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ConcreteMeasure(id={self.id!r}, name='{self.name}', "
+            f"aggregation='{self.aggregation}', "
+            f"upstream_revision_id={self.upstream_revision_id})>"
+        )
+
+    @classmethod
+    async def get_by_name(
+        cls,
+        session: AsyncSession,
+        name: str,
+    ) -> Optional["ConcreteMeasure"]:
+        """
+        Get a measure by name
+        """
+        statement = (
+            select(ConcreteMeasure)
+            .where(ConcreteMeasure.name == name)
+            .options(
+                selectinload(ConcreteMeasure.used_by_node_revisions),
+            )
+        )
+        result = await session.execute(statement)
+        return result.unique().scalar_one_or_none()
+
+    @classmethod
+    async def find_by(
+        cls,
+        session: AsyncSession,
+        prefix: Optional[str] = None,
+        aggregation: Optional[str] = None,
+        upstream_name: Optional[str] = None,
+        upstream_version: Optional[str] = None,
+    ) -> list["ConcreteMeasure"]:
+        """
+        Find concrete measure by search params
+        """
+        stmt = select(ConcreteMeasure)
+
+        filters = []
+
+        if prefix:
+            filters.append(ConcreteMeasure.name.like(f"{prefix}%"))
+
+        if aggregation:
+            filters.append(ConcreteMeasure.aggregation == aggregation.upper())
+
+        if upstream_name:
+            stmt = stmt.join(
+                NodeRevision,
+                ConcreteMeasure.upstream_revision_id == NodeRevision.id,
+            )
+            filters.append(NodeRevision.name == upstream_name)
+            if upstream_version:
+                filters.append(NodeRevision.version == upstream_version)
+
+        if filters:
+            stmt = stmt.where(*filters)
+
+        result = await session.execute(stmt)
+        return result.scalars().all()
+
+
+class NodeRevisionConcreteMeasure(Base):
+    """
+    Join table tying NodeRevisions to ConcreteMeasures.
+    """
+
+    __tablename__ = "node_revision_concrete_measures"
+
+    id: Mapped[int] = mapped_column(BigInteger(), primary_key=True)
+    node_revision_id: Mapped[int] = mapped_column(
+        ForeignKey("noderevision.id", ondelete="CASCADE"),
+    )
+    concrete_measure_id: Mapped[int] = mapped_column(
+        ForeignKey("concrete_measures.id", ondelete="CASCADE"),
     )

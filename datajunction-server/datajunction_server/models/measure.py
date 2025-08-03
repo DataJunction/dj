@@ -92,3 +92,27 @@ class MeasureOutput(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class NodeRevisionNameVersion(BaseModel):
+    """
+    Node name and version
+    """
+
+    name: str
+    version: str
+
+    class Config:
+        orm_mode = True
+
+
+class ConcreteMeasureOut(BaseModel):
+    name: str
+    expression: str
+    aggregation: str
+    rule: dict[str, str | None]
+    upstream_revision: NodeRevisionNameVersion
+    used_by_node_revisions: list[NodeRevisionNameVersion]
+
+    class Config:
+        orm_mode = True

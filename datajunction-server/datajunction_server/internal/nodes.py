@@ -32,6 +32,8 @@ from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.node import MissingParent, Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.user import User
+from datajunction_server.database.measure import ConcreteMeasure
+from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.errors import (
     DJDoesNotExistException,
     DJError,
@@ -387,6 +389,42 @@ async def create_cube_node_revision(
     return node_revision
 
 
+async def derive_concrete_measures(
+    session: AsyncSession,
+    node_revision: NodeRevision,
+) -> list[ConcreteMeasure]:
+    """
+    Find or create concrete measures
+    """
+    extractor = MetricComponentExtractor.from_query_string(node_revision.query.lower())
+    measures, derived_sql = extractor.extract()
+    node_revision.derived_expression = str(derived_sql)
+
+    concrete_measures = []
+    if not node_revision.parents:
+        return concrete_measures
+
+    await session.refresh(node_revision.parents[0], ["current"])
+    for measure in measures:
+        concrete_measure = await ConcreteMeasure.get_by_name(
+            session=session,
+            name=measure.name,
+        )
+        if not concrete_measure and measure.aggregation:
+            concrete_measure = ConcreteMeasure(
+                name=measure.name,
+                upstream_revision_id=node_revision.parents[0].current.id,
+                expression=measure.expression,
+                aggregation=measure.aggregation,
+                rule=measure.rule,
+                used_by_node_revisions=[],
+            )
+        if concrete_measure:
+            concrete_measure.used_by_node_revisions.append(node_revision)
+            concrete_measures.append(concrete_measure)
+    return concrete_measures
+
+
 async def save_node(
     session: AsyncSession,
     node_revision: NodeRevision,
@@ -408,6 +446,12 @@ async def save_node(
     node.current_version = node_revision.version
     node_revision.extra_validation()
     node.owners.append(current_user)
+
+    # For metric nodes, derive the referenced concrete measures and save them
+    if node.type == NodeType.METRIC:
+        concrete_measures = await derive_concrete_measures(session, node_revision)
+        for concrete_measure in concrete_measures:
+            session.add(concrete_measure)
 
     session.add(node)
     await save_history(
