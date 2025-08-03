@@ -60,6 +60,7 @@ from datajunction_server.utils import SEPARATOR, execute_with_retry
 
 if TYPE_CHECKING:
     from datajunction_server.database.dimensionlink import DimensionLink
+    from datajunction_server.database.measure import ConcreteMeasure
 
 
 class NodeRelationship(Base):
@@ -729,6 +730,13 @@ class NodeRevision(
         JSON,
         default={},
     )
+
+    # Measures
+    concrete_measures: Mapped[List["ConcreteMeasure"]] = relationship(
+        secondary="node_revision_concrete_measures",
+        back_populates="used_by_node_revisions",
+    )
+    derived_expression: Mapped[Optional[str]]
 
     def __hash__(self) -> int:
         return hash(self.id)
