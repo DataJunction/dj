@@ -8,10 +8,9 @@ from typing import Callable, Dict, List, Optional, Union, cast
 
 from fastapi import BackgroundTasks
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, desc
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
-from sqlalchemy.sql.operators import is_
 
 from datajunction_server.api.helpers import (
     get_attribute_type,
@@ -21,13 +20,11 @@ from datajunction_server.api.helpers import (
     validate_cube,
 )
 from datajunction_server.construction.build_v2 import compile_node_ast
-from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import History
-from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.node import MissingParent, Node, NodeRevision
 from datajunction_server.database.partition import Partition
@@ -55,7 +52,7 @@ from datajunction_server.models.attribute import (
     UniquenessScope,
 )
 from datajunction_server.models.base import labelize
-from datajunction_server.models.cube import CubeElementMetadata, CubeRevisionMetadata
+from datajunction_server.models.cube import CubeRevisionMetadata
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     JoinType,
@@ -71,7 +68,6 @@ from datajunction_server.models.cube_materialization import UpsertCubeMaterializ
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
-    ColumnOutput,
     CreateCubeNode,
     CreateNode,
     CreateSourceNode,
@@ -81,7 +77,6 @@ from datajunction_server.models.node import (
     UpdateNode,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.naming import amenable_name, from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
@@ -400,9 +395,9 @@ async def derive_concrete_measures(
     measures, derived_sql = extractor.extract()
     node_revision.derived_expression = str(derived_sql)
 
-    concrete_measures = []
+    concrete_measures: list[ConcreteMeasure] = []
     if not node_revision.parents:
-        return concrete_measures
+        return concrete_measures  # pragma: no cover
 
     await session.refresh(node_revision.parents[0], ["current"])
     for measure in measures:
@@ -1652,135 +1647,44 @@ async def column_lineage(
     return lineage_column
 
 
-async def derive_sql_column(
-    cube_element: CubeElementMetadata,
-) -> ColumnOutput:
-    """
-    Derives the column name in the generated Cube SQL based on the CubeElement
-    """
-    query_column_name = (
-        cube_element.name
-        if cube_element.type == "metric"
-        else amenable_name(
-            f"{cube_element.node_name}{SEPARATOR}{cube_element.name}",
-        )
-    )
-    return ColumnOutput(
-        name=query_column_name,
-        display_name=cube_element.display_name,
-        type=cube_element.type,
-    )
-
-
-async def _build_cube_revision_statement(name: Optional[str] = None):
-    """
-    Builds the base SQLAlchemy statement for fetching cube revision metadata.
-    This function returns a SQLAlchemy Select object, not the results.
-    """
-    statement = (
-        select(NodeRevision)
-        .select_from(Node)
-        .where(is_(Node.deactivated_at, None))
-        .join(
-            NodeRevision,
-            (NodeRevision.name == Node.name)
-            & (NodeRevision.version == Node.current_version),
-        )
-        .options(
-            selectinload(NodeRevision.columns),
-            selectinload(
-                NodeRevision.availability,
-            ),  # Ensure availability is loaded for filtering
-            selectinload(NodeRevision.materializations).selectinload(
-                Materialization.backfills,
-            ),
-            selectinload(NodeRevision.cube_elements)
-            .selectinload(Column.node_revisions)
-            .options(
-                joinedload(NodeRevision.node),
-            ),
-            selectinload(NodeRevision.node).options(selectinload(Node.tags)),
-        )
-    )
-    if name:
-        statement = statement.where(Node.name == name)
-
-    return statement
-
-
 async def get_single_cube_revision_metadata(
     session: AsyncSession,
     name: str,
+    version: str | None = None,
 ) -> CubeRevisionMetadata:
     """
     Returns cube revision metadata for a single cube named `name`.
     """
-    statement = await _build_cube_revision_statement(name=name)
-    result = (await session.execute(statement)).unique().first()
-
-    if not result:
+    cube = await NodeRevision.get_cube_revision(session, name=name, version=version)
+    if not cube:
         raise DJNodeNotFound(  # pragma: no cover
-            message=f"A cube node with name `{name}` does not exist.",
+            message=(
+                f"A cube node with name `{name}` does not exist."
+                if not version
+                else f"A cube node with name `{name}` and version `{version}` does not exist."
+            ),
             http_status_code=404,
         )
-    cube = result[0]
-
-    # Preserve the ordering of elements
-    element_ordering = {col.name: col.order for col in cube.columns}
-    cube.cube_elements = sorted(
-        cube.cube_elements,
-        key=lambda elem: element_ordering.get(from_amenable_name(elem.name), 0),
-    )
-
-    cube_metadata = CubeRevisionMetadata.from_orm(cube)
-    cube_metadata.tags = cube.node.tags
-    cube_metadata.sql_columns = [
-        await derive_sql_column(element) for element in cube_metadata.cube_elements
-    ]
-    return cube_metadata
+    return CubeRevisionMetadata.parse_obj(cube)
 
 
 async def get_all_cube_revisions_metadata(
     session: AsyncSession,
-    catalog: Optional[str] = None,
+    catalog: str | None = None,
     page: int = 1,
     page_size: int = 10,
-) -> List[CubeRevisionMetadata]:
+) -> list[CubeRevisionMetadata]:
     """
     Returns cube revision metadata for the latest version of all cubes, with pagination.
     Optionally filters by the catalog in which the cube is available.
     """
-    statement = await _build_cube_revision_statement()
-
-    if catalog:
-        statement = statement.join(AvailabilityState, NodeRevision.availability).where(
-            AvailabilityState.catalog == catalog,
-        )
-
-    statement = statement.order_by(desc(NodeRevision.updated_at))
-
-    offset = (page - 1) * page_size
-    statement = statement.offset(offset).limit(page_size)
-
-    result = await session.execute(statement)
-    cubes = result.unique().scalars().all()
-
-    all_cube_metadata: List[CubeRevisionMetadata] = []
-    for cube in cubes:
-        # Preserve the ordering of elements
-        element_ordering = {col.name: col.order for col in cube.columns}
-        cube.cube_elements = sorted(
-            cube.cube_elements,
-            key=lambda elem: element_ordering.get(from_amenable_name(elem.name), 0),
-        )
-        cube_metadata = CubeRevisionMetadata.from_orm(cube)
-        cube_metadata.tags = cube.node.tags
-        cube_metadata.sql_columns = [
-            await derive_sql_column(element) for element in cube_metadata.cube_elements
-        ]
-        all_cube_metadata.append(cube_metadata)
-
-    return all_cube_metadata
+    cubes = await NodeRevision.get_cube_revisions(
+        session=session,
+        catalog=catalog,
+        page=page,
+        page_size=page_size,
+    )
+    return [CubeRevisionMetadata.parse_obj(cube) for cube in cubes]
 
 
 async def upsert_complex_dimension_link(

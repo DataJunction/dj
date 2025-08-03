@@ -62,14 +62,16 @@ class MeasureAggregationRuleType(TypeDecorator):
 
     def process_bind_param(self, value, dialect):
         if value is None:
-            return None
+            return None  # pragma: no cover
         if isinstance(value, MeasureAggregationRule):
             return value.json()
-        raise ValueError(f"Expected AggregationRule, got {type(value)}")
+        raise ValueError(  # pragma: no cover
+            f"Expected AggregationRule, got {type(value)}",
+        )
 
     def process_result_value(self, value, dialect):
         if value is None:
-            return None
+            return None  # pragma: no cover
         return MeasureAggregationRule.parse_raw(value)
 
 
