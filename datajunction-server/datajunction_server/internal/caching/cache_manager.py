@@ -91,8 +91,8 @@ class RefreshAheadCacheManager(CacheManager):
         no_store = "no-store" in cache_control
         no_cache = "no-cache" in cache_control
 
+        key: str = await self.build_cache_key(request, params)
         if not no_cache:
-            key: str = await self.build_cache_key(request, params)
             if cached := self.cache.get(key):
                 if not no_store:
                     background_tasks.add_task(self._refresh_cache, key, request, params)
@@ -111,7 +111,6 @@ class RefreshAheadCacheManager(CacheManager):
         result = await self.fallback(request, params)
 
         if not no_store:
-            key = await self.build_cache_key(request, params)
             background_tasks.add_task(
                 self.cache.set,
                 key,

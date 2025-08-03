@@ -1,3 +1,4 @@
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 import json
 from typing import Any, OrderedDict
@@ -75,6 +76,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
         The fallback function to call if the cache is not hit. This should be overridden
         in subclasses.
         """
+        params = deepcopy(params)
         async with session_context(request) as session:
             nodes = list(OrderedDict.fromkeys(params.nodes))
             measures_query = await get_measures_query(
