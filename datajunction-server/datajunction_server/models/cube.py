@@ -10,7 +10,7 @@ from pydantic.main import BaseModel
 from datajunction_server.naming import SEPARATOR, from_amenable_name, amenable_name
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.measure import (
-    ConcreteMeasureKey,
+    FrozenMeasureKey,
     NodeRevisionNameVersion,
 )
 from datajunction_server.models.node import (
@@ -28,7 +28,7 @@ from datajunction_server.typing import UTCDatetime
 
 class MetricMeasures(BaseModel):
     metric: NodeRevisionNameVersion
-    concrete_measures: list[ConcreteMeasureKey]
+    frozen_measures: list[FrozenMeasureKey]
 
 
 class CubeElementMetadata(BaseModel):
@@ -102,7 +102,7 @@ class CubeRevisionMetadata(BaseModel):
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]
     tags: Optional[List[TagOutput]]
-    metric_measures: list[MetricMeasures] | None = None
+    measures: list[MetricMeasures] | None = None
 
     class Config:
         allow_population_by_field_name = True
@@ -124,13 +124,13 @@ class CubeRevisionMetadata(BaseModel):
         cube_metadata = cls.from_orm(cube)
 
         # Populate metric measures
-        cube_metadata.metric_measures = []
+        cube_metadata.measures = []
         for node_revision in cube.metric_node_revisions():
             if node_revision:  # pragma: no cover
-                cube_metadata.metric_measures.append(
+                cube_metadata.measures.append(
                     MetricMeasures(
                         metric=node_revision,
-                        concrete_measures=node_revision.concrete_measures,
+                        frozen_measures=node_revision.frozen_measures,
                     ),
                 )
 

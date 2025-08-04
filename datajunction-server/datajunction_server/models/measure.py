@@ -106,7 +106,11 @@ class NodeRevisionNameVersion(BaseModel):
         orm_mode = True
 
 
-class ConcreteMeasureOut(BaseModel):
+class FrozenMeasureOutput(BaseModel):
+    """
+    The output fields when listing frozen measure metadata
+    """
+
     name: str
     expression: str
     aggregation: str
@@ -118,9 +122,9 @@ class ConcreteMeasureOut(BaseModel):
         orm_mode = True
 
 
-class ConcreteMeasureKey(BaseModel):
+class FrozenMeasureKey(BaseModel):
     """
-    Base concrete measure fields.
+    Base frozen measure fields.
     """
 
     name: str

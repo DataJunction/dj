@@ -1,5 +1,5 @@
 """
-Add concrete measures for node revisions
+Add frozen measures for node revisions
 
 Revision ID: 8eab64955a49
 Revises: 634fdac051c3
@@ -23,7 +23,7 @@ depends_on = None
 
 def upgrade():
     op.create_table(
-        "concrete_measures",
+        "frozen_measures",
         sa.Column("id", sa.BigInteger(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column(
@@ -37,24 +37,24 @@ def upgrade():
         sa.ForeignKeyConstraint(
             ["upstream_revision_id"],
             ["noderevision.id"],
-            name="fk_concrete_measure_upstream_revision_id_noderevision",
+            name="fk_frozen_measure_upstream_revision_id_noderevision",
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("name"),
     )
     op.create_table(
-        "node_revision_concrete_measures",
+        "node_revision_frozen_measures",
         sa.Column("id", sa.BigInteger(), nullable=False),
         sa.Column(
             "node_revision_id",
             sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
             nullable=False,
         ),
-        sa.Column("concrete_measure_id", sa.BigInteger(), nullable=False),
+        sa.Column("frozen_measure_id", sa.BigInteger(), nullable=False),
         sa.ForeignKeyConstraint(
-            ["concrete_measure_id"],
-            ["concrete_measures.id"],
+            ["frozen_measure_id"],
+            ["frozen_measures.id"],
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
@@ -71,5 +71,5 @@ def upgrade():
 def downgrade():
     with op.batch_alter_table("noderevision", schema=None) as batch_op:
         batch_op.drop_column("derived_expression")
-    op.drop_table("node_revision_concrete_measures")
-    op.drop_table("concrete_measures")
+    op.drop_table("node_revision_frozen_measures")
+    op.drop_table("frozen_measures")

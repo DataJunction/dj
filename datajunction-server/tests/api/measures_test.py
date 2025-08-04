@@ -251,41 +251,41 @@ async def test_edit_measure(
 
 
 @pytest.mark.asyncio
-async def test_list_concrete_measures(
+async def test_list_frozen_measures(
     module__client_with_roads: AsyncClient,
 ):
     """
-    Test ``GET /concrete-measures``.
+    Test ``GET /frozen-measures``.
     """
     response = await module__client_with_roads.get(
-        "/concrete-measures",
+        "/frozen-measures",
     )
-    concrete_measures = response.json()
-    assert len(concrete_measures) == 16
+    frozen_measures = response.json()
+    assert len(frozen_measures) == 16
 
     response = await module__client_with_roads.get(
-        "/concrete-measures?aggregation=SUM",
+        "/frozen-measures?aggregation=SUM",
     )
-    concrete_measures = response.json()
-    assert len(concrete_measures) == 10
+    frozen_measures = response.json()
+    assert len(frozen_measures) == 10
 
     response = await module__client_with_roads.get(
-        "/concrete-measures?upstream_name=default.regional_level_agg",
+        "/frozen-measures?upstream_name=default.regional_level_agg",
     )
-    concrete_measures = response.json()
-    assert len(concrete_measures) == 4
+    frozen_measures = response.json()
+    assert len(frozen_measures) == 4
 
     response = await module__client_with_roads.get(
-        "/concrete-measures?upstream_name=default.repair_orders_fact&upstream_version=v1.0",
+        "/frozen-measures?upstream_name=default.repair_orders_fact&upstream_version=v1.0",
     )
-    concrete_measures = response.json()
-    assert len(concrete_measures) == 10
+    frozen_measures = response.json()
+    assert len(frozen_measures) == 10
 
     response = await module__client_with_roads.get(
-        "/concrete-measures?prefix=repair_order_id_count_0b7dfba0",
+        "/frozen-measures?prefix=repair_order_id_count_0b7dfba0",
     )
-    concrete_measures = response.json()
-    assert concrete_measures == [
+    frozen_measures = response.json()
+    assert frozen_measures == [
         {
             "aggregation": "COUNT",
             "expression": "repair_order_id",
