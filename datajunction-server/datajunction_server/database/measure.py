@@ -75,13 +75,13 @@ class MeasureAggregationRuleType(TypeDecorator):
         return MeasureAggregationRule.parse_raw(value)
 
 
-class ConcreteMeasure(Base):
+class FrozenMeasure(Base):
     """
-    A ConcreteMeasure represents a binding of a measure expression and aggregation rule
-    to a concrete node revision in the data graph.
+    A frozen measure represents a binding of a measure expression and aggregation rule
+    to a specific node revision in the data graph.
     """
 
-    __tablename__ = "concrete_measures"
+    __tablename__ = "frozen_measures"
 
     id: Mapped[int] = mapped_column(BigInteger(), primary_key=True)
 
@@ -89,7 +89,7 @@ class ConcreteMeasure(Base):
     name: Mapped[str] = mapped_column(unique=True)
 
     # TODO: Link to the abstract measure definition, which could reference multiple
-    # concrete measures. This lets us track semantic meaning vs. physical binding.
+    # frozen measures. This lets us track semantic meaning vs. physical binding.
     # measure_id: Mapped[int] = mapped_column(ForeignKey("measures.id"))
 
     # The specific versioned node this measure binds to, and guarantees that the expression
@@ -97,7 +97,7 @@ class ConcreteMeasure(Base):
     upstream_revision_id: Mapped[int] = mapped_column(
         ForeignKey(
             "noderevision.id",
-            name="fk_concrete_measure_upstream_revision_id_noderevision",
+            name="fk_frozen_measure_upstream_revision_id_noderevision",
             ondelete="CASCADE",
         ),
     )
@@ -118,14 +118,14 @@ class ConcreteMeasure(Base):
 
     # Associated node revisions that use this measure
     used_by_node_revisions: Mapped[list["NodeRevision"]] = relationship(
-        secondary="node_revision_concrete_measures",
-        back_populates="concrete_measures",
+        secondary="node_revision_frozen_measures",
+        back_populates="frozen_measures",
         lazy="selectin",
     )
 
     def __repr__(self) -> str:
         return (
-            f"<ConcreteMeasure(id={self.id!r}, name='{self.name}', "
+            f"<FrozenMeasure(id={self.id!r}, name='{self.name}', "
             f"aggregation='{self.aggregation}', "
             f"upstream_revision_id={self.upstream_revision_id})>"
         )
@@ -135,15 +135,15 @@ class ConcreteMeasure(Base):
         cls,
         session: AsyncSession,
         name: str,
-    ) -> Optional["ConcreteMeasure"]:
+    ) -> Optional["FrozenMeasure"]:
         """
         Get a measure by name
         """
         statement = (
-            select(ConcreteMeasure)
-            .where(ConcreteMeasure.name == name)
+            select(FrozenMeasure)
+            .where(FrozenMeasure.name == name)
             .options(
-                selectinload(ConcreteMeasure.used_by_node_revisions),
+                selectinload(FrozenMeasure.used_by_node_revisions),
             )
         )
         result = await session.execute(statement)
@@ -157,24 +157,24 @@ class ConcreteMeasure(Base):
         aggregation: Optional[str] = None,
         upstream_name: Optional[str] = None,
         upstream_version: Optional[str] = None,
-    ) -> list["ConcreteMeasure"]:
+    ) -> list["FrozenMeasure"]:
         """
-        Find concrete measure by search params
+        Find frozen measure by search params
         """
-        stmt = select(ConcreteMeasure)
+        stmt = select(FrozenMeasure)
 
         filters = []
 
         if prefix:
-            filters.append(ConcreteMeasure.name.like(f"{prefix}%"))
+            filters.append(FrozenMeasure.name.like(f"{prefix}%"))
 
         if aggregation:
-            filters.append(ConcreteMeasure.aggregation == aggregation.upper())
+            filters.append(FrozenMeasure.aggregation == aggregation.upper())
 
         if upstream_name:
             stmt = stmt.join(
                 NodeRevision,
-                ConcreteMeasure.upstream_revision_id == NodeRevision.id,
+                FrozenMeasure.upstream_revision_id == NodeRevision.id,
             )
             filters.append(NodeRevision.name == upstream_name)
             if upstream_version:
@@ -187,17 +187,17 @@ class ConcreteMeasure(Base):
         return result.scalars().all()
 
 
-class NodeRevisionConcreteMeasure(Base):
+class NodeRevisionFrozenMeasure(Base):
     """
-    Join table tying NodeRevisions to ConcreteMeasures.
+    Join table tying NodeRevisions to FrozenMeasures.
     """
 
-    __tablename__ = "node_revision_concrete_measures"
+    __tablename__ = "node_revision_frozen_measures"
 
     id: Mapped[int] = mapped_column(BigInteger(), primary_key=True)
     node_revision_id: Mapped[int] = mapped_column(
         ForeignKey("noderevision.id", ondelete="CASCADE"),
     )
-    concrete_measure_id: Mapped[int] = mapped_column(
-        ForeignKey("concrete_measures.id", ondelete="CASCADE"),
+    frozen_measure_id: Mapped[int] = mapped_column(
+        ForeignKey("frozen_measures.id", ondelete="CASCADE"),
     )

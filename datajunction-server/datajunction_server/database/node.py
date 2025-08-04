@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
 from pydantic import Extra
-from sqlalchemy import JSON, desc
+from sqlalchemy import JSON, and_, desc
 from sqlalchemy import Column as SqlalchemyColumn
 from sqlalchemy import (
     DateTime,
@@ -60,7 +60,7 @@ from datajunction_server.utils import SEPARATOR, execute_with_retry
 
 if TYPE_CHECKING:
     from datajunction_server.database.dimensionlink import DimensionLink
-    from datajunction_server.database.measure import ConcreteMeasure
+    from datajunction_server.database.measure import FrozenMeasure
 
 
 class NodeRelationship(Base):
@@ -732,8 +732,8 @@ class NodeRevision(
     )
 
     # Measures
-    concrete_measures: Mapped[List["ConcreteMeasure"]] = relationship(
-        secondary="node_revision_concrete_measures",
+    frozen_measures: Mapped[List["FrozenMeasure"]] = relationship(
+        secondary="node_revision_frozen_measures",
         back_populates="used_by_node_revisions",
     )
     derived_expression: Mapped[Optional[str]]
@@ -1021,7 +1021,7 @@ class NodeRevision(
         page: int = 1,
         page_size: int = 10,
     ):
-        from datajunction_server.database.measure import ConcreteMeasure
+        from datajunction_server.database.measure import FrozenMeasure
 
         if not version or version == "latest":
             version_condition = NodeRevision.version == Node.current_version
@@ -1031,7 +1031,7 @@ class NodeRevision(
         statement = (
             select(NodeRevision)
             .select_from(Node)
-            .where(is_(Node.deactivated_at, None))
+            .where(and_(is_(Node.deactivated_at, None), Node.type == NodeType.CUBE))
             .join(
                 NodeRevision,
                 (NodeRevision.name == Node.name) & (version_condition),
@@ -1048,8 +1048,8 @@ class NodeRevision(
                 .selectinload(Column.node_revisions)
                 .options(
                     joinedload(NodeRevision.node),
-                    selectinload(NodeRevision.concrete_measures).options(
-                        selectinload(ConcreteMeasure.upstream_revision),
+                    selectinload(NodeRevision.frozen_measures).options(
+                        selectinload(FrozenMeasure.upstream_revision),
                     ),
                 ),
                 selectinload(NodeRevision.node).options(selectinload(Node.tags)),

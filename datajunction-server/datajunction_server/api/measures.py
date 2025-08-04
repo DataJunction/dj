@@ -12,11 +12,11 @@ from sqlalchemy.orm import joinedload
 
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.column import Column
-from datajunction_server.database.measure import Measure, ConcreteMeasure
+from datajunction_server.database.measure import Measure, FrozenMeasure
 from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.measure import (
-    ConcreteMeasureOut,
+    FrozenMeasureOutput,
     CreateMeasure,
     EditMeasure,
     MeasureOutput,
@@ -174,22 +174,22 @@ async def edit_measure(
     return measure
 
 
-@router.get("/concrete-measures/", response_model=list[ConcreteMeasureOut])
-async def list_concrete_measures(
+@router.get("/frozen-measures/", response_model=list[FrozenMeasureOutput])
+async def list_frozen_measures(
     prefix: Optional[str] = None,
     aggregation: Optional[str] = None,
     upstream_name: Optional[str] = None,
     upstream_version: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
-) -> list[ConcreteMeasureOut]:
+) -> list[FrozenMeasureOutput]:
     """
-    List all concrete measures, with optional filters:
+    List all frozen measures, with optional filters:
     - prefix: only measures whose names start with this prefix
     - aggregation: filter by aggregation type (e.g., SUM, COUNT)
     - upstream_name: filter by the upstream node revision's name
     - upstream_version: filter by the upstream node revision's version
     """
-    return await ConcreteMeasure.find_by(
+    return await FrozenMeasure.find_by(
         session,
         prefix=prefix,
         aggregation=aggregation,

@@ -3327,4 +3327,4 @@ async def test_get_cube_version(
     data = response.json()
     assert data["name"] == "default.repairs_cube"
     assert data["version"] == "v1.0"
-    assert len(data["metric_measures"]) == 6
+    assert len(data["measures"]) == 6
