@@ -197,6 +197,18 @@ type MaterializationConfig {
   strategy: String
 }
 
+type MaterializationPlan {
+  units: [MaterializationUnit!]!
+}
+
+type MaterializationUnit {
+  upstream: VersionedRef!
+  grainDimensions: [VersionedRef!]!
+  measures: [MetricComponent!]!
+  filterRefs: [VersionedRef!]!
+  filters: [String!]!
+}
+
 type MetricComponent {
   name: String!
   expression: String!
@@ -435,6 +447,11 @@ type Query {
     preaggregate: Boolean! = false
   ): [GeneratedSQL!]!
 
+  """
+  Get materialization plan for a list of metrics, dimensions, and filters.
+  """
+  materializationPlan(cube: CubeDefinition!): MaterializationPlan!
+
   """Find DJ node tags based on the search parameters."""
   listTags(tagNames: [String!] = null, tagTypes: [String!] = null): [Tag!]!
 
@@ -495,4 +512,9 @@ type User {
   name: String
   oauthProvider: OAuthProvider!
   isAdmin: Boolean!
+}
+
+type VersionedRef {
+  name: String!
+  version: String!
 }

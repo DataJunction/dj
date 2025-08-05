@@ -189,3 +189,21 @@ async def resolve_metrics_and_dimensions(
 
     metrics = list(OrderedDict.fromkeys(metrics))
     return metrics, dimensions
+
+
+async def get_metrics(
+    session: AsyncSession,
+    metrics: list[str],
+):
+    return await DBNode.get_by_names(
+        session,
+        metrics,
+        options=[
+            joinedload(DBNode.current).options(
+                selectinload(DBNodeRevision.columns),
+                joinedload(DBNodeRevision.catalog),
+                selectinload(DBNodeRevision.parents),
+            ),
+        ],
+        include_inactive=False,
+    )
