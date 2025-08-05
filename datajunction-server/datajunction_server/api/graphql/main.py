@@ -17,7 +17,10 @@ from datajunction_server.api.graphql.queries.nodes import (
     find_nodes,
     find_nodes_paginated,
 )
-from datajunction_server.api.graphql.queries.sql import measures_sql
+from datajunction_server.api.graphql.queries.sql import (
+    measures_sql,
+    materialization_plan,
+)
 from datajunction_server.api.graphql.queries.tags import list_tag_types, list_tags
 from datajunction_server.api.graphql.scalars import Connection
 from datajunction_server.api.graphql.scalars.catalog_engine import (
@@ -26,7 +29,10 @@ from datajunction_server.api.graphql.scalars.catalog_engine import (
     DialectInfo,
 )
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute, Node
-from datajunction_server.api.graphql.scalars.sql import GeneratedSQL
+from datajunction_server.api.graphql.scalars.sql import (
+    GeneratedSQL,
+    MaterializationPlan,
+)
 from datajunction_server.api.graphql.scalars.tag import Tag
 from datajunction_server.utils import get_session, get_settings
 
@@ -122,6 +128,10 @@ class Query:
     measures_sql: list[GeneratedSQL] = strawberry.field(
         resolver=log_resolver(measures_sql),
         description="Get measures SQL for a list of metrics, dimensions, and filters.",
+    )
+    materialization_plan: MaterializationPlan = strawberry.field(
+        resolver=log_resolver(materialization_plan),
+        description="Get materialization plan for a list of metrics, dimensions, and filters.",
     )
 
     # Tags queries
