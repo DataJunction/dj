@@ -248,3 +248,61 @@ async def test_edit_measure(
     assert response.json()["message"] == (
         "Column `non_existent_column` does not exist on node `default.national_level_agg`"
     )
+
+
+@pytest.mark.asyncio
+async def test_list_frozen_measures(
+    module__client_with_roads: AsyncClient,
+):
+    """
+    Test ``GET /frozen-measures``.
+    """
+    response = await module__client_with_roads.get(
+        "/frozen-measures",
+    )
+    frozen_measures = response.json()
+    assert len(frozen_measures) == 16
+
+    response = await module__client_with_roads.get(
+        "/frozen-measures?aggregation=SUM",
+    )
+    frozen_measures = response.json()
+    assert len(frozen_measures) == 10
+
+    response = await module__client_with_roads.get(
+        "/frozen-measures?upstream_name=default.regional_level_agg",
+    )
+    frozen_measures = response.json()
+    assert len(frozen_measures) == 4
+
+    response = await module__client_with_roads.get(
+        "/frozen-measures?upstream_name=default.repair_orders_fact&upstream_version=v1.0",
+    )
+    frozen_measures = response.json()
+    assert len(frozen_measures) == 10
+
+    response = await module__client_with_roads.get(
+        "/frozen-measures?prefix=repair_order_id_count_0b7dfba0",
+    )
+    frozen_measures = response.json()
+    assert frozen_measures == [
+        {
+            "aggregation": "COUNT",
+            "expression": "repair_order_id",
+            "name": "repair_order_id_count_0b7dfba0",
+            "rule": {
+                "level": None,
+                "type": "full",
+            },
+            "upstream_revision": {
+                "name": "default.repair_orders_fact",
+                "version": "v1.0",
+            },
+            "used_by_node_revisions": [
+                {
+                    "name": "default.num_repair_orders",
+                    "version": "v1.0",
+                },
+            ],
+        },
+    ]
