@@ -32,6 +32,7 @@ from datajunction_server.models import access
 from datajunction_server.models.base import labelize
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.materialization import (
+    AvailabilityStateInfo,
     MaterializationConfigInfoUnified,
     MaterializationInfo,
     MaterializationJobTypeEnum,
@@ -520,3 +521,55 @@ async def run_materialization_backfill(
     )
     await session.commit()
     return materialization_output
+
+
+@router.get(
+    "/nodes/{node_name}/availability/",
+    response_model=List[AvailabilityStateInfo],
+    status_code=200,
+    name="List All Availability States for a Node",
+)
+async def list_node_availability_states(
+    node_name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+) -> List[AvailabilityStateInfo]:
+    """
+    Retrieve all availability states for a given node across all revisions.
+    """
+    # Get all revisions with their availability states
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[
+            joinedload(Node.revisions).options(
+                selectinload(NodeRevision.availability),
+            ),
+        ],
+        raise_if_not_exists=True,
+    )
+
+    # Collect availability states from all revisions
+    availability_states = []
+    for revision in node.revisions:  # type: ignore
+        if revision.availability:
+            availability_state = AvailabilityStateInfo(
+                id=revision.availability.id,
+                catalog=revision.availability.catalog,
+                schema=revision.availability.schema_,
+                table=revision.availability.table,
+                valid_through_ts=revision.availability.valid_through_ts,
+                url=revision.availability.url,
+                links=revision.availability.links,
+                categorical_partitions=revision.availability.categorical_partitions,
+                temporal_partitions=revision.availability.temporal_partitions,
+                min_temporal_partition=revision.availability.min_temporal_partition,
+                max_temporal_partition=revision.availability.max_temporal_partition,
+                partitions=revision.availability.partitions,
+                updated_at=revision.availability.updated_at.isoformat(),
+                node_revision_id=revision.id,
+                node_version=revision.version,
+            )
+            availability_states.append(availability_state)
+
+    return availability_states

@@ -5,20 +5,99 @@ import * as React from 'react';
 import AddBackfillPopover from './AddBackfillPopover';
 import { labelize } from '../../../utils/form';
 import NodeMaterializationDelete from '../../components/NodeMaterializationDelete';
+import Tab from '../../components/Tab';
 
 const cronstrue = require('cronstrue');
 
 export default function NodeMaterializationTab({ node, djClient }) {
   const [materializations, setMaterializations] = useState([]);
+  const [rawMaterializations, setRawMaterializations] = useState([]);
+  const [selectedRevisionTab, setSelectedRevisionTab] = useState(null);
+  const [materializationsByRevision, setMaterializationsByRevision] = useState(
+    {},
+  );
+  const [showInactive, setShowInactive] = useState(false);
+  const [availabilityStates, setAvailabilityStates] = useState([]);
+  const [availabilityStatesByRevision, setAvailabilityStatesByRevision] =
+    useState({});
+  const [isRebuilding, setIsRebuilding] = useState(() => {
+    // Check if we're in the middle of a rebuild operation
+    return localStorage.getItem(`rebuilding-${node?.name}`) === 'true';
+  });
+
   useEffect(() => {
     const fetchData = async () => {
       if (node) {
         const data = await djClient.materializations(node.name);
-        setMaterializations(data);
+
+        // Store raw data
+        setRawMaterializations(data);
+
+        // Fetch availability states
+        const availabilityData = await djClient.availabilityStates(node.name);
+        setAvailabilityStates(availabilityData);
+
+        // Group availability states by version
+        const availabilityGrouped = availabilityData.reduce((acc, avail) => {
+          const version = avail.node_version || node.version;
+          if (!acc[version]) {
+            acc[version] = [];
+          }
+          acc[version].push(avail);
+          return acc;
+        }, {});
+
+        setAvailabilityStatesByRevision(availabilityGrouped);
+
+        // Filter materializations based on checkbox state
+        const filteredMaterializations = showInactive
+          ? data // Show all materializations if checkbox is checked
+          : data.filter(mat => !mat.deactivated_at); // Only active if unchecked
+
+        setMaterializations(filteredMaterializations);
+
+        // Group filtered materializations by version
+        const grouped = filteredMaterializations.reduce((acc, mat) => {
+          // Extract version from materialization config
+          const matVersion = mat.config?.cube?.version || node.version;
+
+          if (!acc[matVersion]) {
+            acc[matVersion] = [];
+          }
+          acc[matVersion].push(mat);
+          return acc;
+        }, {});
+
+        setMaterializationsByRevision(grouped);
+
+        // Clear rebuilding state once data is loaded after a page reload
+        if (localStorage.getItem(`rebuilding-${node.name}`) === 'true') {
+          localStorage.removeItem(`rebuilding-${node.name}`);
+          setIsRebuilding(false);
+        }
       }
     };
     fetchData().catch(console.error);
-  }, [djClient, node]);
+  }, [djClient, node, showInactive]);
+
+  // Separate useEffect to set default selected tab
+  useEffect(() => {
+    if (
+      !selectedRevisionTab &&
+      Object.keys(materializationsByRevision).length > 0
+    ) {
+      // First try to find current node version
+      if (materializationsByRevision[node?.version]) {
+        setSelectedRevisionTab(node.version);
+      } else {
+        // Otherwise, select the most recent version (sort by version string)
+        const sortedVersions = Object.keys(materializationsByRevision).sort(
+          (a, b) => b.localeCompare(a),
+        );
+        setSelectedRevisionTab(sortedVersions[0]);
+      }
+    }
+  }, [materializationsByRevision, selectedRevisionTab, node?.version]);
 
   const partitionColumnsMap = node
     ? Object.fromEntries(
@@ -35,9 +114,238 @@ export default function NodeMaterializationTab({ node, djClient }) {
     return parsedCron;
   };
 
+  const onClickRevisionTab = revisionId => () => {
+    setSelectedRevisionTab(revisionId);
+  };
+
+  const buildRevisionTabs = () => {
+    const versions = Object.keys(materializationsByRevision);
+
+    // Check if there are any materializations at all (including inactive ones)
+    const hasAnyMaterializations = rawMaterializations.length > 0;
+
+    // Determine which versions have only inactive materializations
+    const versionHasOnlyInactive = {};
+    rawMaterializations.forEach(mat => {
+      const matVersion = mat.config?.cube?.version || node.version;
+      if (!versionHasOnlyInactive[matVersion]) {
+        versionHasOnlyInactive[matVersion] = {
+          hasActive: false,
+          hasInactive: false,
+        };
+      }
+      if (mat.deactivated_at) {
+        versionHasOnlyInactive[matVersion].hasInactive = true;
+      } else {
+        versionHasOnlyInactive[matVersion].hasActive = true;
+      }
+    });
+
+    // If no active versions but there are inactive materializations, show checkbox and button
+    if (versions.length === 0) {
+      return (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            marginBottom: '20px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            {hasAnyMaterializations && (
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  fontSize: '14px',
+                  color: '#333',
+                  padding: '4px 8px',
+                  borderRadius: '12px',
+                  backgroundColor: '#f5f5f5',
+                  border: '1px solid #ddd',
+                }}
+                title="Shows inactive materializations for the latest cube."
+              >
+                <input
+                  type="checkbox"
+                  checked={showInactive}
+                  onChange={e => setShowInactive(e.target.checked)}
+                />
+                Show Inactive
+              </label>
+            )}
+            {node && <AddMaterializationPopover node={node} />}
+          </div>
+        </div>
+      );
+    }
+
+    // Sort versions: current version first, then by version string (most recent first)
+    const sortedVersions = versions.sort((a, b) => {
+      // Current node version always comes first
+      if (a === node?.version) return -1;
+      if (b === node?.version) return 1;
+
+      // Then sort by version string (descending)
+      return b.localeCompare(a);
+    });
+
+    // Check if latest version has active materializations
+    const hasLatestVersionMaterialization =
+      materializationsByRevision[node?.version] &&
+      materializationsByRevision[node?.version].length > 0;
+
+    // Refresh latest materialization function
+    const refreshLatestMaterialization = async () => {
+      if (
+        !window.confirm(
+          'This will create new version of the cube and build new materialization workflows. Previous version of the cube and its materialization will be accessible using specific version label. Would you like to continue?',
+        )
+      ) {
+        return;
+      }
+
+      // Set loading state in both React state and localStorage
+      setIsRebuilding(true);
+      localStorage.setItem(`rebuilding-${node.name}`, 'true');
+
+      try {
+        const { status, json } = await djClient.refreshLatestMaterialization(
+          node.name,
+        );
+
+        if (status === 200 || status === 201) {
+          // Keep the loading state during page reload
+          window.location.reload(); // Reload to show the updated materialization
+        } else {
+          alert(`Failed to rebuild materialization: ${json.message}`);
+          // Clear loading state on error
+          localStorage.removeItem(`rebuilding-${node.name}`);
+          setIsRebuilding(false);
+        }
+      } catch (error) {
+        alert(`Error rebuilding materialization: ${error.message}`);
+        // Clear loading state on error
+        localStorage.removeItem(`rebuilding-${node.name}`);
+        setIsRebuilding(false);
+      }
+    };
+
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '20px',
+        }}
+      >
+        <div className="align-items-center row">
+          {sortedVersions.map(version => {
+            const isCurrentVersion = version === node?.version;
+            const tabName = isCurrentVersion ? `${version} (latest)` : version;
+            const versionInfo = versionHasOnlyInactive[version];
+            const isOnlyInactive =
+              versionInfo && !versionInfo.hasActive && versionInfo.hasInactive;
+
+            // For inactive-only versions, render with oval styling
+            if (isOnlyInactive && showInactive) {
+              return (
+                <div
+                  key={version}
+                  className={
+                    selectedRevisionTab === version ? 'col active' : 'col'
+                  }
+                >
+                  <div className="header-tabs nav-overflow nav nav-tabs">
+                    <div className="nav-item">
+                      <button
+                        id={version}
+                        className="nav-link"
+                        tabIndex="0"
+                        onClick={onClickRevisionTab(version)}
+                        aria-label={tabName}
+                        aria-hidden="false"
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: '12px',
+                          backgroundColor: '#f5f5f5',
+                          border: '1px solid #ddd',
+                          margin: '0 2px',
+                        }}
+                      >
+                        {tabName}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <Tab
+                key={version}
+                id={version}
+                name={tabName}
+                onClick={onClickRevisionTab(version)}
+                selectedTab={selectedRevisionTab}
+              />
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              fontSize: '14px',
+              color: '#333',
+              padding: '4px 8px',
+              borderRadius: '12px',
+              backgroundColor: '#f5f5f5',
+              border: '1px solid #ddd',
+            }}
+            title="Shows inactive materializations for the latest cube."
+          >
+            <input
+              type="checkbox"
+              checked={showInactive}
+              onChange={e => setShowInactive(e.target.checked)}
+            />
+            Show Inactive
+          </label>
+          {node &&
+            (hasLatestVersionMaterialization ? (
+              <button
+                className="edit_button"
+                aria-label="RefreshLatestMaterialization"
+                tabIndex="0"
+                onClick={refreshLatestMaterialization}
+                disabled={isRebuilding}
+                title="Create a new version of the cube and re-create its materialization workflows."
+                style={{
+                  opacity: isRebuilding ? 0.7 : 1,
+                  cursor: isRebuilding ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <span className="add_node">
+                  Rebuild (latest) Materialization
+                </span>
+              </button>
+            ) : (
+              <AddMaterializationPopover node={node} />
+            ))}
+        </div>
+      </div>
+    );
+  };
+
   const materializationRows = materializations => {
-    return materializations.map(materialization => (
-      <>
+    return materializations.map((materialization, index) => (
+      <div key={`${materialization.name}-${index}`}>
         <div className="tr">
           <div key={materialization.name} style={{ fontSize: 'large' }}>
             <div
@@ -53,6 +361,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
               <NodeMaterializationDelete
                 nodeName={node.name}
                 materializationName={materialization.name}
+                nodeVersion={selectedRevisionTab}
               />
             </div>
             <div className="td">
@@ -191,7 +500,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
                     .filter(col => col.partition !== null)
                     .map(column => {
                       return (
-                        <li>
+                        <li key={column.name}>
                           <div className="partitionLink">
                             {column.display_name}
                             <span className="badge partition_value">
@@ -206,20 +515,144 @@ export default function NodeMaterializationTab({ node, djClient }) {
             </ul>
           </div>
         </div>
-      </>
+      </div>
     ));
   };
+  const currentRevisionMaterializations = selectedRevisionTab
+    ? materializationsByRevision[selectedRevisionTab] || []
+    : materializations;
+
+  const currentRevisionAvailability = selectedRevisionTab
+    ? availabilityStatesByRevision[selectedRevisionTab] || []
+    : availabilityStates;
+
+  const renderMaterializedDatasets = availabilityStates => {
+    if (!availabilityStates || availabilityStates.length === 0) {
+      return (
+        <div className="message alert" style={{ marginTop: '10px' }}>
+          No materialized datasets available for this revision.
+        </div>
+      );
+    }
+
+    return availabilityStates.map((availability, index) => (
+      <table
+        key={`availability-${index}`}
+        className="card-inner-table table"
+        aria-label="Availability"
+        aria-hidden="false"
+        style={{ marginBottom: '20px' }}
+      >
+        <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
+          <tr>
+            <th className="text-start">Output Dataset</th>
+            <th>Valid Through</th>
+            <th>Partitions</th>
+            <th>Links</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div className={`table__full`} key={availability.table}>
+                <div className="table__header">
+                  <TableIcon />{' '}
+                  <span className={`entity-info`}>
+                    {availability.catalog + '.' + availability.schema_}
+                  </span>
+                </div>
+                <div className={`table__body upstream_tables`}>
+                  <a href={availability.url}>{availability.table}</a>
+                </div>
+              </div>
+            </td>
+            <td>{new Date(availability.valid_through_ts).toISOString()}</td>
+            <td>
+              <span
+                className={`badge partition_value`}
+                style={{ fontSize: '100%' }}
+              >
+                <span className={`badge partition_value_highlight`}>
+                  {availability.min_temporal_partition?.join(', ') || 'N/A'}
+                </span>
+                to
+                <span className={`badge partition_value_highlight`}>
+                  {availability.max_temporal_partition?.join(', ') || 'N/A'}
+                </span>
+              </span>
+            </td>
+            <td>
+              {availability.links &&
+              Object.keys(availability.links).length > 0 ? (
+                Object.entries(availability.links).map(([key, value]) => (
+                  <div key={key}>
+                    <a href={value} target="_blank" rel="noreferrer">
+                      {key}
+                    </a>
+                  </div>
+                ))
+              ) : (
+                <></>
+              )}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    ));
+  };
+
   return (
     <>
       <div
         className="table-vertical"
         role="table"
         aria-label="Materializations"
+        style={{ position: 'relative' }}
       >
+        {/* Loading overlay */}
+        {isRebuilding && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(255, 255, 255, 0.8)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 1000,
+              minHeight: '200px',
+            }}
+          >
+            <div
+              style={{
+                width: '40px',
+                height: '40px',
+                border: '4px solid #f3f3f3',
+                borderTop: '4px solid #3498db',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+                marginBottom: '16px',
+              }}
+            />
+            <div
+              style={{ fontSize: '16px', color: '#666', textAlign: 'center' }}
+            >
+              Rebuilding materialization...
+              <br />
+              <small style={{ fontSize: '14px' }}>
+                This may take a few moments
+              </small>
+            </div>
+          </div>
+        )}
+
         <div>
-          <h2>Materializations</h2>
-          {node ? <AddMaterializationPopover node={node} /> : <></>}
-          {materializations.length > 0 ? (
+          {buildRevisionTabs()}
+          {currentRevisionMaterializations.length > 0 ? (
             <div
               className="card-inner-table table"
               aria-label="Materializations"
@@ -227,7 +660,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
             >
               <div style={{ display: 'table' }}>
                 {materializationRows(
-                  materializations.filter(
+                  currentRevisionMaterializations.filter(
                     materialization =>
                       !(
                         materialization.name === 'default' &&
@@ -239,88 +672,12 @@ export default function NodeMaterializationTab({ node, djClient }) {
             </div>
           ) : (
             <div className="message alert" style={{ marginTop: '10px' }}>
-              No materialization workflows configured for this node.
+              No materialization workflows configured for this revision.
             </div>
           )}
-        </div>
-        <div>
-          <h2>Materialized Datasets</h2>
-          {node && node.availability !== null ? (
-            <table
-              className="card-inner-table table"
-              aria-label="Availability"
-              aria-hidden="false"
-            >
-              <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-                <tr>
-                  <th className="text-start">Output Dataset</th>
-                  <th>Valid Through</th>
-                  <th>Partitions</th>
-                  <th>Links</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>
-                    {
-                      <div
-                        className={`table__full`}
-                        key={node.availability.table}
-                      >
-                        <div className="table__header">
-                          <TableIcon />{' '}
-                          <span className={`entity-info`}>
-                            {node.availability.catalog +
-                              '.' +
-                              node.availability.schema_}
-                          </span>
-                        </div>
-                        <div className={`table__body upstream_tables`}>
-                          <a href={node.availability.url}>
-                            {node.availability.table}
-                          </a>
-                        </div>
-                      </div>
-                    }
-                  </td>
-                  <td>
-                    {new Date(node.availability.valid_through_ts).toISOString()}
-                  </td>
-                  <td>
-                    <span
-                      className={`badge partition_value`}
-                      style={{ fontSize: '100%' }}
-                    >
-                      <span className={`badge partition_value_highlight`}>
-                        {node.availability.min_temporal_partition}
-                      </span>
-                      to
-                      <span className={`badge partition_value_highlight`}>
-                        {node.availability.max_temporal_partition}
-                      </span>
-                    </span>
-                  </td>
-                  <td>
-                    {node.availability.links !== null ? (
-                      Object.entries(node.availability.links).map(
-                        ([key, value]) => (
-                          <div key={key}>
-                            <a href={value} target="_blank" rel="noreferrer">
-                              {key}
-                            </a>
-                          </div>
-                        ),
-                      )
-                    ) : (
-                      <></>
-                    )}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          ) : (
-            <div className="message alert" style={{ marginTop: '10px' }}>
-              No materialized datasets available for this node.
+          {Object.keys(materializationsByRevision).length > 0 && (
+            <div style={{ marginTop: '30px' }}>
+              {renderMaterializedDatasets(currentRevisionAvailability)}
             </div>
           )}
         </div>

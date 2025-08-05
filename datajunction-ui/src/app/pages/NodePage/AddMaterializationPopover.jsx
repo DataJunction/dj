@@ -124,7 +124,7 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
           {function Render({ isSubmitting, status, setFieldValue }) {
             return (
               <Form>
-                <h2>Configure Materialization</h2>
+                <h2>Configure Materialization for the Latest Node Version</h2>
                 {displayMessageAfterSubmit(status)}
                 {node.type === 'cube' ? (
                   <span data-testid="job-type">
@@ -195,15 +195,23 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                     'spark.memory.fraction': '0.3',
                   }}
                 />
-                <button
-                  className="add_node"
-                  type="submit"
-                  aria-label="SaveEditColumn"
-                  aria-hidden="false"
-                  disabled={isSubmitting}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    marginTop: '20px',
+                  }}
                 >
-                  {isSubmitting ? <LoadingIcon /> : 'Save'}
-                </button>
+                  <button
+                    className="add_node"
+                    type="submit"
+                    aria-label="SaveEditColumn"
+                    aria-hidden="false"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? <LoadingIcon /> : 'Save'}
+                  </button>
+                </div>
               </Form>
             );
           }}

@@ -3,7 +3,7 @@
 import enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
-from pydantic import AnyHttpUrl, BaseModel, validator
+from pydantic import AnyHttpUrl, BaseModel, Field, validator
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
@@ -140,6 +140,31 @@ class MaterializationConfigInfoUnified(
     """
     Materialization config + info
     """
+
+
+class AvailabilityStateInfo(BaseModel):
+    """
+    Availability state information for a node
+    """
+
+    id: int
+    catalog: str
+    schema_: Optional[str] = Field(alias="schema")
+    table: str
+    valid_through_ts: int
+    url: Optional[str] = None
+    links: Optional[Dict] = None
+    categorical_partitions: Optional[List[str]] = []
+    temporal_partitions: Optional[List[str]] = []
+    min_temporal_partition: Optional[List[str]] = []
+    max_temporal_partition: Optional[List[str]] = []
+    partitions: Optional[List] = []
+    updated_at: str
+    node_revision_id: int
+    node_version: str
+
+    class Config:
+        orm_mode = True
 
 
 class SparkConf(BaseModel):
