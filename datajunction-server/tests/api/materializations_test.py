@@ -1943,7 +1943,7 @@ async def test_list_node_availability_states_single_version(
     state = availability_states[0]
     assert state["table"] == "single_version_table"
     assert state["catalog"] == "default"
-    assert state["schema"] == "test_schema"
+    assert state["schema_"] == "test_schema"
     assert state["url"] == "http://example.com/single_table"
     assert state["valid_through_ts"] == 20220131
     assert state["min_temporal_partition"] == ["2022", "01", "01"]

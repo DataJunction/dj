@@ -31,8 +31,8 @@ from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models import access
 from datajunction_server.models.base import labelize
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
+from datajunction_server.models.node import AvailabilityStateInfo
 from datajunction_server.models.materialization import (
-    AvailabilityStateInfo,
     MaterializationConfigInfoUnified,
     MaterializationInfo,
     MaterializationJobTypeEnum,
@@ -556,7 +556,7 @@ async def list_node_availability_states(
             availability_state = AvailabilityStateInfo(
                 id=revision.availability.id,
                 catalog=revision.availability.catalog,
-                schema=revision.availability.schema_,
+                schema_=revision.availability.schema_,
                 table=revision.availability.table,
                 valid_through_ts=revision.availability.valid_through_ts,
                 url=revision.availability.url,
