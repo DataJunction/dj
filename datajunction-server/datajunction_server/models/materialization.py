@@ -154,11 +154,11 @@ class AvailabilityStateInfo(BaseModel):
     valid_through_ts: int
     url: Optional[str] = None
     links: Optional[Dict] = None
-    categorical_partitions: Optional[List[str]] = []
-    temporal_partitions: Optional[List[str]] = []
-    min_temporal_partition: Optional[List[str]] = []
-    max_temporal_partition: Optional[List[str]] = []
-    partitions: Optional[List] = []
+categorical_partitions: list[str] = Field(default_factory=list)
+temporal_partitions: list[str] = Field(default_factory=list)
+min_temporal_partition: list[str] = Field(default_factory=list)
+max_temporal_partition: list[str] = Field(default_factory=list)
+partitions: list[str] = Field(default_factory=list)
     updated_at: str
     node_revision_id: int
     node_version: str
