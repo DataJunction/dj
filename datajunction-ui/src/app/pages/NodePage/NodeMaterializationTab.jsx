@@ -201,7 +201,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
     const refreshLatestMaterialization = async () => {
       if (
         !window.confirm(
-          'This will create new version of the cube and build new materialization workflows. Previous version of the cube and its materialization will be accessible using specific version label. Would you like to continue?',
+          'This will create a new version of the cube and build new materialization workflows. The previous version of the cube and its materialization will be accessible using a specific version label. Would you like to continue?',
         )
       ) {
         return;

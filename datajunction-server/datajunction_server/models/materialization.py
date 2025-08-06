@@ -154,11 +154,11 @@ class AvailabilityStateInfo(BaseModel):
     valid_through_ts: int
     url: Optional[str] = None
     links: Optional[Dict] = None
-categorical_partitions: list[str] = Field(default_factory=list)
-temporal_partitions: list[str] = Field(default_factory=list)
-min_temporal_partition: list[str] = Field(default_factory=list)
-max_temporal_partition: list[str] = Field(default_factory=list)
-partitions: list[str] = Field(default_factory=list)
+    categorical_partitions: list[str] = Field(default_factory=list)
+    temporal_partitions: list[str] = Field(default_factory=list)
+    min_temporal_partition: list[str] = Field(default_factory=list)
+    max_temporal_partition: list[str] = Field(default_factory=list)
+    partitions: list[str] = Field(default_factory=list)
     updated_at: str
     node_revision_id: int
     node_version: str
@@ -235,7 +235,7 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
             PartitionColumnOutput(
                 name=col.name,
                 type_=PartitionType.CATEGORICAL,
-            )
+            )  # type: ignore
             for col in self.columns  # type: ignore
             if col.semantic_entity in user_defined_categorical_columns
         ]
