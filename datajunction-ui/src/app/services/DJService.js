@@ -17,9 +17,10 @@ export const DataJunctionAPI = {
     before,
     after,
     limit,
+    sortConfig,
   ) {
     const query = `
-      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $before: String, $after: String, $limit: Int) {
+      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField) {
         findNodesPaginated(
           namespace: $namespace
           nodeTypes: $nodeTypes
@@ -28,6 +29,7 @@ export const DataJunctionAPI = {
           limit: $limit
           before: $before
           after: $after
+          orderBy: $orderBy
         ) {
           pageInfo {
             hasNextPage
@@ -58,6 +60,13 @@ export const DataJunctionAPI = {
         }
       }
     `;
+    const sortOrderMapping = {
+      name: 'NAME',
+      displayName: 'DISPLAY_NAME',
+      type: 'TYPE',
+      status: 'STATUS',
+      updatedAt: 'UPDATED_AT',
+    };
 
     return await (
       await fetch(DJ_GQL, {
@@ -76,6 +85,7 @@ export const DataJunctionAPI = {
             before: before,
             after: after,
             limit: limit,
+            orderBy: sortOrderMapping[sortConfig.key],
           },
         }),
       })

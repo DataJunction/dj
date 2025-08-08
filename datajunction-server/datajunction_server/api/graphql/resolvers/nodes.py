@@ -10,7 +10,7 @@ from sqlalchemy.orm import defer, joinedload, selectinload
 from strawberry.types import Info
 
 from datajunction_server.errors import DJNodeNotFound
-from datajunction_server.api.graphql.scalars.node import NodeName
+from datajunction_server.api.graphql.scalars.node import NodeName, NodeSortField
 from datajunction_server.api.graphql.scalars.sql import CubeDefinition
 from datajunction_server.api.graphql.utils import dedupe_append, extract_fields
 from datajunction_server.database.dimensionlink import DimensionLink
@@ -31,6 +31,7 @@ async def find_nodes_by(
     limit: Optional[int] = 100,
     before: Optional[str] = None,
     after: Optional[str] = None,
+    order_by: NodeSortField = NodeSortField.CREATED_AT,
 ) -> List[DBNode]:
     """
     Finds nodes based on the search parameters. This function also tries to optimize
@@ -56,6 +57,7 @@ async def find_nodes_by(
         limit,
         before,
         after,
+        order_by=order_by.field(),
         options=options,
     )
 

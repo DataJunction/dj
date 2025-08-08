@@ -1,6 +1,7 @@
 """Node-related scalars."""
 
 import datetime
+from enum import Enum
 from typing import List, Optional
 
 import strawberry
@@ -43,6 +44,37 @@ NodeStatus = strawberry.enum(NodeStatus_)
 NodeMode = strawberry.enum(NodeMode_)
 JoinType = strawberry.enum(JoinType_)
 JoinCardinality = strawberry.enum(JoinCardinality_)
+
+
+@strawberry.enum
+class NodeSortField(Enum):
+    """
+    Available node sort fields
+    """
+
+    NAME = "name"
+    DISPLAY_NAME = "display_name"
+    TYPE = "type"
+    STATUS = "status"
+    MODE = "mode"
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+
+    def field(self):
+        if self == NodeSortField.NAME:
+            return DBNode.name
+        if self == NodeSortField.DISPLAY_NAME:
+            return DBNode.display_name
+        if self == NodeSortField.TYPE:
+            return DBNode.type
+        if self == NodeSortField.STATUS:
+            return DBNodeRevision.status
+        if self == NodeSortField.MODE:
+            return DBNodeRevision.mode
+        if self == NodeSortField.CREATED_AT:
+            return DBNode.created_at
+        if self == NodeSortField.UPDATED_AT:
+            return DBNodeRevision.updated_at
 
 
 @strawberry.type
