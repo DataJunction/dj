@@ -124,8 +124,8 @@ export function NamespacePage() {
       const hierarchy = createNamespaceHierarchy(namespaces);
       setNamespaceHierarchy(hierarchy);
       const currentUser = await djClient.whoami();
-      // setFilters({...filters, edited_by: currentUser?.username});
       setCurrentUser(currentUser);
+      setFilters({...filters, edited_by: currentUser?.username});
     };
     fetchData().catch(console.error);
   }, [djClient, djClient.namespaces]);
@@ -141,6 +141,7 @@ export function NamespacePage() {
         before,
         after,
         50,
+        sortConfig,
       );
 
       setState({
@@ -170,7 +171,7 @@ export function NamespacePage() {
       setRetrieved(true);
     };
     fetchData().catch(console.error);
-  }, [djClient, filters, before, after]);
+  }, [djClient, filters, before, after, sortConfig]);
   const loadNext = () => {
     if (nextCursor) {
       setAfter(nextCursor);
@@ -298,12 +299,12 @@ export function NamespacePage() {
                 })
               }
             />
-            <UserSelect
+            {currentUser ? <UserSelect
               onChange={entry =>
                 setFilters({ ...filters, edited_by: entry ? entry.value : '' })
               }
               currentUser={currentUser?.username}
-            />
+            /> : ''}
             <AddNodeDropdown namespace={namespace} />
           </div>
           <div className="table-responsive">
