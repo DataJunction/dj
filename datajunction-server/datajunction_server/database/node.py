@@ -25,7 +25,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship, selectinload
+from sqlalchemy.orm import (
+    Mapped,
+    joinedload,
+    mapped_column,
+    relationship,
+    selectinload,
+    MappedColumn,
+)
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.operators import is_, or_
 
@@ -439,6 +446,7 @@ class Node(Base):
         limit: int | None = 100,
         before: str | None = None,
         after: str | None = None,
+        order_by: MappedColumn | None = None,
         options: list[ExecutableOption] = None,
     ) -> List["Node"]:
         """
@@ -456,6 +464,9 @@ class Node(Base):
             ]
             if not nodes_with_tags:  # pragma: no cover
                 return []
+
+        if not order_by:
+            order_by = Node.created_at
 
         statement = select(Node).where(is_(Node.deactivated_at, None))
         if namespace:
@@ -503,9 +514,17 @@ class Node(Base):
             statement = statement.where(
                 (Node.created_at, Node.id) >= (cursor.created_at, cursor.id),
             )
-            statement = statement.order_by(Node.created_at.asc(), Node.id.asc())
+            statement = statement.order_by(
+                order_by.asc(),
+                Node.created_at.asc(),
+                Node.id.asc(),
+            )
         else:
-            statement = statement.order_by(Node.created_at.desc(), Node.id.desc())
+            statement = statement.order_by(
+                order_by.desc(),
+                Node.created_at.desc(),
+                Node.id.desc(),
+            )
 
         limit = limit if limit and limit > 0 else 100
         statement = statement.limit(limit)
