@@ -69,7 +69,7 @@ services:
             wait"
     volumes:
       - ./postgres_metadata:/var/lib/postgresql/data
-      - ./init/create-readonly-user.sh:/docker-entrypoint-initdb.d/create-readonly-user.sh
+      - ./db-init/create-readonly-user.sh:/docker-entrypoint-initdb.d/create-readonly-user.sh
     environment:
       - POSTGRES_PASSWORD=dj
       - POSTGRES_USER=dj
@@ -141,10 +141,10 @@ services:
     environment:
       - PGPASSWORD=dj
     volumes:
-      - ./datajunction-server/init_data:/init_data
+      - ./db-init:/db-init
     command: >
       /bin/bash -c "
-      psql -h postgres_metadata -U dj -d dj -f /init_data/seed.sql
+      psql -h postgres_metadata -U dj -d dj -f /db-init/create-dj-user.sql
       "
 
   djqs-db-migration:

@@ -1801,3 +1801,259 @@ async def test_deleting_node_with_materialization(
         response.json()["message"]
         == f"Node `{cube_name}` has been successfully deleted."
     )
+
+
+@pytest.mark.asyncio
+async def test_list_node_availability_states_across_versions(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test listing availability states across all node versions.
+    This is the endpoint used by the UI for version-based materialization tabs.
+    """
+    client = module__client_with_roads
+
+    # Create a cube for testing
+    cube_name = "default.test_availability_cube"
+    response = await client.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.country"],
+            "description": "Test cube for availability states",
+            "mode": "published",
+            "name": cube_name,
+        },
+    )
+    assert response.status_code == 201
+    initial_version = response.json()["version"]
+
+    # Add availability state for the initial version
+    await client.post(
+        f"/data/{cube_name}/availability/",
+        json={
+            "catalog": "default",
+            "schema_": "test_schema",
+            "table": "test_table_v1",
+            "valid_through_ts": 20220131,
+            "url": "http://example.com/table_v1",
+            "min_temporal_partition": ["2022", "01", "01"],
+            "max_temporal_partition": ["2022", "01", "31"],
+        },
+    )
+
+    # Update cube with refresh_materialization to create new version
+    response = await client.patch(
+        f"/nodes/{cube_name}/?refresh_materialization=true",
+        json={
+            "description": "Updated cube to create new version",
+        },
+    )
+    assert response.status_code == 200
+    new_version = response.json()["version"]
+    assert new_version != initial_version
+
+    # Add availability state for the new version
+    await client.post(
+        f"/data/{cube_name}/availability/",
+        json={
+            "catalog": "default",
+            "schema_": "test_schema",
+            "table": "test_table_v2",
+            "valid_through_ts": 20220228,
+            "url": "http://example.com/table_v2",
+            "min_temporal_partition": ["2022", "02", "01"],
+            "max_temporal_partition": ["2022", "02", "28"],
+        },
+    )
+
+    # List availability states across all versions
+    response = await client.get(f"/nodes/{cube_name}/availability/")
+    assert response.status_code == 200
+    availability_states = response.json()
+
+    # Should have availability states for both versions
+    assert len(availability_states) == 2
+
+    # Group by node_version to verify we have both versions
+    states_by_version: dict[str, list] = {}
+    for state in availability_states:
+        version = state.get("node_version", initial_version)
+        if version not in states_by_version:
+            states_by_version[version] = []
+        states_by_version[version].append(state)
+
+    assert len(states_by_version) == 2
+    assert initial_version in states_by_version
+    assert new_version in states_by_version
+
+    # Verify each version has the correct table name
+    v1_states = states_by_version[initial_version]
+    v2_states = states_by_version[new_version]
+
+    assert len(v1_states) == 1
+    assert len(v2_states) == 1
+    assert v1_states[0]["table"] == "test_table_v1"
+    assert v2_states[0]["table"] == "test_table_v2"
+
+
+@pytest.mark.asyncio
+async def test_list_node_availability_states_single_version(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test listing availability states for a node with only one version.
+    """
+    client = module__client_with_roads
+
+    # Create a simple cube
+    cube_name = "default.single_version_cube"
+    response = await client.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.country"],
+            "description": "Single version test cube",
+            "mode": "published",
+            "name": cube_name,
+        },
+    )
+    assert response.status_code == 201
+
+    # Add one availability state
+    await client.post(
+        f"/data/{cube_name}/availability/",
+        json={
+            "catalog": "default",
+            "schema_": "test_schema",
+            "table": "single_version_table",
+            "valid_through_ts": 20220131,
+            "url": "http://example.com/single_table",
+            "min_temporal_partition": ["2022", "01", "01"],
+            "max_temporal_partition": ["2022", "01", "31"],
+        },
+    )
+
+    # List availability states
+    response = await client.get(f"/nodes/{cube_name}/availability/")
+    assert response.status_code == 200
+    availability_states = response.json()
+
+    assert len(availability_states) == 1
+    state = availability_states[0]
+    assert state["table"] == "single_version_table"
+    assert state["catalog"] == "default"
+    assert state["schema_"] == "test_schema"
+    assert state["url"] == "http://example.com/single_table"
+    assert state["valid_through_ts"] == 20220131
+    assert state["min_temporal_partition"] == ["2022", "01", "01"]
+    assert state["max_temporal_partition"] == ["2022", "01", "31"]
+
+
+@pytest.mark.asyncio
+async def test_list_node_availability_states_no_states(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test listing availability states for a node with no availability states.
+    """
+    client = module__client_with_roads
+
+    # Create a cube with no availability states
+    cube_name = "default.no_availability_cube"
+    response = await client.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.country"],
+            "description": "Cube with no availability states",
+            "mode": "published",
+            "name": cube_name,
+        },
+    )
+    assert response.status_code == 201
+
+    # List availability states - should be empty
+    response = await client.get(f"/nodes/{cube_name}/availability/")
+    assert response.status_code == 200
+    availability_states = response.json()
+    assert len(availability_states) == 0
+
+
+@pytest.mark.asyncio
+async def test_list_node_availability_states_nonexistent_node(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test listing availability states for a node that doesn't exist.
+    """
+    client = module__client_with_roads
+
+    # Try to list availability states for non-existent node
+    response = await client.get("/nodes/nonexistent.node/availability/")
+    assert response.status_code == 404
+    assert "does not exist" in response.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_list_node_availability_states_with_links_and_partitions(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test listing availability states with complex partition and link data.
+    """
+    client = module__client_with_roads
+
+    # Create a cube for testing
+    cube_name = "default.complex_availability_cube"
+    response = await client.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.country"],
+            "description": "Test cube with complex availability",
+            "mode": "published",
+            "name": cube_name,
+        },
+    )
+    assert response.status_code == 201
+
+    # Add availability state with links and partitions
+    await client.post(
+        f"/data/{cube_name}/availability/",
+        json={
+            "catalog": "default",
+            "schema_": "test_schema",
+            "table": "complex_table",
+            "valid_through_ts": 20220131,
+            "url": "http://example.com/complex_table",
+            "min_temporal_partition": ["2022", "01", "01"],
+            "max_temporal_partition": ["2022", "01", "31"],
+            "categorical_partitions": ["country", "region"],
+            "temporal_partitions": ["date", "hour"],
+            "links": {"dashboard": "http://dashboard.example.com"},
+            "partitions": [
+                {
+                    "value": ["US", "west"],
+                    "min_temporal_partition": ["2022", "01", "01"],
+                    "max_temporal_partition": ["2022", "01", "15"],
+                    "valid_through_ts": 20220115,
+                },
+            ],
+        },
+    )
+
+    # List availability states
+    response = await client.get(f"/nodes/{cube_name}/availability/")
+    assert response.status_code == 200
+    availability_states = response.json()
+
+    assert len(availability_states) == 1
+    state = availability_states[0]
+    assert state["categorical_partitions"] == ["country", "region"]
+    assert state["temporal_partitions"] == ["date", "hour"]
+    assert state["links"] == {"dashboard": "http://dashboard.example.com"}
+    assert len(state["partitions"]) == 1
+    partition = state["partitions"][0]
+    assert partition["value"] == ["US", "west"]
+    assert partition["valid_through_ts"] == 20220115

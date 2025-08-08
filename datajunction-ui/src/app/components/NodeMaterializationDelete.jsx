@@ -8,6 +8,7 @@ import { displayMessageAfterSubmit } from '../../utils/form';
 export default function NodeMaterializationDelete({
   nodeName,
   materializationName,
+  nodeVersion = null,
 }) {
   const [deleteButton, setDeleteButton] = React.useState(<DeleteIcon />);
 
@@ -17,6 +18,8 @@ export default function NodeMaterializationDelete({
       !window.confirm(
         'Deleting materialization job ' +
           values.materializationName +
+          ' for node version ' +
+          values.nodeVersion +
           '. Are you sure?',
       )
     ) {
@@ -25,6 +28,7 @@ export default function NodeMaterializationDelete({
     const { status, json } = await djClient.deleteMaterialization(
       values.nodeName,
       values.materializationName,
+      values.nodeVersion,
     );
     if (status === 200 || status === 201 || status === 204) {
       window.location.reload();
@@ -47,11 +51,17 @@ export default function NodeMaterializationDelete({
   const initialValues = {
     nodeName: nodeName,
     materializationName: materializationName,
+    nodeVersion: nodeVersion,
   };
 
   return (
     <div>
-      <Formik initialValues={initialValues} onSubmit={deleteNode}>
+      <Formik
+        key={`${nodeName}-${materializationName}-${nodeVersion}`}
+        initialValues={initialValues}
+        enableReinitialize={true}
+        onSubmit={deleteNode}
+      >
         {function Render({ status, setFieldValue }) {
           return (
             <Form className="deleteNode">
