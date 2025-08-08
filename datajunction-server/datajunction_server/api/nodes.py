@@ -1399,6 +1399,7 @@ async def refresh_source_node(
 async def update_node(
     name: str,
     data: UpdateNode,
+    refresh_materialization: bool = False,
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
@@ -1424,6 +1425,7 @@ async def update_node(
         validate_access=validate_access,
         request_headers=request_headers,
         save_history=save_history,
+        refresh_materialization=refresh_materialization,
     )
 
     node = await Node.get_by_name(

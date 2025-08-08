@@ -479,7 +479,7 @@ describe('DataJunctionAPI', () => {
 
     // Check the first fetch call
     expect(fetch).toHaveBeenCalledWith(
-      `${DJ_URL}/nodes/${nodeName}/materializations/`,
+      `${DJ_URL}/nodes/${nodeName}/materializations?show_inactive=true&include_all_revisions=true`,
       {
         credentials: 'include',
       },
@@ -1501,5 +1501,55 @@ describe('DataJunctionAPI', () => {
     expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/system/dimensions`, {
       credentials: 'include',
     });
+  });
+
+  it('calls availabilityStates correctly', async () => {
+    const nodeName = 'default.sample_node';
+    const mockAvailabilityStates = [
+      {
+        id: 1,
+        catalog: 'test_catalog',
+        schema_: 'test_schema',
+        table: 'test_table',
+        valid_through_ts: 1640995200,
+        url: 'http://example.com/table',
+        node_revision_id: 123,
+        node_version: '1.0.0',
+      },
+    ];
+
+    fetch.mockResponseOnce(JSON.stringify(mockAvailabilityStates));
+
+    const result = await DataJunctionAPI.availabilityStates(nodeName);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/${nodeName}/availability/`,
+      {
+        credentials: 'include',
+      },
+    );
+    expect(result).toEqual(mockAvailabilityStates);
+  });
+
+  it('calls refreshLatestMaterialization correctly', async () => {
+    const nodeName = 'default.sample_cube';
+    const mockResponse = { message: 'Materialization refreshed successfully' };
+
+    fetch.mockResponseOnce(JSON.stringify(mockResponse));
+
+    const result = await DataJunctionAPI.refreshLatestMaterialization(nodeName);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/${nodeName}?refresh_materialization=true`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+        credentials: 'include',
+      },
+    );
+    expect(result).toEqual({ status: 200, json: mockResponse });
   });
 });

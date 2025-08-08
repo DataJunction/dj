@@ -210,7 +210,7 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
             PartitionColumnOutput(
                 name=col.name,
                 type_=PartitionType.CATEGORICAL,
-            )
+            )  # type: ignore
             for col in self.columns  # type: ignore
             if col.semantic_entity in user_defined_categorical_columns
         ]

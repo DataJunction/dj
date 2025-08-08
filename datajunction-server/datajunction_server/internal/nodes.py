@@ -615,6 +615,7 @@ async def update_any_node(
     save_history: Callable,
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn = None,
+    refresh_materialization: bool = False,
 ) -> Node:
     """
     Node update helper function that handles updating any node
@@ -656,6 +657,7 @@ async def update_any_node(
             background_tasks=background_tasks,
             validate_access=validate_access,  # type: ignore
             save_history=save_history,
+            refresh_materialization=refresh_materialization,
         )
         return node_revision.node if node_revision else node
     return await update_node_with_query(
@@ -912,13 +914,14 @@ async def update_cube_node(
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn,
     save_history: Callable,
+    refresh_materialization: bool = False,
 ) -> Optional[NodeRevision]:
     """
     Update cube node based on changes
     """
     node = await Node.get_cube_by_name(session, node_revision.name)
     node_revision = node.current  # type: ignore
-    minor_changes = has_minor_changes(node_revision, data)
+    minor_changes = has_minor_changes(node_revision, data) or refresh_materialization
     old_metrics = [m.name for m in node_revision.cube_metrics()]
     old_dimensions = node_revision.cube_dimensions()
     major_changes = (data.metrics and data.metrics != old_metrics) or (
@@ -992,7 +995,7 @@ async def update_cube_node(
         for mat in node_revision.materializations
         if not mat.deactivated_at and mat.name != "default"
     ]
-    if major_changes and active_materializations:
+    if active_materializations and (major_changes or refresh_materialization):
         for old in active_materializations:
             # Once we've migrated all materializations to the new format, we should only
             # be using UpsertCubeMaterialization for cube nodes
