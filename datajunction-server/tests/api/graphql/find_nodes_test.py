@@ -1201,3 +1201,51 @@ async def test_find_by_with_filtering_on_columns(
             "type": "SOURCE",
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_find_by_with_ordering(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding nodes with ordering
+    """
+    query = """
+    {
+        findNodes(fragment: "default.", orderBy: NAME, ascending: true) {
+            name
+        }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert [node["name"] for node in data["data"]["findNodes"]][:6] == [
+        "default.avg_length_of_employment",
+        "default.avg_repair_order_discounts",
+        "default.avg_repair_price",
+        "default.avg_time_to_dispatch",
+        "default.contractor",
+        "default.contractors",
+    ]
+
+    query = """
+    {
+        findNodes(fragment: "default.", orderBy: UPDATED_AT, ascending: true) {
+            name
+        }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert [node["name"] for node in data["data"]["findNodes"]][:6] == [
+        "default.repair_orders_view",
+        "default.municipality_municipality_type",
+        "default.municipality_type",
+        "default.municipality",
+        "default.dispatchers",
+        "default.hard_hats",
+    ]
