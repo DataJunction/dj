@@ -233,7 +233,9 @@ async def get_query(
         .order_by(orderby)
         .build()
     )
+    start = time.time()
     query_ast = rename_columns(query_ast, node.current)  # type: ignore
+    print("rename_cols", time.time() - start)
     return query_ast
 
 

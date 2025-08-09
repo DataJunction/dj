@@ -6,6 +6,7 @@ import json
 import logging
 from collections import OrderedDict
 from http import HTTPStatus
+import time
 from typing import Any, List, Optional, Tuple, cast
 
 from fastapi import BackgroundTasks, Depends, Query, Request
@@ -23,8 +24,6 @@ from datajunction_server.api.helpers import (
     get_query,
     validate_orderby,
 )
-from datajunction_server.internal.caching.cachelib_cache import get_cache
-from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.database import Engine, Node
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
@@ -213,6 +212,7 @@ async def build_and_save_node_sql(
         query = translated_sql.sql
         columns = translated_sql.columns
     else:
+        start = time.time()
         query_ast = await get_query(
             session=session,
             node_name=node_name,
@@ -226,6 +226,7 @@ async def build_and_save_node_sql(
             query_parameters=query_parameters,
             ignore_errors=ignore_errors,
         )
+        print("timeit", time.time() - start)
         columns = [
             assemble_column_metadata(col, use_semantic_metadata=True)  # type: ignore
             for col in query_ast.select.projection

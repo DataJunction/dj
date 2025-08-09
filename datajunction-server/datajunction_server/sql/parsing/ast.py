@@ -10,6 +10,7 @@ from enum import Enum
 from functools import reduce
 from itertools import chain, zip_longest
 import re
+import time
 from typing import (
     Any,
     Callable,
@@ -2788,6 +2789,7 @@ class Query(TableExpression, UnNamed):
 
         # Work backwards from the table expressions on the query's SELECT clause
         # and assign references between the columns and the tables
+        start = time.time()
         nearest_query = self.get_nearest_parent_of_type(Query)
         cte_mapping = {
             cte.alias_or_name.name: cte
@@ -2840,7 +2842,9 @@ class Query(TableExpression, UnNamed):
 
         for child in self.children:
             if child is not self and not child.is_compiled():
+                start = time.time()
                 await child.compile(ctx)
+                print("processing child", time.time() - start, child)
 
         for expr in self.select.projection:
             self._columns += expr.columns

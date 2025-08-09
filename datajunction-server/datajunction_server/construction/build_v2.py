@@ -5,6 +5,7 @@ import logging
 import re
 from dataclasses import dataclass
 from functools import cached_property
+import time
 from typing import Any, DefaultDict, Dict, List, Optional, Tuple, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -628,6 +629,8 @@ class QueryBuilder:
             self.node_revision,
             ["availability", "columns", "query_ast"],
         )
+
+        start = time.time()
         if self.node_revision.query_ast:
             node_ast = self.node_revision.query_ast  # pragma: no cover
         else:
@@ -636,6 +639,7 @@ class QueryBuilder:
                 if not self.physical_table
                 else self.create_query_from_physical_table(self.physical_table)
             )
+        print("compile", time.time() - start)
 
         if self.physical_table and not self._filters and not self.dimensions:
             self.final_ast = node_ast
@@ -1587,9 +1591,12 @@ async def compile_node_ast(session, node_revision: NodeRevision) -> ast.Query:
     """
     Parses the node's query into an AST and compiles it.
     """
+    start = time.time()
     node_ast = parse(node_revision.query)
+    print("parse", time.time() - start)
     ctx = CompileContext(session, DJException())
     await node_ast.compile(ctx)
+    print("compillle", time.time() - start)
     return node_ast
 
 

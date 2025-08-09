@@ -9,6 +9,8 @@ from typing import Callable, List, Optional
 
 from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
 from fastapi_cache.decorator import cache
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -343,6 +345,36 @@ async def get_node(
         raise_if_not_exists=True,
     )
     return NodeOutput.from_orm(node)
+
+
+@router.get("/nodes/{name}/similar")
+async def get_node(
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+) -> list:
+    """
+    The most similar nodes to this one.
+    """
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=NodeOutput.load_options(),
+        raise_if_not_exists=True,
+    )
+    original_ast = parse(node.current.query)  # type: ignore
+    scores = {}
+    candidates = await Node.find_by(
+        session,
+        node_types=[node.type],
+        options=[joinedload(Node.current)],
+        limit=settings.node_list_max,
+    )
+    for candidate in candidates:
+        candidate_ast = parse(candidate.current.query)  # type: ignore
+        similarity = original_ast.similarity_score(candidate_ast)
+        scores[candidate.name] = similarity
+    return sorted(list(scores.items()), key=lambda x: x[1], reverse=True)[:100]
 
 
 @router.delete("/nodes/{name}/")
@@ -1478,18 +1510,31 @@ async def list_downstream_nodes(
     node_type: NodeType = None,
     depth: int = -1,
     session: AsyncSession = Depends(get_session),
+    cache: Cache = Depends(get_cache),
+    background_tasks: BackgroundTasks,
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are downstream from the given node, filterable by type and max depth.
     Setting a max depth of -1 will include all downstream nodes.
     """
-    return await get_downstream_nodes(
-        session=session,
-        node_name=name,
-        node_type=node_type,
-        include_deactivated=False,
-        depth=depth,
-    )
+    node = await Node.get_by_name(session, name)
+    cache_key = f"downstream:{name}@{node.current_version}:{node_type}"
+    results = cache.get(cache_key)
+    if results is None:
+        results = await get_downstream_nodes(
+            session=session,
+            node_name=name,
+            node_type=node_type,
+            include_deactivated=False,
+            depth=depth,
+        )
+        background_tasks.add_task(
+            cache.set,
+            cache_key,
+            results,
+            timeout=settings.query_cache_timeout,
+        )
+    return results
 
 
 @router.get(
@@ -1502,11 +1547,24 @@ async def list_upstream_nodes(
     *,
     node_type: NodeType = None,
     session: AsyncSession = Depends(get_session),
+    cache: Cache = Depends(get_cache),
+    background_tasks: BackgroundTasks,
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are upstream from the given node, filterable by type.
     """
-    return await get_upstream_nodes(session, name, node_type)
+    node = await Node.get_by_name(session, name)
+    cache_key = f"upstream:{name}@{node.current_version}:{node_type}"
+    results = cache.get(cache_key)
+    if results is None:
+        results = await get_upstream_nodes(session, name, node_type)
+        background_tasks.add_task(
+            cache.set,
+            cache_key,
+            results,
+            timeout=settings.query_cache_timeout,
+        )
+    return results
 
 
 @router.get(
