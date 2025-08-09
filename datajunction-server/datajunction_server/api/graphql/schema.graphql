@@ -393,6 +393,7 @@ type Query {
     """Limit nodes"""
     limit: Int = 1000
     orderBy: NodeSortField! = CREATED_AT
+    ascending: Boolean! = false
   ): [Node!]!
 
   """Find nodes based on the search parameters with pagination"""
@@ -420,6 +421,7 @@ type Query {
     """Limit nodes"""
     limit: Int = 100
     orderBy: NodeSortField! = CREATED_AT
+    ascending: Boolean! = false
   ): NodeConnection!
 
   """Get common dimensions for one or more nodes"""

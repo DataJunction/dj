@@ -32,6 +32,7 @@ async def find_nodes_by(
     before: Optional[str] = None,
     after: Optional[str] = None,
     order_by: NodeSortField = NodeSortField.CREATED_AT,
+    ascending: bool = False,
 ) -> List[DBNode]:
     """
     Finds nodes based on the search parameters. This function also tries to optimize
@@ -57,7 +58,8 @@ async def find_nodes_by(
         limit,
         before,
         after,
-        order_by=order_by.field(),
+        order_by=order_by.column,
+        ascending=ascending,
         options=options,
     )
 

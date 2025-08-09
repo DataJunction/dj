@@ -7,6 +7,7 @@ from typing import List, Optional
 import strawberry
 from strawberry.scalars import JSON
 from strawberry.types import Info
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from datajunction_server.api.graphql.scalars import BigInt
 from datajunction_server.api.graphql.scalars.availabilitystate import AvailabilityState
@@ -52,29 +53,22 @@ class NodeSortField(Enum):
     Available node sort fields
     """
 
-    NAME = "name"
-    DISPLAY_NAME = "display_name"
-    TYPE = "type"
-    STATUS = "status"
-    MODE = "mode"
-    CREATED_AT = "created_at"
-    UPDATED_AT = "updated_at"
+    NAME = ("name", DBNode.name)
+    DISPLAY_NAME = ("display_name", DBNode.display_name)
+    TYPE = ("type", DBNode.type)
+    STATUS = ("status", DBNodeRevision.status)
+    MODE = ("mode", DBNodeRevision.mode)
+    CREATED_AT = ("created_at", DBNode.created_at)
+    UPDATED_AT = ("updated_at", DBNodeRevision.updated_at)
 
-    def field(self):
-        if self == NodeSortField.NAME:
-            return DBNode.name
-        if self == NodeSortField.DISPLAY_NAME:
-            return DBNode.display_name
-        if self == NodeSortField.TYPE:
-            return DBNode.type
-        if self == NodeSortField.STATUS:
-            return DBNodeRevision.status
-        if self == NodeSortField.MODE:
-            return DBNodeRevision.mode
-        if self == NodeSortField.CREATED_AT:
-            return DBNode.created_at
-        if self == NodeSortField.UPDATED_AT:
-            return DBNodeRevision.updated_at
+    # The database column that this sort field maps to
+    column: InstrumentedAttribute
+
+    def __new__(cls, value, column):
+        obj = object.__new__(cls)
+        obj._value_ = value  # GraphQL will serialize this
+        obj.column = column
+        return obj
 
 
 @strawberry.type

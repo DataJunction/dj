@@ -49,6 +49,7 @@ async def find_nodes(
         strawberry.argument(description="Limit nodes"),
     ] = DEFAULT_LIMIT,
     order_by: NodeSortField = NodeSortField.CREATED_AT,
+    ascending: bool = False,
     *,
     info: Info,
 ) -> list[Node]:
@@ -75,6 +76,7 @@ async def find_nodes(
         tags,
         limit=limit,
         order_by=order_by,
+        ascending=ascending,
     )
 
 
@@ -122,6 +124,7 @@ async def find_nodes_paginated(
         strawberry.argument(description="Limit nodes"),
     ] = 100,
     order_by: NodeSortField = NodeSortField.CREATED_AT,
+    ascending: bool = False,
     *,
     info: Info,
 ) -> Connection[Node]:
@@ -142,6 +145,7 @@ async def find_nodes_paginated(
         before,
         after,
         order_by,
+        ascending,
     )
     return Connection.from_list(
         items=nodes_list,
