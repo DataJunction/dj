@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import sqlalchemy as sa
 from pydantic import Extra
 from sqlalchemy import JSON, and_, desc
+from sqlalchemy.orm import aliased
+
 from sqlalchemy import Column as SqlalchemyColumn
 from sqlalchemy import (
     DateTime,
@@ -447,11 +449,17 @@ class Node(Base):
         before: str | None = None,
         after: str | None = None,
         order_by: MappedColumn | None = None,
+        ascending: bool = False,
         options: list[ExecutableOption] = None,
     ) -> List["Node"]:
         """
         Finds a list of nodes by prefix
         """
+        if not order_by:
+            order_by = Node.created_at
+
+        NodeRevisionAlias = aliased(NodeRevision)
+
         nodes_with_tags = []
         if tags:
             statement = (
@@ -465,10 +473,19 @@ class Node(Base):
             if not nodes_with_tags:  # pragma: no cover
                 return []
 
-        if not order_by:
-            order_by = Node.created_at
-
         statement = select(Node).where(is_(Node.deactivated_at, None))
+
+        # Join NodeRevision if needed for order_by or fragment filtering
+        join_revision = False
+        if fragment:
+            join_revision = True
+        elif order_by and getattr(order_by, "class_", None) is NodeRevision:
+            join_revision = True
+
+        if join_revision:
+            statement = statement.join(NodeRevisionAlias, Node.current)
+            order_by = getattr(NodeRevisionAlias, order_by.key)
+
         if namespace:
             statement = statement.where(
                 (Node.namespace.like(f"{namespace}.%")) | (Node.namespace == namespace),
@@ -503,6 +520,7 @@ class Node(Base):
                 edited_node_subquery,
                 onclause=(edited_node_subquery.c.entity_name == Node.name),
             ).distinct()
+        print("ascending", ascending)
 
         if after:
             cursor = NodeCursor.decode(after)
@@ -515,13 +533,13 @@ class Node(Base):
                 (Node.created_at, Node.id) >= (cursor.created_at, cursor.id),
             )
             statement = statement.order_by(
-                order_by.asc(),
+                order_by.asc() if ascending else order_by.desc(),
                 Node.created_at.asc(),
                 Node.id.asc(),
             )
         else:
             statement = statement.order_by(
-                order_by.desc(),
+                order_by.asc() if ascending else order_by.desc(),
                 Node.created_at.desc(),
                 Node.id.desc(),
             )
