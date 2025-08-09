@@ -476,12 +476,12 @@ class Node(Base):
         statement = select(Node).where(is_(Node.deactivated_at, None))
 
         # Join NodeRevision if needed for order_by or fragment filtering
-        join_revision = False
-        if fragment:
-            join_revision = True
-        elif order_by and getattr(order_by, "class_", None) is NodeRevision:
-            join_revision = True
-
+        join_revision = (
+            True
+            if fragment
+            or (order_by and getattr(order_by, "class_", None) is NodeRevision)
+            else False
+        )
         if join_revision:
             statement = statement.join(NodeRevisionAlias, Node.current)
             order_by = getattr(NodeRevisionAlias, order_by.key)
@@ -499,10 +499,10 @@ class Node(Base):
                 Node.name.in_(names),  # type: ignore
             )
         if fragment:
-            statement = statement.join(NodeRevision, Node.current).where(
+            statement = statement.where(
                 or_(
-                    Node.name.like(f"%{fragment}%"),  # type: ignore
-                    NodeRevision.display_name.ilike(f"%{fragment}%"),  # type: ignore
+                    Node.name.like(f"%{fragment}%"),
+                    NodeRevisionAlias.display_name.ilike(f"%{fragment}%"),
                 ),
             )
 
@@ -520,7 +520,6 @@ class Node(Base):
                 edited_node_subquery,
                 onclause=(edited_node_subquery.c.entity_name == Node.name),
             ).distinct()
-        print("ascending", ascending)
 
         if after:
             cursor = NodeCursor.decode(after)
