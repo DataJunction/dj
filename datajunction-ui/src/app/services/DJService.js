@@ -87,7 +87,7 @@ export const DataJunctionAPI = {
             after: after,
             limit: limit,
             orderBy: sortOrderMapping[sortConfig.key],
-            ascending: sortConfig.direction === "ascending",
+            ascending: sortConfig.direction === 'ascending',
           },
         }),
       })
