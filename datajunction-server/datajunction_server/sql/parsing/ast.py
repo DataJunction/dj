@@ -408,8 +408,8 @@ class Node(ABC):
         """
         Determine how similar two nodes are with a float score
         """
-        self_nodes = list(self.flatten())
-        other_nodes = list(other.flatten())
+        self_nodes = set(self.flatten())
+        other_nodes = set(other.flatten())
         intersection = [
             self_node for self_node in self_nodes if self_node in other_nodes
         ]
