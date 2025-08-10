@@ -72,7 +72,7 @@ export default function Search() {
         />
       </form>
       <div className="search-results">
-        {searchResults.map(item => {
+        {searchResults.slice(0, 20).map(item => {
           const itemUrl =
             item.type !== 'tag' ? `/nodes/${item.name}` : `/tags/${item.name}`;
           return (
