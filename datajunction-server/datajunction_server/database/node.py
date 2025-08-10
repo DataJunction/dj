@@ -476,15 +476,14 @@ class Node(Base):
         statement = select(Node).where(is_(Node.deactivated_at, None))
 
         # Join NodeRevision if needed for order_by or fragment filtering
-        join_revision = (
-            True
-            if fragment
-            or (order_by and getattr(order_by, "class_", None) is NodeRevision)
-            else False
+        order_by_node_revision = (
+            order_by and getattr(order_by, "class_", None) is NodeRevision
         )
+        join_revision = True if fragment or order_by_node_revision else False
         if join_revision:
             statement = statement.join(NodeRevisionAlias, Node.current)
-            order_by = getattr(NodeRevisionAlias, order_by.key)
+            if order_by_node_revision:
+                order_by = getattr(NodeRevisionAlias, order_by.key)
 
         if namespace:
             statement = statement.where(
