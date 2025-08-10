@@ -5,7 +5,7 @@ Node related APIs.
 import logging
 import os
 from http import HTTPStatus
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, cast
 
 from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
@@ -33,6 +33,8 @@ from datajunction_server.database.history import History
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.user import User
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.errors import (
     DJActionNotAllowedException,
     DJAlreadyExistsException,
@@ -574,6 +576,7 @@ async def create_node(
         validate_access,
     ),
     save_history: Callable = Depends(get_save_history),
+    cache: Cache = Depends(get_cache),
 ) -> NodeOutput:
     """
     Create a node.
@@ -597,6 +600,7 @@ async def create_node(
         background_tasks=background_tasks,
         validate_access=validate_access,
         save_history=save_history,
+        cache=cache,
     ):
         return recreated_node  # pragma: no cover
 
@@ -1410,6 +1414,7 @@ async def update_node(
         validate_access,
     ),
     save_history: Callable = Depends(get_save_history),
+    cache: Cache = Depends(get_cache),
 ) -> NodeOutput:
     """
     Update a node.
@@ -1426,6 +1431,7 @@ async def update_node(
         request_headers=request_headers,
         save_history=save_history,
         refresh_materialization=refresh_materialization,
+        cache=cache,
     )
 
     node = await Node.get_by_name(
@@ -1503,12 +1509,25 @@ async def list_upstream_nodes(
     name: str,
     *,
     node_type: NodeType = None,
+    cache: Cache = Depends(get_cache),
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are upstream from the given node, filterable by type.
     """
-    return await get_upstream_nodes(session, name, node_type)
+    node = cast(Node, await Node.get_by_name(session, name, raise_if_not_exists=True))
+    upstream_cache_key = node.upstream_cache_key()
+    results = cache.get(upstream_cache_key)
+    if results is None:
+        results = await get_upstream_nodes(session, name, node_type)
+        background_tasks.add_task(
+            cache.set,
+            upstream_cache_key,
+            results,
+            timeout=settings.query_cache_timeout,
+        )
+    return results
 
 
 @router.get(
