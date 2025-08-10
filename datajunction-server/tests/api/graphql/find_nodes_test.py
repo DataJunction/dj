@@ -266,8 +266,8 @@ async def test_find_by_node_type_paginated(
         "edges": [
             {
                 "node": {
-                    "currentVersion": "v1.4",
-                    "name": "default.repair_orders_fact",
+                    "currentVersion": "v1.0",
+                    "name": "default.regional_level_agg",
                     "tags": [],
                     "type": "TRANSFORM",
                 },
