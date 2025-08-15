@@ -2211,7 +2211,7 @@ class TestNodeCRUD:
 
         # Check upstreams for a downstream metric
         response = await client_with_roads.get(
-            "/nodes/default.num_repair_orders/upstreams/",
+            "/nodes/default.num_repair_orders/upstream",
         )
         upstream_names = [upstream["name"] for upstream in response.json()]
         assert "default.repair_orders_fact" in upstream_names
@@ -2230,7 +2230,7 @@ class TestNodeCRUD:
 
         # Check upstreams for a downstream metric
         response = await client_with_roads.get(
-            "/nodes/default.num_repair_orders/upstreams/",
+            "/nodes/default.num_repair_orders/upstream",
         )
         upstream_names = [upstream["name"] for upstream in response.json()]
         assert "default.repair_orders_fact" in upstream_names
