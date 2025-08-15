@@ -12,6 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from datajunction_server.internal.caching.interface import Cache
+
 from datajunction_server.api.helpers import (
     get_attribute_type,
     get_node_by_name,
@@ -616,6 +618,7 @@ async def update_any_node(
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn = None,
     refresh_materialization: bool = False,
+    cache: Cache | None = None,
 ) -> Node:
     """
     Node update helper function that handles updating any node
@@ -670,6 +673,7 @@ async def update_any_node(
         background_tasks=background_tasks,
         validate_access=validate_access,  # type: ignore
         save_history=save_history,
+        cache=cache,
     )
 
 
@@ -684,6 +688,7 @@ async def update_node_with_query(
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn,
     save_history: Callable,
+    cache: Cache,
 ) -> Node:
     """
     Update the named node with the changes defined in the UpdateNode object.
@@ -826,6 +831,7 @@ async def update_node_with_query(
         node,
         current_user=current_user,
         save_history=save_history,
+        cache=cache,
     )
     await session.refresh(node, ["current"])
     await session.refresh(node.current, ["materializations"])  # type: ignore
@@ -1067,6 +1073,7 @@ async def propagate_update_downstream(
     *,
     current_user: User,
     save_history: Callable,
+    cache: Cache | None = None,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -1084,22 +1091,43 @@ async def propagate_update_downstream(
     )
     downstreams = topological_sort(downstreams)
     _logger.info(
-        "Revalidating the following downstreams %s",
-        [downstream.name for downstream in downstreams],
+        "Node %s updated — revalidating %s downstreams",
+        node.name,
+        len(downstreams),
     )
 
     # The downstreams need to be sorted topologically in order for the updates to be done
     # in the right order. Otherwise it is possible for a leaf node like a metric to be updated
     # before its upstreams are updated.
-    for downstream in downstreams:
+    for idx, downstream in enumerate(downstreams):
         original_node_revision = downstream.current
         previous_status = original_node_revision.status
+        _logger.info(
+            "[%s/%s] Revalidating downstream %s due to update of node %s",
+            idx + 1,
+            len(downstreams),
+            downstream.name,
+            node.name,
+        )
         node_validator = await revalidate_node(
             downstream.name,
             session,
             current_user=current_user,
             save_history=save_history,
         )
+
+        # Reset the upstreams DAG cache of any downstream nodes
+        if cache:
+            upstream_cache_key = downstream.upstream_cache_key()
+            results = cache.get(upstream_cache_key)
+            if results is not None:
+                _logger.info(
+                    "Clearing upstream cache for node %s due to update of node %s (cache key: %s)",
+                    downstream.name,
+                    node.name,
+                    upstream_cache_key,
+                )
+                cache.delete(upstream_cache_key)
 
         # Record history event
         if (
@@ -1188,6 +1216,7 @@ async def create_node_from_inactive(
     save_history: Callable,
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn = None,
+    cache: Cache | None = None,
 ) -> Optional[Node]:
     """
     If the node existed and is inactive the re-creation takes different steps than
@@ -1238,6 +1267,7 @@ async def create_node_from_inactive(
                 background_tasks=background_tasks,
                 validate_access=validate_access,  # type: ignore
                 save_history=save_history,
+                cache=cache,
             )
         else:
             await update_cube_node(
