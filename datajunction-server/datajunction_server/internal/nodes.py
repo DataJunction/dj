@@ -1073,7 +1073,7 @@ async def propagate_update_downstream(
     *,
     current_user: User,
     save_history: Callable,
-    cache: Cache,
+    cache: Cache | None = None,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -1117,16 +1117,17 @@ async def propagate_update_downstream(
         )
 
         # Reset the upstreams DAG cache of any downstream nodes
-        upstream_cache_key = downstream.upstream_cache_key()
-        results = cache.get(upstream_cache_key)
-        if results is not None:
-            _logger.info(
-                "Clearing upstream cache for node %s due to update of node %s (cache key: %s)",
-                downstream.name,
-                node.name,
-                upstream_cache_key,
-            )
-            cache.delete(upstream_cache_key)
+        if cache:
+            upstream_cache_key = downstream.upstream_cache_key()
+            results = cache.get(upstream_cache_key)
+            if results is not None:
+                _logger.info(
+                    "Clearing upstream cache for node %s due to update of node %s (cache key: %s)",
+                    downstream.name,
+                    node.name,
+                    upstream_cache_key,
+                )
+                cache.delete(upstream_cache_key)
 
         # Record history event
         if (
