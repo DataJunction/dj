@@ -54,7 +54,7 @@ class NodeSortField(Enum):
     """
 
     NAME = ("name", DBNode.name)
-    DISPLAY_NAME = ("display_name", DBNode.display_name)
+    DISPLAY_NAME = ("display_name", DBNodeRevision.display_name)
     TYPE = ("type", DBNode.type)
     STATUS = ("status", DBNodeRevision.status)
     MODE = ("mode", DBNodeRevision.mode)
