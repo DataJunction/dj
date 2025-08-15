@@ -53,34 +53,14 @@ export function NamespacePage() {
   const [hasNextPage, setHasNextPage] = useState(true);
   const [hasPrevPage, setHasPrevPage] = useState(true);
 
-  const sortedNodes = React.useMemo(() => {
-    let sortableData = [...Object.values(state.nodes)];
-    if (sortConfig !== null) {
-      sortableData.sort((a, b) => {
-        if (
-          a[sortConfig.key] < b[sortConfig.key] ||
-          a.current[sortConfig.key] < b.current[sortConfig.key]
-        ) {
-          return sortConfig.direction === ASC ? -1 : 1;
-        }
-        if (
-          a[sortConfig.key] > b[sortConfig.key] ||
-          a.current[sortConfig.key] > b.current[sortConfig.key]
-        ) {
-          return sortConfig.direction === ASC ? 1 : -1;
-        }
-        return 0;
-      });
-    }
-    return sortableData;
-  }, [state.nodes, filters, sortConfig]);
-
   const requestSort = key => {
     let direction = ASC;
     if (sortConfig.key === key && sortConfig.direction === ASC) {
       direction = DESC;
     }
-    setSortConfig({ key, direction });
+    if (sortConfig.key !== key || sortConfig.direction !== direction) {
+      setSortConfig({ key, direction });
+    }
   };
 
   const getClassNamesFor = name => {
@@ -171,7 +151,8 @@ export function NamespacePage() {
       setRetrieved(true);
     };
     fetchData().catch(console.error);
-  }, [djClient, filters, before, after, sortConfig]);
+  }, [djClient, filters, before, after, sortConfig.key, sortConfig.direction]);
+
   const loadNext = () => {
     if (nextCursor) {
       setAfter(nextCursor);
@@ -186,8 +167,8 @@ export function NamespacePage() {
   };
 
   const nodesList = retrieved ? (
-    sortedNodes.length > 0 ? (
-      sortedNodes.map(node => (
+    state.nodes.length > 0 ? (
+      state.nodes.map(node => (
         <tr key={node.name}>
           <td>
             <a href={'/nodes/' + node.name} className="link-table">
