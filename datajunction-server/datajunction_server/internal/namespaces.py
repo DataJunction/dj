@@ -4,7 +4,7 @@ Helper methods for namespaces endpoints.
 
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable, Dict, List, Tuple
 
 from sqlalchemy import or_, select
@@ -121,7 +121,7 @@ async def mark_namespace_deactivated(
     """
     Deactivates the node namespace and updates history indicating so
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     namespace.deactivated_at = UTCDatetime(
         year=now.year,
         month=now.month,

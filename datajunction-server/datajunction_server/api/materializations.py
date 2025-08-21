@@ -3,7 +3,7 @@ Node materialization related APIs.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Callable, List
 
@@ -385,7 +385,7 @@ async def deactivate_node_materializations(
         node_version=node_revision.version,  # type: ignore
         request_headers=request_headers,
     )
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     materialization_to_deactivate.deactivated_at = UTCDatetime(
         year=now.year,
         month=now.month,
