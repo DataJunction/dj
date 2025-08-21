@@ -4,6 +4,7 @@ Fixtures for testing.
 
 import asyncio
 from collections import namedtuple
+from datetime import timedelta
 import os
 import pathlib
 import re
@@ -54,6 +55,7 @@ from datajunction_server.models.access import AccessControl, ValidateAccessFn
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.models.user import OAuthProvider
+from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
@@ -65,15 +67,20 @@ from datajunction_server.utils import (
 
 from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS, SERVICE_SETUP
 
-
-EXAMPLE_TOKEN = (
-    "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..SxGbG0NRepMY4z9-2-ZZdg.ug"
-    "0FvJUoybiGGpUItL4VbM1O_oinX7dMBUM1V3OYjv30fddn9m9UrrXxv3ERIyKu2zVJ"
-    "xx1gSoM5k8petUHCjatFQqA-iqnvjloFKEuAmxLdCHKUDgfKzCIYtbkDcxtzXLuqlj"
-    "B0-ConD6tpjMjFxNrp2KD4vwaS0oGsDJGqXlMo0MOhe9lHMLraXzOQ6xDgDFHiFert"
-    "Fc0T_9jYkcpmVDPl9pgPf55R.sKF18rttq1OZ_EjZqw8Www"
-)
 PostgresCluster = namedtuple("PostgresCluster", ["writer", "reader"])
+
+
+@pytest.fixture(scope="module")
+def jwt_token():
+    """
+    JWT token fixture for testing.
+    """
+    return create_token(
+        {"username": "dj"},
+        secret="a-fake-secretkey",
+        iss="http://localhost:8000/",
+        expires_delta=timedelta(hours=24),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -386,6 +393,7 @@ def query_service_client(
 async def client(
     session: AsyncSession,
     settings_no_qs: Settings,
+    jwt_token: str,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -417,7 +425,7 @@ async def client(
             "datajunction_server.internal.caching.query_cache_manager.session_context",
             return_value=session,
         ):
-            test_client.headers.update({"Authorization": f"Bearer {EXAMPLE_TOKEN}"})
+            test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
             test_client.app = app
             yield test_client
 
@@ -628,6 +636,7 @@ async def client_qs(
     settings: Settings,
     query_service_client: QueryServiceClient,
     mocker: MockerFixture,
+    jwt_token: str,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -677,7 +686,7 @@ async def client_qs(
         ) as test_client:
             test_client.headers.update(
                 {
-                    "Authorization": f"Bearer {EXAMPLE_TOKEN}",
+                    "Authorization": f"Bearer {jwt_token}",
                 },
             )
             test_client.app = app
@@ -792,6 +801,7 @@ async def module__client(
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,
     module_mocker: MockerFixture,
+    jwt_token: str,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -847,7 +857,7 @@ async def module__client(
         ):
             test_client.headers.update(
                 {
-                    "Authorization": f"Bearer {EXAMPLE_TOKEN}",
+                    "Authorization": f"Bearer {jwt_token}",
                 },
             )
             test_client.app = app
