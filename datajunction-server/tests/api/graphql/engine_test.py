@@ -96,7 +96,27 @@ async def test_list_dialects(
                     "pluginClass": "SQLTranspilationPlugin",
                 },
                 {
+                    "name": "trino",
+                    "pluginClass": "SQLTranspilationPlugin",
+                },
+                {
+                    "name": "sqlite",
+                    "pluginClass": "SQLGlotTranspilationPlugin",
+                },
+                {
+                    "name": "snowflake",
+                    "pluginClass": "SQLGlotTranspilationPlugin",
+                },
+                {
+                    "name": "redshift",
+                    "pluginClass": "SQLGlotTranspilationPlugin",
+                },
+                {
                     "name": "postgres",
+                    "pluginClass": "SQLGlotTranspilationPlugin",
+                },
+                {
+                    "name": "duckdb",
                     "pluginClass": "SQLGlotTranspilationPlugin",
                 },
                 {
@@ -104,8 +124,8 @@ async def test_list_dialects(
                     "pluginClass": "SQLTranspilationPlugin",
                 },
                 {
-                    "name": "trino",
-                    "pluginClass": "SQLTranspilationPlugin",
+                    "name": "clickhouse",
+                    "pluginClass": "SQLGlotTranspilationPlugin",
                 },
             ],
         },
