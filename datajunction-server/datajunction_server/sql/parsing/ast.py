@@ -2574,7 +2574,7 @@ class SelectExpression(Aliasable, Expression):
     """
 
     quantifier: str = ""  # Distinct, All
-    projection: List[Union[Aliasable, Expression]] = field(default_factory=list)
+    projection: List[Union[Aliasable, Expression, Column]] = field(default_factory=list)
     from_: Optional[From] = None
     group_by: List[Expression] = field(default_factory=list)
     having: Optional[Expression] = None
@@ -2636,7 +2636,7 @@ class SelectExpression(Aliasable, Expression):
     @property
     def semantic_column_mapping(self) -> Dict[str, "Column"]:
         """
-        Returns a dictionary with the output column names mapped to the columns
+        Returns a dictionary with the semantic entity names mapped to the output columns
         """
         return {col.semantic_entity: col for col in self.projection}
 
