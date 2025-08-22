@@ -85,6 +85,11 @@ enum Dialect {
   TRINO
   DRUID
   POSTGRES
+  CLICKHOUSE
+  DUCKDB
+  REDSHIFT
+  SNOWFLAKE
+  SQLITE
 }
 
 type DialectInfo {
