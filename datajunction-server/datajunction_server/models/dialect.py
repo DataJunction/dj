@@ -22,6 +22,11 @@ class Dialect(StrEnum):
     TRINO = "trino"
     DRUID = "druid"
     POSTGRES = "postgres"
+    CLICKHOUSE = "clickhouse"
+    DUCKDB = "duckdb"
+    REDSHIFT = "redshift"
+    SNOWFLAKE = "snowflake"
+    SQLITE = "sqlite"
 
     @classmethod
     def _missing_(cls, value: object) -> "Dialect":
