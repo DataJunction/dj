@@ -2209,6 +2209,13 @@ class TestNodeCRUD:
         )
         assert response.status_code == 200
 
+        # Check upstreams for a downstream metric
+        response = await client_with_roads.get(
+            "/nodes/default.num_repair_orders/upstream",
+        )
+        upstream_names = [upstream["name"] for upstream in response.json()]
+        assert "default.repair_orders_fact" in upstream_names
+
         response = await client_with_roads.patch(
             "/nodes/default.repair_orders_fact",
             json={
@@ -2220,6 +2227,13 @@ class TestNodeCRUD:
             },
         )
         assert response.status_code == 200
+
+        # Check upstreams for a downstream metric
+        response = await client_with_roads.get(
+            "/nodes/default.num_repair_orders/upstream",
+        )
+        upstream_names = [upstream["name"] for upstream in response.json()]
+        assert "default.repair_orders_fact" in upstream_names
 
         # Test updating a transform with a deactivated downstream metric
         response = await client_with_roads.delete(
@@ -4526,6 +4540,15 @@ class TestValidateNodes:
         """
         Test getting upstream nodes of different node types.
         """
+        response = await client_with_event.get(
+            "/nodes/default.long_events_distinct_countries/upstream/",
+        )
+        data = response.json()
+        assert {node["name"] for node in data} == {
+            "default.event_source",
+            "default.long_events",
+        }
+        # Uses cached response
         response = await client_with_event.get(
             "/nodes/default.long_events_distinct_countries/upstream/",
         )
