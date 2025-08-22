@@ -11,14 +11,6 @@ from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import DJHTTPBearer
 from datajunction_server.models.user import OAuthProvider, UserOutput
 
-EXAMPLE_TOKEN = (
-    "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..SxGbG0NRepMY4z9-2-ZZdg.ug"
-    "0FvJUoybiGGpUItL4VbM1O_oinX7dMBUM1V3OYjv30fddn9m9UrrXxv3ERIyKu2zVJ"
-    "xx1gSoM5k8petUHCjatFQqA-iqnvjloFKEuAmxLdCHKUDgfKzCIYtbkDcxtzXLuqlj"
-    "B0-ConD6tpjMjFxNrp2KD4vwaS0oGsDJGqXlMo0MOhe9lHMLraXzOQ6xDgDFHiFert"
-    "Fc0T_9jYkcpmVDPl9pgPf55R.sKF18rttq1OZ_EjZqw8Www"
-)
-
 
 def test_dj_http_bearer_raise_when_unauthenticated():
     """
@@ -46,14 +38,14 @@ def test_dj_http_bearer_raise_with_empty_bearer_token():
     assert "Not authenticated" in str(exc_info.value)
 
 
-def test_dj_http_bearer_raise_with_unsupported_scheme():
+def test_dj_http_bearer_raise_with_unsupported_scheme(jwt_token):
     """
     Test raising when the authorization header scheme is not a supported one
     """
     bearer = DJHTTPBearer()
     request = MagicMock()
     request.cookies.get.return_value = None
-    request.headers.get.return_value = f"Foo {EXAMPLE_TOKEN}"
+    request.headers.get.return_value = f"Foo {jwt_token}"
     with pytest.raises(DJException) as exc_info:
         asyncio.run(bearer(request))
     assert "Invalid authentication credentials" in str(exc_info.value)
@@ -72,13 +64,13 @@ def test_dj_http_bearer_raise_with_non_jwt_token():
     assert "Invalid authentication credentials" in str(exc_info.value)
 
 
-def test_dj_http_bearer_w_cookie():
+def test_dj_http_bearer_w_cookie(jwt_token):
     """
     Test using the DJHTTPBearer middleware with a cookie
     """
     bearer = DJHTTPBearer()
     request = MagicMock()
-    request.cookies.get.return_value = EXAMPLE_TOKEN
+    request.cookies.get.return_value = jwt_token
     asyncio.run(bearer(request))
     assert UserOutput.from_orm(request.state.user).dict() == {
         "id": 1,
@@ -94,14 +86,14 @@ def test_dj_http_bearer_w_cookie():
     }
 
 
-def test_dj_http_bearer_w_auth_headers():
+def test_dj_http_bearer_w_auth_headers(jwt_token):
     """
     Test using the DJHTTPBearer middleware with an authorization header
     """
     bearer = DJHTTPBearer()
     request = MagicMock()
     request.cookies.get.return_value = None
-    request.headers.get.return_value = f"Bearer {EXAMPLE_TOKEN}"
+    request.headers.get.return_value = f"Bearer {jwt_token}"
     asyncio.run(bearer(request))
     assert UserOutput.from_orm(request.state.user).dict() == {
         "id": 1,
