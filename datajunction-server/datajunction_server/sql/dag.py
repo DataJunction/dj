@@ -966,13 +966,12 @@ async def get_nodes_with_dimension(
                     ),
                 ],
             )
-            if current_node and current_node.type in (node_types or []):
-                final_set.add(current_node.current)
+            if current_node:
+                if not node_types or current_node.type in node_types:
+                    final_set.add(current_node.current)
                 for child in current_node.children:
                     if child.name not in processed:
                         to_process.append(child.node)
-    if node_types:
-        return [node for node in final_set if node.type in node_types]
     return list(final_set)
 
 
