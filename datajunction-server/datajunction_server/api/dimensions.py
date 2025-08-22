@@ -19,7 +19,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.models import access
 from datajunction_server.models.node import NodeIndegreeOutput, NodeRevisionOutput
-from datajunction_server.models.node_type import NodeNameVersion, NodeType
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import (
     get_dimension_dag_indegree,
     get_nodes_with_common_dimensions,
@@ -66,7 +66,7 @@ async def list_dimensions(
     )
 
 
-@router.get("/dimensions/{name}/nodes/", response_model=List[NodeNameVersion])
+@router.get("/dimensions/{name}/nodes/", response_model=List[NodeRevisionOutput])
 async def find_nodes_with_dimension(
     name: str,
     *,
@@ -76,7 +76,7 @@ async def find_nodes_with_dimension(
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
-) -> List[NodeNameVersion]:
+) -> List[NodeRevisionOutput]:
     """
     List all nodes that have the specified dimension
     """
