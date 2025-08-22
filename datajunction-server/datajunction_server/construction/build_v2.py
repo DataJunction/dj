@@ -317,6 +317,11 @@ def resolve_metric_component_against_parent(
     )
 
     parent_select = parent_ast.select
+    original_columns = {
+        col.name.name: col
+        for col in parent_select.projection
+        if isinstance(col, ast.Column)
+    }
     for col in component_ast.find_all(ast.Column):
         if matching := parent_select.column_mapping.get(col.name.name):
             # Case 1: The column name matches one of the parent's select aliases directly
@@ -327,8 +332,13 @@ def resolve_metric_component_against_parent(
             # the semantic entities of each of the parent columns
             col.name = matching.alias_or_name.copy()
             col.add_type(matching.type)
+        elif matching := original_columns.get(col.identifier()):
+            # Case 3: The column name has been included as a dimension and so needs to use
+            # semantic entity name rather than the original column name
+            col.name = matching.alias_or_name.copy()
+            col.add_type(matching.type)
         else:
-            # Case 3: The column is a local dimension reference and cannot be found directly
+            # Case 4: The column is a local dimension reference and cannot be found directly
             # in the parent's select clause, but can be resolved by prefixing with the parent
             # node's name (e.g., from `entity` to `default_DOT_transform_DOT_entity`)
             alias = amenable_name(f"{parent_node.name}{SEPARATOR}{col.name.name}")
