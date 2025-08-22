@@ -146,59 +146,60 @@ describe('NamespacePage', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(
-      () => {
-        expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
-        expect(screen.getByText('Namespaces')).toBeInTheDocument();
+    // Wait for initial nodes to load
+    await waitFor(() => {
+      expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
+      expect(screen.getByText('Namespaces')).toBeInTheDocument();
+    });
 
-        // check that it displays namespaces
-        expect(screen.getByText('common')).toBeInTheDocument();
-        expect(screen.getByText('one')).toBeInTheDocument();
-        expect(screen.getByText('fruits')).toBeInTheDocument();
-        expect(screen.getByText('vegetables')).toBeInTheDocument();
+    // Check that it displays namespaces
+    expect(screen.getByText('common')).toBeInTheDocument();
+    expect(screen.getByText('one')).toBeInTheDocument();
+    expect(screen.getByText('fruits')).toBeInTheDocument();
+    expect(screen.getByText('vegetables')).toBeInTheDocument();
 
-        // check that it renders nodes
-        expect(screen.getByText('Test Node')).toBeInTheDocument();
+    // Check that it renders nodes
+    expect(screen.getByText('Test Node')).toBeInTheDocument();
 
-        // check that it sorts nodes
-        fireEvent.click(screen.getByText('name'));
-        fireEvent.click(screen.getByText('name'));
-        fireEvent.click(screen.getByText('display Name'));
+    // --- Sorting ---
 
-        // paginate
-        const previousButton = screen.getByText('← Previous');
-        expect(previousButton).toBeDefined();
-        fireEvent.click(previousButton);
-        const nextButton = screen.getByText('Next →');
-        expect(nextButton).toBeDefined();
-        fireEvent.click(nextButton);
+    // sort by 'name'
+    fireEvent.click(screen.getByText('name'));
+    await waitFor(() => {
+      expect(mockDjClient.listNodesForLanding).toHaveBeenCalledTimes(2);
+    });
 
-        // check that we can filter by node type
-        const selectNodeType = screen.getAllByTestId('select-node-type')[0];
-        expect(selectNodeType).toBeDefined();
-        expect(selectNodeType).not.toBeNull();
-        fireEvent.keyDown(selectNodeType.firstChild, { key: 'ArrowDown' });
-        fireEvent.click(screen.getByText('Source'));
+    // flip direction
+    fireEvent.click(screen.getByText('name'));
+    await waitFor(() => {
+      expect(mockDjClient.listNodesForLanding).toHaveBeenCalledTimes(3);
+    });
 
-        // check that we can filter by tag
-        const selectTag = screen.getAllByTestId('select-tag')[0];
-        expect(selectTag).toBeDefined();
-        expect(selectTag).not.toBeNull();
-        fireEvent.keyDown(selectTag.firstChild, { key: 'ArrowDown' });
+    // sort by 'displayName'
+    fireEvent.click(screen.getByText('display Name'));
+    await waitFor(() => {
+      expect(mockDjClient.listNodesForLanding).toHaveBeenCalledTimes(4);
+    });
 
-        // check that we can filter by user
-        const selectUser = screen.getAllByTestId('select-user')[0];
-        expect(selectUser).toBeDefined();
-        expect(selectUser).not.toBeNull();
-        fireEvent.keyDown(selectUser.firstChild, { key: 'ArrowDown' });
+    // --- Filters ---
 
-        // click to open and close tab
-        fireEvent.click(screen.getByText('common'));
-        fireEvent.click(screen.getByText('common'));
-      },
-      { timeout: 3000 },
-    );
-  }, 60000);
+    // Node type
+    const selectNodeType = screen.getAllByTestId('select-node-type')[0];
+    fireEvent.keyDown(selectNodeType.firstChild, { key: 'ArrowDown' });
+    fireEvent.click(screen.getByText('Source'));
+
+    // Tag filter
+    const selectTag = screen.getAllByTestId('select-tag')[0];
+    fireEvent.keyDown(selectTag.firstChild, { key: 'ArrowDown' });
+
+    // User filter
+    const selectUser = screen.getAllByTestId('select-user')[0];
+    fireEvent.keyDown(selectUser.firstChild, { key: 'ArrowDown' });
+
+    // --- Expand/Collapse Namespace ---
+    fireEvent.click(screen.getByText('common'));
+    fireEvent.click(screen.getByText('common'));
+  });
 
   it('can add new namespace via add namespace popover', async () => {
     mockDjClient.addNamespace.mockReturnValue({

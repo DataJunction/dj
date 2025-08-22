@@ -10,7 +10,7 @@ from strawberry.types import Info
 
 from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
 from datajunction_server.api.graphql.scalars import Connection
-from datajunction_server.api.graphql.scalars.node import Node
+from datajunction_server.api.graphql.scalars.node import Node, NodeSortField
 from datajunction_server.models.node import NodeCursor, NodeType
 
 DEFAULT_LIMIT = 1000
@@ -48,6 +48,8 @@ async def find_nodes(
         int | None,
         strawberry.argument(description="Limit nodes"),
     ] = DEFAULT_LIMIT,
+    order_by: NodeSortField = NodeSortField.CREATED_AT,
+    ascending: bool = False,
     *,
     info: Info,
 ) -> list[Node]:
@@ -66,7 +68,16 @@ async def find_nodes(
         )
         limit = UPPER_LIMIT
 
-    return await find_nodes_by(info, names, fragment, node_types, tags, limit=limit)  # type: ignore
+    return await find_nodes_by(  # type: ignore
+        info,
+        names,
+        fragment,
+        node_types,
+        tags,
+        limit=limit,
+        order_by=order_by,
+        ascending=ascending,
+    )
 
 
 async def find_nodes_paginated(
@@ -112,6 +123,8 @@ async def find_nodes_paginated(
         int | None,
         strawberry.argument(description="Limit nodes"),
     ] = 100,
+    order_by: NodeSortField = NodeSortField.CREATED_AT,
+    ascending: bool = False,
     *,
     info: Info,
 ) -> Connection[Node]:
@@ -131,6 +144,8 @@ async def find_nodes_paginated(
         limit + 1,
         before,
         after,
+        order_by,
+        ascending,
     )
     return Connection.from_list(
         items=nodes_list,

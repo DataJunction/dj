@@ -1085,6 +1085,10 @@ describe('DataJunctionAPI', () => {
       null,
       null,
       100,
+      {
+        key: 'updatedAt',
+        direction: 'descending',
+      },
     );
     expect(fetch).toHaveBeenCalledWith(
       `${DJ_URL}/graphql`,
