@@ -299,6 +299,10 @@ class Node(Base):
             {entry.user for entry in self.history if entry.user},
         )
 
+    def upstream_cache_key(self, node_type: NodeType | None = None) -> str:
+        base = f"upstream:{self.name}@{self.current_version}"
+        return f"{base}:{node_type.value}" if node_type is not None else base
+
     @classmethod
     async def get_by_name(
         cls,
