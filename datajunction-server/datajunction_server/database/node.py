@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import sqlalchemy as sa
 from pydantic import Extra
 from sqlalchemy import JSON, and_, desc
+from sqlalchemy.orm import aliased
+
 from sqlalchemy import Column as SqlalchemyColumn
 from sqlalchemy import (
     DateTime,
@@ -25,7 +27,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship, selectinload
+from sqlalchemy.orm import (
+    Mapped,
+    joinedload,
+    mapped_column,
+    relationship,
+    selectinload,
+    MappedColumn,
+)
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.operators import is_, or_
 
@@ -439,11 +448,18 @@ class Node(Base):
         limit: int | None = 100,
         before: str | None = None,
         after: str | None = None,
+        order_by: MappedColumn | None = None,
+        ascending: bool = False,
         options: list[ExecutableOption] = None,
     ) -> List["Node"]:
         """
         Finds a list of nodes by prefix
         """
+        if not order_by:
+            order_by = Node.created_at
+
+        NodeRevisionAlias = aliased(NodeRevision)
+
         nodes_with_tags = []
         if tags:
             statement = (
@@ -458,6 +474,17 @@ class Node(Base):
                 return []
 
         statement = select(Node).where(is_(Node.deactivated_at, None))
+
+        # Join NodeRevision if needed for order_by or fragment filtering
+        order_by_node_revision = (
+            order_by and getattr(order_by, "class_", None) is NodeRevision
+        )
+        join_revision = True if fragment or order_by_node_revision else False
+        if join_revision:
+            statement = statement.join(NodeRevisionAlias, Node.current)
+            if order_by_node_revision:
+                order_by = getattr(NodeRevisionAlias, order_by.key)
+
         if namespace:
             statement = statement.where(
                 (Node.namespace.like(f"{namespace}.%")) | (Node.namespace == namespace),
@@ -471,10 +498,10 @@ class Node(Base):
                 Node.name.in_(names),  # type: ignore
             )
         if fragment:
-            statement = statement.join(NodeRevision, Node.current).where(
+            statement = statement.where(
                 or_(
-                    Node.name.like(f"%{fragment}%"),  # type: ignore
-                    NodeRevision.display_name.ilike(f"%{fragment}%"),  # type: ignore
+                    Node.name.like(f"%{fragment}%"),
+                    NodeRevisionAlias.display_name.ilike(f"%{fragment}%"),
                 ),
             )
 
@@ -503,9 +530,17 @@ class Node(Base):
             statement = statement.where(
                 (Node.created_at, Node.id) >= (cursor.created_at, cursor.id),
             )
-            statement = statement.order_by(Node.created_at.asc(), Node.id.asc())
+            statement = statement.order_by(
+                order_by.asc() if ascending else order_by.desc(),
+                Node.created_at.asc(),
+                Node.id.asc(),
+            )
         else:
-            statement = statement.order_by(Node.created_at.desc(), Node.id.desc())
+            statement = statement.order_by(
+                order_by.asc() if ascending else order_by.desc(),
+                Node.created_at.desc(),
+                Node.id.desc(),
+            )
 
         limit = limit if limit and limit > 0 else 100
         statement = statement.limit(limit)

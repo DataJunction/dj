@@ -298,6 +298,16 @@ type NodeRevision {
   cubeDimensions: [DimensionAttribute!]!
 }
 
+enum NodeSortField {
+  NAME
+  DISPLAY_NAME
+  TYPE
+  STATUS
+  MODE
+  CREATED_AT
+  UPDATED_AT
+}
+
 enum NodeStatus {
   VALID
   INVALID
@@ -382,6 +392,8 @@ type Query {
 
     """Limit nodes"""
     limit: Int = 1000
+    orderBy: NodeSortField! = CREATED_AT
+    ascending: Boolean! = false
   ): [Node!]!
 
   """Find nodes based on the search parameters with pagination"""
@@ -408,6 +420,8 @@ type Query {
 
     """Limit nodes"""
     limit: Int = 100
+    orderBy: NodeSortField! = CREATED_AT
+    ascending: Boolean! = false
   ): NodeConnection!
 
   """Get common dimensions for one or more nodes"""
