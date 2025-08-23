@@ -1363,13 +1363,9 @@ export const DataJunctionAPI = {
   },
   // GET /notifications/
   getNotificationPreferences: async function (params = {}) {
-    const url = new URL(`${DJ_URL}/notifications/`);
-    Object.entries(params).forEach(([key, value]) =>
-      url.searchParams.append(key, value),
-    );
-
+    const query = new URLSearchParams(params).toString();
     return await (
-      await fetch(url, {
+      await fetch(`${DJ_URL}/notifications/${query ? `?${query}` : ''}`, {
         credentials: 'include',
       })
     ).json();
