@@ -22,7 +22,6 @@ from sqlalchemy.exc import MissingGreenlet, OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
-    async_scoped_session,
     async_sessionmaker,
     create_async_engine,
 )
@@ -80,34 +79,68 @@ class DatabaseSessionManager:
     """
 
     def __init__(self):
-        self.reader_engine: AsyncEngine | None = None
-        self.writer_engine: AsyncEngine | None = None
-        self.writer_session: AsyncSession | None = None
-        self.reader_session: AsyncSession | None = None
+        self._reader_engine: AsyncEngine | None = None
+        self._writer_engine: AsyncEngine | None = None
+        self._writer_sessionmaker: async_sessionmaker[AsyncSession] | None = None
+        self._reader_sessionmaker: async_sessionmaker[AsyncSession] | None = None
+
+    @property
+    def reader_engine(self) -> AsyncEngine:
+        if self._reader_engine is None:
+            raise DJUninitializedResourceException(
+                "DatabaseSessionManager is not initialized",
+            )
+        return self._reader_engine
+
+    @property
+    def writer_engine(self) -> AsyncEngine:
+        if self._writer_engine is None:
+            raise DJUninitializedResourceException(
+                "DatabaseSessionManager is not initialized",
+            )
+        return self._writer_engine
+
+    @property
+    def reader_sessionmaker(self) -> async_sessionmaker[AsyncSession]:
+        if self._reader_sessionmaker is None:
+            raise DJUninitializedResourceException(
+                "DatabaseSessionManager is not initialized",
+            )
+        return self._reader_sessionmaker
+
+    @property
+    def writer_sessionmaker(self) -> async_sessionmaker[AsyncSession]:
+        if self._writer_sessionmaker is None:
+            raise DJUninitializedResourceException(
+                "DatabaseSessionManager is not initialized",
+            )
+        return self._writer_sessionmaker
 
     def init_db(self):
         """
         Initialize the database engine
         """
         settings = get_settings()
-        self.writer_engine, self.writer_session = self.create_engine_and_session(
+        self._writer_engine, self._writer_sessionmaker = self.create_engine_and_session(
             settings.writer_db,
         )
         if settings.reader_db:
-            self.reader_engine, self.reader_session = self.create_engine_and_session(
-                settings.reader_db,
+            self._reader_engine, self._reader_sessionmaker = (
+                self.create_engine_and_session(
+                    settings.reader_db,
+                )
             )
         else:
-            self.reader_engine, self.reader_session = (  # pragma: no cover
-                self.writer_engine,
-                self.writer_session,
+            self._reader_engine, self._reader_sessionmaker = (  # pragma: no cover
+                self._writer_engine,
+                self._writer_sessionmaker,
             )
 
     @classmethod
     def create_engine_and_session(
         cls,
         database_config: DatabaseConfig,
-    ) -> tuple[AsyncEngine, async_scoped_session]:
+    ) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
         engine = create_async_engine(
             database_config.uri,
             future=True,
@@ -127,21 +160,22 @@ class DatabaseSessionManager:
             },
         )
         async_session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+        return engine, async_session_factory
 
-        # Create a scoped session
-        scoped_session = async_scoped_session(  # pragma: no cover
-            async_session_factory,
-            scopefunc=asyncio.current_task,
-        )
-        return engine, scoped_session
+    @property
+    def sessionmaker(self) -> async_sessionmaker[AsyncSession]:
+        """
+        Default to writer sessionmaker
+        """
+        return self._writer_sessionmaker
 
     @property
     def session(self):
-        return self.writer_session  # pragma: no cover
+        return self._writer_sessionmaker  # pragma: no cover
 
     def get_writer_session_factory(self) -> async_sessionmaker[AsyncSession]:
         return async_sessionmaker(  # pragma: no cover
-            bind=self.writer_engine,
+            bind=self._writer_engine,
             autocommit=False,
             expire_on_commit=False,
         )
@@ -151,15 +185,15 @@ class DatabaseSessionManager:
         Close database session
         """
         if (  # pragma: no cover
-            self.reader_engine is None and self.writer_engine is None
+            self._reader_engine is None and self._writer_engine is None
         ):
             raise DJUninitializedResourceException(
                 "DatabaseSessionManager is not initialized",
             )
-        if self.reader_engine:  # pragma: no cover
-            await self.reader_engine.dispose()  # pragma: no cover
-        if self.writer_engine:  # pragma: no cover
-            await self.writer_engine.dispose()  # pragma: no cover
+        if self._reader_engine:  # pragma: no cover
+            await self._reader_engine.dispose()  # pragma: no cover
+        if self._writer_engine:  # pragma: no cover
+            await self._writer_engine.dispose()  # pragma: no cover
 
 
 @lru_cache(maxsize=None)
@@ -192,21 +226,17 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     Async database session.
     """
     session_manager = get_session_manager()
-    scoped_session = (
-        session_manager.reader_session
+    session_maker = (
+        session_manager.reader_sessionmaker
         if request.method.upper() == "GET" or await is_graphql_query(request)
-        else session_manager.writer_session
+        else session_manager.writer_sessionmaker
     )
-    session = None
-    try:
-        session: AsyncSession = scoped_session()  # type: ignore
-        yield session
-    except Exception as exc:
-        if session is not None:
-            await session.rollback()  # pragma: no cover
-        raise exc  # pragma: no cover
-    finally:
-        await scoped_session.remove()  # type: ignore
+    async with session_maker() as session:
+        try:
+            yield session
+        except Exception as exc:
+            await session.rollback()
+            raise exc
 
 
 @asynccontextmanager
