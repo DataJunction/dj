@@ -3,7 +3,6 @@ Tests for ``datajunction_server.utils``.
 """
 
 import logging
-from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 import json
@@ -79,13 +78,28 @@ async def test_get_session_uses_correct_session(method, expected_session_attr):
     mock_reader = AsyncMock(spec=AsyncSession)
     mock_writer = AsyncMock(spec=AsyncSession)
 
-    mock_reader_callable = MagicMock(return_value=mock_reader)
-    mock_writer_callable = MagicMock(return_value=mock_writer)
-
-    mock_session_manager = SimpleNamespace(
-        reader_session=mock_reader_callable,
-        writer_session=mock_writer_callable,
+    mock_reader_sessionmaker = MagicMock(return_value=mock_reader)
+    mock_reader_sessionmaker.return_value.__aenter__ = AsyncMock(
+        return_value=mock_reader,
     )
+    mock_reader_sessionmaker.return_value.__aexit__ = AsyncMock(return_value=None)
+    mock_writer_sessionmaker = MagicMock(return_value=mock_writer)
+    mock_writer_sessionmaker.return_value.__aenter__ = AsyncMock(
+        return_value=mock_writer,
+    )
+    mock_writer_sessionmaker.return_value.__aexit__ = AsyncMock(return_value=None)
+
+    # Mock DatabaseSessionManager with properties
+    class MockSessionManager:
+        @property
+        def reader_sessionmaker(self):
+            return mock_reader_sessionmaker
+
+        @property
+        def writer_sessionmaker(self):
+            return mock_writer_sessionmaker
+
+    mock_session_manager = MockSessionManager()
 
     with patch(
         "datajunction_server.utils.get_session_manager",
@@ -96,13 +110,13 @@ async def test_get_session_uses_correct_session(method, expected_session_attr):
 
         session = await anext(get_session(request))
         if expected_session_attr == "reader_session":
-            mock_reader_callable.assert_called_once()
-            mock_writer_callable.assert_not_called()
-            assert session is mock_reader
+            mock_reader_sessionmaker.assert_called_once()
+            mock_writer_sessionmaker.assert_not_called()
+            assert session == mock_reader
         else:
-            mock_writer_callable.assert_called_once()
-            mock_reader_callable.assert_not_called()
-            assert session is mock_writer
+            mock_writer_sessionmaker.assert_called_once()
+            mock_reader_sessionmaker.assert_not_called()
+            assert session == mock_writer
 
 
 def test_get_settings(mocker: MockerFixture) -> None:
@@ -152,12 +166,12 @@ def test_database_session_manager(
     session_manager = DatabaseSessionManager()
     session_manager.init_db()
 
-    writer_engine = cast(AsyncEngine, session_manager.writer_engine)
+    writer_engine = cast(AsyncEngine, session_manager._writer_engine)
     writer_engine.pool.size() == settings.writer_db.pool_size  # type: ignore
     writer_engine.pool.timeout() == settings.writer_db.pool_timeout  # type: ignore
     writer_engine.pool.overflow() == settings.writer_db.max_overflow  # type: ignore
 
-    reader_engine = cast(AsyncEngine, session_manager.reader_engine)
+    reader_engine = cast(AsyncEngine, session_manager._reader_engine)
     reader_engine.pool.size() == settings.reader_db.pool_size  # type: ignore
     reader_engine.pool.timeout() == settings.reader_db.pool_timeout  # type: ignore
     reader_engine.pool.overflow() == settings.reader_db.max_overflow  # type: ignore
