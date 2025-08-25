@@ -3,7 +3,6 @@ Tests for ``datajunction_server.utils``.
 """
 
 import logging
-from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 import json
 import pytest
@@ -15,14 +14,18 @@ import pytest
 from pytest_mock import MockerFixture
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.background import BackgroundTasks
 from testcontainers.postgres import PostgresContainer
 from yarl import URL
 
 from datajunction_server.config import DatabaseConfig, Settings
 from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.errors import DJDatabaseException, DJException
+from datajunction_server.errors import (
+    DJDatabaseException,
+    DJException,
+    DJUninitializedResourceException,
+)
 from datajunction_server.utils import (
     DatabaseSessionManager,
     Version,
@@ -31,6 +34,7 @@ from datajunction_server.utils import (
     get_issue_url,
     get_query_service_client,
     get_session,
+    get_session_manager,
     get_settings,
     setup_logging,
     is_graphql_query,
@@ -75,48 +79,27 @@ async def test_get_session_uses_correct_session(method, expected_session_attr):
     """
     Ensure get_session uses reader_session for GET and writer_session for others.
     """
-    mock_reader = AsyncMock(spec=AsyncSession)
-    mock_writer = AsyncMock(spec=AsyncSession)
+    mock_session_manager = get_session_manager()
+    request = MagicMock()
+    request.method = method
+    assert mock_session_manager.reader_engine is not None
+    assert mock_session_manager.writer_engine is not None
+    assert mock_session_manager.reader_sessionmaker is not None
+    assert mock_session_manager.writer_sessionmaker is not None
 
-    mock_reader_sessionmaker = MagicMock(return_value=mock_reader)
-    mock_reader_sessionmaker.return_value.__aenter__ = AsyncMock(
-        return_value=mock_reader,
-    )
-    mock_reader_sessionmaker.return_value.__aexit__ = AsyncMock(return_value=None)
-    mock_writer_sessionmaker = MagicMock(return_value=mock_writer)
-    mock_writer_sessionmaker.return_value.__aenter__ = AsyncMock(
-        return_value=mock_writer,
-    )
-    mock_writer_sessionmaker.return_value.__aexit__ = AsyncMock(return_value=None)
-
-    # Mock DatabaseSessionManager with properties
-    class MockSessionManager:
-        @property
-        def reader_sessionmaker(self):
-            return mock_reader_sessionmaker
-
-        @property
-        def writer_sessionmaker(self):
-            return mock_writer_sessionmaker
-
-    mock_session_manager = MockSessionManager()
-
-    with patch(
-        "datajunction_server.utils.get_session_manager",
-        return_value=mock_session_manager,
-    ):
-        request = MagicMock()
-        request.method = method
-
-        session = await anext(get_session(request))
-        if expected_session_attr == "reader_session":
-            mock_reader_sessionmaker.assert_called_once()
-            mock_writer_sessionmaker.assert_not_called()
-            assert session == mock_reader
-        else:
-            mock_writer_sessionmaker.assert_called_once()
-            mock_reader_sessionmaker.assert_not_called()
-            assert session == mock_writer
+    agen = get_session(request)
+    session = await anext(agen)
+    if expected_session_attr == "reader_session":
+        assert (
+            str(session.bind.url)
+            == "postgresql+psycopg://readonly_user:***@postgres_metadata:5432/dj"
+        )
+    else:
+        assert (
+            str(session.bind.url)
+            == "postgresql+psycopg://dj:***@postgres_metadata:5432/dj"
+        )
+    await agen.aclose()
 
 
 def test_get_settings(mocker: MockerFixture) -> None:
@@ -157,24 +140,38 @@ def test_database_session_manager(
     postgres_container: PostgresContainer,
 ) -> None:
     """
-    Test ``get_engine``.
+    Test DatabaseSessionManager.
     """
     connection_url = postgres_container.get_connection_url()
     settings.writer_db = DatabaseConfig(uri=connection_url)
     mocker.patch("datajunction_server.utils.get_settings", return_value=settings)
 
     session_manager = DatabaseSessionManager()
+    with pytest.raises(DJUninitializedResourceException):
+        session_manager.reader_engine
+    with pytest.raises(DJUninitializedResourceException):
+        session_manager.writer_engine
+    with pytest.raises(DJUninitializedResourceException):
+        session_manager.reader_sessionmaker
+    with pytest.raises(DJUninitializedResourceException):
+        session_manager.writer_sessionmaker
+
     session_manager.init_db()
 
-    writer_engine = cast(AsyncEngine, session_manager._writer_engine)
+    writer_engine = session_manager.writer_engine
     writer_engine.pool.size() == settings.writer_db.pool_size  # type: ignore
     writer_engine.pool.timeout() == settings.writer_db.pool_timeout  # type: ignore
     writer_engine.pool.overflow() == settings.writer_db.max_overflow  # type: ignore
 
-    reader_engine = cast(AsyncEngine, session_manager._reader_engine)
+    reader_engine = session_manager.reader_engine
     reader_engine.pool.size() == settings.reader_db.pool_size  # type: ignore
     reader_engine.pool.timeout() == settings.reader_db.pool_timeout  # type: ignore
     reader_engine.pool.overflow() == settings.reader_db.max_overflow  # type: ignore
+
+    assert session_manager.reader_engine != session_manager.writer_engine
+    assert isinstance(session_manager.reader_sessionmaker, async_sessionmaker)
+    assert isinstance(session_manager.writer_sessionmaker, async_sessionmaker)
+    assert session_manager.sessionmaker == session_manager.writer_sessionmaker
 
 
 def test_get_query_service_client(mocker: MockerFixture, settings: Settings) -> None:
