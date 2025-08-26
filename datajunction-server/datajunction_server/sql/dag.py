@@ -19,7 +19,6 @@ from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import (
     CubeRelationship,
     Node,
-    NodeColumns,
     NodeRelationship,
     NodeRevision,
 )
@@ -610,14 +609,12 @@ async def get_dimensions_dag(
     graph_branches = (
         (
             select(
-                NodeColumns.node_id.label("node_revision_id"),
+                Column.node_revision_id,
                 Column.dimension_id,
                 Column.name,
                 Column.dimension_column,
             )
-            .select_from(NodeColumns)
-            .join(Column, NodeColumns.column_id == Column.id)
-            .where(Column.dimension_id.isnot(None))
+            .select_from(Column)
             .where(Column.dimension_id.isnot(None))
         )
         .union_all(
@@ -765,17 +762,7 @@ async def get_dimensions_dag(
             paths.c.join_path,
         )
         .select_from(paths)
-        .join(NodeColumns, NodeColumns.node_id == paths.c.node_revision_id)
-        .join(
-            column,
-            and_(
-                NodeColumns.column_id == column.id,
-                or_(
-                    is_(paths.c.dimension_column, None),
-                    paths.c.dimension_column == column.name,
-                ),
-            ),
-        )
+        .join(column, column.node_revision_id == paths.c.node_revision_id)
         .join(ColumnAttribute, column.id == ColumnAttribute.column_id, isouter=True)
         .join(
             AttributeType,
@@ -801,8 +788,7 @@ async def get_dimensions_dag(
                 literal("").label("join_path"),
             )
             .select_from(NodeRevision)
-            .join(NodeColumns, NodeColumns.node_id == NodeRevision.id)
-            .join(Column, NodeColumns.column_id == Column.id)
+            .join(Column, Column.node_revision_id == NodeRevision.id)
             .join(
                 ColumnAttribute,
                 Column.id == ColumnAttribute.column_id,
@@ -1065,12 +1051,8 @@ async def get_nodes_with_dimension(
                     ),
                 )
                 .join(
-                    NodeColumns,
-                    onclause=(NodeRevision.id == NodeColumns.node_id),
-                )
-                .join(
                     Column,
-                    onclause=(NodeColumns.column_id == Column.id),
+                    onclause=(NodeRevision.id == Column.node_revision_id),
                 )
                 .where(
                     Column.dimension_id.in_(  # type: ignore
@@ -1180,9 +1162,19 @@ def topological_sort(nodes: List[Node]) -> List[Node]:
             parent for parent in node.current.parents if parent.name in all_nodes
         ]
         in_degrees[node.name] = 0
-    for parents in adjacency_list.values():
+
+    # Build reverse mapping: parent -> children, and set in-degrees
+    children_to_parents = adjacency_list.copy()  # Save for in-degree calc
+    adjacency_list = {}  # Reset to build parent->children mapping
+
+    for node in nodes:
+        adjacency_list[node.name] = []
+        in_degrees[node.name] = len(children_to_parents[node.name])
+
+    # Populate parent->children mapping
+    for node_name, parents in children_to_parents.items():
         for parent in parents:
-            in_degrees[parent.name] += 1
+            adjacency_list[parent.name].append(all_nodes[node_name])
 
     # Initialize queue with nodes having in-degree 0
     queue: List[Node] = [
@@ -1203,7 +1195,7 @@ def topological_sort(nodes: List[Node]) -> List[Node]:
     if len(sorted_nodes) != len(in_degrees):
         raise DJGraphCycleException("Graph has at least one cycle")
 
-    return sorted_nodes[::-1]
+    return sorted_nodes
 
 
 async def get_dimension_dag_indegree(session, node_names: List[str]) -> Dict[str, int]:
@@ -1287,8 +1279,7 @@ async def get_cubes_using_dimensions(
         .select_from(cubes_subquery)
         .join(CubeRelationship, cubes_subquery.c.id == CubeRelationship.cube_id)
         .join(Column, CubeRelationship.cube_element_id == Column.id)
-        .join(NodeColumns, Column.id == NodeColumns.column_id)
-        .join(dimensions_subquery, NodeColumns.node_id == dimensions_subquery.c.id)
+        .join(dimensions_subquery, Column.node_revision_id == dimensions_subquery.c.id)
         .where(dimensions_subquery.c.name.in_(dimension_names))
         .group_by(dimensions_subquery.c.name)
     )
