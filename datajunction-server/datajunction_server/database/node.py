@@ -389,7 +389,7 @@ class Node(Base):
                         Materialization.backfills,
                     ),
                     selectinload(NodeRevision.cube_elements)
-                    .selectinload(Column.node_revisions)
+                    .selectinload(Column.node_revision)
                     .options(
                         selectinload(NodeRevision.node),
                     ),
@@ -696,7 +696,7 @@ class NodeRevision(
         secondary="cube",
         primaryjoin="NodeRevision.id==CubeRelationship.cube_id",
         secondaryjoin="Column.id==CubeRelationship.cube_element_id",
-        lazy="joined",
+        lazy="selectin",
         order_by="Column.order",
     )
 
@@ -724,10 +724,9 @@ class NodeRevision(
     )
 
     columns: Mapped[List["Column"]] = relationship(
-        secondary="nodecolumns",
-        primaryjoin="NodeRevision.id==NodeColumns.node_id",
-        secondaryjoin="Column.id==NodeColumns.column_id",
-        cascade="all, delete",
+        "Column",
+        back_populates="node_revision",
+        cascade="all, delete-orphan",
         order_by="Column.order",
     )
 
@@ -945,13 +944,13 @@ class NodeRevision(
         """
         Cube elements along with their nodes
         """
-        return [(element, element.node_revision()) for element in self.cube_elements]
+        return [(element, element.node_revision) for element in self.cube_elements]
 
     def metric_node_revisions(self) -> list[Optional["NodeRevision"]]:
         """
         Cube elements along with their nodes
         """
-        node_revisions = [element.node_revision() for element in self.cube_elements]
+        node_revisions = [element.node_revision for element in self.cube_elements]
         return [rev for rev in node_revisions if rev.type == NodeType.METRIC]
 
     def cube_metrics(self) -> List[Node]:
@@ -1084,7 +1083,7 @@ class NodeRevision(
                     Materialization.backfills,
                 ),
                 selectinload(NodeRevision.cube_elements)
-                .selectinload(Column.node_revisions)
+                .selectinload(Column.node_revision)
                 .options(
                     joinedload(NodeRevision.node),
                     selectinload(NodeRevision.frozen_measures).options(

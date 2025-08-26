@@ -49,14 +49,25 @@ class Column(Base):  # type: ignore
         lazy="joined",
     )
     dimension_column: Mapped[Optional[str]] = mapped_column()
-    node_revisions: Mapped[List["NodeRevision"]] = relationship(
+
+    node_revision_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "noderevision.id",
+            name="fk_column_node_revision_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+
+    node_revision: Mapped["NodeRevision"] = relationship(
+        "NodeRevision",
         back_populates="columns",
-        secondary="nodecolumns",
         lazy="selectin",
     )
+
     attributes: Mapped[List["ColumnAttribute"]] = relationship(
         back_populates="column",
-        lazy="joined",
+        lazy="selectin",
         cascade="all,delete",
     )
     measure_id: Mapped[Optional[int]] = mapped_column(
@@ -135,18 +146,11 @@ class Column(Base):  # type: ignore
     def __hash__(self) -> int:
         return hash(self.id)
 
-    def node_revision(self) -> Optional["NodeRevision"]:
-        """
-        Returns the most recent node revision associated with this column
-        """
-        available_revisions = sorted(self.node_revisions, key=lambda n: n.updated_at)
-        return available_revisions[-1] if available_revisions else None
-
     def full_name(self) -> str:
         """
         Full column name that includes the node it belongs to, i.e., default.hard_hat.first_name
         """
-        return f"{self.node_revision().name}.{self.name}"  # type: ignore  # pragma: no cover
+        return f"{self.node_revision.name}.{self.name}"  # type: ignore  # pragma: no cover
 
     def copy(self) -> "Column":
         """

@@ -349,7 +349,7 @@ async def create_cube_node_revision(
     dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions)
     for idx, col in enumerate(metric_columns + dimension_columns):
         await session.refresh(col, ["node_revisions"])
-        referenced_node = col.node_revision()
+        referenced_node = col.node_revision
         full_element_name = (
             referenced_node.name  # type: ignore
             if referenced_node.type == NodeType.METRIC  # type: ignore
@@ -1179,7 +1179,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
         description=old_revision.description,
         query=old_revision.query,
         type=old_revision.type,
-        columns=old_revision.columns,
+        columns=[col.copy() for col in old_revision.columns],
         catalog=old_revision.catalog,
         schema_=old_revision.schema_,
         table=old_revision.table,

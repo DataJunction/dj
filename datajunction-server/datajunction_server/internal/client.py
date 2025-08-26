@@ -141,7 +141,7 @@ async def python_client_create_node(
                 joinedload(Node.current).options(
                     *NodeRevision.default_load_options(),
                     selectinload(NodeRevision.cube_elements)
-                    .selectinload(Column.node_revisions)
+                    .selectinload(Column.node_revision)
                     .options(
                         selectinload(NodeRevision.node),
                     ),
