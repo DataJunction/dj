@@ -111,7 +111,7 @@ async def build_dimensions_from_cube_query(
             ast.Relation(primary=measures_query_ast),
         )
     types_lookup = {
-        amenable_name(elem.node_revision().name + SEPARATOR + elem.name): elem.type  # type: ignore
+        amenable_name(elem.node_revision.name + SEPARATOR + elem.name): elem.type  # type: ignore
         for elem in cube.cube_elements
     }
     return TranslatedSQL.create(

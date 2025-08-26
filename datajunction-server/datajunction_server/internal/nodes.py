@@ -580,8 +580,8 @@ async def create_cube_node_revision(
         catalog,
     ) = await validate_cube(
         session,
-        data.metrics,
-        data.dimensions,
+        data.metrics or [],
+        data.dimensions or [],
         require_dimensions=False,
     )
     status = (
@@ -596,10 +596,10 @@ async def create_cube_node_revision(
     # Build the "columns" for this node based on the cube elements. These are used
     # for marking partition columns when the cube gets materialized.
     node_columns = []
-    dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions)
+    dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions or [])
     for idx, col in enumerate(metric_columns + dimension_columns):
-        await session.refresh(col, ["node_revisions"])
-        referenced_node = col.node_revision()
+        await session.refresh(col, ["node_revision"])
+        referenced_node = col.node_revision
         full_element_name = (
             referenced_node.name  # type: ignore
             if referenced_node.type == NodeType.METRIC  # type: ignore
@@ -784,7 +784,7 @@ async def copy_to_new_node(
         catalog=old_revision.catalog,
         schema_=old_revision.schema_,
         table=old_revision.table,
-        required_dimensions=[col.copy() for col in old_revision.required_dimensions],
+        required_dimensions=list(old_revision.required_dimensions),
         metric_metadata=old_revision.metric_metadata,
         cube_elements=list(old_revision.cube_elements),
         status=old_revision.status,
@@ -831,8 +831,7 @@ async def copy_to_new_node(
     new_node.current_version = new_revision.version
     session.add(new_revision)
     session.add(new_node)
-
-    # Add a history event recording the copy
+    await session.commit()
     await save_history(
         event=History(
             node=new_node.name,
@@ -844,7 +843,6 @@ async def copy_to_new_node(
         ),
         session=session,
     )
-    await session.commit()
 
     # If the new node makes any downstream nodes valid, propagate
     newly_valid_nodes = await resolve_downstream_references(
@@ -1455,7 +1453,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
         description=old_revision.description,
         query=old_revision.query,
         type=old_revision.type,
-        columns=old_revision.columns,
+        columns=[col.copy() for col in old_revision.columns],
         catalog=old_revision.catalog,
         schema_=old_revision.schema_,
         table=old_revision.table,
@@ -1463,7 +1461,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
         mode=old_revision.mode,
         materializations=old_revision.materializations,
         status=old_revision.status,
-        required_dimensions=old_revision.required_dimensions,
+        required_dimensions=list(old_revision.required_dimensions),
         metric_metadata=old_revision.metric_metadata,
         dimension_links=[
             DimensionLink(
@@ -1671,7 +1669,7 @@ async def create_new_revision_from_existing(
             for idx, column_data in enumerate(data.columns)
         ]
         if data and data.columns
-        else old_revision.columns,
+        else [col.copy() for col in old_revision.columns],
         catalog=old_revision.catalog,
         schema_=old_revision.schema_,
         table=old_revision.table,
@@ -1697,6 +1695,11 @@ async def create_new_revision_from_existing(
         created_by_id=current_user.id,
         custom_metadata=old_revision.custom_metadata,
     )
+
+    # Set the node_revision relationship on copied columns
+    for col in new_revision.columns:
+        col.node_revision = new_revision
+
     if data and data.required_dimensions is not None:  # type: ignore
         new_revision.required_dimensions = data.required_dimensions  # type: ignore
 
@@ -1708,6 +1711,10 @@ async def create_new_revision_from_existing(
         node_validator = await validate_node_data(new_revision, session)
         new_revision.columns = node_validator.columns
         new_revision.status = node_validator.status
+
+        # Re-establish column relationships after validation overwrites them
+        for col in new_revision.columns:
+            col.node_revision = new_revision
         if node_validator.errors:
             if new_mode == NodeMode.DRAFT:
                 new_revision.status = NodeStatus.INVALID
@@ -2242,8 +2249,7 @@ async def remove_dimension_link(
         node_type=NodeType.CUBE,
     )
     for cube in downstream_cubes:
-        for elem in cube.current.cube_elements:
-            await session.refresh(elem, ["node_revisions"])
+        cube = cast(Node, await Node.get_cube_by_name(session, cube.name))
         cube_dimension_nodes = [
             cube_elem_node.name
             for (element, cube_elem_node) in cube.current.cube_elements_with_nodes()
@@ -2552,12 +2558,12 @@ async def activate_node(
         if downstream.type == NodeType.CUBE:
             downstream.current.status = NodeStatus.VALID
             for element in downstream.current.cube_elements:
-                await session.refresh(element, ["node_revisions"])
+                await session.refresh(element, ["node_revision"])
                 if (
-                    element.node_revisions
-                    and element.node_revisions[-1].status == NodeStatus.INVALID
-                ):  # pragma: no cover
-                    downstream.current.status = NodeStatus.INVALID
+                    element.node_revision
+                    and element.node_revision.status == NodeStatus.INVALID
+                ):
+                    downstream.current.status = NodeStatus.INVALID  # pragma: no cover
         else:
             # We should not fail node restoration just because of some nodes
             # that have been invalid already and stay that way.
@@ -2939,7 +2945,7 @@ async def refresh_source(
         Column(
             name=column.name,
             type=column.type,
-            node_revisions=[new_revision],
+            node_revision=new_revision,
             order=idx,
         )
         for idx, column in enumerate(new_columns)

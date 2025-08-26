@@ -531,9 +531,9 @@ async def test_deploy_column_properties_attributes(
         assert [
             attr.attribute_type.name for attr in node.current.columns[0].attributes
         ] == ["hidden"]
-        assert [
+        assert {
             attr.attribute_type.name for attr in node.current.columns[1].attributes
-        ] == ["hidden", "primary_key"]
+        } == {"hidden", "primary_key"}
 
 
 async def test_deploy_column_properties_desc(

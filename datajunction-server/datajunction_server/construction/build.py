@@ -253,7 +253,7 @@ def build_materialized_cube_node(
         ]  # pragma: no cover
     else:
         selected_metric_keys = [
-            col.node_revision().name  # type: ignore
+            col.node_revision.name  # type: ignore
             for col in selected_metrics
         ]
 
@@ -301,7 +301,7 @@ def build_materialized_cube_node(
         dimension_column = ast.Column(
             name=ast.Name(
                 (
-                    selected_dim.node_revision().name  # type: ignore
+                    selected_dim.node_revision.name  # type: ignore
                     + SEPARATOR
                     + selected_dim.name
                 ).replace(SEPARATOR, f"_{LOOKUP_CHARS.get(SEPARATOR)}_"),

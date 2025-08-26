@@ -150,6 +150,7 @@ def link_events_to_users_with_role_direct(
                 "role": "user_direct",
             },
         )
+        assert response.status_code == 201
         return response
 
     return _link_events_to_users_with_role_direct
