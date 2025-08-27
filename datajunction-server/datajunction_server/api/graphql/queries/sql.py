@@ -28,7 +28,6 @@ from datajunction_server.api.graphql.scalars.sql import (
     VersionedRef,
     MetricComponent,
 )
-from datajunction_server.construction.build_v2 import get_measures_query
 from datajunction_server.construction.build import group_metrics_by_parent
 
 
@@ -73,7 +72,7 @@ async def measures_sql(
         cache=info.context["cache"],
         query_type=QueryBuildType.MEASURES,
     )
-    return await query_cache_manager.get_or_load(
+    queries = await query_cache_manager.get_or_load(
         info.context["background_tasks"],
         info.context["request"],
         QueryRequestParams(
@@ -87,22 +86,7 @@ async def measures_sql(
             include_all_columns=include_all_columns,
             preaggregate=preaggregate,
             use_materialized=use_materialized,
-            # current_user=current_user,
-            # validate_access=validate_access,
         ),
-    )
-    queries = await get_measures_query(
-        session=session,
-        metrics=metrics,  # type: ignore
-        dimensions=dimensions,  # type: ignore
-        filters=cube.filters,  # type: ignore
-        orderby=cube.orderby,
-        engine_name=engine.name if engine else None,
-        engine_version=engine.version if engine else None,
-        include_all_columns=include_all_columns,
-        use_materialized=use_materialized,
-        preagg_requested=preaggregate,
-        query_parameters=query_parameters,
     )
     return [
         await GeneratedSQL.from_pydantic(info, measures_query)
