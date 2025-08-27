@@ -406,13 +406,13 @@ class Node(Base):
         cls,
         session: AsyncSession,
         node_id: int,
-        *options: ExecutableOption,
+        options: List[ExecutableOption] = None,
     ) -> Optional["Node"]:
         """
         Get a node by id
         """
         statement = (
-            select(Node).where(Node.id == node_id).options(*options)
+            select(Node).where(Node.id == node_id).options(*(options or []))
         )  # pragma: no cover
         result = await session.execute(statement)  # pragma: no cover
         node = result.unique().scalar_one_or_none()  # pragma: no cover
