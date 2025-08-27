@@ -381,6 +381,7 @@ class TestGetDimensionDagIndegree:
         # BFS
         min_fanout_settings = MagicMock()
         min_fanout_settings.fanout_threshold = 1
+        min_fanout_settings.reader_db.pool_size = 20
         min_fanout_settings.max_concurrency = 5
         min_fanout_settings.node_list_max = 10000
         with patch("datajunction_server.sql.dag.settings", min_fanout_settings):
@@ -405,6 +406,7 @@ class TestGetDimensionDagIndegree:
         # Recursive CTE
         max_fanout_settings = MagicMock()
         max_fanout_settings.fanout_threshold = 100
+        max_fanout_settings.reader_db.pool_size = 20
         max_fanout_settings.max_concurrency = 5
         max_fanout_settings.node_list_max = 10000
         with patch("datajunction_server.sql.dag.settings", max_fanout_settings):
@@ -417,6 +419,7 @@ class TestGetDimensionDagIndegree:
         # Maximum number of downstream nodes returned
         max_node_list_settings = MagicMock()
         max_node_list_settings.fanout_threshold = 1
+        max_node_list_settings.reader_db.pool_size = 20
         max_node_list_settings.max_concurrency = 5
         max_node_list_settings.node_list_max = 5
         with patch("datajunction_server.sql.dag.settings", max_node_list_settings):
@@ -428,3 +431,55 @@ class TestGetDimensionDagIndegree:
                 len({ds.name for ds in downstreams})
                 == max_node_list_settings.node_list_max
             )
+
+        # Test deactivated
+        await module__client_with_roads.delete(
+            "/nodes/default.regional_repair_efficiency",
+        )
+        with patch("datajunction_server.sql.dag.settings", min_fanout_settings):
+            downstreams = await get_downstream_nodes(
+                module__session,
+                "default.repair_orders",
+                include_deactivated=True,
+            )
+            assert {ds.name for ds in downstreams} == expected_nodes
+
+        # Test cubes
+        await module__client_with_roads.post(
+            "/nodes/cube/",
+            json={
+                "metrics": ["default.num_repair_orders", "default.avg_repair_price"],
+                "dimensions": ["default.hard_hat.country"],
+                "filters": ["default.hard_hat.state='AZ'"],
+                "description": "Cube of various metrics related to repairs",
+                "mode": "published",
+                "name": "default.repairs_cube",
+            },
+        )
+        with patch("datajunction_server.sql.dag.settings", min_fanout_settings):
+            downstreams = await get_downstream_nodes(
+                module__session,
+                "default.repair_orders",
+                include_cubes=False,
+                include_deactivated=False,
+            )
+            assert {ds.name for ds in downstreams} == expected_nodes - {
+                "default.regional_repair_efficiency",
+            }
+
+        with patch("datajunction_server.sql.dag.settings", min_fanout_settings):
+            downstreams = await get_downstream_nodes(
+                module__session,
+                "default.repair_orders",
+                node_type=NodeType.METRIC,
+            )
+            assert {ds.name for ds in downstreams} == {
+                "default.avg_repair_order_discounts",
+                "default.avg_repair_price",
+                "default.avg_time_to_dispatch",
+                "default.discounted_orders_rate",
+                "default.num_repair_orders",
+                "default.regional_repair_efficiency",
+                "default.total_repair_cost",
+                "default.total_repair_order_discounts",
+            }
