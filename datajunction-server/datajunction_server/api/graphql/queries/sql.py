@@ -5,6 +5,11 @@ from typing import Annotated, Optional
 import strawberry
 from strawberry.types import Info
 from strawberry.scalars import JSON
+from datajunction_server.internal.caching.query_cache_manager import (
+    QueryCacheManager,
+    QueryRequestParams,
+)
+from datajunction_server.database.queryrequest import QueryBuildType
 
 from datajunction_server.api.graphql.resolvers.nodes import (
     get_metrics,
@@ -64,6 +69,28 @@ async def measures_sql(
     """
     session = info.context["session"]
     metrics, dimensions = await resolve_metrics_and_dimensions(session, cube)
+    query_cache_manager = QueryCacheManager(
+        cache=info.context["cache"],
+        query_type=QueryBuildType.MEASURES,
+    )
+    return await query_cache_manager.get_or_load(
+        info.context["background_tasks"],
+        info.context["request"],
+        QueryRequestParams(
+            nodes=metrics,
+            dimensions=dimensions,
+            filters=cube.filters,
+            engine_name=engine.name if engine else None,
+            engine_version=engine.version if engine else None,
+            orderby=cube.orderby,
+            query_params=query_parameters,
+            include_all_columns=include_all_columns,
+            preaggregate=preaggregate,
+            use_materialized=use_materialized,
+            # current_user=current_user,
+            # validate_access=validate_access,
+        ),
+    )
     queries = await get_measures_query(
         session=session,
         metrics=metrics,  # type: ignore
