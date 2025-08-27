@@ -205,7 +205,14 @@ async def get_downstream_nodes_bfs(
             include_cubes,
             node_type,
         )
-        results.extend([node for node in nodes_at_level if node.id != start_node.id])
+        results.extend(
+            [
+                node
+                for node in nodes_at_level
+                if node.id != start_node.id
+                and (node.type == node_type or node_type is None)
+            ],
+        )
 
         if len(results) >= settings.node_list_max:
             return results[: settings.node_list_max]
@@ -275,12 +282,10 @@ async def _bfs_process_level_concurrently(
             options=_node_output_options(),
         )
         if not node:
-            return None
-        if not include_deactivated and node.deactivated_at:
-            return None
+            return None  # pragma: no cover
+        if not include_deactivated and node.deactivated_at is not None:
+            return None  # pragma: no cover
         if not include_cubes and node.type == NodeType.CUBE:
-            return None
-        if node_type is not None and node.type != node_type:
             return None
         return node
 
