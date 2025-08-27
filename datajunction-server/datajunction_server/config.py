@@ -2,7 +2,6 @@
 Configuration for the datajunction server.
 """
 
-import multiprocessing
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
@@ -140,13 +139,9 @@ class Settings(BaseSettings):  # pragma: no cover
     # Maximum amount of nodes to return for requests to list all nodes
     node_list_max = 10000
 
-    # DAG configuration
+    # DAG traversal configuration
     fanout_threshold = 50
-
-    @property
-    def max_concurrency(self) -> int:
-        cpu_count = multiprocessing.cpu_count()
-        return max(2, cpu_count // 2)
+    max_concurrency = 20
 
     @property
     def celery(self) -> Celery:

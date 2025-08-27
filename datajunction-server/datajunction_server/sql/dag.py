@@ -178,7 +178,6 @@ async def get_downstream_nodes_bfs(
     include_deactivated: bool = True,
     include_cubes: bool = True,
     node_type: NodeType = None,
-    max_concurrency: int = settings.max_concurrency,
 ) -> list[Node]:
     """
     Get all downstream nodes of a given node using BFS, which is more efficient for large graphs.
@@ -205,14 +204,13 @@ async def get_downstream_nodes_bfs(
             include_deactivated,
             include_cubes,
             node_type,
-            max_concurrency=max_concurrency,
         )
-        results.extend([n for n in nodes_at_level if n.id != start_node.id])
+        results.extend([node for node in nodes_at_level if node.id != start_node.id])
 
         if len(results) >= settings.node_list_max:
             return results[: settings.node_list_max]
 
-        # stop BFS if max depth reached
+        # Stop BFS if max depth reached
         if max_depth != -1 and current_level[0][1] >= max_depth:
             break
 
@@ -254,12 +252,15 @@ async def _bfs_process_level_concurrently(
     include_deactivated: bool = True,
     include_cubes: bool = True,
     node_type: NodeType = None,
-    max_concurrency: int = settings.max_concurrency,
 ):
     """
     Process all nodes at a BFS level concurrently with a concurrency limit.
     """
-    semaphore = asyncio.Semaphore(max_concurrency)
+    effective_concurrency = min(
+        settings.max_concurrency,
+        max(1, settings.reader_db.pool_size // 2),
+    )
+    semaphore = asyncio.Semaphore(effective_concurrency)
 
     async def _bfs_process_node(
         session: AsyncSession,
@@ -295,7 +296,7 @@ async def _bfs_process_level_concurrently(
 
     tasks = [sem_task(node_id) for node_id in node_ids]
     processed = await asyncio.gather(*tasks)
-    return [n for n in processed if n is not None]
+    return [node for node in processed if node is not None]
 
 
 async def get_upstream_nodes(
