@@ -464,6 +464,9 @@ type Query {
     Whether to pre-aggregate to the requested dimensions so that subsequent queries are more efficient.
     """
     preaggregate: Boolean! = false
+
+    """Query parameters to include in the SQL"""
+    queryParameters: JSON = null
   ): [GeneratedSQL!]!
 
   """

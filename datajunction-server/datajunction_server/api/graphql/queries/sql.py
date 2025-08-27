@@ -4,6 +4,7 @@ from typing import Annotated, Optional
 
 import strawberry
 from strawberry.types import Info
+from strawberry.scalars import JSON
 
 from datajunction_server.api.graphql.resolvers.nodes import (
     get_metrics,
@@ -49,6 +50,12 @@ async def measures_sql(
             "subsequent queries are more efficient.",
         ),
     ] = False,
+    query_parameters: Annotated[
+        JSON | None,
+        strawberry.argument(
+            description="Query parameters to include in the SQL",
+        ),
+    ] = None,
     *,
     info: Info,
 ) -> list[GeneratedSQL]:
@@ -68,6 +75,7 @@ async def measures_sql(
         include_all_columns=include_all_columns,
         use_materialized=use_materialized,
         preagg_requested=preaggregate,
+        query_parameters=query_parameters,
     )
     return [
         await GeneratedSQL.from_pydantic(info, measures_query)
