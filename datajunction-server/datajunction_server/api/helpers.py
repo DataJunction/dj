@@ -376,7 +376,7 @@ async def validate_cube(
     # Verify that the provided metrics are metric nodes
     metrics: List[Column] = [metric.current.columns[0] for metric in metric_nodes]
     for metric in metrics:
-        await session.refresh(metric, ["node_revisions"])
+        await session.refresh(metric, ["node_revision"])
     if not metrics:
         raise DJInvalidInputException(
             message=("At least one metric is required"),
@@ -706,18 +706,18 @@ async def build_sql_for_multiple_metrics(
                 name=col.name,
                 type=str(col.type),
                 column=col.name,
-                node=col.node_revision().name,  # type: ignore
+                node=col.node_revision.name,  # type: ignore
             )
             for col in metric_columns
         ]
         query_dimension_columns = [
             ColumnMetadata(
-                name=(col.node_revision().name + SEPARATOR + col.name).replace(  # type: ignore
+                name=(col.node_revision.name + SEPARATOR + col.name).replace(  # type: ignore
                     SEPARATOR,
                     f"_{LOOKUP_CHARS.get(SEPARATOR)}_",
                 ),
                 type=str(col.type),
-                node=col.node_revision().name,  # type: ignore
+                node=col.node_revision.name,  # type: ignore
                 column=col.name,  # type: ignore
             )
             for col in dimension_columns
