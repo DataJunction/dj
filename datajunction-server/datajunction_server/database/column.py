@@ -61,8 +61,8 @@ class Column(Base):  # type: ignore
 
     node_revision: Mapped["NodeRevision"] = relationship(
         "NodeRevision",
+        foreign_keys=[node_revision_id],
         back_populates="columns",
-        lazy="selectin",
     )
 
     attributes: Mapped[List["ColumnAttribute"]] = relationship(
@@ -165,7 +165,10 @@ class Column(Base):  # type: ignore
             dimension_id=self.dimension_id,
             dimension_column=self.dimension_column,
             attributes=[
-                ColumnAttribute(attribute_type_id=attr.attribute_type_id)
+                ColumnAttribute(
+                    attribute_type_id=attr.attribute_type_id,
+                    attribute_type=attr.attribute_type,
+                )
                 for attr in self.attributes
             ],
             measure_id=self.measure_id,

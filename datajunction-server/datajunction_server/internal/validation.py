@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import find_bound_dimensions
 from datajunction_server.database import Node, NodeRevision
-from datajunction_server.database.column import Column
+from datajunction_server.database.column import Column, ColumnAttribute
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
@@ -132,7 +132,15 @@ async def validate_node_data(
                 else column_name,
                 display_name=labelize(column_name),
                 type=column_type,
-                attributes=existing_column.attributes if existing_column else [],
+                attributes=[
+                    ColumnAttribute(
+                        attribute_type_id=attr.attribute_type_id,
+                        attribute_type=attr.attribute_type,
+                    )
+                    for attr in existing_column.attributes
+                ]
+                if existing_column
+                else [],
                 dimension=existing_column.dimension if existing_column else None,
                 order=idx,
             )

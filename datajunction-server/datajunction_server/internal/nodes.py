@@ -348,7 +348,7 @@ async def create_cube_node_revision(
     node_columns = []
     dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions)
     for idx, col in enumerate(metric_columns + dimension_columns):
-        await session.refresh(col, ["node_revisions"])
+        await session.refresh(col, ["node_revision"])
         referenced_node = col.node_revision
         full_element_name = (
             referenced_node.name  # type: ignore
@@ -542,6 +542,8 @@ async def copy_to_new_node(
         created_by_id=current_user.id,
         custom_metadata=old_revision.custom_metadata,
     )
+    for col in new_revision.columns:
+        col.node_revision = new_revision
 
     # Assemble new dimension links, where each link will need to have their join SQL rewritten
     new_dimension_links = []
@@ -574,6 +576,7 @@ async def copy_to_new_node(
     new_node.current_version = new_revision.version
     session.add(new_revision)
     session.add(new_node)
+    await session.commit()
 
     # Add a history event recording the copy
     await save_history(
@@ -1392,10 +1395,10 @@ async def create_new_revision_from_existing(
                 attributes=column_data.attributes or [],
                 order=idx,
             )
-            for idx, column_data in enumerate(data.columns)
-        ]
-        if data and data.columns
-        else old_revision.columns,
+            for idx, column_data in enumerate(
+                data.columns if data and data.columns else old_revision.columns,
+            )
+        ],
         catalog=old_revision.catalog,
         schema_=old_revision.schema_,
         table=old_revision.table,

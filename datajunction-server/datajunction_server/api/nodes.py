@@ -1359,7 +1359,7 @@ async def refresh_source_node(
         Column(
             name=column.name,
             type=column.type,
-            node_revisions=[new_revision],
+            node_revision=new_revision,
             order=idx,
         )
         for idx, column in enumerate(new_columns)
