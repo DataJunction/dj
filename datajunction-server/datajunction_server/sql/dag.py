@@ -194,7 +194,7 @@ async def get_downstream_nodes_bfs(
 
         current_ids = list(set([nid for nid, _ in current_level if nid not in visited]))
         if not current_ids:
-            break
+            break  # pragma: no cover
         visited.update(current_ids)
 
         # Process nodes at this level concurrently
@@ -209,7 +209,7 @@ async def get_downstream_nodes_bfs(
         results.extend([n for n in nodes_at_level if n.id != start_node.id])
 
         if len(results) >= settings.node_list_max:
-            return results
+            return results[: settings.node_list_max]
 
         # stop BFS if max depth reached
         if max_depth != -1 and current_level[0][1] >= max_depth:
