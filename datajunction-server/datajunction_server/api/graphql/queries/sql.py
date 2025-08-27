@@ -4,6 +4,12 @@ from typing import Annotated, Optional
 
 import strawberry
 from strawberry.types import Info
+from strawberry.scalars import JSON
+from datajunction_server.internal.caching.query_cache_manager import (
+    QueryCacheManager,
+    QueryRequestParams,
+)
+from datajunction_server.database.queryrequest import QueryBuildType
 
 from datajunction_server.api.graphql.resolvers.nodes import (
     get_metrics,
@@ -22,7 +28,6 @@ from datajunction_server.api.graphql.scalars.sql import (
     VersionedRef,
     MetricComponent,
 )
-from datajunction_server.construction.build_v2 import get_measures_query
 from datajunction_server.construction.build import group_metrics_by_parent
 
 
@@ -49,6 +54,12 @@ async def measures_sql(
             "subsequent queries are more efficient.",
         ),
     ] = False,
+    query_parameters: Annotated[
+        JSON | None,
+        strawberry.argument(
+            description="Query parameters to include in the SQL",
+        ),
+    ] = None,
     *,
     info: Info,
 ) -> list[GeneratedSQL]:
@@ -57,17 +68,25 @@ async def measures_sql(
     """
     session = info.context["session"]
     metrics, dimensions = await resolve_metrics_and_dimensions(session, cube)
-    queries = await get_measures_query(
-        session=session,
-        metrics=metrics,  # type: ignore
-        dimensions=dimensions,  # type: ignore
-        filters=cube.filters,  # type: ignore
-        orderby=cube.orderby,
-        engine_name=engine.name if engine else None,
-        engine_version=engine.version if engine else None,
-        include_all_columns=include_all_columns,
-        use_materialized=use_materialized,
-        preagg_requested=preaggregate,
+    query_cache_manager = QueryCacheManager(
+        cache=info.context["cache"],
+        query_type=QueryBuildType.MEASURES,
+    )
+    queries = await query_cache_manager.get_or_load(
+        info.context["background_tasks"],
+        info.context["request"],
+        QueryRequestParams(
+            nodes=metrics,
+            dimensions=dimensions,
+            filters=cube.filters,
+            engine_name=engine.name if engine else None,
+            engine_version=engine.version if engine else None,
+            orderby=cube.orderby,
+            query_params=query_parameters,
+            include_all_columns=include_all_columns,
+            preaggregate=preaggregate,
+            use_materialized=use_materialized,
+        ),
     )
     return [
         await GeneratedSQL.from_pydantic(info, measures_query)
