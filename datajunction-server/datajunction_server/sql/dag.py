@@ -101,7 +101,7 @@ async def get_downstream_nodes(
     )
     if initial_count >= settings.fanout_threshold:
         logger.info(
-            "Initial fanout for node %s (%d) is greater than threshold %d",
+            "Initial fanout for node %s (%d) is greater than threshold %d. Switching to BFS...",
             node_name,
             initial_count,
             settings.fanout_threshold,
@@ -180,18 +180,18 @@ async def get_downstream_nodes_bfs(
     max_concurrency: int = 20,
 ) -> list[Node]:
     """
-    Get all downstream nodes of a given node using BFS.
-    Processes each level concurrently, with a limit on the number of concurrent tasks.
+    Get all downstream nodes of a given node using BFS, which is more efficient for large graphs.
+    Each level is processed concurrently, with a limit on the number of concurrent tasks
+    configured by `max_concurrency`.
     """
     visited = set()
     results = []
-
-    # queue items: tuples of (node_id, depth)
     current_level: list[Tuple[int, int]] = [(start_node.id, 0)]
 
     while current_level:
         depth = current_level[0][1]
         logger.info("Processing downstreams for %s at depth %s", start_node.name, depth)
+
         current_ids = list(set([nid for nid, _ in current_level if nid not in visited]))
         if not current_ids:
             break
