@@ -139,6 +139,10 @@ class Settings(BaseSettings):  # pragma: no cover
     # Maximum amount of nodes to return for requests to list all nodes
     node_list_max = 10000
 
+    # DAG traversal configuration
+    fanout_threshold = 50
+    max_concurrency = 20
+
     @property
     def celery(self) -> Celery:
         """
