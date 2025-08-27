@@ -19,6 +19,7 @@ from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import (
     CubeRelationship,
     Node,
+    NodeColumns,
     NodeRelationship,
     NodeRevision,
 )
@@ -177,7 +178,7 @@ async def get_downstream_nodes_bfs(
     include_deactivated: bool = True,
     include_cubes: bool = True,
     node_type: NodeType = None,
-    max_concurrency: int = 20,
+    max_concurrency: int = settings.max_concurrency,
 ) -> list[Node]:
     """
     Get all downstream nodes of a given node using BFS, which is more efficient for large graphs.
@@ -603,11 +604,15 @@ async def get_dimensions_dag(
     graph_branches = (
         (
             select(
-                Column.node_revision_id,
+                NodeColumns.node_id.label("node_revision_id"),
                 Column.dimension_id,
                 Column.name,
                 Column.dimension_column,
-            ).where(Column.dimension_id.isnot(None))
+            )
+            .select_from(NodeColumns)
+            .join(Column, NodeColumns.column_id == Column.id)
+            .where(Column.dimension_id.isnot(None))
+            .where(Column.dimension_id.isnot(None))
         )
         .union_all(
             select(
@@ -754,7 +759,17 @@ async def get_dimensions_dag(
             paths.c.join_path,
         )
         .select_from(paths)
-        .join(column, column.node_revision_id == paths.c.node_revision_id)
+        .join(NodeColumns, NodeColumns.node_id == paths.c.node_revision_id)
+        .join(
+            column,
+            and_(
+                NodeColumns.column_id == column.id,
+                or_(
+                    is_(paths.c.dimension_column, None),
+                    paths.c.dimension_column == column.name,
+                ),
+            ),
+        )
         .join(ColumnAttribute, column.id == ColumnAttribute.column_id, isouter=True)
         .join(
             AttributeType,
@@ -780,7 +795,8 @@ async def get_dimensions_dag(
                 literal("").label("join_path"),
             )
             .select_from(NodeRevision)
-            .join(Column, Column.node_revision_id == NodeRevision.id)
+            .join(NodeColumns, NodeColumns.node_id == NodeRevision.id)
+            .join(Column, NodeColumns.column_id == Column.id)
             .join(
                 ColumnAttribute,
                 Column.id == ColumnAttribute.column_id,
@@ -1038,8 +1054,12 @@ async def get_nodes_with_dimension(
                     ),
                 )
                 .join(
+                    NodeColumns,
+                    onclause=(NodeRevision.id == NodeColumns.node_id),
+                )
+                .join(
                     Column,
-                    onclause=(NodeRevision.id == Column.node_revision_id),
+                    onclause=(NodeColumns.column_id == Column.id),
                 )
                 .where(
                     Column.dimension_id.in_(  # type: ignore
@@ -1256,7 +1276,8 @@ async def get_cubes_using_dimensions(
         .select_from(cubes_subquery)
         .join(CubeRelationship, cubes_subquery.c.id == CubeRelationship.cube_id)
         .join(Column, CubeRelationship.cube_element_id == Column.id)
-        .join(dimensions_subquery, Column.node_revision_id == dimensions_subquery.c.id)
+        .join(NodeColumns, Column.id == NodeColumns.column_id)
+        .join(dimensions_subquery, NodeColumns.node_id == dimensions_subquery.c.id)
         .where(dimensions_subquery.c.name.in_(dimension_names))
         .group_by(dimensions_subquery.c.name)
     )
