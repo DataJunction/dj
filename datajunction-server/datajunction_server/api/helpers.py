@@ -68,6 +68,8 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.typing import END_JOB_STATES
 from datajunction_server.utils import SEPARATOR, refresh_if_needed
 
+from datajunction_server.models.engine import Dialect
+
 _logger = logging.getLogger(__name__)
 
 COLUMN_NAME_REGEX = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
@@ -602,6 +604,40 @@ async def find_existing_cube(
             return cube.current
 
     return None
+
+
+async def resolve_engine(
+    session: AsyncSession,
+    node: Node,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
+    dialect: Dialect | None = None,
+) -> Engine:
+    """
+    Resolve which engine should be used to execute node SQL.
+    The engine is determined in the following order:
+      1. If an explicit engine name and version are provided, fetch that engine
+         from the database.
+      2. Otherwise, fall back to the first engine associated with the node's
+         catalog that matches the requested dialect.
+      3. Validate that the chosen engine is available for the given node.
+    """
+    available_engines = [
+        eng
+        for eng in node.current.catalog.engines
+        if not dialect or eng.dialect == dialect
+    ]
+    engine = (
+        await get_engine(session, engine_name, engine_version)  # type: ignore
+        if engine_name
+        else available_engines[0]
+    )
+    if engine not in available_engines:
+        raise DJInvalidInputException(  # pragma: no cover
+            f"The selected engine is not available for the node {node.name}. "
+            f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
+        )
+    return engine
 
 
 async def build_sql_for_multiple_metrics(

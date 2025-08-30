@@ -534,12 +534,16 @@ class VersionedQueryKey:
         """
         Versions the dimensions by creating a versioned node key for each dimension.
         """
-        node_names = [".".join(dim.split(".")[:-1]) for dim in dimensions]
+        node_names = [
+            name
+            for name in [".".join(dim.split(".")[:-1]) for dim in dimensions]
+            if name
+        ]
         dimension_nodes = {
             node.name: node
             for node in await Node.get_by_names(
                 session,
-                [".".join(dim.split(".")[:-1]) for dim in dimensions],
+                node_names,
             )
         }
         return [

@@ -11,11 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from sse_starlette.sse import EventSourceResponse
 
+from datajunction_server.models.user import UserOutput
 from datajunction_server.api.helpers import (
     build_sql_for_multiple_metrics,
+    resolve_engine,
     query_event_stream,
 )
-from datajunction_server.api.sql import get_node_sql
+from datajunction_server.api.sql import build_node_sql
 from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import History
@@ -51,7 +53,6 @@ from datajunction_server.internal.caching.query_cache_manager import (
     QueryRequestParams,
     QueryBuildType,
 )
-
 from datajunction_server.models.sql import GeneratedSQL
 
 _logger = logging.getLogger(__name__)
@@ -194,7 +195,7 @@ async def get_data(
         description="Whether to use materialized nodes when available",
     ),
     ignore_errors: bool = Query(
-        default=True,
+        default=False,
         description="Whether to ignore errors when building the query",
     ),
     query_params: str = Query("{}", description="Query parameters"),
@@ -241,21 +242,13 @@ async def get_data(
         Node,
         await Node.get_by_name(session, node_name, raise_if_not_exists=True),
     )
-    available_engines = [
-        eng
-        for eng in node.current.catalog.engines
-        if eng.dialect == generated_sql.dialect
-    ]
-    engine = (
-        await get_engine(session, engine_name, engine_version)  # type: ignore
-        if engine_name
-        else available_engines[0]
+    engine = await resolve_engine(
+        session=session,
+        node=node,
+        engine_name=engine_name,
+        engine_version=engine_version,
+        dialect=generated_sql.dialect,
     )
-    if engine not in available_engines:
-        raise DJInvalidInputException(  # pragma: no cover
-            f"The selected engine is not available for the node {node_name}. "
-            f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
-        )
 
     query_create = QueryCreate(
         engine_name=engine.name,
@@ -301,34 +294,54 @@ async def get_data_stream_for_node(
     Return data for a node using server side events
     """
     request_headers = dict(request.headers)
-    query, query_request = await get_node_sql(
-        node_name,
-        dimensions,
-        [filter_ for filter_ in filters if filter_],
-        orderby,
-        limit,
+    node = cast(
+        Node,
+        await Node.get_by_name(session, node_name, raise_if_not_exists=True),
+    )
+    engine = await resolve_engine(
         session=session,
+        node=node,
         engine_name=engine_name,
         engine_version=engine_version,
-        current_user=current_user,
-        validate_access=validate_access,
-        background_tasks=background_tasks,
     )
-    if query_request and query_request.query_id:
-        return EventSourceResponse(  # pragma: no cover
-            query_event_stream(
-                query=QueryWithResults(
-                    id=query_request.query_id,
-                    submitted_query=query_request.query,
-                    results=[],
-                    errors=[],
-                ),
-                query_service_client=query_service_client,
-                request_headers=request_headers,
-                columns=query.columns,  # type: ignore
-                request=request,
-            ),
-        )
+    access_control = access.AccessControlStore(
+        validate_access=validate_access,
+        user=UserOutput.from_orm(current_user),
+        base_verb=access.ResourceRequestVerb.READ,
+    )
+
+    translated_sql = await build_node_sql(
+        node_name=node_name,
+        dimensions=dimensions,
+        filters=filters,
+        orderby=orderby,
+        limit=limit,
+        session=session,
+        engine=engine,
+        ignore_errors=False,
+        access_control=access_control,
+    )
+
+    query_create = QueryCreate(
+        engine_name=engine.name,
+        catalog_name=node.current.catalog.name,  # type: ignore
+        engine_version=engine.version,
+        submitted_query=translated_sql.sql,
+        async_=True,
+    )
+    initial_query_info = query_service_client.submit_query(
+        query_create,
+        request_headers=request_headers,
+    )
+    return EventSourceResponse(  # pragma: no cover
+        query_event_stream(
+            query=initial_query_info,
+            query_service_client=query_service_client,
+            request_headers=request_headers,
+            columns=translated_sql.columns,  # type: ignore
+            request=request,
+        ),
+    )
 
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     available_engines = node.current.catalog.engines  # type: ignore
@@ -347,7 +360,7 @@ async def get_data_stream_for_node(
         engine_name=engine.name,
         catalog_name=node.current.catalog.name,  # type: ignore
         engine_version=engine.version,
-        submitted_query=query.sql,
+        submitted_query=translated_sql.sql,
         async_=True,
     )
     initial_query_info = query_service_client.submit_query(
@@ -360,7 +373,7 @@ async def get_data_stream_for_node(
             query=initial_query_info,
             request_headers=request_headers,
             query_service_client=query_service_client,
-            columns=query.columns,  # type: ignore
+            columns=translated_sql.columns,  # type: ignore
             request=request,
         ),
     )
