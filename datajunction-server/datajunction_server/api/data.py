@@ -3,7 +3,7 @@ Data related APIs.
 """
 
 import logging
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, cast
 
 from fastapi import BackgroundTasks, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -44,6 +44,15 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.internal.caching.query_cache_manager import (
+    QueryCacheManager,
+    QueryRequestParams,
+    QueryBuildType,
+)
+
+from datajunction_server.models.sql import GeneratedSQL
 
 _logger = logging.getLogger(__name__)
 
@@ -180,6 +189,15 @@ async def get_data(
         default=False,
         description="Whether to run the query async or wait for results from the query engine",
     ),
+    use_materialized: bool = Query(
+        default=True,
+        description="Whether to use materialized nodes when available",
+    ),
+    ignore_errors: bool = Query(
+        default=True,
+        description="Whether to ignore errors when building the query",
+    ),
+    query_params: str = Query("{}", description="Query parameters"),
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -190,36 +208,50 @@ async def get_data(
         validate_access,
     ),
     background_tasks: BackgroundTasks,
+    cache: Cache = Depends(get_cache),
 ) -> QueryWithResults:
     """
     Gets data for a node
     """
     request_headers = dict(request.headers)
-    query, query_request = await get_node_sql(
-        node_name,
-        dimensions,
-        filters,
-        orderby,
-        limit,
-        session=session,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        current_user=current_user,
-        validate_access=validate_access,
-        background_tasks=background_tasks,
+    query_cache_manager = QueryCacheManager(
+        cache=cache,
+        query_type=QueryBuildType.NODE,
     )
-    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
-    available_engines = node.current.catalog.engines  # type: ignore
+    generated_sql: GeneratedSQL = await query_cache_manager.get_or_load(
+        background_tasks,
+        request,
+        QueryRequestParams(
+            nodes=[node_name],
+            dimensions=dimensions,
+            filters=filters,
+            orderby=orderby,
+            limit=limit,
+            query_params=query_params,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            use_materialized=use_materialized,
+            ignore_errors=ignore_errors,
+            current_user=current_user,
+            validate_access=validate_access,
+        ),
+    )
+
+    node = cast(
+        Node,
+        await Node.get_by_name(session, node_name, raise_if_not_exists=True),
+    )
+    available_engines = [
+        eng
+        for eng in node.current.catalog.engines
+        if eng.dialect == generated_sql.dialect
+    ]
     engine = (
-        await get_engine(
-            session,
-            engine_name or query_request.engine_name,
-            engine_version or query_request.engine_version,  # type: ignore
-        )
-        if engine_name or query_request.engine_name
+        await get_engine(session, engine_name, engine_version)  # type: ignore
+        if engine_name
         else available_engines[0]
     )
-    if engine not in available_engines and engine.name != query_request.engine_name:
+    if engine not in available_engines:
         raise DJInvalidInputException(  # pragma: no cover
             f"The selected engine is not available for the node {node_name}. "
             f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
@@ -229,18 +261,17 @@ async def get_data(
         engine_name=engine.name,
         catalog_name=node.current.catalog.name,  # type: ignore
         engine_version=engine.version,
-        submitted_query=query.sql,
+        submitted_query=generated_sql.sql,
         async_=async_,
     )
     result = query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
     )
-    query_request.query_id = result.id
 
     # Inject column info if there are results
     if result.results.__root__:  # pragma: no cover
-        result.results.__root__[0].columns = query.columns  # type: ignore
+        result.results.__root__[0].columns = generated_sql.columns  # type: ignore
     return result
 
 
