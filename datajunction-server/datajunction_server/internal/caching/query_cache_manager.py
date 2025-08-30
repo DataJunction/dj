@@ -126,6 +126,11 @@ class QueryCacheManager(RefreshAheadCacheManager):
                     query_parameters=json.loads(params.query_params)
                     if params.query_params
                     else {},
+                    access_control=access.AccessControlStore(
+                        validate_access=params.validate_access,
+                        user=params.current_user,
+                        base_verb=access.ResourceRequestVerb.READ,
+                    ),
                 )
                 return TranslatedSQL.create(
                     sql=built_sql.sql,

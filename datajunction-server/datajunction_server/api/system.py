@@ -3,8 +3,7 @@ Router for various system overview metrics
 """
 
 import logging
-import hashlib
-from fastapi import BackgroundTasks, Depends, Query
+from fastapi import BackgroundTasks, Depends, Query, Request
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +16,6 @@ from datajunction_server.sql.dag import (
     get_cubes_using_dimensions,
     get_dimension_dag_indegree,
 )
-from datajunction_server.api.sql import get_node_sql
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.database.user import User
@@ -29,6 +27,12 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
+from datajunction_server.internal.caching.query_cache_manager import (
+    QueryCacheManager,
+    QueryRequestParams,
+    QueryBuildType,
+)
+from datajunction_server.models.sql import GeneratedSQL
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -56,6 +60,7 @@ async def get_data_for_system_metric(
     dimensions: list[str] = Query([]),
     filters: list[str] = Query([]),
     orderby: list[str] = Query([]),
+    limit: int | None = None,
     session: AsyncSession = Depends(get_session),
     *,
     current_user: User = Depends(get_current_user),
@@ -64,6 +69,7 @@ async def get_data_for_system_metric(
         validate_access,
     ),
     cache: Cache = Depends(get_cache),
+    request: Request,
 ) -> list[list[RowOutput]]:
     """
     This is not a generic data for metrics endpoint, but rather a specific endpoint for
@@ -77,31 +83,21 @@ async def get_data_for_system_metric(
     For a list of available system metrics, see the `/system/metrics` endpoint. All dimensions
     for the metric can be discovered through the usual endpoints.
     """
+    query_cache_manager = QueryCacheManager(cache=cache, query_type=QueryBuildType.NODE)
     # e.g., "system.dj.number_of_nodes"
-    unique_string = f"{metric_name}:{','.join(dimensions)}:{' AND '.join(filters)}"
-    unique_hash = hashlib.sha256(unique_string.encode()).hexdigest()[:16]
-    cache_key = f"system:sql:{metric_name}:{unique_hash}"
-    if not (translated_sql := cache.get(cache_key)):  # pragma: no cover
-        translated_sql, _ = await get_node_sql(
-            metric_name,
+    translated_sql: GeneratedSQL = await query_cache_manager.get_or_load(
+        background_tasks,
+        request,
+        QueryRequestParams(
+            nodes=[metric_name],
             dimensions=dimensions,
             filters=filters,
             orderby=orderby,
-            session=session,
+            limit=limit,
             current_user=current_user,
-            background_tasks=background_tasks,
             validate_access=validate_access,
-        )
-        # A long timeout for the cache is fine here, since these are system nodes whose
-        # definitions should only change upon deployment, at which point the cache can be
-        # retriggered
-        background_tasks.add_task(
-            cache.set,
-            cache_key,
-            translated_sql,
-            timeout=settings.query_cache_timeout,
-        )
-
+        ),
+    )
     results = await session.execute(text(translated_sql.sql))
     output = [
         [

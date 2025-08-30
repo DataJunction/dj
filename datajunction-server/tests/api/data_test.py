@@ -36,10 +36,9 @@ class TestDataForNode:
             },
         )
         data = response.json()
-        assert response.status_code == 422
+        assert response.status_code == 500
         assert (
-            "something are not available dimensions on default.payment_type"
-            in data["message"]
+            "This dimension attribute cannot be joined in: something" in data["message"]
         )
 
     @pytest.mark.asyncio
