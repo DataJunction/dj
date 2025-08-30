@@ -122,7 +122,7 @@ async def get_measures_sql_for_cube_v2(
     )
 
 
-async def build_and_save_node_sql(
+async def build_node_sql(
     node_name: str,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
@@ -130,20 +130,23 @@ async def build_and_save_node_sql(
     limit: Optional[int] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    engine: Engine,
-    access_control: AccessControlStore,
+    engine: Engine | None = None,
+    access_control: AccessControlStore | None = None,
     ignore_errors: bool = True,
     use_materialized: bool = True,
     query_parameters: dict[str, Any] | None = None,
-    save: bool = False,
-) -> QueryRequest:
+) -> TranslatedSQL:
     """
     Build node SQL and save it to query requests
     """
+    validate_orderby(orderby, [node_name], dimensions)
+
     node = cast(
         Node,
         await Node.get_by_name(session, node_name, raise_if_not_exists=True),
     )
+    if not engine:
+        engine = node.current.catalog.engines[0]
 
     # If it's a cube, we'll build SQL for the metrics in the cube, along with any additional
     # dimensions or filters provided in the arguments
@@ -168,30 +171,7 @@ async def build_and_save_node_sql(
             use_materialized=use_materialized,
             query_parameters=query_parameters,
         )
-        # We save the request for both the cube and the metrics, so that if someone makes either
-        # of these types of requests, they'll go to the cached query
-        requests_to_save = [
-            (node.current.cube_node_metrics, QueryBuildType.METRICS),
-            ([node_name], QueryBuildType.NODE),
-        ]
-        for nodes, query_type in requests_to_save:
-            if query_parameters:
-                continue  # pragma: no cover
-            request = await QueryRequest.save_query_request(
-                session=session,
-                nodes=nodes,
-                dimensions=dimensions,
-                filters=filters,
-                orderby=orderby,
-                limit=limit,
-                engine_name=engine.name if engine else None,
-                engine_version=engine.version if engine else None,
-                query_type=query_type,
-                query=translated_sql.sql,
-                columns=[col.dict() for col in translated_sql.columns],  # type: ignore
-                save=False,
-            )
-        return request
+        return translated_sql
 
     # For all other nodes, build the node query
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)  # type: ignore
@@ -232,21 +212,11 @@ async def build_and_save_node_sql(
         ]
         query = str(query_ast)
 
-    query_request = await QueryRequest.save_query_request(
-        session=session,
-        nodes=[node_name],
-        dimensions=dimensions,
-        filters=filters,
-        orderby=orderby,
-        limit=limit,
-        engine_name=engine.name if engine else None,
-        engine_version=engine.version if engine else None,
-        query_type=QueryBuildType.NODE,
-        query=query,
-        columns=[col.dict() for col in columns or []],
-        save=False,
+    return TranslatedSQL.create(
+        sql=query,
+        columns=columns,
+        dialect=engine.dialect if engine else None,
     )
-    return query_request
 
 
 async def get_node_sql(
@@ -284,42 +254,7 @@ async def get_node_sql(
     )
     validate_orderby(orderby, [node_name], dimensions)
 
-    if query_request := await QueryRequest.get_query_request(
-        session,
-        nodes=[node_name],
-        dimensions=dimensions,
-        filters=filters,
-        orderby=orderby,
-        limit=limit,
-        engine_name=engine.name if engine else None,
-        engine_version=engine.version if engine else None,
-        query_type=QueryBuildType.NODE,
-    ):
-        # Update the node SQL in a background task to keep it up-to-date
-        background_tasks.add_task(  # pragma: no cover
-            build_and_save_node_sql,
-            node_name=node_name,
-            dimensions=dimensions,
-            filters=filters,
-            orderby=orderby,
-            limit=limit,
-            session=session,
-            engine=engine,
-            access_control=access_control,
-            use_materialized=use_materialized,
-            query_parameters=query_parameters,
-            save=False,
-        )
-        return (  # pragma: no cover
-            TranslatedSQL.create(
-                sql=query_request.query,
-                columns=query_request.columns,
-                dialect=engine.dialect if engine else None,
-            ),
-            query_request,
-        )
-
-    query_request = await build_and_save_node_sql(
+    query_request = await build_node_sql(
         node_name=node_name,
         dimensions=dimensions,
         filters=filters,
@@ -331,11 +266,10 @@ async def get_node_sql(
         ignore_errors=ignore_errors,
         use_materialized=use_materialized,
         query_parameters=query_parameters,
-        save=False,
     )
     return (
         TranslatedSQL.create(
-            sql=query_request.query,
+            sql=query_request.sql,
             columns=query_request.columns,
             dialect=engine.dialect if engine else None,
         ),
@@ -367,28 +301,33 @@ async def get_sql(
     ignore_errors: Optional[bool] = True,
     use_materialized: Optional[bool] = True,
     cache: Cache = Depends(get_cache),
+    request: Request,
 ) -> TranslatedSQL:
     """
     Return SQL for a node.
     """
-    translated_sql, _ = await get_node_sql(
-        node_name,
-        dimensions,
-        filters,
-        orderby,
-        limit,
-        session=session,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        current_user=current_user,
-        validate_access=validate_access,
-        background_tasks=background_tasks,
-        ignore_errors=ignore_errors,  # type: ignore
-        use_materialized=use_materialized,  # type: ignore
-        query_parameters=json.loads(query_params),
+    query_cache_manager = QueryCacheManager(
         cache=cache,
+        query_type=QueryBuildType.NODE,
     )
-    return translated_sql
+    return await query_cache_manager.get_or_load(
+        background_tasks,
+        request,
+        QueryRequestParams(
+            nodes=[node_name],
+            dimensions=dimensions,
+            filters=filters,
+            orderby=orderby,
+            limit=limit,
+            query_params=query_params,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            use_materialized=use_materialized,
+            ignore_errors=ignore_errors,
+            current_user=current_user,
+            validate_access=validate_access,
+        ),
+    )
 
 
 @router.get("/sql/", response_model=TranslatedSQL, name="Get SQL For Metrics")
