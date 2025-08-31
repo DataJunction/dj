@@ -10,7 +10,7 @@ import re
 import time
 import uuid
 from http import HTTPStatus
-from typing import Callable, Dict, List, Optional, Set, Tuple, cast
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from fastapi import Depends
 from sqlalchemy import select
@@ -20,8 +20,6 @@ from sqlalchemy.sql.operators import and_, is_
 
 from datajunction_server.api.notifications import get_notifier
 from datajunction_server.construction.build import (
-    build_materialized_cube_node,
-    build_metric_nodes,
     get_default_criteria,
     rename_columns,
     validate_shared_dimensions,
@@ -62,11 +60,11 @@ from datajunction_server.models.materialization import (
     MaterializationConfigOutput,
 )
 from datajunction_server.models.query import ColumnMetadata, QueryWithResults
-from datajunction_server.naming import LOOKUP_CHARS, from_amenable_name
+from datajunction_server.naming import from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.typing import END_JOB_STATES
-from datajunction_server.utils import SEPARATOR, refresh_if_needed
+from datajunction_server.utils import SEPARATOR
 
 from datajunction_server.models.engine import Dialect
 
@@ -638,172 +636,6 @@ async def resolve_engine(
             f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
         )
     return engine
-
-
-async def build_sql_for_multiple_metrics(
-    session: AsyncSession,
-    metrics: List[str],
-    dimensions: List[str],
-    filters: List[str] = None,
-    orderby: List[str] = None,
-    limit: Optional[int] = None,
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
-    access_control: Optional[access.AccessControlStore] = None,
-    ignore_errors: bool = True,
-    use_materialized: bool = True,
-    query_parameters: Optional[Dict[str, str]] = None,
-) -> Tuple[TranslatedSQL, Engine, Catalog]:
-    """
-    Build SQL for multiple metrics. Used by both /sql and /data endpoints
-    """
-    if not filters:
-        filters = []
-    if not orderby:
-        orderby = []
-
-    metric_columns, metric_nodes, _, dimension_columns, _ = await validate_cube(
-        session,
-        metrics,
-        dimensions,
-        require_dimensions=False,
-    )
-    leading_metric_node = await Node.get_by_name(
-        session,
-        metrics[0],
-        options=[
-            joinedload(Node.current).options(
-                joinedload(NodeRevision.catalog).options(joinedload(Catalog.engines)),
-            ),
-        ],
-    )
-    if access_control:
-        access_control.add_request_by_node(leading_metric_node.current)  # type: ignore
-    available_engines = (
-        leading_metric_node.current.catalog.engines  # type: ignore
-        if leading_metric_node.current.catalog  # type: ignore
-        else []
-    )
-
-    # Try to find a built cube that already has the given metrics and dimensions
-    # The cube needs to have a materialization configured and an availability state
-    # posted in order for us to use the materialized datasource
-    cube = await find_existing_cube(
-        session,
-        metric_columns,
-        dimension_columns,
-        materialized=True,
-    )
-    materialized_cube_catalog = None
-    if cube:
-        materialized_cube_catalog = await get_catalog_by_name(
-            session,
-            cube.availability.catalog,  # type: ignore
-        )
-
-    # Check if selected engine is available
-    engine = (
-        await get_engine(session, engine_name, engine_version)  # type: ignore
-        if engine_name
-        else available_engines[0]
-    )
-    if engine not in available_engines:
-        raise DJInvalidInputException(  # pragma: no cover
-            f"The selected engine is not available for the node {metrics[0]}. "
-            f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
-        )
-
-    # Do not use the materialized cube if the chosen engine is not available for
-    # the materialized cube's catalog
-    if (
-        cube
-        and materialized_cube_catalog
-        and engine.name not in [eng.name for eng in materialized_cube_catalog.engines]
-    ):
-        cube = None
-
-    validate_orderby(orderby, metrics, dimensions)
-
-    if cube and cube.availability and use_materialized and materialized_cube_catalog:
-        if access_control:  # pragma: no cover
-            access_control.add_request_by_node(cube)
-            access_control.state = access.AccessControlState.INDIRECT
-            access_control.raise_if_invalid_requests()
-        query_ast = build_materialized_cube_node(
-            metric_columns,
-            dimension_columns,
-            cube,
-            filters,
-            orderby,
-            limit,
-        )
-        query_metric_columns = [
-            ColumnMetadata(
-                name=col.name,
-                type=str(col.type),
-                column=col.name,
-                node=col.node_revision().name,  # type: ignore
-            )
-            for col in metric_columns
-        ]
-        query_dimension_columns = [
-            ColumnMetadata(
-                name=(col.node_revision().name + SEPARATOR + col.name).replace(  # type: ignore
-                    SEPARATOR,
-                    f"_{LOOKUP_CHARS.get(SEPARATOR)}_",
-                ),
-                type=str(col.type),
-                node=col.node_revision().name,  # type: ignore
-                column=col.name,  # type: ignore
-            )
-            for col in dimension_columns
-        ]
-        engine = materialized_cube_catalog.engines[0]
-        return (
-            TranslatedSQL.create(
-                sql=str(query_ast),
-                columns=query_metric_columns + query_dimension_columns,
-                dialect=materialized_cube_catalog.engines[0].dialect,
-            ),
-            engine,
-            cube.catalog,
-        )
-
-    query_ast = await build_metric_nodes(
-        session,
-        metric_nodes,
-        filters=filters or [],
-        dimensions=dimensions or [],
-        orderby=orderby or [],
-        limit=limit,
-        access_control=access_control,
-        ignore_errors=ignore_errors,
-        query_parameters=query_parameters,
-    )
-    columns = [
-        assemble_column_metadata(col, use_semantic_metadata=True)  # type: ignore
-        for col in query_ast.select.projection
-    ]
-    upstream_tables = [tbl for tbl in query_ast.find_all(ast.Table) if tbl.dj_node]
-    for tbl in upstream_tables:
-        await refresh_if_needed(session, tbl.dj_node, ["availability"])
-    return (
-        TranslatedSQL.create(
-            sql=str(query_ast),
-            columns=columns,
-            dialect=engine.dialect if engine else None,
-            upstream_tables=[
-                f"{leading_metric_node.current.catalog.name}.{tbl.identifier()}"  # type: ignore
-                for tbl in upstream_tables
-                # If a table has a corresponding node with an associated physical table (either
-                # a source node or a node with a materialized table).
-                if cast(NodeRevision, tbl.dj_node).type == NodeType.SOURCE
-                or cast(NodeRevision, tbl.dj_node).availability is not None
-            ],
-        ),
-        engine,
-        leading_metric_node.current.catalog,  # type: ignore
-    )
 
 
 async def query_event_stream(
