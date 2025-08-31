@@ -456,7 +456,9 @@ class VersionedQueryKey:
             },
         )
         versioned_nodes = [
-            VersionedNodeKey.from_node(nodes_objs[node_name]) for node_name in nodes
+            VersionedNodeKey.from_node(nodes_objs[node_name])
+            for node_name in nodes
+            if node_name in nodes_objs
         ]
         return versioned_nodes, versioned_parents
 
@@ -485,7 +487,7 @@ class VersionedQueryKey:
             VersionedNodeKey(
                 dim,
                 dimension_nodes[name].current_version
-                if dimension_nodes[name]
+                if name in dimension_nodes and dimension_nodes[name]
                 else current_node.version
                 if current_node
                 else None,

@@ -89,10 +89,14 @@ class QueryCacheManager(RefreshAheadCacheManager):
             query_parameters = (
                 json.loads(params.query_params) if params.query_params else {}
             )
-            access_control_store = access.AccessControlStore(
-                validate_access=params.validate_access,
-                user=params.current_user,
-                base_verb=access.ResourceRequestVerb.READ,
+            access_control_store = (
+                access.AccessControlStore(
+                    validate_access=params.validate_access,
+                    user=params.current_user,
+                    base_verb=access.ResourceRequestVerb.READ,
+                )
+                if params.validate_access
+                else None
             )
             match self.query_type:
                 case QueryBuildType.MEASURES:
@@ -173,7 +177,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
         session: AsyncSession,
         params: QueryRequestParams,
         query_parameters: dict[str, Any],
-        access_control_store: access.AccessControlStore,
+        access_control_store: access.AccessControlStore | None = None,
     ) -> TranslatedSQL:
         engine = (
             await get_engine(session, params.engine_name, params.engine_version)  # type: ignore
@@ -204,7 +208,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
         session: AsyncSession,
         params: QueryRequestParams,
         query_parameters: dict[str, Any],
-        access_control_store: access.AccessControlStore,
+        access_control_store: access.AccessControlStore | None = None,
     ) -> TranslatedSQL:
         built_sql, _, _ = await build_sql_for_multiple_metrics(
             session=session,
