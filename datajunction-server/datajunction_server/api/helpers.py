@@ -491,7 +491,9 @@ async def check_dimension_attributes_exist(
             dimension_node_names,
             options=[
                 joinedload(Node.current).options(
-                    selectinload(NodeRevision.columns),
+                    selectinload(NodeRevision.columns).options(
+                        selectinload(Column.node_revisions),
+                    ),
                     defer(NodeRevision.query_ast),
                 ),
             ],

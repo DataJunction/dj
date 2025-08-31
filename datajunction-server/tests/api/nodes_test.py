@@ -3249,9 +3249,10 @@ GROUP BY
         compare_query_strings(query, expected_query)
 
     @pytest.mark.asyncio
+    @pytest.mark.xdist_group(name="serial")
     async def test_node_with_dj_logical_timestamp(
         self,
-        client_with_query_service_example_loader,
+        module__client,
     ) -> None:
         """
         1. Create a transform node that uses dj_logical_timestamp (i.e., it is
@@ -3260,8 +3261,7 @@ GROUP BY
         3. When SQL for the metric is requested without the transform having been materialized,
            the request will fail.
         """
-        custom_client = await client_with_query_service_example_loader(["ROADS"])
-        await custom_client.post(
+        await module__client.post(
             "/nodes/transform/",
             json={
                 "description": "Repair orders transform (partitioned)",
@@ -3283,12 +3283,12 @@ GROUP BY
                 "primary_key": ["repair_order_id"],
             },
         )
-        await custom_client.post(
+        await module__client.post(
             "/nodes/default.repair_orders_partitioned/columns/hard_hat_id/"
             "?dimension=default.hard_hat&dimension_column=hard_hat_id",
         )
 
-        await custom_client.post(
+        await module__client.post(
             "/nodes/metric/",
             json={
                 "description": "Number of repair orders",
@@ -3297,14 +3297,13 @@ GROUP BY
                 "name": "default.num_repair_orders_partitioned",
             },
         )
-        response = await custom_client.get(
+        response = await module__client.get(
             "/sql?metrics=default.num_repair_orders_partitioned"
             "&dimensions=default.hard_hat.last_name",
         )
         format_regex = r"\${(?P<capture>[^}]+)}"
 
         result_sql = response.json()["sql"]
-
         match = re.search(format_regex, result_sql)
         assert match and match.group("capture") == "dj_logical_timestamp"
         query = re.sub(format_regex, "FORMATTED", result_sql)
@@ -3339,7 +3338,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
  FROM m0_default_DOT_num_repair_orders_partitioned""",
         )
 
-        await custom_client.post(
+        await module__client.post(
             "/engines/",
             json={
                 "name": "spark",
@@ -3349,7 +3348,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         )
 
         # Setting the materialization config should succeed
-        response = await custom_client.post(
+        response = await module__client.post(
             "/nodes/default.repair_orders_partitioned/materialization/",
             json={
                 "job": "spark_sql",
@@ -3366,7 +3365,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             "`spark_sql__full` for node `default.repair_orders_partitioned`"
         )
 
-        response = await custom_client.get(
+        response = await module__client.get(
             "/nodes/default.repair_orders_partitioned",
         )
         result_sql = response.json()["materializations"][0]["config"]["query"]
