@@ -13,11 +13,13 @@ from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.models.user import UserOutput
 from datajunction_server.api.helpers import (
-    build_sql_for_multiple_metrics,
     resolve_engine,
     query_event_stream,
 )
-from datajunction_server.api.sql import build_node_sql
+from datajunction_server.internal.sql import (
+    build_node_sql,
+    build_sql_for_multiple_metrics,
+)
 from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import History

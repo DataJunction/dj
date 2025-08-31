@@ -5,7 +5,14 @@ import logging
 import re
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, DefaultDict, Dict, List, Optional, Tuple, Union, cast
+from typing import (
+    Any,
+    DefaultDict,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,24 +20,20 @@ from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJException,
     DJQueryBuildError,
     DJQueryBuildException,
     ErrorCode,
 )
-from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.cube_materialization import (
-    Aggregability,
     MetricComponent,
 )
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.sql import GeneratedSQL
 from datajunction_server.naming import amenable_name, from_amenable_name
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, cached_parse, parse
@@ -88,209 +91,9 @@ class DimensionJoin:
     Info on a dimension join
     """
 
-    join_path: List[DimensionLink]
-    requested_dimensions: List[str]
+    join_path: list[DimensionLink]
+    requested_dimensions: list[str]
     node_query: Optional[ast.Query] = None
-
-
-async def get_measures_query(
-    session: AsyncSession,
-    metrics: List[str],
-    dimensions: List[str],
-    filters: List[str],
-    orderby: List[str] = None,
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
-    current_user: Optional[User] = None,
-    validate_access: access.ValidateAccessFn = None,
-    include_all_columns: bool = False,
-    use_materialized: bool = True,
-    preagg_requested: bool = False,
-    query_parameters: dict[str, Any] = None,
-) -> List[GeneratedSQL]:
-    """
-    Builds the measures SQL for a set of metrics with dimensions and filters.
-
-    Measures queries are generated at the grain of each of the metrics' upstream nodes.
-    For example, if some of your metrics are aggregations on measures in parent node A
-    and others are aggregations on measures in parent node B, this function will return a
-    dictionary that maps A to the measures query for A, and B to the measures query for B.
-    """
-    from datajunction_server.api.helpers import (
-        assemble_column_metadata,
-        check_dimension_attributes_exist,
-        check_metrics_exist,
-    )
-    from datajunction_server.construction.build import (
-        group_metrics_by_parent,
-        extract_components_and_parent_columns,
-        rename_columns,
-    )
-
-    engine = (
-        await get_engine(session, engine_name, engine_version) if engine_name else None  # type: ignore
-    )
-    build_criteria = BuildCriteria(
-        dialect=engine.dialect if engine and engine.dialect else Dialect.SPARK,
-    )
-    access_control = (
-        access.AccessControlStore(
-            validate_access=validate_access,
-            user=current_user,
-            base_verb=access.ResourceRequestVerb.READ,
-        )
-        if validate_access
-        else None
-    )
-
-    if not filters:
-        filters = []
-
-    metrics_sorting_order = {val: idx for idx, val in enumerate(metrics)}
-    metric_nodes = await check_metrics_exist(session, metrics)
-    await check_dimension_attributes_exist(session, dimensions)
-
-    common_parents = group_metrics_by_parent(metric_nodes)
-    parent_columns, metric_components = extract_components_and_parent_columns(
-        metric_nodes,
-    )
-
-    column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
-    matcher = re.compile(column_name_regex)
-
-    # Find any dimensions referenced in the metric definitions and add to requested dimensions
-    dimensions.extend(
-        [
-            dim
-            for dim in get_dimensions_referenced_in_metrics(metric_nodes)
-            if dim not in dimensions
-        ],
-    )
-
-    dimensions_without_roles = [matcher.findall(dim)[0][0] for dim in dimensions]
-
-    measures_queries = []
-    context = CompileContext(session=session, exception=DJException())
-    for parent_node, children in common_parents.items():  # type: ignore
-        children = sorted(children, key=lambda x: metrics_sorting_order.get(x.name, 0))
-
-        # Determine whether to pre-aggregate to the requested dimensions so that subsequent
-        # queries are more efficient by checking the measures on the requested metrics
-        preaggregate = preagg_requested and all(
-            len(metric_components[metric.name][0]) > 0
-            and all(
-                measure.rule.type in (Aggregability.FULL, Aggregability.LIMITED)
-                for measure in metric_components[metric.name][0]
-            )
-            for metric in children
-        )
-
-        measure_columns, dimensional_columns = [], []
-        await refresh_if_needed(session, parent_node, ["current"])
-        query_builder = await QueryBuilder.create(
-            session,
-            parent_node.current,
-            use_materialized=use_materialized,
-        )
-        parent_ast = await (
-            query_builder.ignore_errors()
-            .with_access_control(access_control)
-            .with_build_criteria(build_criteria)
-            .add_dimensions(dimensions)
-            .add_filters(filters)
-            .add_query_parameters(query_parameters)
-            .order_by(orderby)
-            .build()
-        )
-
-        # Select only columns that were one of the necessary measures
-        if not include_all_columns:
-            parent_ast.select.projection = [
-                expr
-                for expr in parent_ast.select.projection
-                if (
-                    (identifier := expr.alias_or_name.identifier(False))
-                    and (
-                        from_amenable_name(identifier).split(SEPARATOR)[-1]
-                        in parent_columns[parent_node.name]
-                        or identifier in parent_columns[parent_node.name]
-                        or expr.semantic_entity in dimensions_without_roles
-                        or from_amenable_name(identifier) in dimensions_without_roles
-                    )
-                )
-            ]
-
-        await refresh_if_needed(session, parent_node.current, ["columns"])
-        parent_ast = rename_columns(parent_ast, parent_node.current, preaggregate)
-
-        # Sort the selected columns into dimension vs measure columns and
-        # generate identifiers for them
-        for expr in parent_ast.select.projection:
-            column_identifier = expr.alias_or_name.identifier(False)  # type: ignore
-            if from_amenable_name(column_identifier) in dimensions_without_roles:
-                dimensional_columns.append(expr)
-                expr.set_semantic_type(SemanticType.DIMENSION)  # type: ignore
-            else:
-                measure_columns.append(expr)
-                expr.set_semantic_type(SemanticType.MEASURE)  # type: ignore
-        await parent_ast.compile(context)
-        dependencies, _ = await parent_ast.extract_dependencies(
-            CompileContext(session, DJException()),
-        )
-
-        final_query = (
-            build_preaggregate_query(
-                parent_ast,
-                parent_node,
-                dimensional_columns,
-                children,
-                metric_components,
-            )
-            if preaggregate
-            else parent_ast
-        )
-
-        # Build translated SQL object
-        columns_metadata = [
-            assemble_column_metadata(  # pragma: no cover
-                cast(ast.Column, col),
-                preaggregate,
-            )
-            for col in final_query.select.projection
-        ]
-        measures_queries.append(
-            GeneratedSQL.create(
-                node=parent_node.current,
-                sql=str(final_query),
-                columns=columns_metadata,
-                dialect=build_criteria.dialect,
-                upstream_tables=[
-                    f"{dep.catalog.name}.{dep.schema_}.{dep.table}"
-                    for dep in dependencies
-                    if dep.type == NodeType.SOURCE
-                ],
-                grain=(
-                    [
-                        col.name
-                        for col in columns_metadata
-                        if col.semantic_type == SemanticType.DIMENSION
-                    ]
-                    if preaggregate
-                    else [pk_col.name for pk_col in parent_node.current.primary_key()]
-                ),
-                errors=query_builder.errors,
-                metrics={
-                    metric.name: (
-                        metric_components[metric.name][0],
-                        str(metric_components[metric.name][1]).replace("\n", "")
-                        if preaggregate
-                        else metric.query,
-                    )
-                    for metric in children
-                },
-            ),
-        )
-    return measures_queries
 
 
 def resolve_metric_component_against_parent(
@@ -399,7 +202,7 @@ def build_preaggregate_query(
     return final_query
 
 
-def get_dimensions_referenced_in_metrics(metric_nodes: list[Node]) -> List[str]:
+def get_dimensions_referenced_in_metrics(metric_nodes: list[Node]) -> list[str]:
     """
     Returns a list of dimensions referenced in the metric nodes' query definitions.
     """
@@ -430,13 +233,13 @@ class QueryBuilder:
         self.node_revision = node_revision
         self.use_materialized = use_materialized
 
-        self._filters: List[str] = []
+        self._filters: list[str] = []
         self._parameters: dict[str, ast.Value] = {}
-        self._required_dimensions: List[str] = [
+        self._required_dimensions: list[str] = [
             required.name for required in self.node_revision.required_dimensions
         ]
-        self._dimensions: List[str] = []
-        self._orderby: List[str] = []
+        self._dimensions: list[str] = []
+        self._orderby: list[str] = []
         self._limit: Optional[int] = None
         self._build_criteria: Optional[BuildCriteria] = self.get_default_criteria()
         self._access_control: Optional[access.AccessControlStore] = None
@@ -445,9 +248,9 @@ class QueryBuilder:
         # The following attributes will be modified as the query gets built.
         # --
         # Track node query CTEs as they get built
-        self.cte_mapping: Dict[str, ast.Query] = {}  # Maps node name to its CTE
+        self.cte_mapping: dict[str, ast.Query] = {}  # Maps node name to its CTE
         # Keep a list of build errors
-        self.errors: List[DJQueryBuildError] = []
+        self.errors: list[DJQueryBuildError] = []
         # The final built query AST
         self.final_ast: Optional[ast.Query] = None
 
@@ -485,7 +288,7 @@ class QueryBuilder:
             self._filters.append(filter_)
         return self
 
-    def add_filters(self, filters: Optional[List[str]] = None):
+    def add_filters(self, filters: Optional[list[str]] = None):
         """Add filters to the query builder."""
         for filter_ in filters or []:
             self.filter_by(filter_)
@@ -512,13 +315,13 @@ class QueryBuilder:
             self._dimensions.append(dimension)
         return self
 
-    def add_dimensions(self, dimensions: Optional[List[str]] = None):
+    def add_dimensions(self, dimensions: Optional[list[str]] = None):
         """Add dimensions to the query builder."""
         for dimension in dimensions or []:
             self.add_dimension(dimension)
         return self
 
-    def order_by(self, orderby: Optional[Union[str, List[str]]] = None):
+    def order_by(self, orderby: Optional[Union[str, list[str]]] = None):
         """Set order by for the query builder."""
         if isinstance(orderby, str):
             if orderby not in self._orderby:
@@ -554,12 +357,12 @@ class QueryBuilder:
         return self
 
     @property
-    def dimensions(self) -> List[str]:
+    def dimensions(self) -> list[str]:
         """All dimensions"""
         return self._dimensions + self._required_dimensions
 
     @property
-    def filters(self) -> List[str]:
+    def filters(self) -> list[str]:
         """All filters"""
         return self._filters
 
@@ -571,7 +374,7 @@ class QueryBuilder:
         return self._parameters
 
     @property
-    def filter_asts(self) -> List[ast.Expression]:
+    def filter_asts(self) -> list[ast.Expression]:
         """
         Returns a list of filter expressions rendered as ASTs
         """
@@ -596,7 +399,7 @@ class QueryBuilder:
         )
 
     @property
-    def context(self) -> Dict[str, Any]:
+    def context(self) -> dict[str, Any]:
         """
         Debug context
         """
@@ -893,7 +696,7 @@ class QueryBuilder:
 
     async def find_dimension_node_joins(
         self,
-    ) -> Dict[str, DimensionJoin]:
+    ) -> dict[str, DimensionJoin]:
         """
         Returns a list of dimension node joins that are necessary based on
         the requested dimensions and filters
@@ -975,21 +778,21 @@ class CubeQueryBuilder:
     def __init__(
         self,
         session: AsyncSession,
-        metric_nodes: List[Node],
+        metric_nodes: list[Node],
         use_materialized: bool = True,
     ):
         self.session = session
         self.metric_nodes = metric_nodes
         self.use_materialized = use_materialized
 
-        self._filters: List[str] = []
-        self._required_dimensions: List[str] = [
+        self._filters: list[str] = []
+        self._required_dimensions: list[str] = [
             required.name
             for metric_node in self.metric_nodes
             for required in metric_node.current.required_dimensions
         ]
-        self._dimensions: List[str] = []
-        self._orderby: List[str] = []
+        self._dimensions: list[str] = []
+        self._orderby: list[str] = []
         self._limit: Optional[int] = None
         self._parameters: dict[str, ast.Value] = {}
         self._build_criteria: Optional[BuildCriteria] = self.get_default_criteria()
@@ -999,9 +802,9 @@ class CubeQueryBuilder:
         # The following attributes will be modified as the query gets built.
         # --
         # Track node query CTEs as they get built
-        self.cte_mapping: Dict[str, ast.Query] = {}  # Maps node name to its CTE
+        self.cte_mapping: dict[str, ast.Query] = {}  # Maps node name to its CTE
         # Keep a list of build errors
-        self.errors: List[DJQueryBuildError] = []
+        self.errors: list[DJQueryBuildError] = []
         # The final built query AST
         self.final_ast: Optional[ast.Query] = None
 
@@ -1022,7 +825,7 @@ class CubeQueryBuilder:
     async def create(
         cls,
         session: AsyncSession,
-        metric_nodes: List[Node],
+        metric_nodes: list[Node],
         use_materialized: bool = True,
     ) -> "CubeQueryBuilder":
         """
@@ -1051,7 +854,7 @@ class CubeQueryBuilder:
             self._filters.append(filter_)
         return self
 
-    def add_filters(self, filters: Optional[List[str]] = None):
+    def add_filters(self, filters: Optional[list[str]] = None):
         """Add filters to the query builder."""
         for filter_ in filters or []:
             self.filter_by(filter_)
@@ -1066,7 +869,7 @@ class CubeQueryBuilder:
             self._dimensions.append(dimension)
         return self
 
-    def add_dimensions(self, dimensions: Optional[List[str]] = None):
+    def add_dimensions(self, dimensions: Optional[list[str]] = None):
         """Add dimensions to the query builder."""
         for dimension in dimensions or []:
             self.add_dimension(dimension)
@@ -1081,7 +884,7 @@ class CubeQueryBuilder:
             )
         return self
 
-    def order_by(self, orderby: Optional[Union[str, List[str]]] = None):
+    def order_by(self, orderby: Optional[Union[str, list[str]]] = None):
         """Set order by for the query builder."""
         if isinstance(orderby, str):
             if orderby not in self._orderby:  # pragma: no cover
@@ -1117,12 +920,12 @@ class CubeQueryBuilder:
         return self
 
     @property
-    def dimensions(self) -> List[str]:
+    def dimensions(self) -> list[str]:
         """All dimensions"""
         return self._dimensions  # TO DO: add self._required_dimensions
 
     @property
-    def filters(self) -> List[str]:
+    def filters(self) -> list[str]:
         """All filters"""
         return self._filters
 
@@ -1334,12 +1137,12 @@ class CubeQueryBuilder:
                 )
         return metric_query.ctes[-1].select.projection
 
-    def extract_ctes(self, measures_queries) -> Tuple[List[ast.Query], List[ast.Query]]:
+    def extract_ctes(self, measures_queries) -> Tuple[list[ast.Query], list[ast.Query]]:
         """
         Extracts the parent CTEs and the metric CTEs from the queries
         """
-        parent_ctes: List[ast.Query] = []
-        metric_ctes: List[ast.Query] = []
+        parent_ctes: list[ast.Query] = []
+        metric_ctes: list[ast.Query] = []
         for parent_name, parent_query in measures_queries.items():
             existing_cte_aliases = {
                 cte.alias_or_name.identifier() for cte in parent_ctes
@@ -1422,7 +1225,7 @@ def get_column_from_canonical_dimension(
     return column_name
 
 
-def to_filter_asts(filters: Optional[List[str]] = None):
+def to_filter_asts(filters: Optional[list[str]] = None):
     """
     Converts a list of filter expresisons to ASTs
     """
@@ -1445,7 +1248,7 @@ async def dimension_join_path(
     session: AsyncSession,
     node: NodeRevision,
     dimension: str,
-) -> Optional[List[DimensionLink]]:
+) -> Optional[list[DimensionLink]]:
     """
     Find a join path between this node and the dimension attribute.
     * If there is no possible join path, returns None
@@ -1502,8 +1305,8 @@ async def build_dimension_node_query(
     session: AsyncSession,
     build_criteria: Optional[BuildCriteria],
     link: DimensionLink,
-    filters: List[str],
-    cte_mapping: Dict[str, ast.Query],
+    filters: list[str],
+    cte_mapping: dict[str, ast.Query],
     use_materialized: bool = True,
 ):
     """
@@ -1605,7 +1408,7 @@ async def compile_node_ast(session, node_revision: NodeRevision) -> ast.Query:
 
 def build_dimension_attribute(
     full_column_name: str,
-    dimension_node_joins: Dict[str, DimensionJoin],
+    dimension_node_joins: dict[str, DimensionJoin],
     link: DimensionLink,
     alias: Optional[str] = None,
 ) -> Optional[ast.Column]:
@@ -1645,7 +1448,7 @@ def build_dimension_attribute(
 async def needs_dimension_join(
     session: AsyncSession,
     dimension_attribute: str,
-    join_path: List["DimensionLink"],
+    join_path: list["DimensionLink"],
 ) -> bool:
     """
     Checks if the requested dimension attribute needs a dimension join or
@@ -1676,7 +1479,7 @@ def combine_filter_conditions(
 
 def build_join_for_link(
     link: "DimensionLink",
-    cte_mapping: Dict[str, ast.Query],
+    cte_mapping: dict[str, ast.Query],
     join_right: ast.Query,
 ):
     """
@@ -1716,10 +1519,10 @@ async def build_ast(
     session: AsyncSession,
     node: NodeRevision,
     query: ast.Query,
-    filters: Optional[List[str]],
+    filters: Optional[list[str]],
     build_criteria: Optional[BuildCriteria] = None,
     access_control=None,
-    ctes_mapping: Dict[str, ast.Query] = None,
+    ctes_mapping: dict[str, ast.Query] = None,
     use_materialized: bool = True,
     use_pickled: bool = True,
 ) -> ast.Query:
@@ -1751,7 +1554,7 @@ async def build_ast(
     query.bake_ctes()
     await refresh_if_needed(session, node, ["dimension_links"])
 
-    new_cte_mapping: Dict[str, ast.Query] = {}
+    new_cte_mapping: dict[str, ast.Query] = {}
     if ctes_mapping is None:
         ctes_mapping = new_cte_mapping  # pragma: no cover
 
@@ -1860,7 +1663,7 @@ async def build_ast(
 def apply_filters_to_node(
     node: NodeRevision,
     query: ast.Query,
-    filters: List[ast.Expression],
+    filters: list[ast.Expression],
 ):
     """
     Apply pushdown filters if possible to the node's query AST.
@@ -1901,13 +1704,13 @@ def apply_filters_to_node(
 
 def get_dj_node_references_from_select(
     select: ast.SelectExpression,
-) -> DefaultDict[NodeRevision, List[ast.Table]]:
+) -> DefaultDict[NodeRevision, list[ast.Table]]:
     """
     Extract all DJ node references (source, transform, dimensions) from the select
     expression. DJ node references are represented in the AST as table expressions
     and have an attached DJ node.
     """
-    tables: DefaultDict[NodeRevision, List[ast.Table]] = collections.defaultdict(list)
+    tables: DefaultDict[NodeRevision, list[ast.Table]] = collections.defaultdict(list)
 
     for table in select.find_all(ast.Table):
         if node := table.dj_node:  # pragma: no cover

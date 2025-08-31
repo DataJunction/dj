@@ -210,71 +210,6 @@ class QueryRequest(Base):  # type: ignore
         return None
 
     @classmethod
-    async def save_query_request(
-        cls,
-        session: AsyncSession,
-        query_type: QueryBuildType,
-        nodes: List[str],
-        dimensions: List[str],
-        filters: List[str],
-        engine_name: Optional[str],
-        engine_version: Optional[str],
-        limit: Optional[int],
-        orderby: List[str],
-        query: str,
-        columns: List[Dict[str, Any]],
-        other_args: Optional[Dict[str, Any]] = None,
-        save: bool = True,
-    ) -> "QueryRequest":
-        """
-        Retrieves saved query for a node SQL request
-        """
-        query_request = await cls.get_query_request(
-            session,
-            query_type=query_type,
-            nodes=nodes,
-            dimensions=dimensions,
-            filters=filters,
-            engine_name=engine_name,
-            engine_version=engine_version,
-            limit=limit,
-            orderby=orderby,
-            other_args=other_args,
-        )
-        if query_request and save:  # pragma: no cover
-            query_request.query = query
-            query_request.columns = columns
-            session.add(query_request)
-            await session.commit()
-        else:
-            versioned_request = await cls.to_versioned_query_request(
-                session,
-                nodes,
-                dimensions,
-                filters,
-                orderby,
-                query_type,
-            )
-            query_request = QueryRequest(
-                query_type=query_type,
-                nodes=versioned_request["nodes"],
-                parents=versioned_request["parents"],
-                dimensions=versioned_request["dimensions"],
-                filters=versioned_request["filters"],
-                engine_name=engine_name,
-                engine_version=engine_version,
-                limit=limit,
-                orderby=versioned_request["orderby"],
-                query=query,
-                columns=columns,
-                other_args=other_args or text("'{}'::jsonb"),
-            )
-            if save:
-                session.add(query_request)  # pragma: no cover
-                await session.commit()  # pragma: no cover
-        return query_request
-
-    @classmethod
     async def to_versioned_query_request(
         cls,
         session: AsyncSession,
@@ -479,7 +414,7 @@ class VersionedQueryKey:
         versioned_dims = await cls.version_dimensions(
             session,
             dimensions,
-            current_node=versioned_nodes[0],
+            current_node=versioned_nodes[0] if versioned_nodes else None,
         )
         return VersionedQueryKey(
             nodes=versioned_nodes,

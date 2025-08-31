@@ -7,7 +7,7 @@ from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_catalog_by_name
-from datajunction_server.construction.build_v2 import get_measures_query
+from datajunction_server.internal.sql import get_measures_query
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJInvalidInputException

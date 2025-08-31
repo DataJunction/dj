@@ -5,7 +5,7 @@ import itertools
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.construction.build_v2 import get_measures_query
+from datajunction_server.internal.sql import get_measures_query
 from datajunction_server.database.node import Column, NodeRevision
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.column import SemanticType
