@@ -1737,6 +1737,7 @@ async def upsert_complex_dimension_link(
     node = await Node.get_by_name(
         session,
         node_name,
+        raise_if_not_exists=True,
     )
     if node.type not in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):  # type: ignore
         raise DJInvalidInputException(
@@ -1748,6 +1749,7 @@ async def upsert_complex_dimension_link(
     dimension_node = await Node.get_by_name(
         session,
         link_input.dimension_node,
+        raise_if_not_exists=True,
     )
     if (
         dimension_node.current.catalog.name != settings.seed_setup.virtual_catalog_name  # type: ignore
