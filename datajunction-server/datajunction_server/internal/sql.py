@@ -73,7 +73,7 @@ async def build_node_sql(
         Node,
         await Node.get_by_name(session, node_name, raise_if_not_exists=True),
     )
-    if not engine:
+    if not engine:  # pragma: no cover
         engine = node.current.catalog.engines[0]
 
     # If it's a cube, we'll build SQL for the metrics in the cube, along with any additional

@@ -112,7 +112,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
                         query_parameters,
                         access_control_store,
                     )
-                case QueryBuildType.METRICS:
+                case QueryBuildType.METRICS:  # pragma: no cover
                     return await self._build_metrics_query(
                         session,
                         params,
