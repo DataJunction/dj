@@ -93,7 +93,7 @@ async def service_account_token(
             ],
         )
 
-    expire_delta = timedelta(minutes=15)
+    expire_delta = timedelta(seconds=settings.service_account_token_expire)
     token = create_token(
         data={"username": service_account.username},
         secret=settings.secret,
