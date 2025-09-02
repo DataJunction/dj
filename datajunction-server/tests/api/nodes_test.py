@@ -3304,7 +3304,6 @@ GROUP BY
         format_regex = r"\${(?P<capture>[^}]+)}"
 
         result_sql = response.json()["sql"]
-
         match = re.search(format_regex, result_sql)
         assert match and match.group("capture") == "dj_logical_timestamp"
         query = re.sub(format_regex, "FORMATTED", result_sql)
