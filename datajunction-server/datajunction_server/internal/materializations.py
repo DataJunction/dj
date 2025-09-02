@@ -8,9 +8,10 @@ from pydantic import ValidationError
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api.helpers import build_sql_for_multiple_metrics
+from datajunction_server.internal.sql import build_sql_for_multiple_metrics
 from datajunction_server.construction.build import get_default_criteria
-from datajunction_server.construction.build_v2 import QueryBuilder, get_measures_query
+from datajunction_server.construction.build_v2 import QueryBuilder
+from datajunction_server.internal.sql import get_measures_query
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.user import User
