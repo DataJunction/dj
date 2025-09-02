@@ -71,7 +71,7 @@ PostgresCluster = namedtuple("PostgresCluster", ["writer", "reader"])
 
 
 @pytest.fixture(scope="module")
-def jwt_token():
+def jwt_token() -> str:
     """
     JWT token fixture for testing.
     """
@@ -400,6 +400,7 @@ async def client(
     """
     await default_attribute_types(session)
     await seed_default_catalogs(session)
+    await create_default_user(session)
 
     def get_session_override() -> AsyncSession:
         return session
@@ -748,26 +749,6 @@ def pytest_addoption(parser):
     )
 
 
-#
-# Module scope fixtures
-#
-# @pytest_asyncio.fixture(autouse=True, scope="module")
-# async def mock_user_dj():
-#     """
-#     Mock a DJ user for tests
-#     """
-#     with patch(
-#         "datajunction_server.internal.access.authentication.http.get_user",
-#         return_value=User(
-#             id=1,
-#             username="dj",
-#             oauth_provider=OAuthProvider.BASIC,
-#             is_admin=False,
-#         ),
-#     ):
-#         yield
-
-
 @pytest_asyncio.fixture(scope="module")
 async def module__client_example_loader(
     module__client: AsyncClient,
@@ -799,6 +780,29 @@ def session_manager_per_worker():
     asyncio.run(manager.close())
 
 
+async def create_default_user(session: AsyncSession) -> User:
+    """
+    A user fixture.
+    """
+    new_user = User(
+        username="dj",
+        password="dj",
+        email="dj@datajunction.io",
+        name="DJ",
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=False,
+    )
+    existing_user = await User.get_by_username(session, new_user.username)
+    if not existing_user:
+        session.add(new_user)
+        await session.commit()
+        user = new_user
+    else:
+        user = existing_user
+    await session.refresh(user)
+    return user
+
+
 @pytest_asyncio.fixture(scope="module")
 async def module__client(
     module__session: AsyncSession,
@@ -810,17 +814,9 @@ async def module__client(
     """
     Create a client for testing APIs.
     """
-
-    statement = insert(User).values(
-        username="dj",
-        email=None,
-        name=None,
-        oauth_provider="basic",
-        is_admin=False,
-    )
-    await module__session.execute(statement)
     await default_attribute_types(module__session)
     await seed_default_catalogs(module__session)
+    await create_default_user(module__session)
 
     def get_query_service_client_override(
         request: Request = None,
@@ -1266,30 +1262,6 @@ async def module__client_with_all_examples(
     return await module__client_example_loader(None)
 
 
-@pytest_asyncio.fixture(scope="module")
-async def module__current_user(module__session: AsyncSession) -> User:
-    """
-    A user fixture.
-    """
-
-    new_user = User(
-        username="datajunction",
-        password="datajunction",
-        email="dj@datajunction.io",
-        name="DJ",
-        oauth_provider=OAuthProvider.BASIC,
-        is_admin=False,
-    )
-    existing_user = await module__session.get(User, new_user.id)
-    if not existing_user:
-        module__session.add(new_user)
-        await module__session.commit()
-        user = new_user
-    else:
-        user = existing_user
-    return user
-
-
 @pytest_asyncio.fixture
 async def current_user(session: AsyncSession) -> User:
     """
@@ -1297,14 +1269,14 @@ async def current_user(session: AsyncSession) -> User:
     """
 
     new_user = User(
-        username="datajunction",
-        password="datajunction",
+        username="dj",
+        password="dj",
         email="dj@datajunction.io",
         name="DJ",
         oauth_provider=OAuthProvider.BASIC,
         is_admin=False,
     )
-    existing_user = await session.get(User, new_user.id)
+    existing_user = await User.get_by_username(session, new_user.username)
     if not existing_user:
         session.add(new_user)
         await session.commit()

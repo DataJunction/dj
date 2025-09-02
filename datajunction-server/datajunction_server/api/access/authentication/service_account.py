@@ -19,12 +19,14 @@ from datajunction_server.internal.access.authentication.basic import (
 from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.models.service_account import (
     ServiceAccountCreate,
-    ServiceAccountResponse,
+    ServiceAccountCreateResponse,
+    ServiceAccountOutput,
     TokenResponse,
 )
 from datajunction_server.utils import (
     Settings,
     get_and_update_current_user,
+    get_current_user,
     get_session,
     get_settings,
 )
@@ -33,7 +35,7 @@ secure_router = SecureAPIRouter(tags=["Service Accounts"])
 router = APIRouter(tags=["Service Accounts"])
 
 
-@secure_router.post("/service_account", response_model=ServiceAccountResponse)
+@secure_router.post("/service-accounts", response_model=ServiceAccountCreateResponse)
 async def create_service_account(
     payload: ServiceAccountCreate,
     session: AsyncSession = Depends(get_session),
@@ -55,14 +57,38 @@ async def create_service_account(
     await session.commit()
     await session.refresh(service_account)
 
-    return ServiceAccountResponse(
+    return ServiceAccountCreateResponse(
+        id=service_account.id,
+        name=service_account.name,
         client_id=service_account.username,
         client_secret=client_secret,
-        id=service_account.id,
     )
 
 
-@router.post("/service_account/token", response_model=TokenResponse)
+@secure_router.get("/service-accounts", response_model=list[ServiceAccountOutput])
+async def list_service_accounts(
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> list[ServiceAccountOutput]:
+    """
+    List service accounts for the current user
+    """
+    service_accounts = await User.get_service_accounts_for_user_id(
+        session,
+        current_user.id,
+    )
+    return [
+        ServiceAccountOutput(
+            id=service_account.id,
+            name=service_account.name,
+            client_id=service_account.username,
+            created_at=service_account.created_at,
+        )
+        for service_account in service_accounts
+    ]
+
+
+@router.post("/service-accounts/token", response_model=TokenResponse)
 async def service_account_token(
     client_id: str = Form(...),
     client_secret: str = Form(...),

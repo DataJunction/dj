@@ -1,3 +1,4 @@
+from unittest import mock
 import pytest
 from httpx import AsyncClient
 from datajunction_server.database.user import User
@@ -14,7 +15,7 @@ async def test_create_service_account(module__client: AsyncClient, module__sessi
     payload = {"name": "Test Service Account"}
 
     # Authenticated client should be used
-    response = await module__client.post("/service_account", json=payload)
+    response = await module__client.post("/service-accounts", json=payload)
     assert response.status_code == 200, response.text
 
     data = response.json()
@@ -28,6 +29,17 @@ async def test_create_service_account(module__client: AsyncClient, module__sessi
     assert sa.name == "Test Service Account"
     assert validate_password_hash(data["client_secret"], sa.password)
 
+    response = await module__client.get("/service-accounts")
+    assert response.status_code == 200, response.text
+    sa_list = response.json()
+    assert len(sa_list) == 1
+    assert sa_list[0] == {
+        "client_id": data["client_id"],
+        "created_at": mock.ANY,
+        "id": data["id"],
+        "name": data["name"],
+    }
+
 
 @pytest.mark.asyncio
 async def test_service_account_token_success(
@@ -38,13 +50,13 @@ async def test_service_account_token_success(
     """
     # Create a service account
     payload = {"name": "Login SA"}
-    create_resp = await module__client.post("/service_account", json=payload)
+    create_resp = await module__client.post("/service-accounts", json=payload)
     assert create_resp.status_code == 200
     sa_data = create_resp.json()
 
     # Use returned client_id + client_secret to get a token
     login_resp = await module__client.post(
-        "/service_account/token",
+        "/service-accounts/token",
         data={
             "client_id": sa_data["client_id"],
             "client_secret": sa_data["client_secret"],
@@ -82,7 +94,7 @@ async def test_service_account_login_invalid_client_id(module__client: AsyncClie
     Test login with non-existent client_id
     """
     resp = await module__client.post(
-        "/service_account/token",
+        "/service-accounts/token",
         data={
             "client_id": "non-existent-id",
             "client_secret": "whatever",
@@ -105,13 +117,13 @@ async def test_service_account_login_invalid_secret(module__client: AsyncClient)
     """
     # Create a service account
     payload = {"name": "Bad Secret SA"}
-    create_resp = await module__client.post("/service_account", json=payload)
+    create_resp = await module__client.post("/service-accounts", json=payload)
     assert create_resp.status_code == 200
     sa_data = create_resp.json()
 
     # Try wrong secret
     resp = await module__client.post(
-        "/service_account/token",
+        "/service-accounts/token",
         data={
             "client_id": sa_data["client_id"],
             "client_secret": "wrong-secret",

@@ -3,6 +3,8 @@ Tests for the metrics API.
 """
 
 import pytest
+import pytest_asyncio
+
 from pytest_mock import MockerFixture
 from httpx import AsyncClient
 from sqlalchemy import select, text
@@ -12,7 +14,7 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.user import User
+from datajunction_server.database.user import User, OAuthProvider
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.types import FloatType, IntegerType, StringType
 
@@ -444,6 +446,29 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
         "AS default_DOT_discounted_orders_rate"
     )
     assert data["custom_metadata"] is None
+
+
+@pytest_asyncio.fixture(scope="module")
+async def module__current_user(module__session: AsyncSession) -> User:
+    """
+    A user fixture.
+    """
+    new_user = User(
+        username="dj",
+        password="dj",
+        email="dj@datajunction.io",
+        name="DJ",
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=False,
+    )
+    existing_user = await User.get_by_username(module__session, new_user.username)
+    if not existing_user:
+        module__session.add(new_user)
+        await module__session.commit()
+        user = new_user
+    else:
+        user = existing_user
+    return user
 
 
 @pytest.mark.asyncio
