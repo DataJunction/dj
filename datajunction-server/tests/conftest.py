@@ -751,21 +751,21 @@ def pytest_addoption(parser):
 #
 # Module scope fixtures
 #
-@pytest_asyncio.fixture(autouse=True, scope="module")
-async def mock_user_dj():
-    """
-    Mock a DJ user for tests
-    """
-    with patch(
-        "datajunction_server.internal.access.authentication.http.get_user",
-        return_value=User(
-            id=1,
-            username="dj",
-            oauth_provider=OAuthProvider.BASIC,
-            is_admin=False,
-        ),
-    ):
-        yield
+# @pytest_asyncio.fixture(autouse=True, scope="module")
+# async def mock_user_dj():
+#     """
+#     Mock a DJ user for tests
+#     """
+#     with patch(
+#         "datajunction_server.internal.access.authentication.http.get_user",
+#         return_value=User(
+#             id=1,
+#             username="dj",
+#             oauth_provider=OAuthProvider.BASIC,
+#             is_admin=False,
+#         ),
+#     ):
+#         yield
 
 
 @pytest_asyncio.fixture(scope="module")

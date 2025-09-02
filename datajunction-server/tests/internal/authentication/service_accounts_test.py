@@ -1,0 +1,127 @@
+import pytest
+from httpx import AsyncClient
+from datajunction_server.database.user import User
+from datajunction_server.internal.access.authentication.basic import (
+    validate_password_hash,
+)
+
+
+@pytest.mark.asyncio
+async def test_create_service_account(module__client: AsyncClient, module__session):
+    """
+    Test creating a service account
+    """
+    payload = {"name": "Test Service Account"}
+
+    # Authenticated client should be used
+    response = await module__client.post("/service_account", json=payload)
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+    assert "client_id" in data
+    assert "client_secret" in data
+    assert "id" in data
+
+    # Verify it's stored in DB correctly
+    sa = await User.get_by_username(module__session, data["client_id"])
+    assert sa is not None
+    assert sa.name == "Test Service Account"
+    assert validate_password_hash(data["client_secret"], sa.password)
+
+
+@pytest.mark.asyncio
+async def test_service_account_token_success(
+    module__client: AsyncClient,
+):
+    """
+    Test successful service account token retrieval
+    """
+    # Create a service account
+    payload = {"name": "Login SA"}
+    create_resp = await module__client.post("/service_account", json=payload)
+    assert create_resp.status_code == 200
+    sa_data = create_resp.json()
+
+    # Use returned client_id + client_secret to get a token
+    login_resp = await module__client.post(
+        "/service_account/token",
+        data={
+            "client_id": sa_data["client_id"],
+            "client_secret": sa_data["client_secret"],
+        },
+    )
+    assert login_resp.status_code == 200, login_resp.text
+    token_data = login_resp.json()
+    assert token_data["token_type"] == "bearer"
+    assert "token" in token_data
+    assert token_data["expires_in"] == 900  # 15 minutes
+
+    # Use the token to call a protected endpoint
+    auth_headers = {"Authorization": f"Bearer {token_data['token']}"}
+
+    module__client.headers.update(auth_headers)
+    whoami_response = await module__client.get("/whoami", headers=auth_headers)
+    assert whoami_response.status_code == 200
+    assert whoami_response.json() == {
+        "created_collections": [],
+        "created_nodes": [],
+        "created_tags": [],
+        "email": None,
+        "id": 5,
+        "is_admin": False,
+        "name": "Login SA",
+        "oauth_provider": "basic",
+        "owned_nodes": [],
+        "username": sa_data["client_id"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_service_account_login_invalid_client_id(module__client: AsyncClient):
+    """
+    Test login with non-existent client_id
+    """
+    resp = await module__client.post(
+        "/service_account/token",
+        data={
+            "client_id": "non-existent-id",
+            "client_secret": "whatever",
+        },
+    )
+    assert resp.status_code == 401
+    error = resp.json()
+    assert error["errors"][0] == {
+        "code": 403,
+        "context": "",
+        "debug": None,
+        "message": "Client ID non-existent-id not found",
+    }
+
+
+@pytest.mark.asyncio
+async def test_service_account_login_invalid_secret(module__client: AsyncClient):
+    """
+    Test login with incorrect client_secret
+    """
+    # Create a service account
+    payload = {"name": "Bad Secret SA"}
+    create_resp = await module__client.post("/service_account", json=payload)
+    assert create_resp.status_code == 200
+    sa_data = create_resp.json()
+
+    # Try wrong secret
+    resp = await module__client.post(
+        "/service_account/token",
+        data={
+            "client_id": sa_data["client_id"],
+            "client_secret": "wrong-secret",
+        },
+    )
+    assert resp.status_code == 401
+    error = resp.json()
+    assert error["errors"][0] == {
+        "code": 402,
+        "context": "",
+        "debug": None,
+        "message": "Invalid service account credentials",
+    }

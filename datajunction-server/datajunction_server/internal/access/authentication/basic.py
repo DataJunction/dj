@@ -41,7 +41,7 @@ async def get_user(
     user = (
         (
             await session.execute(
-                select(User).options(*options).where(User.username == username),
+                select(User).where(User.username == username).options(*options),
             )
         )
         .unique()

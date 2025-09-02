@@ -41,7 +41,7 @@ from datajunction_server.api import (
     users,
 )
 
-from datajunction_server.api.access.authentication import basic, whoami
+from datajunction_server.api.access.authentication import basic, whoami, service_account
 from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.internal.seed import seed_default_catalogs
 from datajunction_server.api.graphql.main import graphql_app, schema as graphql_schema  # noqa: F401
@@ -119,6 +119,8 @@ def configure_app(app: FastAPI) -> None:
     app.include_router(users.router)
     app.include_router(basic.router)
     app.include_router(notifications.router)
+    app.include_router(service_account.secure_router)
+    app.include_router(service_account.router)
     app.include_router(system.router)
 
     @app.exception_handler(DJException)

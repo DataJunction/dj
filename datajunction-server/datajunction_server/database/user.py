@@ -2,7 +2,20 @@
 
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, Enum, Integer, String, case, select
+from sqlalchemy import (
+    BigInteger,
+    Enum,
+    Integer,
+    String,
+    ForeignKey,
+    case,
+    select,
+    DateTime,
+    Boolean,
+)
+from datetime import datetime, timezone
+from functools import partial
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql.base import ExecutableOption
@@ -11,6 +24,7 @@ from datajunction_server.database.base import Base
 from datajunction_server.database.nodeowner import NodeOwner
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJDoesNotExistException
+from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
     from datajunction_server.database.collection import Collection
@@ -48,6 +62,31 @@ class User(Base):
         Enum(OAuthProvider),
     )
     is_admin: Mapped[bool] = mapped_column(default=False)
+    is_service_account: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+
+    # When the user was created
+    created_at: Mapped[UTCDatetime | None] = mapped_column(
+        DateTime(timezone=True),
+        insert_default=partial(datetime.now, timezone.utc),
+        nullable=True,
+    )
+    # When the user last logged in
+    last_used_at: Mapped[UTCDatetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        insert_default=partial(datetime.now, timezone.utc),
+    )
+
+    creator: Mapped["User"] = relationship("User")
     created_collections: Mapped[list["Collection"]] = relationship(
         "Collection",
         back_populates="created_by",
