@@ -5,8 +5,10 @@ Test internal http authentication logic
 import asyncio
 from unittest.mock import MagicMock
 
+from sqlalchemy.ext.asyncio import AsyncSession
 import pytest
 
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import DJHTTPBearer
 from datajunction_server.models.user import OAuthProvider, UserOutput
@@ -64,19 +66,24 @@ def test_dj_http_bearer_raise_with_non_jwt_token():
     assert "Invalid authentication credentials" in str(exc_info.value)
 
 
-def test_dj_http_bearer_w_cookie(jwt_token):
+def test_dj_http_bearer_w_cookie(
+    jwt_token: str,
+    session: AsyncSession,
+    current_user: User,
+):
     """
     Test using the DJHTTPBearer middleware with a cookie
     """
     bearer = DJHTTPBearer()
     request = MagicMock()
     request.cookies.get.return_value = jwt_token
-    asyncio.run(bearer(request))
+
+    asyncio.run(bearer(request, session))
     assert UserOutput.from_orm(request.state.user).dict() == {
         "id": 1,
         "username": "dj",
-        "email": None,
-        "name": None,
+        "email": "dj@datajunction.io",
+        "name": "DJ",
         "oauth_provider": OAuthProvider.BASIC,
         "is_admin": False,
         "created_collections": [],
@@ -86,7 +93,11 @@ def test_dj_http_bearer_w_cookie(jwt_token):
     }
 
 
-def test_dj_http_bearer_w_auth_headers(jwt_token):
+def test_dj_http_bearer_w_auth_headers(
+    jwt_token: str,
+    session: AsyncSession,
+    current_user: User,
+):
     """
     Test using the DJHTTPBearer middleware with an authorization header
     """
@@ -94,12 +105,13 @@ def test_dj_http_bearer_w_auth_headers(jwt_token):
     request = MagicMock()
     request.cookies.get.return_value = None
     request.headers.get.return_value = f"Bearer {jwt_token}"
-    asyncio.run(bearer(request))
+
+    asyncio.run(bearer(request, session))
     assert UserOutput.from_orm(request.state.user).dict() == {
         "id": 1,
         "username": "dj",
-        "email": None,
-        "name": None,
+        "email": "dj@datajunction.io",
+        "name": "DJ",
         "oauth_provider": OAuthProvider.BASIC,
         "is_admin": False,
         "created_collections": [],

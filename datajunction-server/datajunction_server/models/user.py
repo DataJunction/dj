@@ -2,7 +2,7 @@
 Models for users and auth
 """
 
-from typing import List, Literal, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -51,13 +51,6 @@ class UserOutput(BaseModel):
 
     class Config:
         orm_mode = True
-
-
-class ServiceAccountOutput(BaseModel):
-    type: Literal["service_account"] = "service_account"
-    client_id: str
-    display_name: str | None = None
-    description: str | None = None
 
 
 class UserNameOnly(BaseModel):

@@ -33,9 +33,6 @@ def upgrade():
         batch_op.add_column(
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
         )
-        batch_op.add_column(
-            sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
-        )
         batch_op.create_foreign_key(
             "fk_users_created_by_user_id_users_id",
             "users",
@@ -43,6 +40,7 @@ def upgrade():
             ["id"],
         )
 
+    # Backfill existing users to not be service accounts
     op.execute(
         "UPDATE users SET is_service_account = false WHERE is_service_account IS NULL",
     )
@@ -62,7 +60,6 @@ def downgrade():
             "fk_users_created_by_user_id_users_id",
             type_="foreignkey",
         )
-        batch_op.drop_column("last_used_at")
         batch_op.drop_column("created_at")
         batch_op.drop_column("created_by_user_id")
-        batch_op.drop_column("is_active")
+        batch_op.drop_column("is_service_account")

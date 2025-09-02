@@ -1,5 +1,6 @@
 """User database schema."""
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
@@ -12,6 +13,7 @@ from sqlalchemy import (
     select,
     DateTime,
     Boolean,
+    and_,
 )
 from datetime import datetime, timezone
 from functools import partial
@@ -33,6 +35,8 @@ if TYPE_CHECKING:
         NotificationPreference,
     )
     from datajunction_server.database.tag import Tag
+
+logger = logging.getLogger(__name__)
 
 
 class OAuthProvider(StrEnum):
@@ -78,12 +82,6 @@ class User(Base):
         DateTime(timezone=True),
         insert_default=partial(datetime.now, timezone.utc),
         nullable=True,
-    )
-    # When the user last logged in
-    last_used_at: Mapped[UTCDatetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-        insert_default=partial(datetime.now, timezone.utc),
     )
 
     creator: Mapped["User"] = relationship("User")
@@ -177,3 +175,36 @@ class User(Base):
                 f"Users not found: {', '.join(missing_usernames)}",
             )
         return users
+
+    @classmethod
+    async def get_service_accounts_for_user_id(
+        cls,
+        session: AsyncSession,
+        user_id: int,
+        options: list[ExecutableOption] = None,
+    ) -> list["User"]:
+        """
+        Find service accounts created by a user
+        """
+        logger.info("Getting service accounts for user_id=%s", user_id)
+        options = options or [
+            selectinload(User.created_nodes),
+            selectinload(User.created_collections),
+            selectinload(User.created_tags),
+            selectinload(User.owned_nodes),
+        ]
+
+        statement = (
+            select(User)
+            .where(and_(User.created_by_user_id == user_id, User.is_service_account))
+            .options(*options)
+        )
+
+        result = await session.execute(statement)
+        service_accounts = result.unique().scalars().all()
+        logger.info(
+            "Found %d service accounts for user_id=%s",
+            len(service_accounts),
+            user_id,
+        )
+        return service_accounts
