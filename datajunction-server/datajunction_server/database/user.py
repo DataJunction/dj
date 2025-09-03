@@ -79,7 +79,7 @@ class User(Base):
         default=PrincipalKind.USER,
     )
 
-    created_by_user_id: Mapped[int | None] = mapped_column(
+    created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"),
         nullable=True,
     )
@@ -90,7 +90,7 @@ class User(Base):
         nullable=True,
     )
 
-    creator: Mapped["User"] = relationship("User")
+    created_by: Mapped["User"] = relationship("User")
     created_collections: Mapped[list["Collection"]] = relationship(
         "Collection",
         back_populates="created_by",
@@ -204,7 +204,7 @@ class User(Base):
             select(User)
             .where(
                 and_(
-                    User.created_by_user_id == user_id,
+                    User.created_by_id == user_id,
                     User.kind == PrincipalKind.SERVICE_ACCOUNT,
                 ),
             )
