@@ -9,7 +9,7 @@ import uuid
 from fastapi import APIRouter, Depends, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.errors import DJAuthenticationException, DJError, ErrorCode
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authentication.basic import (
@@ -50,7 +50,7 @@ async def create_service_account(
         username=str(uuid.uuid4()),
         created_by_user_id=current_user.id,
         password=get_password_hash(client_secret),
-        is_service_account=True,
+        kind=PrincipalKind.SERVICE_ACCOUNT,
         oauth_provider=OAuthProvider.BASIC,
     )
     session.add(service_account)
