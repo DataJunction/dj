@@ -44,6 +44,16 @@ async def create_service_account(
     """
     Create a new service account
     """
+    print("current_user!!", current_user.username, current_user.kind)
+    if current_user.kind != PrincipalKind.USER:
+        raise DJAuthenticationException(
+            errors=[
+                DJError(
+                    message="Only users can create service accounts",
+                    code=ErrorCode.AUTHENTICATION_ERROR,
+                ),
+            ],
+        )
     client_secret = secrets.token_urlsafe(32)
     service_account = User(
         name=payload.name,
