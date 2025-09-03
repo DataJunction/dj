@@ -19,10 +19,14 @@ depends_on = None
 
 
 def upgrade():
+    principalkind = sa.Enum("user", "service_account", name="principalkind")
+    principalkind.create(
+        op.get_bind(),
+        checkfirst=True,
+    )  # <- create type if it doesn't exist
+
     with op.batch_alter_table("users", schema=None) as batch_op:
-        batch_op.add_column(
-            sa.Column("is_service_account", sa.Boolean(), nullable=True),
-        )
+        batch_op.add_column(sa.Column("kind", principalkind, nullable=True))
         batch_op.add_column(
             sa.Column(
                 "created_by_user_id",
@@ -42,16 +46,12 @@ def upgrade():
 
     # Backfill existing users to not be service accounts
     op.execute(
-        "UPDATE users SET is_service_account = false WHERE is_service_account IS NULL",
+        "UPDATE users SET kind = 'user' WHERE kind IS NULL",
     )
 
-    # After the is_service_account column is backfilled, make it required going forward
+    # After the `kind`` column is backfilled, make it required going forward
     with op.batch_alter_table("users", schema=None) as batch_op:
-        batch_op.alter_column(
-            "is_service_account",
-            existing_type=sa.Boolean(),
-            nullable=False,
-        )
+        batch_op.alter_column("kind", nullable=False)
 
 
 def downgrade():
@@ -62,4 +62,7 @@ def downgrade():
         )
         batch_op.drop_column("created_at")
         batch_op.drop_column("created_by_user_id")
-        batch_op.drop_column("is_service_account")
+        batch_op.drop_column("kind")
+
+    principalkind = sa.Enum("user", "service_account", name="principalkind")
+    principalkind.drop(op.get_bind(), checkfirst=True)

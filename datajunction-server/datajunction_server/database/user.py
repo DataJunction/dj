@@ -12,7 +12,6 @@ from sqlalchemy import (
     case,
     select,
     DateTime,
-    Boolean,
     and_,
 )
 from datetime import datetime, timezone
@@ -49,6 +48,15 @@ class OAuthProvider(StrEnum):
     GOOGLE = "google"
 
 
+class PrincipalKind(StrEnum):
+    """
+    Principal kinds
+    """
+
+    USER = "user"
+    SERVICE_ACCOUNT = "service_account"
+
+
 class User(Base):
     """Class for a user."""
 
@@ -66,10 +74,9 @@ class User(Base):
         Enum(OAuthProvider),
     )
     is_admin: Mapped[bool] = mapped_column(default=False)
-    is_service_account: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        nullable=False,
+    kind: Mapped[PrincipalKind] = mapped_column(
+        Enum(PrincipalKind),
+        default=PrincipalKind.USER,
     )
 
     created_by_user_id: Mapped[int | None] = mapped_column(
@@ -77,7 +84,6 @@ class User(Base):
         nullable=True,
     )
 
-    # When the user was created
     created_at: Mapped[UTCDatetime | None] = mapped_column(
         DateTime(timezone=True),
         insert_default=partial(datetime.now, timezone.utc),
@@ -196,7 +202,12 @@ class User(Base):
 
         statement = (
             select(User)
-            .where(and_(User.created_by_user_id == user_id, User.is_service_account))
+            .where(
+                and_(
+                    User.created_by_user_id == user_id,
+                    User.kind == PrincipalKind.SERVICE_ACCOUNT,
+                ),
+            )
             .options(*options)
         )
 
