@@ -48,7 +48,7 @@ async def create_service_account(
     service_account = User(
         name=payload.name,
         username=str(uuid.uuid4()),
-        created_by_user_id=current_user.id,
+        created_by_id=current_user.id,
         password=get_password_hash(client_secret),
         kind=PrincipalKind.SERVICE_ACCOUNT,
         oauth_provider=OAuthProvider.BASIC,

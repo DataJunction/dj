@@ -29,7 +29,7 @@ def upgrade():
         batch_op.add_column(sa.Column("kind", principalkind, nullable=True))
         batch_op.add_column(
             sa.Column(
-                "created_by_user_id",
+                "created_by_id",
                 sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
                 nullable=True,
             ),
@@ -38,9 +38,9 @@ def upgrade():
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
         )
         batch_op.create_foreign_key(
-            "fk_users_created_by_user_id_users_id",
+            "fk_users_created_by_id_users_id",
             "users",
-            ["created_by_user_id"],
+            ["created_by_id"],
             ["id"],
         )
 
@@ -57,11 +57,11 @@ def upgrade():
 def downgrade():
     with op.batch_alter_table("users", schema=None) as batch_op:
         batch_op.drop_constraint(
-            "fk_users_created_by_user_id_users_id",
+            "fk_users_created_by_id_users_id",
             type_="foreignkey",
         )
         batch_op.drop_column("created_at")
-        batch_op.drop_column("created_by_user_id")
+        batch_op.drop_column("created_by_id")
         batch_op.drop_column("kind")
 
     principalkind = sa.Enum("user", "service_account", name="principalkind")
