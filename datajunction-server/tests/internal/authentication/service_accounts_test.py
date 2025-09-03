@@ -10,7 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.mark.asyncio
-async def test_create_service_account(module__client: AsyncClient, module__session: AsyncSession):
+async def test_create_service_account(
+    module__client: AsyncClient,
+    module__session: AsyncSession,
+):
     """
     Test creating a service account
     """
@@ -48,7 +51,10 @@ async def test_create_sa_with_non_user_identity(module__client: AsyncClient):
     """
     Test creating a service account with a non-user identity (should fail)
     """
-    sa_response = await module__client.post("/service-accounts", json={"name": "General SA"})
+    sa_response = await module__client.post(
+        "/service-accounts",
+        json={"name": "General SA"},
+    )
     service_account = sa_response.json()
     token_response = await module__client.post(
         "/service-accounts/token",
@@ -138,7 +144,7 @@ async def test_service_account_login_invalid_client_id(module__client: AsyncClie
         "code": 403,
         "context": "",
         "debug": None,
-        "message": "Client ID non-existent-id not found",
+        "message": "Service account `non-existent-id` not found",
     }
 
 

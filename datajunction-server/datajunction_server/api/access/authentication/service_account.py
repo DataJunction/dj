@@ -3,6 +3,7 @@ Service Account related API endpoints
 """
 
 from datetime import timedelta
+import logging
 import secrets
 import uuid
 
@@ -33,6 +34,7 @@ from datajunction_server.utils import (
 
 secure_router = SecureAPIRouter(tags=["Service Accounts"])
 router = APIRouter(tags=["Service Accounts"])
+logger = logging.getLogger(__name__)
 
 
 @secure_router.post("/service-accounts", response_model=ServiceAccountCreateResponse)
@@ -44,7 +46,6 @@ async def create_service_account(
     """
     Create a new service account
     """
-    print("current_user!!", current_user.username, current_user.kind)
     if current_user.kind != PrincipalKind.USER:
         raise DJAuthenticationException(
             errors=[
@@ -54,6 +55,9 @@ async def create_service_account(
                 ),
             ],
         )
+
+    logger.info("User %s is creating a service account", current_user.username)
+
     client_secret = secrets.token_urlsafe(32)
     service_account = User(
         name=payload.name,
@@ -67,6 +71,11 @@ async def create_service_account(
     await session.commit()
     await session.refresh(service_account)
 
+    logger.info(
+        "Service account %s created by user %s",
+        service_account.username,
+        current_user.username,
+    )
     return ServiceAccountCreateResponse(
         id=service_account.id,
         name=service_account.name,
@@ -109,11 +118,11 @@ async def service_account_token(
     Get an authentication token for a service account
     """
     service_account = await User.get_by_username(session, client_id)
-    if not service_account:
+    if not service_account or service_account.kind != PrincipalKind.SERVICE_ACCOUNT:
         raise DJAuthenticationException(
             errors=[
                 DJError(
-                    message=f"Client ID {client_id} not found",
+                    message=f"Service account `{client_id}` not found",
                     code=ErrorCode.USER_NOT_FOUND,
                 ),
             ],
