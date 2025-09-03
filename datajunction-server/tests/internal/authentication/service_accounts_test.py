@@ -1,8 +1,9 @@
 from unittest import mock
 import pytest
 from httpx import AsyncClient
-from datajunction_server.database.user import User
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.internal.access.authentication.basic import (
+    get_password_hash,
     validate_password_hash,
 )
 
@@ -146,6 +147,31 @@ async def test_service_account_login_invalid_client_id(module__client: AsyncClie
         "debug": None,
         "message": "Service account `non-existent-id` not found",
     }
+
+
+@pytest.mark.asyncio
+async def test_service_account_login_wrong_kind(
+    module__client: AsyncClient,
+    module__session: AsyncSession,
+):
+    # Create a regular user
+    user = User(
+        username="normal-user",
+        password=get_password_hash("secret"),
+        kind=PrincipalKind.USER,
+        oauth_provider=OAuthProvider.BASIC,
+    )
+    module__session.add(user)
+    await module__session.commit()
+    await module__session.refresh(user)
+
+    resp = await module__client.post(
+        "/service-accounts/token",
+        data={"client_id": user.username, "client_secret": "secret"},
+    )
+    assert resp.status_code == 401
+    error = resp.json()
+    assert error["errors"][0]["message"] == "Not a service account"
 
 
 @pytest.mark.asyncio

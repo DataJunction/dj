@@ -118,12 +118,21 @@ async def service_account_token(
     Get an authentication token for a service account
     """
     service_account = await User.get_by_username(session, client_id)
-    if not service_account or service_account.kind != PrincipalKind.SERVICE_ACCOUNT:
+    if not service_account:
         raise DJAuthenticationException(
             errors=[
                 DJError(
                     message=f"Service account `{client_id}` not found",
                     code=ErrorCode.USER_NOT_FOUND,
+                ),
+            ],
+        )
+    if service_account.kind != PrincipalKind.SERVICE_ACCOUNT:
+        raise DJAuthenticationException(
+            errors=[
+                DJError(
+                    message="Not a service account",
+                    code=ErrorCode.INVALID_LOGIN_CREDENTIALS,
                 ),
             ],
         )
