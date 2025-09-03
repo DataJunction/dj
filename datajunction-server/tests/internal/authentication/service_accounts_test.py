@@ -6,9 +6,11 @@ from datajunction_server.internal.access.authentication.basic import (
     validate_password_hash,
 )
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 
 @pytest.mark.asyncio
-async def test_create_service_account(module__client: AsyncClient, module__session):
+async def test_create_service_account(module__client: AsyncClient, module__session: AsyncSession):
     """
     Test creating a service account
     """
@@ -42,6 +44,36 @@ async def test_create_service_account(module__client: AsyncClient, module__sessi
 
 
 @pytest.mark.asyncio
+async def test_create_sa_with_non_user_identity(module__client: AsyncClient):
+    """
+    Test creating a service account with a non-user identity (should fail)
+    """
+    sa_response = await module__client.post("/service-accounts", json={"name": "General SA"})
+    service_account = sa_response.json()
+    token_response = await module__client.post(
+        "/service-accounts/token",
+        data={
+            "client_id": service_account["client_id"],
+            "client_secret": service_account["client_secret"],
+        },
+    )
+    auth_token = token_response.json()
+    create_resp = await module__client.post(
+        "/service-accounts",
+        headers={"Authorization": f"Bearer {auth_token['token']}"},
+        json={"name": "Bogus"},
+    )
+    assert create_resp.status_code == 401
+    error = create_resp.json()
+    assert error["errors"][0] == {
+        "code": 400,
+        "context": "",
+        "debug": None,
+        "message": "Only users can create service accounts",
+    }
+
+
+@pytest.mark.asyncio
 async def test_service_account_token_success(
     module__client: AsyncClient,
 ):
@@ -69,17 +101,17 @@ async def test_service_account_token_success(
     assert token_data["expires_in"] == 900  # 15 minutes
 
     # Use the token to call a protected endpoint
-    auth_headers = {"Authorization": f"Bearer {token_data['token']}"}
-
-    module__client.headers.update(auth_headers)
-    whoami_response = await module__client.get("/whoami", headers=auth_headers)
+    whoami_response = await module__client.get(
+        "/whoami",
+        headers={"Authorization": f"Bearer {token_data['token']}"},
+    )
     assert whoami_response.status_code == 200
     assert whoami_response.json() == {
         "created_collections": [],
         "created_nodes": [],
         "created_tags": [],
         "email": None,
-        "id": 5,
+        "id": mock.ANY,
         "is_admin": False,
         "name": "Login SA",
         "oauth_provider": "basic",
