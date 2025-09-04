@@ -12,32 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.construction.utils import try_get_dj_node
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJAuthorizationException, DJError, ErrorCode
-from datajunction_server.models.user import UserOutput
+from datajunction_server.database.user import User
+from datajunction_server.models.resources import ResourceType, ResourceRequestVerb
 
 if TYPE_CHECKING:
     from datajunction_server.sql.parsing.ast import Column
-
-
-class ResourceType(Enum):
-    """
-    Types of resources
-    """
-
-    NODE = "node"
-    NAMESPACE = "namespace"
-
-
-class ResourceRequestVerb(Enum):
-    """
-    Types of actions for a request
-    """
-
-    BROWSE = "browse"
-    READ = "read"
-    WRITE = "write"
-    USE = "use"
-    EXECUTE = "execute"
-    DELETE = "delete"
 
 
 class Resource(BaseModel):
@@ -123,7 +102,7 @@ class AccessControl(BaseModel):
     necessary to deny or approve a request
     """
 
-    user: str
+    user: User
     state: AccessControlState
     direct_requests: Set[ResourceRequest]
     indirect_requests: Set[ResourceRequest]
@@ -160,7 +139,7 @@ class AccessControlStore(BaseModel):
     """
 
     validate_access: Callable[["AccessControl"], bool]
-    user: Optional[UserOutput]
+    user: Optional[User]
     base_verb: Optional[ResourceRequestVerb] = None
     state: AccessControlState = AccessControlState.DIRECT
     direct_requests: Set[ResourceRequest] = Field(default_factory=set)
@@ -257,12 +236,16 @@ class AccessControlStore(BaseModel):
         self.validation_request_count += 1
 
         access_control = AccessControl(
-            user=self.user.username if self.user is not None else "",
+            user=self.user,
             state=self.state,
             direct_requests=deepcopy(self.direct_requests),
             indirect_requests=deepcopy(self.indirect_requests),
             validation_request_count=self.validation_request_count,
         )
+        # for request in access_control.requests:
+        #     if not self.user.access_rules:
+        #         request.approve()
+        #         continue
 
         self.validate_access(access_control)  # type: ignore
 

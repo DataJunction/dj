@@ -55,6 +55,22 @@ async def list_nodes_by_username(
     return [node.current for node in nodes]
 
 
+@router.get("/users/{username}/roles", response_model=list[dict])
+async def list_roles_for_username(
+    username: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    """
+    List all nodes with the specified activity type(s) by the user
+    """
+    user = await User.get_by_username(session=session, username=username)
+    if not user or not user.roles:
+        return []
+    print(user.roles)
+    return [role for role in user.roles]
+
+
 @router.get("/users", response_model=List[Union[str, UserActivity]])
 async def list_users_with_activity(
     session: AsyncSession = Depends(get_session),

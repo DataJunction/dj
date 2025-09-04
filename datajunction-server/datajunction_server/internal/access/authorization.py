@@ -70,6 +70,8 @@ def validate_access() -> ValidateAccessFn:
 
             request.deny_all()
         """
+        access_control.user
+        access_control.requests
         access_control.approve_all()
 
     return _

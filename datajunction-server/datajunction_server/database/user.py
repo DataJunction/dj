@@ -7,12 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.hybrid import hybrid_property
 from datajunction_server.database.base import Base
 from datajunction_server.database.nodeowner import NodeOwner
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJDoesNotExistException
+from datajunction_server.database.role import Role
 
 if TYPE_CHECKING:
+    from datajunction_server.database.role import AccessRule
     from datajunction_server.database.collection import Collection
     from datajunction_server.database.node import Node, NodeRevision
     from datajunction_server.database.notification_preference import (
@@ -48,6 +51,13 @@ class User(Base):
         Enum(OAuthProvider),
     )
     is_admin: Mapped[bool] = mapped_column(default=False)
+    roles: Mapped[list[Role]] = relationship(
+        "Role",
+        secondary="role_assignments",
+        primaryjoin="RoleAssignment.principal_id==User.id",
+        secondaryjoin="Role.id==RoleAssignment.role_id",
+        lazy="selectin",
+    )
     created_collections: Mapped[list["Collection"]] = relationship(
         "Collection",
         back_populates="created_by",
@@ -89,6 +99,10 @@ class User(Base):
         lazy="selectin",
         viewonly=True,
     )
+
+    @hybrid_property
+    def access_rules(self) -> list["AccessRule"]:
+        return [rule for role in self.roles for rule in role.access_rules]
 
     @classmethod
     async def get_by_username(
