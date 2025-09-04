@@ -645,7 +645,7 @@ async def update_any_node(
     access_control.add_request_by_node(node)
     access_control.validate_and_raise()
 
-    if data.owners:
+    if data.owners and data.owners != [owner.username for owner in node.owners]:
         await update_owners(session, node, data.owners, current_user, save_history)
 
     if node.type == NodeType.CUBE:  # type: ignore
