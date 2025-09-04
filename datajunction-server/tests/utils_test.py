@@ -214,7 +214,6 @@ async def test_get_and_update_current_user(session: AsyncSession):
     Test upserting the current user
     """
     example_user = User(
-        id=1,
         username="userfoo",
         password="passwordfoo",
         name="djuser",
@@ -227,13 +226,13 @@ async def test_get_and_update_current_user(session: AsyncSession):
         session=session,
         current_user=example_user,
     )
-    assert current_user.id == example_user.id
+    assert current_user.id == 1
     assert current_user.username == example_user.username
 
     # Confirm that the user was upserted
     result = await session.execute(select(User).where(User.username == "userfoo"))
     found_user = result.unique().scalar_one_or_none()
-    assert found_user.id == 1  # type: ignore
+    assert found_user.id == current_user.id
     assert found_user.username == "userfoo"  # type: ignore
     assert (
         found_user.password is None  # type: ignore

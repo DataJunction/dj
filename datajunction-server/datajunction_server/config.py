@@ -130,6 +130,9 @@ class Settings(BaseSettings):  # pragma: no cover
     # Google OAuth application client secret file
     google_oauth_client_secret_file: Optional[str] = None
 
+    # Interval in seconds for which to expire service account tokens
+    service_account_token_expire = 900
+
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire = 60
 
