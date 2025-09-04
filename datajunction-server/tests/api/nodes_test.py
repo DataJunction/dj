@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
-from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models.node import NodeStatus
@@ -342,29 +342,6 @@ class TestNodeCRUD:
         session.add(catalog)
         await session.commit()
         return catalog
-
-    @pytest_asyncio.fixture
-    async def current_user(self, session: AsyncSession) -> User:
-        """
-        A user fixture.
-        """
-
-        new_user = User(
-            username="datajunction",
-            password="datajunction",
-            email="dj@datajunction.io",
-            name="DJ",
-            oauth_provider=OAuthProvider.BASIC,
-            is_admin=False,
-        )
-        existing_user = await session.get(User, new_user.id)
-        if not existing_user:
-            session.add(new_user)
-            await session.commit()
-            user = new_user
-        else:
-            user = existing_user
-        return user
 
     @pytest_asyncio.fixture
     async def source_node(self, session: AsyncSession, current_user: User) -> Node:
