@@ -1,8 +1,8 @@
 """RBAC
 
-Revision ID: 564ff01df09a
+Revision ID: 6e669f2dedb5
 Revises: 8eab64955a49
-Create Date: 2025-09-04 05:35:09.293330+00:00
+Create Date: 2025-09-04 06:19:58.348304+00:00
 
 """
 # pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "564ff01df09a"
+revision = "6e669f2dedb5"
 down_revision = "8eab64955a49"
 branch_labels = None
 depends_on = None
@@ -24,6 +24,19 @@ def upgrade():
         sa.Column("id", sa.BigInteger(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("description", sa.String(), nullable=True),
+        sa.Column(
+            "created_by_id",
+            sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
+            nullable=True,
+        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["created_by_id"],
+            ["users.id"],
+            name="fk_roles_created_by_id_users",
+            ondelete="SET NULL",
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("name"),
     )
@@ -111,3 +124,5 @@ def downgrade():
     op.drop_table("role_assignments")
     op.drop_table("access_rules")
     op.drop_table("roles")
+    op.execute("DROP TYPE resourcerequestverb")
+    op.execute("DROP TYPE resourcetype")

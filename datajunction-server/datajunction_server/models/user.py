@@ -51,6 +51,17 @@ class UserOutput(BaseModel):
 
     class Config:
         orm_mode = True
+        arbitrary_types_allowed = True
+
+
+class RoleOutput(BaseModel):
+    """Role information to be included in responses"""
+
+    name: str
+    description: Optional[str]
+
+    class Config:
+        orm_mode = True
 
 
 class UserNameOnly(BaseModel):

@@ -29,12 +29,26 @@ class Role(Base):
     name: Mapped[str] = mapped_column(String, unique=True)
     description: Mapped[Optional[str]]
 
-    # principals: Mapped[list["User"]] = relationship(
-    #     "User",
-    #     secondary="role_assignments",
-    #     back_populates="roles",
-    #     lazy="selectin",
-    # )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey(
+            "users.id",
+            name="fk_roles_created_by_id_users",
+            ondelete="SET NULL",
+        ),
+    )
+    created_by: Mapped[Optional["User"]] = relationship(
+        "User",
+        lazy="joined",
+        foreign_keys=[created_by_id],
+    )
+    created_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        insert_default=partial(datetime.now, timezone.utc),
+    )
+    updated_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        insert_default=partial(datetime.now, timezone.utc),
+    )
 
     access_rules: Mapped[list["AccessRule"]] = relationship(
         "AccessRule",

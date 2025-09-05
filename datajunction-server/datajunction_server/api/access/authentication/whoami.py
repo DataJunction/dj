@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authentication.tokens import create_token
-from datajunction_server.models.user import UserOutput
+from datajunction_server.models.user import RoleOutput, UserOutput
 from datajunction_server.utils import (
     Settings,
     get_current_user,
@@ -32,6 +32,18 @@ async def whoami(
     """
     user = await User.get_by_username(session, current_user.username)
     return UserOutput.from_orm(user)
+
+
+@router.get("/whoami/roles")
+async def current_user_roles(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Returns the current authenticated user's roles
+    """
+    user = await User.get_by_username(session, current_user.username)
+    return [RoleOutput.from_orm(role) for role in user.roles]
 
 
 @router.get("/token/")

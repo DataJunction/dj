@@ -96,7 +96,7 @@ class AccessControlState(Enum):
     INDIRECT = "indirect"
 
 
-class AccessControl(BaseModel):
+class AccessControl:
     """
     An access control provides all the information
     necessary to deny or approve a request
@@ -133,7 +133,7 @@ class AccessControl(BaseModel):
 ValidateAccessFn = Callable[[AccessControl], None]
 
 
-class AccessControlStore(BaseModel):
+class AccessControlStore:
     """
     An access control store tracks all ResourceRequests
     """
