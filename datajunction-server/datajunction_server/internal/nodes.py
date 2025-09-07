@@ -630,7 +630,7 @@ async def save_node(
         frozen_measures = await derive_frozen_measures(session, node_revision)
         for frozen_measure in frozen_measures:
             frozen_measure.used_by_node_revisions.append(node_revision)
-            session.merge(frozen_measure)
+            session.add(frozen_measure)
         await session.commit()
         await session.refresh(node, ["current"])
 
