@@ -801,7 +801,10 @@ async def link_dimension(
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
-    Add information to a node column
+    Add a simple dimension link from a node column to a dimension node.
+    1. If a specific `dimension_column` is provided, it will be used as join column for the link.
+    2. If no `dimension_column` is provided, the primary key column of the dimension node will
+       be used as the join column for the link.
     """
     activity_type = await upsert_simple_dimension_link(
         session,
