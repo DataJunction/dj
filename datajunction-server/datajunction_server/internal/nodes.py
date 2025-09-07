@@ -680,7 +680,6 @@ async def derive_frozen_measures(
             )
             session.add(frozen_measure)
         if frozen_measure:
-            frozen_measure.used_by_node_revisions.append(node_revision)
             frozen_measures.append(frozen_measure)
     return frozen_measures
 
