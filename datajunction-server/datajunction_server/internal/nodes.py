@@ -2207,6 +2207,67 @@ async def remove_dimension_link(
     )
 
 
+async def upsert_reference_dimension_link(
+    session: AsyncSession,
+    node_name: str,
+    node_column: str,
+    dimension_node: str,
+    dimension_column: str,
+    role: str | None,
+    current_user: User,
+    save_history: Callable,
+):
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
+    dim_node = await Node.get_by_name(session, dimension_node, raise_if_not_exists=True)
+    if dim_node.type != NodeType.DIMENSION:  # type: ignore
+        raise DJInvalidInputException(
+            message=f"Node {node.name} is not of type dimension!",  # type: ignore
+        )
+
+    # The target and dimension columns should both exist
+    target_column = await get_column(session, node.current, node_column)  # type: ignore
+    dim_column = await get_column(session, dim_node.current, dimension_column)  # type: ignore
+
+    # Check the dimension column's type is compatible with the target column's type
+    if not dim_column.type.is_compatible(target_column.type):
+        raise DJInvalidInputException(
+            f"The column {target_column.name} has type {target_column.type} "
+            f"and is being linked to the dimension {dimension_node} "
+            f"via the dimension column {dimension_column}, which has "
+            f"type {dim_column.type}. These column types are incompatible"
+            " and the dimension cannot be linked",
+        )
+
+    activity_type = (
+        ActivityType.UPDATE if target_column.dimension_column else ActivityType.CREATE
+    )
+
+    # Create the reference link
+    target_column.dimension_id = dim_node.id  # type: ignore
+    target_column.dimension_column = (
+        f"{dimension_column}[{role}]" if role else dimension_column
+    )
+    session.add(target_column)
+    await save_history(
+        event=History(
+            entity_type=EntityType.LINK,
+            entity_name=node.name,  # type: ignore
+            node=node.name,  # type: ignore
+            activity_type=activity_type,
+            details={
+                "node_name": node_name,  # type: ignore
+                "node_column": node_column,
+                "dimension_node": dimension_node,
+                "dimension_column": dimension_column,
+                "role": role,
+            },
+            user=current_user.username,
+        ),
+        session=session,
+    )
+    await session.commit()
+
+
 async def create_new_revision_for_dimension_link_update(
     session: AsyncSession,
     node: Node,
