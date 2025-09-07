@@ -350,25 +350,6 @@ async def schedule_materialization_jobs_bg(
         )
 
 
-async def schedule_materialization_jobs_bg(
-    node_revision_id: int,
-    materialization_names: List[str],
-    query_service_client: QueryServiceClient,
-    request_headers: Optional[Dict[str, str]] = None,
-) -> None:
-    """
-    Schedule a materialization job in the background.
-    """
-    async with session_context() as session:
-        await schedule_materialization_jobs(
-            session=session,
-            node_revision_id=node_revision_id,
-            materialization_names=materialization_names,
-            query_service_client=query_service_client,
-            request_headers=request_headers,
-        )
-
-
 def _get_readable_name(expr):
     """
     Returns a readable name based on the columns in the expression. This is used
