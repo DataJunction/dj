@@ -15,6 +15,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.api.helpers import (
     get_attribute_type,
+    get_catalog_by_name,
     get_column,
     get_node_by_name,
     get_node_namespace,
@@ -104,6 +105,99 @@ from datajunction_server.utils import (
 _logger = logging.getLogger(__name__)
 
 settings = get_settings()
+
+
+async def create_a_source_node(
+    request: Request,
+    session: AsyncSession,
+    data: CreateSourceNode,
+    current_user: User,
+    query_service_client: QueryServiceClient,
+    background_tasks: BackgroundTasks,
+    validate_access: access.ValidateAccessFn,
+    save_history: Callable,
+):
+    request_headers = dict(request.headers)
+    await raise_if_node_exists(session, data.name)
+
+    # if the node previously existed and now is inactive
+    if recreated_node := await create_node_from_inactive(
+        new_node_type=NodeType.SOURCE,
+        data=data,
+        session=session,
+        current_user=current_user,
+        request_headers=request_headers,
+        query_service_client=query_service_client,
+        validate_access=validate_access,
+        background_tasks=background_tasks,
+        save_history=save_history,
+    ):
+        return recreated_node
+
+    namespace = get_namespace_from_name(data.name)
+    await get_node_namespace(
+        session=session,
+        namespace=namespace,
+    )  # Will return 404 if namespace doesn't exist
+    data.namespace = namespace
+
+    node = Node(
+        name=data.name,
+        namespace=data.namespace,
+        display_name=data.display_name or f"{data.catalog}.{data.schema_}.{data.table}",
+        type=NodeType.SOURCE,
+        current_version=0,
+        created_by_id=current_user.id,
+    )
+    catalog = await get_catalog_by_name(session=session, name=data.catalog)
+
+    columns = [
+        Column(
+            name=column_data.name,
+            type=column_data.type,
+            dimension=(
+                await get_node_by_name(
+                    session,
+                    name=column_data.dimension,
+                    node_type=NodeType.DIMENSION,
+                    raise_if_not_exists=False,
+                )
+            ),
+            order=idx,
+        )
+        for idx, column_data in enumerate(data.columns)
+    ]
+    node_revision = NodeRevision(
+        name=data.name,
+        display_name=data.display_name or f"{catalog.name}.{data.schema_}.{data.table}",
+        description=data.description,
+        type=NodeType.SOURCE,
+        status=NodeStatus.VALID,
+        catalog_id=catalog.id,
+        schema_=data.schema_,
+        table=data.table,
+        columns=columns,
+        parents=[],
+        created_by_id=current_user.id,
+        query=data.query,
+    )
+    node.display_name = node_revision.display_name
+
+    # Point the node to the new node revision.
+    await save_node(
+        session,
+        node_revision,
+        node,
+        data.mode,
+        current_user=current_user,
+        save_history=save_history,
+    )
+
+    return await Node.get_by_name(  # type: ignore
+        session,
+        node.name,
+        options=NodeOutput.load_options(),
+    )
 
 
 async def create_a_node(
