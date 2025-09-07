@@ -430,6 +430,7 @@ def patch_session_contexts(session):
         "datajunction_server.internal.caching.query_cache_manager.session_context",
         "datajunction_server.internal.nodes.session_context",
         "datajunction_server.internal.materializations.session_context",
+        "datajunction_server.internal.deployment.session_context",
     ]
     with ExitStack() as stack:
         for target in patch_targets:
