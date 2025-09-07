@@ -5,7 +5,7 @@ import zlib
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
 from pydantic import Extra
@@ -54,6 +54,15 @@ from datajunction_server.errors import (
     DJNodeNotFound,
 )
 from datajunction_server.models.base import labelize
+from datajunction_server.models.deployment import (
+    CubeSpec,
+    DimensionReferenceLinkSpec,
+    DimensionSpec,
+    MetricSpec,
+    NodeSpec,
+    SourceSpec,
+    TransformSpec,
+)
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     BuildCriteria,
@@ -320,6 +329,106 @@ class Node(Base):
     def upstream_cache_key(self, node_type: NodeType | None = None) -> str:
         base = f"upstream:{self.name}@{self.current_version}"
         return f"{base}:{node_type.value}" if node_type is not None else base
+
+    async def to_spec(self, session: AsyncSession) -> NodeSpec:
+        """
+        Convert the node to a spec
+        """
+        node_spec_class_map: dict[NodeType, type[NodeSpec]] = {
+            NodeType.SOURCE: SourceSpec,
+            NodeType.TRANSFORM: TransformSpec,
+            NodeType.DIMENSION: DimensionSpec,
+            NodeType.METRIC: MetricSpec,
+            NodeType.CUBE: CubeSpec,
+        }
+
+        await session.refresh(self, ["owners"])
+
+        # Base kwargs common to all node types
+        base_kwargs = dict(
+            name=self.name,
+            node_type=self.type,
+            owners=[owner.username for owner in self.owners],
+            display_name=self.current.display_name,
+            description=self.current.description,
+            tags=[tag.name for tag in self.tags],
+            mode=self.current.mode,
+            custom_metadata=self.current.custom_metadata,
+        )
+
+        # Type-specific extra arguments
+        extra_kwargs: dict[str, Any] = {}
+
+        # Nodes with queries
+        if self.type in (NodeType.TRANSFORM, NodeType.DIMENSION, NodeType.METRIC):
+            extra_kwargs.update(
+                query=self.current.query,
+            )
+
+        # Nodes with dimension links
+        if self.type in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):
+            join_link_specs = [
+                link.to_spec()
+                for link in self.current.dimension_links  # type: ignore
+            ]
+            ref_link_specs = [
+                DimensionReferenceLinkSpec(
+                    node_column=col.name,
+                    dimension=f"{col.dimension.name}{SEPARATOR}{col.dimension_column}",
+                )
+                for col in self.current.columns
+                if col.dimension_id and col.dimension_column
+            ]
+            extra_kwargs.update(
+                primary_key=[col.name for col in self.current.primary_key()],
+                dimension_links=join_link_specs + ref_link_specs,
+            )
+
+        # Source-specific
+        if self.type == NodeType.SOURCE:
+            extra_kwargs.update(
+                table=f"{self.current.catalog.name}.{self.current.schema_}.{self.current.table}",
+                columns=[col.to_spec() for col in self.current.columns],
+            )
+
+        # Metric-specific
+        if self.type == NodeType.METRIC:
+            extra_kwargs.update(
+                required_dimensions=[
+                    col.name for col in self.current.required_dimensions
+                ],
+                direction=self.current.metric_metadata.direction
+                if self.current.metric_metadata
+                else None,
+                unit=self.current.metric_metadata.unit
+                if self.current.metric_metadata
+                else None,
+                significant_digits=self.current.metric_metadata.significant_digits
+                if self.current.metric_metadata
+                else None,
+                min_decimal_exponent=self.current.metric_metadata.min_decimal_exponent
+                if self.current.metric_metadata
+                else None,
+                max_decimal_exponent=self.current.metric_metadata.max_decimal_exponent
+                if self.current.metric_metadata
+                else None,
+            )
+
+        # Cube-specific
+        if self.type == NodeType.CUBE:
+            extra_kwargs.update(
+                metrics=self.current.cube_node_metrics,
+                dimensions=self.current.cube_node_dimensions,
+            )
+
+        node_spec_cls = node_spec_class_map.get(self.type)
+        if not node_spec_cls:
+            raise DJInvalidInputException(
+                message=f"Invalid node type: {self.type}",
+                http_status_code=HTTPStatus.BAD_REQUEST,
+            )
+
+        return node_spec_cls(**base_kwargs, **extra_kwargs)
 
     @classmethod
     async def get_by_name(
