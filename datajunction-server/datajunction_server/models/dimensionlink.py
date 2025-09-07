@@ -31,6 +31,15 @@ class JoinType(StrEnum):
     CROSS = "cross"
 
 
+class LinkType(StrEnum):
+    """
+    There are two types of dimensions links supported: join links or reference links
+    """
+
+    JOIN = "join"
+    REFERENCE = "reference"
+
+
 class LinkDimensionIdentifier(BaseModel):
     """
     Input for linking a dimension to a node

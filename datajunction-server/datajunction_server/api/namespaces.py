@@ -4,16 +4,26 @@ Node namespace related APIs.
 
 import logging
 from http import HTTPStatus
+import time
 from typing import Callable, Dict, List, Optional
 
 from fastapi import Depends, Query, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJAlreadyExistsException
+from datajunction_server.errors import (
+    DJAlreadyExistsException,
+)
+from datajunction_server.models.yaml import DeploymentYAML, DeploymentInfo
+from datajunction_server.internal.yaml import (
+    deploy_namespace,
+)
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     validate_access,
@@ -378,3 +388,52 @@ async def export_a_namespace(
         nodes=await get_nodes_in_namespace_detailed(session, namespace),
         namespace_requested=namespace,
     )
+
+
+@router.post(
+    "/namespaces/{namespace}/deploy",
+    name="Deploy a namespace from a project's metadata",
+    response_model=DeploymentInfo,
+)
+async def deploy_a_namespace(
+    namespace: str,
+    deployment: DeploymentYAML,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_and_update_current_user),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    save_history: Callable = Depends(get_save_history),
+    cache: Cache = Depends(get_cache),
+    validate_access: access.ValidateAccessFn = Depends(
+        validate_access,
+    ),
+) -> DeploymentInfo:
+    """
+    This endpoint takes a ready-to-deploy manifest (namespace, nodes, service account), topo-sort + validate + deploy nodes in parallel, return results.
+    1. Parse YAML files in the project
+    2. Validate the nodes
+    3. Topologically sort the nodes
+    4. Deploy the nodes in order
+    5. Return a summary of the deployment
+    """
+    start = time.time()
+    res = await deploy_namespace(
+        session=session,
+        namespace=namespace,
+        deployment=deployment,
+        current_user=current_user,
+        request=request,
+        query_service_client=query_service_client,
+        save_history=save_history,
+        validate_access=validate_access,
+        background_tasks=background_tasks,
+        cache=cache,
+    )
+    _logger.info(
+        "Deployment of namespace %s took %.2f seconds",
+        namespace,
+        time.time() - start,
+    )
+    return res
