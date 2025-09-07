@@ -584,7 +584,9 @@ async def derive_frozen_measures(
                 rule=measure.rule,
                 used_by_node_revisions=[],
             )
+            session.add(frozen_measure)
         if frozen_measure:
+            frozen_measure.used_by_node_revisions.append(node_revision)
             frozen_measures.append(frozen_measure)
     return frozen_measures
 
@@ -627,12 +629,7 @@ async def save_node(
 
     # For metric nodes, derive the referenced frozen measures and save them
     if node.type == NodeType.METRIC:
-        frozen_measures = await derive_frozen_measures(session, node_revision)
-        for frozen_measure in frozen_measures:
-            frozen_measure.used_by_node_revisions.append(node_revision)
-            session.add(frozen_measure)
-        await session.commit()
-        await session.refresh(node, ["current"])
+        await derive_frozen_measures(session, node_revision)
 
     newly_valid_nodes = await resolve_downstream_references(
         session=session,
