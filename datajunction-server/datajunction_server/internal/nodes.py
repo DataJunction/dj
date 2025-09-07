@@ -211,7 +211,7 @@ async def create_a_node(
     validate_access: access.ValidateAccessFn,
     save_history: Callable,
     cache: Cache,
-):
+) -> Node:
     request_headers = dict(request.headers)
     if node_type == NodeType.DIMENSION and not data.primary_key:
         raise DJInvalidInputException("Dimension nodes must define a primary key!")
@@ -680,6 +680,7 @@ async def derive_frozen_measures(
             )
             session.add(frozen_measure)
         if frozen_measure:
+            frozen_measure.used_by_node_revisions.append(node_revision)
             frozen_measures.append(frozen_measure)
     return frozen_measures
 
