@@ -613,6 +613,10 @@ async def save_node(
     node_revision.extra_validation()
     node.owners.append(current_user)
 
+    # For metric nodes, derive the referenced frozen measures and save them
+    if node.type == NodeType.METRIC:
+        await derive_frozen_measures(session, node_revision)
+
     session.add(node)
     await save_history(
         event=History(
@@ -626,10 +630,6 @@ async def save_node(
     )
     await session.commit()
     await session.refresh(node, ["current"])
-
-    # For metric nodes, derive the referenced frozen measures and save them
-    if node.type == NodeType.METRIC:
-        await derive_frozen_measures(session, node_revision)
 
     newly_valid_nodes = await resolve_downstream_references(
         session=session,
