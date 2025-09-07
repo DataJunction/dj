@@ -1287,6 +1287,30 @@ async def dimension_join_path(
             return join_path
 
         await refresh_if_needed(session, current_link.dimension, ["current"])
+
+        # Check the reference links on this dimension node
+        await refresh_if_needed(session, current_link.dimension.current, ["columns"])
+        for col in current_link.dimension.current.columns:
+            if col.dimension:
+                # Check if it matches the reference link dimension attribute
+                if f"{col.dimension.name}.{col.dimension_column}" == dimension:
+                    return join_path
+                # Check if it matches any of the reference link dimension's linked attributes
+                await refresh_if_needed(session, col.dimension, ["current"])
+                await refresh_if_needed(
+                    session,
+                    col.dimension.current,
+                    ["dimension_links"],
+                )
+                for link in col.dimension.current.dimension_links:
+                    if (
+                        link.foreign_keys.get(
+                            f"{col.dimension.name}.{col.dimension_column}",
+                        )
+                        == dimension
+                    ):
+                        return join_path
+
         await refresh_if_needed(
             session,
             current_link.dimension.current,
@@ -1431,7 +1455,19 @@ def build_dimension_attribute(
             if dimension_attr.name in link.foreign_keys_reversed
             else None
         )
+        reference_links = {
+            col.name: f"{col.dimension.name}.{col.dimension_column}"
+            for col in link.dimension.current.columns
+            if col.dimension
+        }
         for col in node_query.select.projection:
+            if reference_links.get(col.alias_or_name.name) == full_column_name:  # type: ignore
+                return ast.Column(
+                    name=ast.Name(col.alias_or_name.name),  # type: ignore
+                    alias=ast.Name(alias) if alias else None,
+                    _table=node_query,
+                    _type=col.type,  # type: ignore
+                )
             if col.alias_or_name.name == dimension_attr.column_name or (  # type: ignore
                 foreign_key_column_name
                 and col.alias_or_name.identifier() == foreign_key_column_name  # type: ignore

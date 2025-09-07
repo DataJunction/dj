@@ -127,6 +127,27 @@ def link_events_to_users_without_role(
 
 
 @pytest.fixture
+def reference_link_users_date(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Create a reference link between users and date
+    """
+
+    async def _reference_link_users_date() -> Response:
+        response = await dimensions_link_client.post(
+            "/nodes/default.users/columns/snapshot_date/link",
+            params={
+                "dimension_node": "default.date",
+                "dimension_column": "dateint",
+            },
+        )
+        return response
+
+    return _reference_link_users_date
+
+
+@pytest.fixture
 def link_events_to_users_with_role_direct(
     dimensions_link_client: AsyncClient,
 ):
@@ -1066,6 +1087,59 @@ FROM default_DOT_events"""
     """
     assert str(parse(response_data[0]["sql"])) == str(parse(expected_sql))
     assert response_data[0]["errors"] == []
+
+
+@pytest.mark.asyncio
+async def test_measures_sql_with_ref_link_on_dim_node(
+    dimensions_link_client: AsyncClient,  # pylint: disable=redefined-outer-name
+    link_events_to_users_without_role,  # pylint: disable=redefined-outer-name
+    reference_link_users_date,  # pylint: disable=redefined-outer-name
+):
+    """
+    Verify that measures SQL can be retrieved for dimension attributes that come from a
+    reference dimension link from one dim node to another dim node.
+    """
+    await link_events_to_users_without_role()
+    await reference_link_users_date()
+
+    response = await dimensions_link_client.get(
+        "/sql/measures/v2",
+        params={
+            "metrics": ["default.elapsed_secs"],
+            "dimensions": [
+                "default.date.dateint",
+            ],
+        },
+    )
+    response_data = response.json()
+    expected_sql = """
+    WITH default_DOT_events AS (
+      SELECT
+        default_DOT_events_table.user_id,
+        default_DOT_events_table.event_start_date,
+        default_DOT_events_table.event_end_date,
+        default_DOT_events_table.elapsed_secs,
+        default_DOT_events_table.user_registration_country
+      FROM examples.events AS default_DOT_events_table
+    ),
+    default_DOT_users AS (
+      SELECT
+        default_DOT_users_table.user_id,
+        default_DOT_users_table.snapshot_date,
+        default_DOT_users_table.registration_country,
+        default_DOT_users_table.residence_country,
+        default_DOT_users_table.account_type
+      FROM examples.users AS default_DOT_users_table
+    )
+    SELECT
+      default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+      default_DOT_users.snapshot_date default_DOT_date_DOT_dateint
+    FROM default_DOT_events
+    LEFT JOIN default_DOT_users
+      ON default_DOT_events.user_id = default_DOT_users.user_id
+      AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+    """
+    assert str(parse(response_data[0]["sql"])) == str(parse(expected_sql))
 
 
 @pytest.mark.asyncio

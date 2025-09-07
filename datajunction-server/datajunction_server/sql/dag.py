@@ -713,13 +713,13 @@ async def get_dimensions_dag(
             )
             .join(
                 graph_branches,
-                (current_rev.id == graph_branches.c.node_revision_id)
-                & (is_(graph_branches.c.dimension_column, None)),
+                (current_rev.id == graph_branches.c.node_revision_id),
+                # & (is_(graph_branches.c.dimension_column, None)),
             )
             .join(
                 next_node,
                 (next_node.id == graph_branches.c.dimension_id)
-                & (is_(graph_branches.c.dimension_column, None))
+                # & (is_(graph_branches.c.dimension_column, None))
                 & (is_(next_node.deactivated_at, None)),
             )
             .join(
