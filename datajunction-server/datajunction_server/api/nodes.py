@@ -36,7 +36,6 @@ from datajunction_server.database.user import User
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.errors import (
-    DJActionNotAllowedException,
     DJAlreadyExistsException,
     DJConfigurationException,
     DJDoesNotExistException,
@@ -51,18 +50,18 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.nodes import (
     activate_node,
+    create_a_cube,
+    create_a_source_node,
+    upsert_reference_dimension_link,
+    upsert_simple_dimension_link,
     copy_to_new_node,
-    create_cube_node_revision,
-    create_node_from_inactive,
-    create_node_revision,
+    create_a_node,
     deactivate_node,
     get_column_level_lineage,
     get_node_column,
     hard_delete_node,
     remove_dimension_link,
     revalidate_node,
-    save_column_level_lineage,
-    save_node,
     set_node_column_attributes,
     update_any_node,
     upsert_complex_dimension_link,
@@ -71,11 +70,9 @@ from datajunction_server.internal.validation import validate_node_data
 from datajunction_server.models import access
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
-    ColumnAttributes,
 )
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
-    JoinType,
     LinkDimensionIdentifier,
 )
 from datajunction_server.models.node import (
@@ -91,7 +88,6 @@ from datajunction_server.models.node import (
     NodeOutput,
     NodeRevisionBase,
     NodeRevisionOutput,
-    NodeStatus,
     NodeStatusDetails,
     NodeValidation,
     NodeValidationError,
@@ -118,7 +114,6 @@ from datajunction_server.utils import (
     Version,
     get_and_update_current_user,
     get_current_user,
-    get_namespace_from_name,
     get_query_service_client,
     get_session,
     get_settings,
@@ -463,86 +458,15 @@ async def create_source(
     Create a source node. If columns are not provided, the source node's schema
     will be inferred using the configured query service.
     """
-    request_headers = dict(request.headers)
-    await raise_if_node_exists(session, data.name)
-
-    # if the node previously existed and now is inactive
-    if recreated_node := await create_node_from_inactive(
-        new_node_type=NodeType.SOURCE,
+    return await create_a_source_node(
         data=data,
+        request=request,
         session=session,
         current_user=current_user,
-        request_headers=request_headers,
         query_service_client=query_service_client,
         validate_access=validate_access,
         background_tasks=background_tasks,
         save_history=save_history,
-    ):
-        return recreated_node
-
-    namespace = get_namespace_from_name(data.name)
-    await get_node_namespace(
-        session=session,
-        namespace=namespace,
-    )  # Will return 404 if namespace doesn't exist
-    data.namespace = namespace
-
-    node = Node(
-        name=data.name,
-        namespace=data.namespace,
-        display_name=data.display_name or f"{data.catalog}.{data.schema_}.{data.table}",
-        type=NodeType.SOURCE,
-        current_version=0,
-        created_by_id=current_user.id,
-    )
-    catalog = await get_catalog_by_name(session=session, name=data.catalog)
-
-    columns = [
-        Column(
-            name=column_data.name,
-            type=column_data.type,
-            dimension=(
-                await get_node_by_name(
-                    session,
-                    name=column_data.dimension,
-                    node_type=NodeType.DIMENSION,
-                    raise_if_not_exists=False,
-                )
-            ),
-            order=idx,
-        )
-        for idx, column_data in enumerate(data.columns)
-    ]
-    node_revision = NodeRevision(
-        name=data.name,
-        display_name=data.display_name or f"{catalog.name}.{data.schema_}.{data.table}",
-        description=data.description,
-        type=NodeType.SOURCE,
-        status=NodeStatus.VALID,
-        catalog_id=catalog.id,
-        schema_=data.schema_,
-        table=data.table,
-        columns=columns,
-        parents=[],
-        created_by_id=current_user.id,
-        query=data.query,
-    )
-    node.display_name = node_revision.display_name
-
-    # Point the node to the new node revision.
-    await save_node(
-        session,
-        node_revision,
-        node,
-        data.mode,
-        current_user=current_user,
-        save_history=save_history,
-    )
-
-    return await Node.get_by_name(  # type: ignore
-        session,
-        node.name,
-        options=NodeOutput.load_options(),
     )
 
 
@@ -581,94 +505,18 @@ async def create_node(
     """
     Create a node.
     """
-    request_headers = dict(request.headers)
     node_type = NodeType(os.path.basename(os.path.normpath(request.url.path)))
-
-    if node_type == NodeType.DIMENSION and not data.primary_key:
-        raise DJInvalidInputException("Dimension nodes must define a primary key!")
-
-    await raise_if_node_exists(session, data.name)
-
-    # if the node previously existed and now is inactive
-    if recreated_node := await create_node_from_inactive(
-        new_node_type=node_type,
+    return await create_a_node(
         data=data,
+        request=request,
+        node_type=node_type,
         session=session,
         current_user=current_user,
-        request_headers=request_headers,
         query_service_client=query_service_client,
         background_tasks=background_tasks,
         validate_access=validate_access,
         save_history=save_history,
         cache=cache,
-    ):
-        return recreated_node  # pragma: no cover
-
-    namespace = get_namespace_from_name(data.name)
-    await get_node_namespace(
-        session=session,
-        namespace=namespace,
-    )  # Will return 404 if namespace doesn't exist
-    data.namespace = namespace
-
-    node = Node(
-        name=data.name,
-        namespace=data.namespace,
-        type=NodeType(node_type),
-        current_version=0,
-        created_by_id=current_user.id,
-    )
-    node_revision = await create_node_revision(data, node_type, session, current_user)
-    await save_node(
-        session,
-        node_revision,
-        node,
-        data.mode,
-        current_user=current_user,
-        save_history=save_history,
-    )
-    background_tasks.add_task(
-        save_column_level_lineage,
-        session=session,
-        node_revision=node_revision,
-    )
-
-    node = await Node.get_by_name(  # type: ignore
-        session,
-        node.name,
-        options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
-        ],
-    )
-    node_revision = node.current
-    column_names = {col.name for col in node_revision.columns}
-    if data.primary_key and any(
-        key_column not in column_names for key_column in data.primary_key
-    ):
-        raise DJInvalidInputException(
-            f"Some columns in the primary key [{','.join(data.primary_key)}] "
-            f"were not found in the list of available columns for the node {node.name}.",
-        )
-    if data.primary_key:
-        for key_column in data.primary_key:
-            if key_column in column_names:  # pragma: no cover
-                await set_node_column_attributes(
-                    session,
-                    node,
-                    key_column,
-                    [
-                        AttributeTypeIdentifier(
-                            name=ColumnAttributes.PRIMARY_KEY.value,
-                            namespace="system",
-                        ),
-                    ],
-                    current_user=current_user,
-                    save_history=save_history,
-                )
-    return await Node.get_by_name(  # type: ignore
-        session,
-        node.name,
-        options=NodeOutput.load_options(),
     )
 
 
@@ -694,50 +542,17 @@ async def create_cube(
     """
     Create a cube node.
     """
-    request_headers = dict(request.headers)
-    await raise_if_node_exists(session, data.name)
-
-    # if the node previously existed and now is inactive
-    if recreated_node := await create_node_from_inactive(
-        new_node_type=NodeType.CUBE,
+    node = await create_a_cube(
         data=data,
+        request=request,
         session=session,
         current_user=current_user,
-        request_headers=request_headers,
         query_service_client=query_service_client,
         background_tasks=background_tasks,
         validate_access=validate_access,
         save_history=save_history,
-    ):
-        return recreated_node  # pragma: no cover
+    )
 
-    namespace = get_namespace_from_name(data.name)
-    await get_node_namespace(
-        session=session,
-        namespace=namespace,
-    )
-    data.namespace = namespace
-
-    node = Node(
-        name=data.name,
-        namespace=data.namespace,
-        type=NodeType.CUBE,
-        current_version=0,
-        created_by_id=current_user.id,
-    )
-    node_revision = await create_cube_node_revision(
-        session=session,
-        data=data,
-        current_user=current_user,
-    )
-    await save_node(
-        session,
-        node_revision,
-        node,
-        data.mode,
-        current_user=current_user,
-        save_history=save_history,
-    )
     return await Node.get_by_name(  # type: ignore
         session,
         node.name,
@@ -913,64 +728,19 @@ async def link_dimension(
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
-    Add information to a node column
+    Add a simple dimension link from a node column to a dimension node.
+    1. If a specific `dimension_column` is provided, it will be used as join column for the link.
+    2. If no `dimension_column` is provided, the primary key column of the dimension node will
+       be used as the join column for the link.
     """
-    node = await Node.get_by_name(
+    activity_type = await upsert_simple_dimension_link(
         session,
         name,
-        raise_if_not_exists=True,
-    )
-    dimension_node = await Node.get_by_name(
-        session,
         dimension,
-        raise_if_not_exists=True,
-    )
-    if dimension_node.type != NodeType.DIMENSION:  # type: ignore  # pragma: no cover
-        # pragma: no cover
-        raise DJInvalidInputException(f"Node {node.name} is not of type dimension!")  # type: ignore
-    primary_key_columns = dimension_node.current.primary_key()  # type: ignore
-    if len(primary_key_columns) > 1:
-        raise DJActionNotAllowedException(  # pragma: no cover
-            "Cannot use this endpoint to link a dimension with a compound primary key.",
-        )
-
-    target_column = await get_column(session, node.current, column)  # type: ignore
-    if dimension_column:
-        # Check that the dimension column exists
-        column_from_dimension = await get_column(
-            session,
-            dimension_node.current,  # type: ignore
-            dimension_column,
-        )
-
-        # Check the dimension column's type is compatible with the target column's type
-        if not column_from_dimension.type.is_compatible(target_column.type):
-            raise DJInvalidInputException(
-                f"The column {target_column.name} has type {target_column.type} "
-                f"and is being linked to the dimension {dimension} via the dimension"
-                f" column {dimension_column}, which has type {column_from_dimension.type}."
-                " These column types are incompatible and the dimension cannot be linked",
-            )
-
-    link_input = JoinLinkInput(
-        dimension_node=dimension,
-        join_type=JoinType.LEFT,
-        join_on=(
-            f"{name}.{column} = {dimension_node.name}.{primary_key_columns[0].name}"  # type: ignore
-        ),
-    )
-    activity_type = await upsert_complex_dimension_link(
-        session,
-        name,
-        link_input,
+        column,
+        dimension_column,
         current_user,
         save_history,
-    )
-
-    node = await Node.get_by_name(
-        session,
-        name,
-        raise_if_not_exists=True,
     )
     return JSONResponse(
         status_code=201,
@@ -1002,55 +772,16 @@ async def add_reference_dimension_link(
     """
     Add reference dimension link to a node column
     """
-    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
-    dim_node = await Node.get_by_name(session, dimension_node, raise_if_not_exists=True)
-    if dim_node.type != NodeType.DIMENSION:  # type: ignore
-        raise DJInvalidInputException(
-            message=f"Node {node.name} is not of type dimension!",  # type: ignore
-        )
-
-    # The target and dimension columns should both exist
-    target_column = await get_column(session, node.current, node_column)  # type: ignore
-    dim_column = await get_column(session, dim_node.current, dimension_column)  # type: ignore
-
-    # Check the dimension column's type is compatible with the target column's type
-    if not dim_column.type.is_compatible(target_column.type):
-        raise DJInvalidInputException(
-            f"The column {target_column.name} has type {target_column.type} "
-            f"and is being linked to the dimension {dimension_node} "
-            f"via the dimension column {dimension_column}, which has "
-            f"type {dim_column.type}. These column types are incompatible"
-            " and the dimension cannot be linked",
-        )
-
-    activity_type = (
-        ActivityType.UPDATE if target_column.dimension_column else ActivityType.CREATE
-    )
-
-    # Create the reference link
-    target_column.dimension_id = dim_node.id  # type: ignore
-    target_column.dimension_column = (
-        f"{dimension_column}[{role}]" if role else dimension_column
-    )
-    session.add(target_column)
-    await save_history(
-        event=History(
-            entity_type=EntityType.LINK,
-            entity_name=node.name,  # type: ignore
-            node=node.name,  # type: ignore
-            activity_type=activity_type,
-            details={
-                "node_name": node_name,  # type: ignore
-                "node_column": node_column,
-                "dimension_node": dimension_node,
-                "dimension_column": dimension_column,
-                "role": role,
-            },
-            user=current_user.username,
-        ),
+    await upsert_reference_dimension_link(
         session=session,
+        node_name=node_name,
+        node_column=node_column,
+        dimension_node=dimension_node,
+        dimension_column=dimension_column,
+        role=role,
+        current_user=current_user,
+        save_history=save_history,
     )
-    await session.commit()
     return JSONResponse(
         status_code=201,
         content={

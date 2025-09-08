@@ -1127,7 +1127,7 @@ async def get_nodes_with_dimension(
                     ),
                 ],
             )
-            if current_node:
+            if current_node:  # pragma: no cover
                 if not node_types or current_node.type in node_types:
                     final_set.add(current_node.current)
                 for child in current_node.children:
