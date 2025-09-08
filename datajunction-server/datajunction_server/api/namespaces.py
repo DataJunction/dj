@@ -20,8 +20,8 @@ from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJAlreadyExistsException,
 )
-from datajunction_server.models.yaml import DeploymentYAML, DeploymentInfo
-from datajunction_server.internal.yaml import (
+from datajunction_server.models.deployment import DeploymentSpec, DeploymentInfo
+from datajunction_server.internal.deployment import (
     deploy_namespace,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
@@ -397,7 +397,7 @@ async def export_a_namespace(
 )
 async def deploy_a_namespace(
     namespace: str,
-    deployment: DeploymentYAML,
+    deployment: DeploymentSpec,
     background_tasks: BackgroundTasks,
     request: Request,
     *,
@@ -411,12 +411,9 @@ async def deploy_a_namespace(
     ),
 ) -> DeploymentInfo:
     """
-    This endpoint takes a ready-to-deploy manifest (namespace, nodes, service account), topo-sort + validate + deploy nodes in parallel, return results.
-    1. Parse YAML files in the project
-    2. Validate the nodes
-    3. Topologically sort the nodes
-    4. Deploy the nodes in order
-    5. Return a summary of the deployment
+    This endpoint takes a ready-to-deploy specification (namespace, nodes, tags),
+    topologically sorts and validates the specs, and deploys the nodes in parallel
+    where possible. It will return a summary of the deployment.
     """
     start = time.time()
     res = await deploy_namespace(

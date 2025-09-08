@@ -8,16 +8,17 @@ from datajunction_server.database.user import User
 from datajunction_server.database import Node
 from datajunction_server.models import access
 from sqlalchemy.ext.asyncio import AsyncSession
-from datajunction_server.models.yaml import (
-    CubeYAML,
+from datajunction_server.models.deployment import (
+    CubeSpec,
     DeploymentInfo,
-    DeploymentYAML,
-    DimensionJoinLinkYAML,
-    DimensionLinkYAML,
-    DimensionReferenceLinkYAML,
-    LinkableNodeYAML,
-    MetricYAML,
-    SourceYAML,
+    DeploymentSpec,
+    DimensionJoinLinkSpec,
+    DimensionLinkSpec,
+    DimensionReferenceLinkSpec,
+    LinkableNodeSpec,
+    MetricSpec,
+    SourceSpec,
+    NodeSpec,
 )
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
@@ -42,7 +43,6 @@ from datajunction_server.internal.nodes import (
     upsert_simple_dimension_link,
     upsert_complex_dimension_link,
 )
-from datajunction_server.models.yaml import NodeYAML
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.errors import (
     DJGraphCycleException,
@@ -56,18 +56,18 @@ from datajunction_server.internal.namespaces import create_namespace
 logger = logging.getLogger(__name__)
 
 
-def extract_node_graph(nodes: list[NodeYAML], namespace: str) -> dict[str, list[str]]:
+def extract_node_graph(nodes: list[NodeSpec]) -> dict[str, list[str]]:
     """
     Extract the node graph from a list of nodes
         Scenario A: Fully self-contained deployment with all dependencies included
     """
     logger.info("Extracting node graph for %d nodes", len(nodes))
 
-    def find_upstreams_for_node(node: NodeYAML) -> tuple[str, list[str]]:
+    def find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str]]:
         cls_name = node.__class__.__name__
         print("node.fully_qualified_name", node.fully_qualified_name)
         if (
-            cls_name in ("MetricYAML", "TransformYAML", "DimensionYAML")
+            cls_name in ("MetricSpec", "TransformSpec", "DimensionSpec")
             and node.rendered_query
         ):
             # node.query = render_prefixes(node.query, node._namespace or namespace)
@@ -79,7 +79,7 @@ def extract_node_graph(nodes: list[NodeYAML], namespace: str) -> dict[str, list[
                 if t.name.identifier() not in cte_names
             }
             return node.fully_qualified_name, sorted(list(tables))
-        if cls_name == "CubeYAML":
+        if cls_name == "CubeSpec":
             dimension_nodes = [dim.rsplit(".", 1)[0] for dim in node.dimensions]
             return node.fully_qualified_name, node.metrics + dimension_nodes
         return node.fully_qualified_name, []
@@ -144,8 +144,8 @@ def topological_levels(
     return levels if ascending else levels[::-1]
 
 
-async def deploy_source_node_from_yaml(
-    source_yaml: SourceYAML,
+async def deploy_source_node_from_spec(
+    source_spec: SourceSpec,
     session: AsyncSession,
     current_user: User,
     request: Request,
@@ -155,19 +155,19 @@ async def deploy_source_node_from_yaml(
     save_history: Callable,
 ) -> NodeOutput:
     """
-    Deploy a source node from its YAML representation.
+    Deploy a source node from its spec.
     """
-    # TODO Handle case where there are no columns on source_yaml.columns and it's registering a table
-    catalog, schema, table = source_yaml.table.split(".")
+    # TODO Handle case where there are no columns on source_spec.columns and it's registering a table
+    catalog, schema, table = source_spec.table.split(".")
     node_output = await create_a_source_node(
         data=CreateSourceNode(
-            name=source_yaml.fully_qualified_name,
-            display_name=source_yaml.display_name,
-            description=source_yaml.description,
-            mode=source_yaml.mode,
-            primary_key=source_yaml.primary_key,
-            custom_metadata=source_yaml.custom_metadata,
-            owners=source_yaml.owners,
+            name=source_spec.fully_qualified_name,
+            display_name=source_spec.display_name,
+            description=source_spec.description,
+            mode=source_spec.mode,
+            primary_key=source_spec.primary_key,
+            custom_metadata=source_spec.custom_metadata,
+            owners=source_spec.owners,
             catalog=catalog,
             schema_=schema,
             table=table,
@@ -180,7 +180,7 @@ async def deploy_source_node_from_yaml(
                         for attr in col.attributes
                     ],
                 )
-                for col in source_yaml.columns or []
+                for col in source_spec.columns or []
             ],
         ),
         session=session,
@@ -194,22 +194,21 @@ async def deploy_source_node_from_yaml(
     return node_output
 
 
-async def deploy_dimension_link_from_yaml(
-    namespace: str,
-    node_yaml: NodeYAML,
-    link_yaml: DimensionLinkYAML,
+async def deploy_dimension_link_from_spec(
+    node_spec: NodeSpec,
+    link_spec: DimensionLinkSpec,
     request: Request,
     current_user: User,
     save_history: Callable,
 ):
     async with session_context(request) as session:
         user = cast(User, await User.get_by_username(session, current_user.username))
-        if link_yaml.type == LinkType.JOIN:
-            join_link = cast(DimensionJoinLinkYAML, link_yaml)
+        if link_spec.type == LinkType.JOIN:
+            join_link = cast(DimensionJoinLinkSpec, link_spec)
             if join_link.node_column:
                 return await upsert_simple_dimension_link(
                     session,
-                    node_yaml.fully_qualified_name,
+                    node_spec.fully_qualified_name,
                     join_link.rendered_dimension_node,
                     join_link.node_column,
                     None,
@@ -224,15 +223,15 @@ async def deploy_dimension_link_from_yaml(
             )
             return await upsert_complex_dimension_link(
                 session,
-                node_yaml.fully_qualified_name,
+                node_spec.fully_qualified_name,
                 link_input,
                 user,
                 save_history,
             )
-        reference_link = cast(DimensionReferenceLinkYAML, link_yaml)
+        reference_link = cast(DimensionReferenceLinkSpec, link_spec)
         return await upsert_reference_dimension_link(
             session=session,
-            node_name=node_yaml.fully_qualified_name,
+            node_name=node_spec.fully_qualified_name,
             node_column=reference_link.node_column,
             dimension_node=reference_link.dimension_node,
             dimension_column=reference_link.dimension_attribute,
@@ -242,8 +241,8 @@ async def deploy_dimension_link_from_yaml(
         )
 
 
-async def deploy_node_from_yaml(
-    node_yaml: NodeYAML,
+async def deploy_node_from_spec(
+    node_spec: NodeSpec,
     current_user: User,
     request: Request,
     query_service_client: QueryServiceClient,
@@ -253,15 +252,15 @@ async def deploy_node_from_yaml(
     cache: Cache,
 ) -> Node:
     """
-    Deploy a node from its YAML representation.
+    Deploy a node from its specification.
     """
     async with session_context(request) as session:
         user = cast(User, await User.get_by_username(session, current_user.username))
-        cls_name = node_yaml.__class__.__name__
-        if cls_name == "SourceYAML":
-            source_yaml = cast(SourceYAML, node_yaml)
-            return await deploy_source_node_from_yaml(
-                source_yaml=source_yaml,
+        cls_name = node_spec.__class__.__name__
+        if cls_name == "SourceSpec":
+            source_spec = cast(SourceSpec, node_spec)
+            return await deploy_source_node_from_spec(
+                source_spec=source_spec,
                 session=session,
                 current_user=user,
                 request=request,
@@ -270,22 +269,22 @@ async def deploy_node_from_yaml(
                 background_tasks=background_tasks,
                 save_history=save_history,
             )
-        if cls_name in ("TransformYAML", "DimensionYAML"):
+        if cls_name in ("TransformSpec", "DimensionSpec"):
             node_type = (
                 NodeType.TRANSFORM
-                if cls_name == "TransformYAML"
+                if cls_name == "TransformSpec"
                 else NodeType.DIMENSION
             )
             created_node = await create_a_node(
                 data=CreateNode(
-                    name=node_yaml.fully_qualified_name,
-                    display_name=node_yaml.display_name,
-                    description=node_yaml.description,
-                    mode=node_yaml.mode,
-                    primary_key=node_yaml.primary_key,
-                    custom_metadata=node_yaml.custom_metadata,
-                    owners=node_yaml.owners,
-                    query=node_yaml.rendered_query,
+                    name=node_spec.fully_qualified_name,
+                    display_name=node_spec.display_name,
+                    description=node_spec.description,
+                    mode=node_spec.mode,
+                    primary_key=node_spec.primary_key,
+                    custom_metadata=node_spec.custom_metadata,
+                    owners=node_spec.owners,
+                    query=node_spec.rendered_query,
                 ),
                 node_type=node_type,
                 session=session,
@@ -298,28 +297,28 @@ async def deploy_node_from_yaml(
                 cache=cache,
             )
             return created_node
-        if cls_name == "MetricYAML":
-            metric_yaml = cast(MetricYAML, node_yaml)
+        if cls_name == "MetricSpec":
+            metric_spec = cast(MetricSpec, node_spec)
             created_node = await create_a_node(
                 data=CreateNode(
-                    name=metric_yaml.fully_qualified_name,
-                    display_name=metric_yaml.display_name,
-                    description=metric_yaml.description,
-                    mode=metric_yaml.mode,
-                    custom_metadata=metric_yaml.custom_metadata,
-                    owners=metric_yaml.owners,
-                    query=metric_yaml.rendered_query,
-                    required_dimensions=metric_yaml.required_dimensions,
+                    name=metric_spec.fully_qualified_name,
+                    display_name=metric_spec.display_name,
+                    description=metric_spec.description,
+                    mode=metric_spec.mode,
+                    custom_metadata=metric_spec.custom_metadata,
+                    owners=metric_spec.owners,
+                    query=metric_spec.rendered_query,
+                    required_dimensions=metric_spec.required_dimensions,
                     metric_metadata=MetricMetadataInput(
-                        direction=metric_yaml.direction,
-                        unit=metric_yaml.unit,
-                        significant_digits=metric_yaml.significant_digits,
-                        min_decimal_exponent=metric_yaml.min_decimal_exponent,
-                        max_decimal_exponent=metric_yaml.max_decimal_exponent,
+                        direction=metric_spec.direction,
+                        unit=metric_spec.unit,
+                        significant_digits=metric_spec.significant_digits,
+                        min_decimal_exponent=metric_spec.min_decimal_exponent,
+                        max_decimal_exponent=metric_spec.max_decimal_exponent,
                     )
-                    if metric_yaml.direction
-                    or metric_yaml.unit
-                    or metric_yaml.significant_digits
+                    if metric_spec.direction
+                    or metric_spec.unit
+                    or metric_spec.significant_digits
                     else None,
                 ),
                 node_type=NodeType.METRIC,
@@ -333,19 +332,19 @@ async def deploy_node_from_yaml(
                 cache=cache,
             )
             return created_node
-        if cls_name == "CubeYAML":
-            cube_yaml = cast(CubeYAML, node_yaml)
+        if cls_name == "CubeSpec":
+            cube_spec = cast(CubeSpec, node_spec)
             return await create_a_cube(
                 data=CreateCubeNode(
-                    name=cube_yaml.fully_qualified_name,
-                    display_name=cube_yaml.display_name,
-                    description=cube_yaml.description,
-                    mode=cube_yaml.mode,
-                    custom_metadata=cube_yaml.custom_metadata,
-                    owners=cube_yaml.owners,
-                    metrics=cube_yaml.rendered_metrics,
-                    dimensions=cube_yaml.rendered_dimensions,
-                    filters=cube_yaml.rendered_filters,
+                    name=cube_spec.fully_qualified_name,
+                    display_name=cube_spec.display_name,
+                    description=cube_spec.description,
+                    mode=cube_spec.mode,
+                    custom_metadata=cube_spec.custom_metadata,
+                    owners=cube_spec.owners,
+                    metrics=cube_spec.rendered_metrics,
+                    dimensions=cube_spec.rendered_dimensions,
+                    filters=cube_spec.rendered_filters,
                 ),
                 request=request,
                 session=session,
@@ -368,7 +367,7 @@ def render_prefixes(parameterized_string: str, prefix: str):
 async def deploy_namespace(
     session: AsyncSession,
     namespace: str,
-    deployment: DeploymentYAML,
+    deployment: DeploymentSpec,
     current_user: User,
     request: Request,
     query_service_client: QueryServiceClient,
@@ -378,12 +377,13 @@ async def deploy_namespace(
     cache: Cache,
 ):
     """
-    Deploy a namespace from its YAML representation.
+    Deploy to a namespace based on the given deployment specification.
     """
     logger.info(
-        "Deploying namespace %s with %d nodes",
+        "Deploying namespace %s with %d nodes and %d tags",
         namespace,
         len(deployment.nodes),
+        len(deployment.tags),
     )
 
     # Create necessary namespaces for the deployment
@@ -404,8 +404,7 @@ async def deploy_namespace(
 
     # Figure out the deployment order (cubes should always be after everything else)
     node_graph = extract_node_graph(
-        [node for node in deployment.nodes if not isinstance(node, CubeYAML)],
-        namespace,
+        [node for node in deployment.nodes if not isinstance(node, CubeSpec)],
     )
 
     # Check for any dependencies that are not in the deployment
@@ -449,10 +448,10 @@ async def deploy_namespace(
             if node_name in deps_not_in_deployment:
                 continue
 
-            node_yaml = name_to_node[node_name]
+            node_spec = name_to_node[node_name]
             tasks.append(
-                deploy_node_from_yaml(
-                    node_yaml=node_yaml,
+                deploy_node_from_spec(
+                    node_spec=node_spec,
                     current_user=current_user,
                     request=request,
                     query_service_client=query_service_client,
@@ -467,18 +466,17 @@ async def deploy_namespace(
 
     # Deploy dimension links
     link_tasks = []
-    for node_yaml in deployment.nodes:
-        if isinstance(node_yaml, LinkableNodeYAML):
+    for node_spec in deployment.nodes:
+        if isinstance(node_spec, LinkableNodeSpec):
 
-            async def deploy_links_for_node(node_yaml):
+            async def deploy_links_for_node(node_spec):
                 # run links sequentially for this node to avoid race conditions
-                linkable_node_yaml = cast(LinkableNodeYAML, node_yaml)
+                linkable_node_spec = cast(LinkableNodeSpec, node_spec)
                 results = 0
-                for link in linkable_node_yaml.dimension_links:
-                    await deploy_dimension_link_from_yaml(
-                        namespace=namespace,
-                        node_yaml=linkable_node_yaml,
-                        link_yaml=link,
+                for link in linkable_node_spec.dimension_links:
+                    await deploy_dimension_link_from_spec(
+                        node_spec=linkable_node_spec,
+                        link_spec=link,
                         request=request,
                         current_user=current_user,
                         save_history=save_history,
@@ -486,17 +484,17 @@ async def deploy_namespace(
                     results += 1
                 return results
 
-            link_tasks.append(deploy_links_for_node(node_yaml=node_yaml))
+            link_tasks.append(deploy_links_for_node(node_spec=node_spec))
 
     deployed_links = await asyncio.gather(*link_tasks)
 
     # deploy cubes
-    cubes = [node for node in deployment.nodes if isinstance(node, CubeYAML)]
+    cubes = [node for node in deployment.nodes if isinstance(node, CubeSpec)]
     cube_tasks = []
-    for cube_yaml in cubes:
+    for cube_spec in cubes:
         cube_tasks.append(
-            deploy_node_from_yaml(
-                node_yaml=cube_yaml,
+            deploy_node_from_spec(
+                node_spec=cube_spec,
                 current_user=current_user,
                 request=request,
                 query_service_client=query_service_client,

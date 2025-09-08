@@ -13,9 +13,9 @@ from datajunction_server.models.node import (
 from datajunction_server.utils import SEPARATOR
 
 
-class TagYAML(BaseModel):
+class TagSpec(BaseModel):
     """
-    YAML representation of a tag
+    Specification for a tag
     """
 
     name: str
@@ -24,7 +24,7 @@ class TagYAML(BaseModel):
     tag_metadata: dict | None = None
 
 
-class ColumnYAML(BaseModel):
+class ColumnSpec(BaseModel):
     """
     Represents a column
     """
@@ -36,9 +36,9 @@ class ColumnYAML(BaseModel):
     attributes: list[str] = Field(default_factory=list)
 
 
-class DimensionLinkYAML(BaseModel):
+class DimensionLinkSpec(BaseModel):
     """
-    YAML representation of a dimension link
+    Specification for a dimension link
     """
 
     type: LinkType
@@ -46,9 +46,9 @@ class DimensionLinkYAML(BaseModel):
     namespace: str | None = Field(default=None, exclude=True)
 
 
-class DimensionJoinLinkYAML(DimensionLinkYAML):
+class DimensionJoinLinkSpec(DimensionLinkSpec):
     """
-    YAML representation of a dimension join link
+    Specification for a dimension join link
 
     If a custom `join_on` clause is not specified, DJ will automatically set
     this clause to be on the selected column and the dimension node's primary key
@@ -78,9 +78,9 @@ class DimensionJoinLinkYAML(DimensionLinkYAML):
         )
 
 
-class DimensionReferenceLinkYAML(DimensionLinkYAML):
+class DimensionReferenceLinkSpec(DimensionLinkSpec):
     """
-    YAML representation of a dimension reference link
+    Specification for a dimension reference link
 
     The `dimension` input should be a fully qualified dimension attribute name,
     e.g., "<dimension_node>.<column>"
@@ -114,9 +114,10 @@ def render_prefixes(parameterized_string: str, prefix: str | None = None) -> str
     )
 
 
-class NodeYAML(BaseModel):
+class NodeSpec(BaseModel):
     """
-    YAML represention of a node
+    Specification of a node as declared in a deployment.
+    The name is relative and will be hydrated with the deployment namespace.
     """
 
     name: str
@@ -147,14 +148,14 @@ class NodeYAML(BaseModel):
         return None
 
 
-class LinkableNodeYAML(NodeYAML):
+class LinkableNodeSpec(NodeSpec):
     """
-    YAML represention of a node type that can be linked to dimension nodes:
-    source, transform, dimension
+    Specification for a node type that can be linked to dimension nodes:
+    e.g., source, transform, dimension
     """
 
-    columns: list[ColumnYAML] | None = None
-    dimension_links: list[DimensionJoinLinkYAML | DimensionReferenceLinkYAML] | None = (
+    columns: list[ColumnSpec] | None = None
+    dimension_links: list[DimensionJoinLinkSpec | DimensionReferenceLinkSpec] | None = (
         None
     )
     primary_key: list[str] = Field(default_factory=list)
@@ -164,8 +165,8 @@ class LinkableNodeYAML(NodeYAML):
         if isinstance(value, dict):
             link_type = value.get("type")
             mapping = {
-                "join": DimensionJoinLinkYAML,
-                "reference": DimensionReferenceLinkYAML,
+                "join": DimensionJoinLinkSpec,
+                "reference": DimensionReferenceLinkSpec,
             }
             if link_type not in mapping:
                 raise ValueError(f"Unknown node_type: {link_type}")
@@ -174,9 +175,9 @@ class LinkableNodeYAML(NodeYAML):
         return value
 
 
-class SourceYAML(LinkableNodeYAML):
+class SourceSpec(LinkableNodeSpec):
     """
-    YAML representation of a source node
+    Specification for a source node
     """
 
     node_type: Literal[NodeType.SOURCE] = NodeType.SOURCE
@@ -196,27 +197,27 @@ class SourceYAML(LinkableNodeYAML):
             )
 
 
-class TransformYAML(LinkableNodeYAML):
+class TransformSpec(LinkableNodeSpec):
     """
-    YAML representation of a transform node
+    Specification for a transform node
     """
 
     node_type: Literal[NodeType.TRANSFORM] = NodeType.TRANSFORM
     query: str
 
 
-class DimensionYAML(LinkableNodeYAML):
+class DimensionSpec(LinkableNodeSpec):
     """
-    YAML representation of a dimension node
+    Specification for a dimension node
     """
 
     node_type: Literal[NodeType.DIMENSION] = NodeType.DIMENSION
     query: str
 
 
-class MetricYAML(NodeYAML):
+class MetricSpec(NodeSpec):
     """
-    YAML representation of a metric node
+    Specification for a metric node
     """
 
     node_type: Literal[NodeType.METRIC] = NodeType.METRIC
@@ -229,9 +230,9 @@ class MetricYAML(NodeYAML):
     max_decimal_exponent: int | None
 
 
-class CubeYAML(NodeYAML):
+class CubeSpec(NodeSpec):
     """
-    YAML representation of a cube node
+    Specification for a cube node
     """
 
     node_type: Literal[NodeType.CUBE] = NodeType.CUBE
@@ -255,34 +256,34 @@ class CubeYAML(NodeYAML):
 
 
 NodeUnion = Union[
-    SourceYAML,
-    TransformYAML,
-    DimensionYAML,
-    MetricYAML,
-    CubeYAML,
+    SourceSpec,
+    TransformSpec,
+    DimensionSpec,
+    MetricSpec,
+    CubeSpec,
 ]
 
 
-class DeploymentYAML(BaseModel):
+class DeploymentSpec(BaseModel):
     """
-    YAML representation of a deployment
+    Specification of a full deployment (namespace, nodes, tags, and add'l metadata).
+    Typically hydrated from a project manifest (YAML/JSON/etc).
     """
 
     namespace: str
-    service_account: str | None = None
     nodes: list[NodeUnion] = Field(default_factory=list)
-    tags: list[TagYAML] = Field(default_factory=list)
+    tags: list[TagSpec] = Field(default_factory=list)
 
     @validator("nodes", pre=True, each_item=True)
     def coerce_nodes(cls, value, values):
         if isinstance(value, dict):
             node_type = value.get("node_type")
             mapping = {
-                "source": SourceYAML,
-                "transform": TransformYAML,
-                "dimension": DimensionYAML,
-                "metric": MetricYAML,
-                "cube": CubeYAML,
+                "source": SourceSpec,
+                "transform": TransformSpec,
+                "dimension": DimensionSpec,
+                "metric": MetricSpec,
+                "cube": CubeSpec,
             }
             if node_type not in mapping:
                 raise ValueError(f"Unknown node_type: {node_type}")

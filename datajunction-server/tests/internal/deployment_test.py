@@ -1,15 +1,18 @@
 import random
-from datajunction_server.internal.yaml import extract_node_graph, topological_levels
-from datajunction_server.models.yaml import (
-    ColumnYAML,
-    DeploymentYAML,
-    NodeYAML,
-    TransformYAML,
-    SourceYAML,
-    MetricYAML,
-    DimensionYAML,
-    CubeYAML,
-    DimensionJoinLinkYAML,
+from datajunction_server.internal.deployment import (
+    extract_node_graph,
+    topological_levels,
+)
+from datajunction_server.models.deployment import (
+    ColumnSpec,
+    DeploymentSpec,
+    NodeSpec,
+    TransformSpec,
+    SourceSpec,
+    MetricSpec,
+    DimensionSpec,
+    CubeSpec,
+    DimensionJoinLinkSpec,
 )
 from datajunction_server.models.node import NodeType
 import pytest
@@ -20,28 +23,28 @@ def basic_nodes():
     """
     A basic set of nodes for testing
     """
-    transform_node = TransformYAML(
+    transform_node = TransformSpec(
         name="example.transform_node",
         node_type=NodeType.TRANSFORM,
         query="SELECT id, name FROM catalog.facts.clicks",
     )
-    source_node = SourceYAML(
+    source_node = SourceSpec(
         name="catalog.facts.clicks",
         node_type=NodeType.SOURCE,
         table="catalog.facts.clicks",
     )
-    metric_node = MetricYAML(
+    metric_node = MetricSpec(
         name="example.metric_node",
         node_type=NodeType.METRIC,
         query="SELECT SUM(value) FROM example.transform_node",
     )
-    dimension_node = DimensionYAML(
+    dimension_node = DimensionSpec(
         name="example.dimension_node",
         node_type=NodeType.DIMENSION,
         query="SELECT id, category FROM catalog.dim.categories",
         primary_key=["id"],
     )
-    cube_node = CubeYAML(
+    cube_node = CubeSpec(
         name="example.cube_node",
         node_type=NodeType.CUBE,
         metrics=["example.metric_node"],
@@ -84,29 +87,29 @@ def test_topological_levels(basic_nodes):
 
 def test_graph_complex():
     # Base source nodes
-    clicks = SourceYAML(
+    clicks = SourceSpec(
         name="catalog.facts.clicks",
         node_type=NodeType.SOURCE,
         table="catalog.facts.clicks",
     )
-    users = SourceYAML(
+    users = SourceSpec(
         name="catalog.dim.users",
         node_type=NodeType.SOURCE,
         table="catalog.dim.users",
     )
 
     # Transform nodes
-    transform_clicks = TransformYAML(
+    transform_clicks = TransformSpec(
         name="example.transform_clicks",
         node_type=NodeType.TRANSFORM,
         query="SELECT id, user_id FROM catalog.facts.clicks",
     )
-    transform_users = TransformYAML(
+    transform_users = TransformSpec(
         name="example.transform_users",
         node_type=NodeType.TRANSFORM,
         query="SELECT id, country FROM catalog.dim.users",
     )
-    combined_transform = TransformYAML(
+    combined_transform = TransformSpec(
         name="example.combined_transform",
         node_type=NodeType.TRANSFORM,
         query="""
@@ -117,12 +120,12 @@ def test_graph_complex():
     )
 
     # Metric nodes
-    metric_total = MetricYAML(
+    metric_total = MetricSpec(
         name="example.metric_total",
         node_type=NodeType.METRIC,
         query="SELECT SUM(amount) FROM example.combined_transform",
     )
-    metric_per_country = MetricYAML(
+    metric_per_country = MetricSpec(
         name="example.metric_per_country",
         node_type=NodeType.METRIC,
         query="SELECT country, SUM(amount) FROM example.combined_transform GROUP BY country",
@@ -177,7 +180,7 @@ def generate_random_dag(num_nodes: int = 10, max_deps: int = 3):
     """
     Generate a random DAG of nodes for testing extract_node_graph.
     """
-    nodes: list[NodeYAML] = []
+    nodes: list[NodeSpec] = []
 
     for i in range(num_nodes):
         node_type = random.choice(
@@ -190,7 +193,7 @@ def generate_random_dag(num_nodes: int = 10, max_deps: int = 3):
         deps = random.sample(possible_deps, num_deps) if possible_deps else []
 
         if node_type == NodeType.SOURCE:
-            nodes.append(SourceYAML(name=name, node_type=node_type, table=f"table_{i}"))
+            nodes.append(SourceSpec(name=name, node_type=node_type, table=f"table_{i}"))
         else:
             # build query referencing dependencies (simplified)
             if deps:
@@ -202,12 +205,12 @@ def generate_random_dag(num_nodes: int = 10, max_deps: int = 3):
             else:
                 query = "SELECT 1 AS dummy"  # no dependencies
             if node_type == NodeType.TRANSFORM:
-                nodes.append(TransformYAML(name=name, node_type=node_type, query=query))
+                nodes.append(TransformSpec(name=name, node_type=node_type, query=query))
             elif node_type == NodeType.METRIC:
-                nodes.append(MetricYAML(name=name, node_type=node_type, query=query))
+                nodes.append(MetricSpec(name=name, node_type=node_type, query=query))
             elif node_type == NodeType.DIMENSION:
                 nodes.append(
-                    DimensionYAML(
+                    DimensionSpec(
                         name=name,
                         node_type=node_type,
                         query=query,
@@ -236,7 +239,7 @@ def test_random_dag():
 async def test_deploy_failed_on_non_existent_deps(module__client, basic_nodes):
     response = await module__client.post(
         "/namespaces/random_namespace/deploy",
-        json=DeploymentYAML(nodes=basic_nodes).dict(),
+        json=DeploymentSpec(nodes=basic_nodes).dict(),
     )
     assert (
         response.json()["message"]
@@ -250,14 +253,14 @@ async def test_deploy_succeeds_with_existing_deps(module__client, basic_nodes):
     source_node = [n for n in basic_nodes if n.node_type == NodeType.SOURCE][0]
     response = await module__client.post(
         "/namespaces/catalog/deploy",
-        json=DeploymentYAML(nodes=[source_node]).dict(),
+        json=DeploymentSpec(nodes=[source_node]).dict(),
     )
     assert response.status_code == 200, response.text
 
     # Now deploy all nodes together
     response = await module__client.post(
         "/namespaces/example/deploy",
-        json=DeploymentYAML(nodes=basic_nodes).dict(),
+        json=DeploymentSpec(nodes=basic_nodes).dict(),
     )
     assert response.status_code == 200, response.text
     data = response.json()
@@ -268,13 +271,13 @@ async def test_deploy_succeeds_with_existing_deps(module__client, basic_nodes):
 
 def node_class_for_path(path: str):
     if path.startswith("/nodes/source/"):
-        return SourceYAML
+        return SourceSpec
     elif path.startswith("/nodes/dimension/"):
-        return DimensionYAML
+        return DimensionSpec
     elif path.startswith("/nodes/transform/"):
-        return TransformYAML
+        return TransformSpec
     elif path.startswith("/nodes/metric/"):
-        return MetricYAML
+        return MetricSpec
     elif "/link" in path:
         return "link"
     else:
@@ -282,53 +285,53 @@ def node_class_for_path(path: str):
 
 
 def to_columns(columns_list):
-    return [ColumnYAML(name=c["name"], type=c["type"]) for c in columns_list]
+    return [ColumnSpec(name=c["name"], type=c["type"]) for c in columns_list]
 
 
 @pytest.fixture(scope="module")
 def default_repair_orders():
-    return SourceYAML(
+    return SourceSpec(
         name="default.repair_orders",
         description="""All repair orders""",
         table="default.roads.repair_orders",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="repair_order_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="municipality_id",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="hard_hat_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="order_date",
                 type="timestamp",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="required_date",
                 type="timestamp",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="dispatched_date",
                 type="timestamp",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="dispatcher_id",
                 type="int",
                 display_name=None,
@@ -336,12 +339,12 @@ def default_repair_orders():
             ),
         ],
         dimension_links=[
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.repair_order",
                 join_type="inner",
                 join_on="${prefix}default.repair_orders.repair_order_id = ${prefix}default.repair_order.repair_order_id",
             ),
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.dispatcher",
                 join_type="inner",
                 join_on="${prefix}default.repair_orders.dispatcher_id = ${prefix}default.dispatcher.dispatcher_id",
@@ -352,49 +355,49 @@ def default_repair_orders():
 
 @pytest.fixture(scope="module")
 def default_repair_orders_view():
-    return SourceYAML(
+    return SourceSpec(
         name="default.repair_orders_view",
         description="""All repair orders (view)""",
         query="""CREATE OR REPLACE VIEW roads.repair_orders_view AS SELECT * FROM roads.repair_orders""",
         table="default.roads.repair_orders_view",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="repair_order_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="municipality_id",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="hard_hat_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="order_date",
                 type="timestamp",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="required_date",
                 type="timestamp",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="dispatched_date",
                 type="timestamp",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="dispatcher_id",
                 type="int",
                 display_name=None,
@@ -407,36 +410,36 @@ def default_repair_orders_view():
 
 @pytest.fixture(scope="module")
 def default_repair_order_details():
-    return SourceYAML(
+    return SourceSpec(
         name="default.repair_order_details",
         description="""Details on repair orders""",
         table="default.roads.repair_order_details",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="repair_order_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="repair_type_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="price",
                 type="float",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="quantity",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="discount",
                 type="float",
                 display_name=None,
@@ -444,12 +447,12 @@ def default_repair_order_details():
             ),
         ],
         dimension_links=[
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.repair_order",
                 join_type="inner",
                 join_on="${prefix}default.repair_order_details.repair_order_id = ${prefix}default.repair_order.repair_order_id",
             ),
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.repair_order",
                 join_type="inner",
                 join_on="${prefix}default.repair_order_details.repair_order_id = ${prefix}default.repair_order.repair_order_id",
@@ -460,24 +463,24 @@ def default_repair_order_details():
 
 @pytest.fixture(scope="module")
 def default_repair_type():
-    return SourceYAML(
+    return SourceSpec(
         name="default.repair_type",
         description="""Information on types of repairs""",
         table="default.roads.repair_type",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="repair_type_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="repair_type_name",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="contractor_id",
                 type="int",
                 display_name=None,
@@ -485,7 +488,7 @@ def default_repair_type():
             ),
         ],
         dimension_links=[
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.contractor",
                 join_type="inner",
                 join_on="${prefix}default.repair_type.contractor_id = ${prefix}default.contractor.contractor_id",
@@ -496,66 +499,66 @@ def default_repair_type():
 
 @pytest.fixture(scope="module")
 def default_contractors():
-    return SourceYAML(
+    return SourceSpec(
         name="default.contractors",
         description="""Information on contractors""",
         table="default.roads.contractors",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="contractor_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="company_name",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="contact_name",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="contact_title",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="address",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="city",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="state",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="postal_code",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="country",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="phone",
                 type="string",
                 display_name=None,
@@ -563,7 +566,7 @@ def default_contractors():
             ),
         ],
         dimension_links=[
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.us_state",
                 join_type="inner",
                 join_on="${prefix}default.contractors.state = ${prefix}default.us_state.state_short",
@@ -574,18 +577,18 @@ def default_contractors():
 
 @pytest.fixture(scope="module")
 def default_municipality_municipality_type():
-    return SourceYAML(
+    return SourceSpec(
         name="default.municipality_municipality_type",
         description="""Lookup table for municipality and municipality types""",
         table="default.roads.municipality_municipality_type",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="municipality_id",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="municipality_type_id",
                 type="string",
                 display_name=None,
@@ -598,18 +601,18 @@ def default_municipality_municipality_type():
 
 @pytest.fixture(scope="module")
 def default_municipality_type():
-    return SourceYAML(
+    return SourceSpec(
         name="default.municipality_type",
         description="""Information on municipality types""",
         table="default.roads.municipality_type",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="municipality_type_id",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="municipality_type_desc",
                 type="string",
                 display_name=None,
@@ -622,42 +625,42 @@ def default_municipality_type():
 
 @pytest.fixture(scope="module")
 def default_municipality():
-    return SourceYAML(
+    return SourceSpec(
         name="default.municipality",
         description="""Information on municipalities""",
         table="default.roads.municipality",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="municipality_id",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="contact_name",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="contact_title",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="local_region",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="phone",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="state_id",
                 type="int",
                 display_name=None,
@@ -670,24 +673,24 @@ def default_municipality():
 
 @pytest.fixture(scope="module")
 def default_dispatchers():
-    return SourceYAML(
+    return SourceSpec(
         name="default.dispatchers",
         description="""Information on dispatchers""",
         table="default.roads.dispatchers",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="dispatcher_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="company_name",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="phone",
                 type="string",
                 display_name=None,
@@ -700,84 +703,84 @@ def default_dispatchers():
 
 @pytest.fixture(scope="module")
 def default_hard_hats():
-    return SourceYAML(
+    return SourceSpec(
         name="default.hard_hats",
         description="""Information on employees""",
         table="default.roads.hard_hats",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="hard_hat_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="last_name",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="first_name",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="title",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="birth_date",
                 type="timestamp",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="hire_date",
                 type="timestamp",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="address",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="city",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="state",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="postal_code",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="country",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="manager",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="contractor_id",
                 type="int",
                 display_name=None,
@@ -790,18 +793,18 @@ def default_hard_hats():
 
 @pytest.fixture(scope="module")
 def default_hard_hat_state():
-    return SourceYAML(
+    return SourceSpec(
         name="default.hard_hat_state",
         description="""Lookup table for employee's current state""",
         table="default.roads.hard_hat_state",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="hard_hat_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="state_id",
                 type="string",
                 display_name=None,
@@ -814,30 +817,30 @@ def default_hard_hat_state():
 
 @pytest.fixture(scope="module")
 def default_us_states():
-    return SourceYAML(
+    return SourceSpec(
         name="default.us_states",
         description="""Information on different types of repairs""",
         table="default.roads.us_states",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="state_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="state_name",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="state_abbr",
                 type="string",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="state_region",
                 type="int",
                 display_name=None,
@@ -850,18 +853,18 @@ def default_us_states():
 
 @pytest.fixture(scope="module")
 def default_us_region():
-    return SourceYAML(
+    return SourceSpec(
         name="default.us_region",
         description="""Information on US regions""",
         table="default.roads.us_region",
         columns=[
-            ColumnYAML(
+            ColumnSpec(
                 name="us_region_id",
                 type="int",
                 display_name=None,
                 description=None,
             ),
-            ColumnYAML(
+            ColumnSpec(
                 name="us_region_description",
                 type="string",
                 display_name=None,
@@ -874,7 +877,7 @@ def default_us_region():
 
 @pytest.fixture(scope="module")
 def default_repair_order():
-    return DimensionYAML(
+    return DimensionSpec(
         name="default.repair_order",
         description="""Repair order dimension""",
         query="""
@@ -890,17 +893,17 @@ def default_repair_order():
                     """,
         primary_key=["repair_order_id"],
         dimension_links=[
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.dispatcher",
                 join_type="inner",
                 join_on="${prefix}default.repair_order.dispatcher_id = ${prefix}default.dispatcher.dispatcher_id",
             ),
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.municipality_dim",
                 join_type="inner",
                 join_on="${prefix}default.repair_order.municipality_id = ${prefix}default.municipality_dim.municipality_id",
             ),
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.hard_hat",
                 join_type="inner",
                 join_on="${prefix}default.repair_order.hard_hat_id = ${prefix}default.hard_hat.hard_hat_id",
@@ -911,7 +914,7 @@ def default_repair_order():
 
 @pytest.fixture(scope="module")
 def default_contractor():
-    return DimensionYAML(
+    return DimensionSpec(
         name="default.contractor",
         description="""Contractor dimension""",
         query="""
@@ -935,7 +938,7 @@ def default_contractor():
 
 @pytest.fixture(scope="module")
 def default_hard_hat():
-    return DimensionYAML(
+    return DimensionSpec(
         name="default.hard_hat",
         description="""Hard hat dimension""",
         query="""
@@ -957,7 +960,7 @@ def default_hard_hat():
                     """,
         primary_key=["hard_hat_id"],
         dimension_links=[
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.us_state",
                 join_type="inner",
                 join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
@@ -968,7 +971,7 @@ def default_hard_hat():
 
 @pytest.fixture(scope="module")
 def default_us_state():
-    return DimensionYAML(
+    return DimensionSpec(
         name="default.us_state",
         description="""US state dimension""",
         query="""
@@ -986,7 +989,7 @@ def default_us_state():
 
 @pytest.fixture(scope="module")
 def default_dispatcher():
-    return DimensionYAML(
+    return DimensionSpec(
         name="default.dispatcher",
         description="""Dispatcher dimension""",
         query="""
@@ -1003,7 +1006,7 @@ def default_dispatcher():
 
 @pytest.fixture(scope="module")
 def default_municipality_dim():
-    return DimensionYAML(
+    return DimensionSpec(
         name="default.municipality_dim",
         description="""Municipality dimension""",
         query="""
@@ -1028,7 +1031,7 @@ def default_municipality_dim():
 
 @pytest.fixture(scope="module")
 def default_regional_level_agg():
-    return TransformYAML(
+    return TransformSpec(
         name="default.regional_level_agg",
         description="""Regional-level aggregates""",
         query="""
@@ -1090,7 +1093,7 @@ GROUP BY
 
 @pytest.fixture(scope="module")
 def default_national_level_agg():
-    return TransformYAML(
+    return TransformSpec(
         name="default.national_level_agg",
         description="""National level aggregates""",
         query="""SELECT SUM(rd.price * rd.quantity) AS total_amount_nationwide FROM ${prefix}default.repair_order_details rd""",
@@ -1100,7 +1103,7 @@ def default_national_level_agg():
 
 @pytest.fixture(scope="module")
 def default_repair_orders_fact():
-    return TransformYAML(
+    return TransformSpec(
         name="default.repair_orders_fact",
         description="""Fact transform with all details on repair orders""",
         query="""SELECT
@@ -1124,17 +1127,17 @@ JOIN
   ${prefix}default.repair_order_details repair_order_details
 ON repair_orders.repair_order_id = repair_order_details.repair_order_id""",
         dimension_links=[
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.municipality_dim",
                 join_type="inner",
                 join_on="${prefix}default.repair_orders_fact.municipality_id = ${prefix}default.municipality_dim.municipality_id",
             ),
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.hard_hat",
                 join_type="inner",
                 join_on="${prefix}default.repair_orders_fact.hard_hat_id = ${prefix}default.hard_hat.hard_hat_id",
             ),
-            DimensionJoinLinkYAML(
+            DimensionJoinLinkSpec(
                 dimension_node="${prefix}default.dispatcher",
                 join_type="inner",
                 join_on="${prefix}default.repair_orders_fact.dispatcher_id = ${prefix}default.dispatcher.dispatcher_id",
@@ -1145,7 +1148,7 @@ ON repair_orders.repair_order_id = repair_order_details.repair_order_id""",
 
 @pytest.fixture(scope="module")
 def default_regional_repair_efficiency():
-    return MetricYAML(
+    return MetricSpec(
         name="default.regional_repair_efficiency",
         description="""For each US region (as defined in the us_region table), we want to calculate:
             Regional Repair Efficiency = (Number of Completed Repairs / Total Repairs Dispatched) ×
@@ -1167,7 +1170,7 @@ CROSS JOIN
 
 @pytest.fixture(scope="module")
 def default_num_repair_orders():
-    return MetricYAML(
+    return MetricSpec(
         name="default.num_repair_orders",
         description="""Number of repair orders""",
         query="""SELECT count(repair_order_id) FROM ${prefix}default.repair_orders_fact""",
@@ -1177,7 +1180,7 @@ def default_num_repair_orders():
 
 @pytest.fixture(scope="module")
 def default_avg_repair_price():
-    return MetricYAML(
+    return MetricSpec(
         name="default.avg_repair_price",
         description="""Average repair price""",
         query="""SELECT avg(repair_orders_fact.price) FROM ${prefix}default.repair_orders_fact repair_orders_fact""",
@@ -1187,7 +1190,7 @@ def default_avg_repair_price():
 
 @pytest.fixture(scope="module")
 def default_total_repair_cost():
-    return MetricYAML(
+    return MetricSpec(
         name="default.total_repair_cost",
         description="""Total repair cost""",
         query="""SELECT sum(total_repair_cost) FROM ${prefix}default.repair_orders_fact""",
@@ -1197,7 +1200,7 @@ def default_total_repair_cost():
 
 @pytest.fixture(scope="module")
 def default_avg_length_of_employment():
-    return MetricYAML(
+    return MetricSpec(
         name="default.avg_length_of_employment",
         description="""Average length of employment""",
         query="""SELECT avg(CAST(NOW() AS DATE) - hire_date) FROM ${prefix}default.hard_hat""",
@@ -1207,7 +1210,7 @@ def default_avg_length_of_employment():
 
 @pytest.fixture(scope="module")
 def default_discounted_orders_rate():
-    return MetricYAML(
+    return MetricSpec(
         name="default.discounted_orders_rate",
         description="""Proportion of Discounted Orders""",
         query="""
@@ -1222,7 +1225,7 @@ def default_discounted_orders_rate():
 
 @pytest.fixture(scope="module")
 def default_total_repair_order_discounts():
-    return MetricYAML(
+    return MetricSpec(
         name="default.total_repair_order_discounts",
         description="""Total repair order discounts""",
         query="""SELECT sum(price * discount) FROM ${prefix}default.repair_orders_fact""",
@@ -1232,7 +1235,7 @@ def default_total_repair_order_discounts():
 
 @pytest.fixture(scope="module")
 def default_avg_repair_order_discounts():
-    return MetricYAML(
+    return MetricSpec(
         name="default.avg_repair_order_discounts",
         description="""Average repair order discounts""",
         query="""SELECT avg(price * discount) FROM ${prefix}default.repair_orders_fact""",
@@ -1242,7 +1245,7 @@ def default_avg_repair_order_discounts():
 
 @pytest.fixture(scope="module")
 def default_avg_time_to_dispatch():
-    return MetricYAML(
+    return MetricSpec(
         name="default.avg_time_to_dispatch",
         description="""Average time to dispatch a repair order""",
         query="""SELECT avg(cast(repair_orders_fact.time_to_dispatch as int)) FROM ${prefix}default.repair_orders_fact repair_orders_fact""",
@@ -1252,7 +1255,7 @@ def default_avg_time_to_dispatch():
 
 @pytest.fixture(scope="module")
 def default_repairs_cube():
-    return CubeYAML(
+    return CubeSpec(
         name="default.repairs_cube",
         display_name="Repairs Cube",
         description="""Cube for analyzing repair orders""",
@@ -1343,7 +1346,7 @@ def roads_nodes(
 async def test_roads_deployment(module__client, roads_nodes):
     response = await module__client.post(
         "/namespaces/base/deploy",
-        json=DeploymentYAML(namespace="base", nodes=roads_nodes).dict(),
+        json=DeploymentSpec(namespace="base", nodes=roads_nodes).dict(),
     )
     assert response.json() == {
         "links": 13,
