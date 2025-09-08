@@ -2,6 +2,7 @@
 Helper methods for namespaces endpoints.
 """
 
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -31,6 +32,8 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import topological_sort
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
+
+logger = logging.getLogger(__name__)
 
 # A list of namespace names that cannot be used because they are
 # part of a list of reserved SQL keywords
@@ -204,6 +207,9 @@ async def create_namespace(
     """
     Creates a namespace entry in the database table.
     """
+    logger.info("Creating namespace `%s` and any parent namespaces", namespace)
+
+    validate_namespace(namespace)
     parents = (
         get_parent_namespaces(namespace) + [namespace]
         if include_parents
@@ -215,6 +221,7 @@ async def create_namespace(
             namespace=parent_namespace,
             raise_if_not_exists=False,
         ):
+            logger.info("Created namespace `%s`", parent_namespace)
             node_namespace = NodeNamespace(namespace=parent_namespace)
             session.add(node_namespace)
             await save_history(
