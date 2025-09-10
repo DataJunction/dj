@@ -14,7 +14,14 @@ from datajunction_server.models.deployment import (
     CubeSpec,
     DimensionJoinLinkSpec,
 )
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.dimensionlink import JoinType
+from datajunction_server.database.node import Node
+from datajunction_server.models.node import (
+    MetricDirection,
+    MetricUnit,
+    NodeMode,
+    NodeType,
+)
 import pytest
 
 
@@ -350,6 +357,7 @@ def default_repair_orders():
                 join_on="${prefix}default.repair_orders.dispatcher_id = ${prefix}default.dispatcher.dispatcher_id",
             ),
         ],
+        owners=["dj"],
     )
 
 
@@ -405,6 +413,7 @@ def default_repair_orders_view():
             ),
         ],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -458,6 +467,7 @@ def default_repair_order_details():
                 join_on="${prefix}default.repair_order_details.repair_order_id = ${prefix}default.repair_order.repair_order_id",
             ),
         ],
+        owners=["dj"],
     )
 
 
@@ -494,6 +504,7 @@ def default_repair_type():
                 join_on="${prefix}default.repair_type.contractor_id = ${prefix}default.contractor.contractor_id",
             ),
         ],
+        owners=["dj"],
     )
 
 
@@ -572,6 +583,7 @@ def default_contractors():
                 join_on="${prefix}default.contractors.state = ${prefix}default.us_state.state_short",
             ),
         ],
+        owners=["dj"],
     )
 
 
@@ -596,6 +608,7 @@ def default_municipality_municipality_type():
             ),
         ],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -620,6 +633,7 @@ def default_municipality_type():
             ),
         ],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -668,6 +682,7 @@ def default_municipality():
             ),
         ],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -698,6 +713,7 @@ def default_dispatchers():
             ),
         ],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -788,6 +804,7 @@ def default_hard_hats():
             ),
         ],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -812,6 +829,7 @@ def default_hard_hat_state():
             ),
         ],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -848,6 +866,7 @@ def default_us_states():
             ),
         ],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -872,6 +891,7 @@ def default_us_region():
             ),
         ],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -909,6 +929,7 @@ def default_repair_order():
                 join_on="${prefix}default.repair_order.hard_hat_id = ${prefix}default.hard_hat.hard_hat_id",
             ),
         ],
+        owners=["dj"],
     )
 
 
@@ -933,6 +954,7 @@ def default_contractor():
                     """,
         primary_key=["contractor_id"],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -966,6 +988,7 @@ def default_hard_hat():
                 join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
             ),
         ],
+        owners=["dj"],
     )
 
 
@@ -984,6 +1007,7 @@ def default_us_state():
                     """,
         primary_key=["state_short"],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1001,6 +1025,7 @@ def default_dispatcher():
                     """,
         primary_key=["dispatcher_id"],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1026,6 +1051,7 @@ def default_municipality_dim():
                     """,
         primary_key=["municipality_id"],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1088,6 +1114,7 @@ GROUP BY
             "order_day",
         ],
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1098,6 +1125,7 @@ def default_national_level_agg():
         description="""National level aggregates""",
         query="""SELECT SUM(rd.price * rd.quantity) AS total_amount_nationwide FROM ${prefix}default.repair_order_details rd""",
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1143,6 +1171,7 @@ ON repair_orders.repair_order_id = repair_order_details.repair_order_id""",
                 join_on="${prefix}default.repair_orders_fact.dispatcher_id = ${prefix}default.dispatcher.dispatcher_id",
             ),
         ],
+        owners=["dj"],
     )
 
 
@@ -1165,6 +1194,7 @@ FROM
 CROSS JOIN
     ${prefix}default.national_level_agg na""",
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1175,6 +1205,7 @@ def default_num_repair_orders():
         description="""Number of repair orders""",
         query="""SELECT count(repair_order_id) FROM ${prefix}default.repair_orders_fact""",
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1185,6 +1216,7 @@ def default_avg_repair_price():
         description="""Average repair price""",
         query="""SELECT avg(repair_orders_fact.price) FROM ${prefix}default.repair_orders_fact repair_orders_fact""",
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1195,6 +1227,7 @@ def default_total_repair_cost():
         description="""Total repair cost""",
         query="""SELECT sum(total_repair_cost) FROM ${prefix}default.repair_orders_fact""",
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1205,6 +1238,7 @@ def default_avg_length_of_employment():
         description="""Average length of employment""",
         query="""SELECT avg(CAST(NOW() AS DATE) - hire_date) FROM ${prefix}default.hard_hat""",
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1220,6 +1254,7 @@ def default_discounted_orders_rate():
                 FROM ${prefix}default.repair_orders_fact
                 """,
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1230,6 +1265,7 @@ def default_total_repair_order_discounts():
         description="""Total repair order discounts""",
         query="""SELECT sum(price * discount) FROM ${prefix}default.repair_orders_fact""",
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1240,6 +1276,7 @@ def default_avg_repair_order_discounts():
         description="""Average repair order discounts""",
         query="""SELECT avg(price * discount) FROM ${prefix}default.repair_orders_fact""",
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1250,6 +1287,7 @@ def default_avg_time_to_dispatch():
         description="""Average time to dispatch a repair order""",
         query="""SELECT avg(cast(repair_orders_fact.time_to_dispatch as int)) FROM ${prefix}default.repair_orders_fact repair_orders_fact""",
         dimension_links=[],
+        owners=["dj"],
     )
 
 
@@ -1269,6 +1307,7 @@ def default_repairs_cube():
             "${prefix}default.avg_repair_price",
             "${prefix}default.total_repair_cost",
         ],
+        owners=["dj"],
     )
 
 
@@ -1485,3 +1524,151 @@ async def test_roads_deployment(module__client, roads_nodes):
     response = await module__client.get("/nodes?namespace=base")
     data = response.json()
     assert len(data) == len(roads_nodes)
+
+    response = await module__client.post(
+        "/namespaces/base/deploy",
+        json=DeploymentSpec(namespace="base", nodes=roads_nodes).dict(),
+    )
+    assert response.json() == {
+        "links": 0,
+        "namespace": "base",
+        "nodes": [],
+    }
+
+
+async def test_node_to_spec_source(module__session, module__client_with_roads):
+    """
+    Test that a source node can be converted to a spec correctly
+    """
+    repair_orders = await Node.get_by_name(
+        module__session,
+        "default.repair_orders",
+    )
+    repair_orders_spec = await repair_orders.to_spec(module__session)
+    assert repair_orders_spec == SourceSpec(
+        name="default.repair_orders",
+        node_type=NodeType.SOURCE,
+        owners=["dj"],
+        display_name="default.roads.repair_orders",
+        description="All repair orders",
+        tags=[],
+        mode=NodeMode.PUBLISHED,
+        custom_metadata={},
+        columns=None,  # TODO: this is wrong, should be populated
+        dimension_links=[
+            DimensionJoinLinkSpec(
+                dimension_node="default.repair_order",
+                join_type=JoinType.INNER,
+                join_on="default.repair_orders.repair_order_id = default.repair_order.repair_order_id",
+            ),
+            DimensionJoinLinkSpec(
+                dimension_node="default.dispatcher",
+                join_type=JoinType.INNER,
+                join_on="default.repair_orders.dispatcher_id = default.dispatcher.dispatcher_id",
+            ),
+        ],
+        primary_key=[],
+        table="default.roads.repair_orders",
+    )
+
+
+async def test_node_to_spec_transform(module__session, module__client_with_roads):
+    """
+    Test that a transform node can be converted to a spec correctly
+    """
+    repair_orders_fact = await Node.get_by_name(
+        module__session,
+        "default.repair_orders_fact",
+    )
+    repair_orders_fact_spec = await repair_orders_fact.to_spec(module__session)
+    assert repair_orders_fact_spec == TransformSpec(
+        name="default.repair_orders_fact",
+        node_type=NodeType.TRANSFORM,
+        owners=["dj"],
+        display_name="Repair Orders Fact",
+        description="Fact transform with all details on repair orders",
+        tags=[],
+        mode=NodeMode.PUBLISHED,
+        custom_metadata={"foo": "bar"},
+        dimension_links=[
+            DimensionJoinLinkSpec(
+                dimension_node="default.municipality_dim",
+                join_type=JoinType.INNER,
+                join_on="default.repair_orders_fact.municipality_id = default.municipality_dim.municipality_id",
+            ),
+            DimensionJoinLinkSpec(
+                dimension_node="default.hard_hat",
+                join_type=JoinType.INNER,
+                join_on="default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id",
+            ),
+            DimensionJoinLinkSpec(
+                dimension_node="default.hard_hat_to_delete",
+                join_type=JoinType.LEFT,
+                join_on="default.repair_orders_fact.hard_hat_id = default.hard_hat_to_delete.hard_hat_id",
+            ),
+            DimensionJoinLinkSpec(
+                dimension_node="default.dispatcher",
+                join_type=JoinType.INNER,
+                join_on="default.repair_orders_fact.dispatcher_id = default.dispatcher.dispatcher_id",
+            ),
+        ],
+        primary_key=[],
+        query="SELECT  repair_orders.repair_order_id,\n\trepair_orders.municipality_id,\n\trepair_orders.hard_hat_id,\n\trepair_orders.dispatcher_id,\n\trepair_orders.order_date,\n\trepair_orders.dispatched_date,\n\trepair_orders.required_date,\n\trepair_order_details.discount,\n\trepair_order_details.price,\n\trepair_order_details.quantity,\n\trepair_order_details.repair_type_id,\n\trepair_order_details.price * repair_order_details.quantity AS total_repair_cost,\n\trepair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,\n\trepair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay \n FROM ${prefix}default.repair_orders repair_orders JOIN ${prefix}default.repair_order_details repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id\n\n",
+    )
+
+
+async def test_node_to_spec_dimension(module__session, module__client_with_roads):
+    """
+    Test that a dimension node can be converted to a spec correctly
+    """
+    hard_hat = await Node.get_by_name(
+        module__session,
+        "default.hard_hat",
+    )
+    hard_hat_spec = await hard_hat.to_spec(module__session)
+    assert hard_hat_spec == DimensionSpec(
+        name="default.hard_hat",
+        node_type=NodeType.DIMENSION,
+        owners=["dj"],
+        display_name="Hard Hat",
+        description="Hard hat dimension",
+        tags=[],
+        mode=NodeMode.PUBLISHED,
+        dimension_links=[
+            DimensionJoinLinkSpec(
+                dimension_node="default.us_state",
+                join_type=JoinType.INNER,
+                join_on="default.hard_hat.state = default.us_state.state_short",
+            ),
+        ],
+        primary_key=["hard_hat_id"],
+        query="SELECT  ${prefix}default.hard_hats.hard_hat_id,\n\t${prefix}default.hard_hats.last_name,\n\t${prefix}default.hard_hats.first_name,\n\t${prefix}default.hard_hats.title,\n\t${prefix}default.hard_hats.birth_date,\n\t${prefix}default.hard_hats.hire_date,\n\t${prefix}default.hard_hats.address,\n\t${prefix}default.hard_hats.city,\n\t${prefix}default.hard_hats.state,\n\t${prefix}default.hard_hats.postal_code,\n\t${prefix}default.hard_hats.country,\n\t${prefix}default.hard_hats.manager,\n\t${prefix}default.hard_hats.contractor_id \n FROM ${prefix}default.hard_hats\n\n",
+    )
+
+
+async def test_node_to_spec_metric(module__session, module__client_with_roads):
+    """
+    Test that a metric node can be converted to a spec correctly
+    """
+    num_repair_orders = await Node.get_by_name(
+        module__session,
+        "default.num_repair_orders",
+    )
+    num_repair_orders_spec = await num_repair_orders.to_spec(module__session)
+    assert num_repair_orders_spec == MetricSpec(
+        name="default.num_repair_orders",
+        node_type=NodeType.METRIC,
+        owners=["dj"],
+        display_name="Num Repair Orders",
+        description="Number of repair orders",
+        tags=[],
+        mode=NodeMode.PUBLISHED,
+        custom_metadata={"foo": "bar"},
+        query="SELECT  count(${prefix}default.repair_orders_fact.repair_order_id) \n FROM ${prefix}default.repair_orders_fact\n\n",
+        required_dimensions=[],
+        direction=MetricDirection.HIGHER_IS_BETTER,
+        unit=MetricUnit.DOLLAR,
+        significant_digits=None,
+        min_decimal_exponent=None,
+        max_decimal_exponent=None,
+    )

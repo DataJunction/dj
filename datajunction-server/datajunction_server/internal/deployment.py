@@ -1,6 +1,7 @@
 import asyncio
+from enum import Enum
 import logging
-from typing import Callable, cast
+from typing import Awaitable, Callable, cast
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from fastapi import Request, BackgroundTasks
@@ -15,10 +16,12 @@ from datajunction_server.models.deployment import (
     DimensionJoinLinkSpec,
     DimensionLinkSpec,
     DimensionReferenceLinkSpec,
+    DimensionSpec,
     LinkableNodeSpec,
     MetricSpec,
     SourceSpec,
     NodeSpec,
+    TransformSpec,
 )
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
@@ -34,11 +37,14 @@ from datajunction_server.models.node import (
     NodeOutput,
     NodeType,
     SourceColumnOutput,
+    UpdateNode,
 )
 from datajunction_server.internal.nodes import (
     create_a_cube,
     create_a_node,
     create_a_source_node,
+    refresh_source,
+    update_any_node,
     upsert_reference_dimension_link,
     upsert_simple_dimension_link,
     upsert_complex_dimension_link,
@@ -145,7 +151,7 @@ def topological_levels(
 
 
 async def deploy_source_node_from_spec(
-    source_spec: SourceSpec,
+    node_spec: SourceSpec,
     session: AsyncSession,
     current_user: User,
     request: Request,
@@ -153,21 +159,32 @@ async def deploy_source_node_from_spec(
     validate_access: access.ValidateAccessFn,
     background_tasks: BackgroundTasks,
     save_history: Callable,
+    existing: bool = False,
+    **kwargs,
 ) -> NodeOutput:
     """
     Deploy a source node from its spec.
     """
     # TODO Handle case where there are no columns on source_spec.columns and it's registering a table
-    catalog, schema, table = source_spec.table.split(".")
+    catalog, schema, table = node_spec.table.split(".")
+    if existing:
+        return await refresh_source(  # type: ignore
+            name=node_spec.fully_qualified_name,
+            session=session,
+            request=request,
+            query_service_client=query_service_client,
+            current_user=current_user,
+            save_history=save_history,
+        )
     node_output = await create_a_source_node(
         data=CreateSourceNode(
-            name=source_spec.fully_qualified_name,
-            display_name=source_spec.display_name,
-            description=source_spec.description,
-            mode=source_spec.mode,
-            primary_key=source_spec.primary_key,
-            custom_metadata=source_spec.custom_metadata,
-            owners=source_spec.owners,
+            name=node_spec.fully_qualified_name,
+            display_name=node_spec.display_name,
+            description=node_spec.description,
+            mode=node_spec.mode,
+            primary_key=node_spec.primary_key,
+            custom_metadata=node_spec.custom_metadata,
+            owners=node_spec.owners,
             catalog=catalog,
             schema_=schema,
             table=table,
@@ -180,7 +197,7 @@ async def deploy_source_node_from_spec(
                         for attr in col.attributes
                     ],
                 )
-                for col in source_spec.columns or []
+                for col in node_spec.columns or []
             ],
         ),
         session=session,
@@ -192,6 +209,225 @@ async def deploy_source_node_from_spec(
         save_history=save_history,
     )
     return node_output
+
+
+async def deploy_transform_dimension_node_from_spec(
+    node_spec: TransformSpec | DimensionSpec,
+    session: AsyncSession,
+    current_user: User,
+    request: Request,
+    query_service_client: QueryServiceClient,
+    validate_access: access.ValidateAccessFn,
+    background_tasks: BackgroundTasks,
+    save_history: Callable,
+    cache: Cache,
+    existing: bool = False,
+) -> Node:
+    """
+    Deploy a source node from its spec.
+    """
+    if existing:
+        request_headers = dict(request.headers)
+        await update_any_node(
+            node_spec.fully_qualified_name,
+            data=UpdateNode(
+                display_name=node_spec.display_name,
+                description=node_spec.description,
+                mode=node_spec.mode,
+                primary_key=node_spec.primary_key,
+                custom_metadata=node_spec.custom_metadata,
+                owners=node_spec.owners,
+                query=node_spec.rendered_query,
+            ),
+            session=session,
+            query_service_client=query_service_client,
+            current_user=current_user,
+            background_tasks=background_tasks,
+            validate_access=validate_access,
+            request_headers=request_headers,
+            save_history=save_history,
+            refresh_materialization=True,
+            cache=cache,
+        )
+        return await Node.get_by_name(  # type: ignore
+            session,
+            node_spec.fully_qualified_name,
+            options=NodeOutput.load_options(),
+            raise_if_not_exists=True,
+        )
+    created_node = await create_a_node(
+        data=CreateNode(
+            name=node_spec.fully_qualified_name,
+            display_name=node_spec.display_name,
+            description=node_spec.description,
+            mode=node_spec.mode,
+            primary_key=node_spec.primary_key,
+            custom_metadata=node_spec.custom_metadata,
+            owners=node_spec.owners,
+            query=node_spec.rendered_query,
+        ),
+        node_type=node_spec.node_type,
+        session=session,
+        current_user=current_user,
+        request=request,
+        query_service_client=query_service_client,
+        validate_access=validate_access,
+        background_tasks=background_tasks,
+        save_history=save_history,
+        cache=cache,
+    )
+    return created_node
+
+
+async def deploy_metric_node_from_spec(
+    node_spec: MetricSpec,
+    session: AsyncSession,
+    current_user: User,
+    request: Request,
+    query_service_client: QueryServiceClient,
+    validate_access: access.ValidateAccessFn,
+    background_tasks: BackgroundTasks,
+    save_history: Callable,
+    cache: Cache,
+    existing: bool = False,
+) -> Node:
+    """
+    Deploy a metric node from its spec.
+    """
+    metric_metadata_input = (
+        MetricMetadataInput(
+            direction=node_spec.direction,
+            unit=node_spec.unit,
+            significant_digits=node_spec.significant_digits,
+            min_decimal_exponent=node_spec.min_decimal_exponent,
+            max_decimal_exponent=node_spec.max_decimal_exponent,
+        )
+        if node_spec.direction
+        or node_spec.unit
+        or node_spec.significant_digits
+        or node_spec.min_decimal_exponent
+        or node_spec.max_decimal_exponent
+        else None
+    )
+    if existing:
+        request_headers = dict(request.headers)
+        await update_any_node(
+            node_spec.fully_qualified_name,
+            data=UpdateNode(
+                display_name=node_spec.display_name,
+                description=node_spec.description,
+                mode=node_spec.mode,
+                custom_metadata=node_spec.custom_metadata,
+                owners=node_spec.owners,
+                query=node_spec.rendered_query,
+                required_dimensions=node_spec.required_dimensions,
+                metric_metadata=metric_metadata_input,
+            ),
+            session=session,
+            query_service_client=query_service_client,
+            current_user=current_user,
+            background_tasks=background_tasks,
+            validate_access=validate_access,
+            request_headers=request_headers,
+            save_history=save_history,
+            refresh_materialization=True,
+            cache=cache,
+        )
+        return await Node.get_by_name(  # type: ignore
+            session,
+            node_spec.fully_qualified_name,
+            options=NodeOutput.load_options(),
+            raise_if_not_exists=True,
+        )
+    created_node = await create_a_node(
+        data=CreateNode(
+            name=node_spec.fully_qualified_name,
+            display_name=node_spec.display_name,
+            description=node_spec.description,
+            mode=node_spec.mode,
+            custom_metadata=node_spec.custom_metadata,
+            owners=node_spec.owners,
+            query=node_spec.rendered_query,
+            required_dimensions=node_spec.required_dimensions,
+            metric_metadata=metric_metadata_input,
+        ),
+        node_type=NodeType.METRIC,
+        session=session,
+        current_user=current_user,
+        request=request,
+        query_service_client=query_service_client,
+        validate_access=validate_access,
+        background_tasks=background_tasks,
+        save_history=save_history,
+        cache=cache,
+    )
+    return created_node
+
+
+async def deploy_cube_node_from_spec(
+    node_spec: CubeSpec,
+    session: AsyncSession,
+    current_user: User,
+    request: Request,
+    query_service_client: QueryServiceClient,
+    validate_access: access.ValidateAccessFn,
+    background_tasks: BackgroundTasks,
+    save_history: Callable,
+    cache: Cache,
+    existing: bool = False,
+    **kwargs,
+) -> Node:
+    if existing:
+        logger.info("Updating cube node %s", node_spec.fully_qualified_name)
+        request_headers = dict(request.headers)
+        await update_any_node(
+            node_spec.fully_qualified_name,
+            data=UpdateNode(
+                display_name=node_spec.display_name,
+                description=node_spec.description,
+                mode=node_spec.mode,
+                custom_metadata=node_spec.custom_metadata,
+                owners=node_spec.owners,
+                metrics=node_spec.rendered_metrics,
+                dimensions=node_spec.rendered_dimensions,
+                filters=node_spec.rendered_filters,
+            ),
+            session=session,
+            query_service_client=query_service_client,
+            current_user=current_user,
+            background_tasks=background_tasks,
+            validate_access=validate_access,
+            request_headers=request_headers,
+            save_history=save_history,
+            refresh_materialization=True,
+            cache=cache,
+        )
+        return await Node.get_by_name(  # type: ignore
+            session,
+            node_spec.fully_qualified_name,
+            options=NodeOutput.load_options(),
+            raise_if_not_exists=True,
+        )
+    return await create_a_cube(
+        data=CreateCubeNode(
+            name=node_spec.fully_qualified_name,
+            display_name=node_spec.display_name,
+            description=node_spec.description,
+            mode=node_spec.mode,
+            custom_metadata=node_spec.custom_metadata,
+            owners=node_spec.owners,
+            metrics=node_spec.rendered_metrics,
+            dimensions=node_spec.rendered_dimensions,
+            filters=node_spec.rendered_filters,
+        ),
+        request=request,
+        session=session,
+        current_user=current_user,
+        query_service_client=query_service_client,
+        background_tasks=background_tasks,
+        validate_access=validate_access,
+        save_history=save_history,
+    )
 
 
 async def deploy_dimension_link_from_spec(
@@ -250,111 +486,36 @@ async def deploy_node_from_spec(
     background_tasks: BackgroundTasks,
     save_history: Callable,
     cache: Cache,
+    existing: bool = False,
 ) -> Node:
     """
     Deploy a node from its specification.
     """
+    node_deployers: dict[NodeType, Callable[..., Awaitable[Node]]] = {
+        NodeType.SOURCE: deploy_source_node_from_spec,
+        NodeType.TRANSFORM: deploy_transform_dimension_node_from_spec,
+        NodeType.DIMENSION: deploy_transform_dimension_node_from_spec,
+        NodeType.METRIC: deploy_metric_node_from_spec,
+        NodeType.CUBE: deploy_cube_node_from_spec,
+    }
+
     async with session_context(request) as session:
         user = cast(User, await User.get_by_username(session, current_user.username))
-        cls_name = node_spec.__class__.__name__
-        if cls_name == "SourceSpec":
-            source_spec = cast(SourceSpec, node_spec)
-            return await deploy_source_node_from_spec(
-                source_spec=source_spec,
-                session=session,
-                current_user=user,
-                request=request,
-                query_service_client=query_service_client,
-                validate_access=validate_access,
-                background_tasks=background_tasks,
-                save_history=save_history,
-            )
-        if cls_name in ("TransformSpec", "DimensionSpec"):
-            node_type = (
-                NodeType.TRANSFORM
-                if cls_name == "TransformSpec"
-                else NodeType.DIMENSION
-            )
-            created_node = await create_a_node(
-                data=CreateNode(
-                    name=node_spec.fully_qualified_name,
-                    display_name=node_spec.display_name,
-                    description=node_spec.description,
-                    mode=node_spec.mode,
-                    primary_key=node_spec.primary_key,
-                    custom_metadata=node_spec.custom_metadata,
-                    owners=node_spec.owners,
-                    query=node_spec.rendered_query,
-                ),
-                node_type=node_type,
-                session=session,
-                current_user=user,
-                request=request,
-                query_service_client=query_service_client,
-                validate_access=validate_access,
-                background_tasks=background_tasks,
-                save_history=save_history,
-                cache=cache,
-            )
-            return created_node
-        if cls_name == "MetricSpec":
-            metric_spec = cast(MetricSpec, node_spec)
-            created_node = await create_a_node(
-                data=CreateNode(
-                    name=metric_spec.fully_qualified_name,
-                    display_name=metric_spec.display_name,
-                    description=metric_spec.description,
-                    mode=metric_spec.mode,
-                    custom_metadata=metric_spec.custom_metadata,
-                    owners=metric_spec.owners,
-                    query=metric_spec.rendered_query,
-                    required_dimensions=metric_spec.required_dimensions,
-                    metric_metadata=MetricMetadataInput(
-                        direction=metric_spec.direction,
-                        unit=metric_spec.unit,
-                        significant_digits=metric_spec.significant_digits,
-                        min_decimal_exponent=metric_spec.min_decimal_exponent,
-                        max_decimal_exponent=metric_spec.max_decimal_exponent,
-                    )
-                    if metric_spec.direction
-                    or metric_spec.unit
-                    or metric_spec.significant_digits
-                    else None,
-                ),
-                node_type=NodeType.METRIC,
-                session=session,
-                current_user=user,
-                request=request,
-                query_service_client=query_service_client,
-                validate_access=validate_access,
-                background_tasks=background_tasks,
-                save_history=save_history,
-                cache=cache,
-            )
-            return created_node
-        if cls_name == "CubeSpec":
-            cube_spec = cast(CubeSpec, node_spec)
-            return await create_a_cube(
-                data=CreateCubeNode(
-                    name=cube_spec.fully_qualified_name,
-                    display_name=cube_spec.display_name,
-                    description=cube_spec.description,
-                    mode=cube_spec.mode,
-                    custom_metadata=cube_spec.custom_metadata,
-                    owners=cube_spec.owners,
-                    metrics=cube_spec.rendered_metrics,
-                    dimensions=cube_spec.rendered_dimensions,
-                    filters=cube_spec.rendered_filters,
-                ),
-                request=request,
-                session=session,
-                current_user=user,
-                query_service_client=query_service_client,
-                background_tasks=background_tasks,
-                validate_access=validate_access,
-                save_history=save_history,
-            )
-    raise ValueError(f"Unknown node type: {cls_name}")  # pragma: no cover
+        deploy_fn = node_deployers.get(node_spec.node_type)
+        if not deploy_fn:
+            raise DJInvalidDeploymentConfig(f"Unknown node type: {node_spec.node_type}")
+        return await deploy_fn(
+            node_spec=node_spec,
+            session=session,
+            current_user=user,
+            request=request,
+            query_service_client=query_service_client,
+            validate_access=validate_access,
+            background_tasks=background_tasks,
+            save_history=save_history,
+            cache=cache,
+            existing=existing,
+        )
 
 
 def render_prefixes(parameterized_string: str, prefix: str):
@@ -362,6 +523,29 @@ def render_prefixes(parameterized_string: str, prefix: str):
     Replaces ${prefix} in a string
     """
     return parameterized_string.replace("${prefix}", f"{prefix}.")
+
+
+async def create_deployment_namespaces(
+    deployment: DeploymentSpec,
+    session: AsyncSession,
+    current_user: User,
+    save_history: Callable,
+):
+    namespaces = [deployment.namespace] + [
+        f"{deployment.namespace}{SEPARATOR}{node.name.rsplit('.', 1)[0]}"
+        for node in deployment.nodes
+        if SEPARATOR in node.name
+    ]
+    namespace_set = set(namespaces)
+    logger.info("Creating namespaces if they do not exist: %s", namespace_set)
+    for nspace in namespace_set:
+        await create_namespace(
+            session=session,
+            namespace=nspace,
+            current_user=current_user,
+            save_history=save_history,
+            include_parents=True,
+        )
 
 
 async def deploy_namespace(
@@ -386,21 +570,54 @@ async def deploy_namespace(
         len(deployment.tags),
     )
 
-    # Create necessary namespaces for the deployment
-    namespaces = [namespace] + [
-        f"{namespace}{SEPARATOR}{node.name.rsplit('.', 1)[0]}"
-        for node in deployment.nodes
-        if SEPARATOR in node.name
+    class DeployAction(str, Enum):
+        CREATE = "create"
+        UPDATE = "update"
+
+    # Track what gets deployed successfully
+    deployed_nodes: list[Node] = []
+    deployed_links: list[int] = []  # e.g., IDs of deployed links
+    deployed_cubes: list[Node] = []
+
+    # Snapshot existing state for rollback
+    non_cubes = [
+        n.fully_qualified_name for n in deployment.nodes if n.node_type != NodeType.CUBE
     ]
-    logger.info("Creating namespaces if they do not exist: %s", set(namespaces))
-    for nspace in set(namespaces):
-        await create_namespace(
-            session=session,
-            namespace=nspace,
-            current_user=current_user,
-            save_history=save_history,
-            include_parents=True,
-        )
+    cubes = [
+        n.fully_qualified_name for n in deployment.nodes if n.node_type == NodeType.CUBE
+    ]
+    all_nodes = await Node.get_by_names(session, non_cubes) + [
+        await Node.get_cube_by_name(session, cube) for cube in cubes
+    ]
+    existing_nodes_map: dict[str, NodeSpec] = {
+        node.name: await node.to_spec(session) for node in all_nodes if node
+    }
+    nodes_to_deploy: list[NodeSpec] = []
+    for node_spec in deployment.nodes:
+        existing_spec = existing_nodes_map.get(node_spec.fully_qualified_name)
+        if not existing_spec:
+            logger.info(
+                "Node %s does not exist, will create",
+                node_spec.fully_qualified_name,
+            )
+            nodes_to_deploy.append(node_spec)
+        elif node_spec != existing_spec:
+            logger.info("Detected change for node %s", node_spec.fully_qualified_name)
+            nodes_to_deploy.append(node_spec)
+        else:
+            logger.info(
+                "Node %s is unchanged, skipping",
+                node_spec.fully_qualified_name,
+            )
+
+    if not nodes_to_deploy:
+        logger.info("No changes detected, skipping deployment")
+        return DeploymentInfo(namespace=namespace, nodes=[], links=0)
+
+    # TODO: Create tags
+
+    # Create necessary namespaces for the deployment
+    await create_deployment_namespaces(deployment, session, current_user, save_history)
 
     # Figure out the deployment order (cubes should always be after everything else)
     node_graph = extract_node_graph(
@@ -438,14 +655,14 @@ async def deploy_namespace(
         "Deploying nodes in topological order with %d levels",
         len(levels),
     )
-    name_to_node = {node.fully_qualified_name: node for node in deployment.nodes}
+    name_to_node = {node.fully_qualified_name: node for node in nodes_to_deploy}
     deployed_nodes = []
     for level in levels:
         logger.info("Deploying level with %d nodes: %s", len(level), level)
 
         tasks = []
         for node_name in level:
-            if node_name in deps_not_in_deployment:
+            if node_name in deps_not_in_deployment or node_name not in name_to_node:
                 continue
 
             node_spec = name_to_node[node_name]
@@ -459,6 +676,8 @@ async def deploy_namespace(
                     background_tasks=background_tasks,
                     save_history=save_history,
                     cache=cache,
+                    existing=existing_nodes_map.get(node_spec.fully_qualified_name)
+                    is not None,
                 ),
             )
         deployed_level_nodes = await asyncio.gather(*tasks)
@@ -489,9 +708,8 @@ async def deploy_namespace(
     deployed_links = await asyncio.gather(*link_tasks)
 
     # deploy cubes
-    cubes = [node for node in deployment.nodes if isinstance(node, CubeSpec)]
     cube_tasks = []
-    for cube_spec in cubes:
+    for cube_spec in [node for node in deployment.nodes if isinstance(node, CubeSpec)]:
         cube_tasks.append(
             deploy_node_from_spec(
                 node_spec=cube_spec,
@@ -502,6 +720,8 @@ async def deploy_namespace(
                 background_tasks=background_tasks,
                 save_history=save_history,
                 cache=cache,
+                existing=existing_nodes_map.get(node_spec.fully_qualified_name)
+                is not None,
             ),
         )
     deployed_cubes = await asyncio.gather(*cube_tasks)

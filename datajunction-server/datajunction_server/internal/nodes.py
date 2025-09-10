@@ -84,6 +84,7 @@ from datajunction_server.models.node import (
     UpdateNode,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
@@ -92,7 +93,7 @@ from datajunction_server.sql.dag import (
 )
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
-from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
     SEPARATOR,
@@ -2805,3 +2806,151 @@ async def hard_delete_node(
     )
     await session.commit()  # Commit the history events
     return impact
+
+
+async def refresh_source(
+    name: str,
+    session: AsyncSession,
+    current_user: User,
+    save_history: Callable,
+    query_service_client: QueryServiceClient,
+    request: Request,
+):
+    request_headers = dict(request.headers)
+    source_node = await Node.get_by_name(
+        session,
+        name,
+        options=NodeOutput.load_options(),
+    )
+    current_revision = source_node.current  # type: ignore
+
+    # If this is a view-based source node, let's rerun the create view
+    new_query = None
+    if current_revision.query:
+        catalog = await get_catalog_by_name(
+            session=session,
+            name=current_revision.catalog.name,
+        )
+        query_create = QueryCreate(
+            engine_name=catalog.engines[0].name,
+            catalog_name=catalog.name,
+            engine_version=catalog.engines[0].version,
+            submitted_query=current_revision.query,
+            async_=False,
+        )
+        query_service_client.create_view(
+            view_name=current_revision.table,
+            query_create=query_create,
+            request_headers=request_headers,
+        )
+        new_query = current_revision.query
+
+    # Get the latest columns for the source node's table from the query service
+    new_columns = []
+    try:
+        new_columns = query_service_client.get_columns_for_table(
+            current_revision.catalog.name,
+            current_revision.schema_,  # type: ignore
+            current_revision.table,  # type: ignore
+            request_headers,
+            current_revision.catalog.engines[0]
+            if len(current_revision.catalog.engines) >= 1
+            else None,
+        )
+    except DJDoesNotExistException:
+        # continue with the update, if the table was not found
+        pass
+
+    refresh_details = {}
+    if new_columns:
+        # check if any of the columns have changed (only continue with update if they have)
+        column_changes = {col.identifier() for col in current_revision.columns} != {
+            (col.name, str(parse_rule(str(col.type), "dataType")))
+            for col in new_columns
+        }
+
+        # if the columns haven't changed and the node has a table, we can skip the update
+        if not column_changes:
+            if not source_node.missing_table:  # type: ignore
+                return source_node  # type: ignore
+            # if the columns haven't changed but the node has a missing table, we should fix it
+            source_node.missing_table = False  # type: ignore
+            refresh_details["missing_table"] = "False"
+    else:
+        # since we don't see any columns, we assume the table is gone
+        if source_node.missing_table:  # type: ignore
+            # but if the node already has a missing table, we can skip the update
+            return source_node  # type: ignore
+        source_node.missing_table = True  # type: ignore
+        new_columns = current_revision.columns
+        refresh_details["missing_table"] = "True"
+
+    # Create a new node revision with the updated columns and bump the version
+    old_version = Version.parse(source_node.current_version)  # type: ignore
+    new_revision = NodeRevision(
+        name=current_revision.name,
+        type=current_revision.type,
+        node_id=current_revision.node_id,
+        display_name=current_revision.display_name,
+        description=current_revision.description,
+        mode=current_revision.mode,
+        catalog_id=current_revision.catalog_id,
+        schema_=current_revision.schema_,
+        table=current_revision.table,
+        status=current_revision.status,
+        dimension_links=[
+            DimensionLink(
+                dimension_id=link.dimension_id,
+                join_sql=link.join_sql,
+                join_type=link.join_type,
+                join_cardinality=link.join_cardinality,
+                materialization_conf=link.materialization_conf,
+            )
+            for link in current_revision.dimension_links
+        ],
+        created_by_id=current_user.id,
+        query=new_query,
+    )
+    new_revision.version = str(old_version.next_major_version())
+    new_revision.columns = [
+        Column(
+            name=column.name,
+            type=column.type,
+            node_revisions=[new_revision],
+            order=idx,
+        )
+        for idx, column in enumerate(new_columns)
+    ]
+
+    # Keep the dimension links and attributes on the columns from the node's
+    # last revision if any existed
+    new_revision.copy_dimension_links_from_revision(current_revision)
+
+    # Point the source node to the new revision
+    source_node.current_version = new_revision.version  # type: ignore
+    new_revision.extra_validation()
+
+    session.add(new_revision)
+    session.add(source_node)
+
+    refresh_details["version"] = new_revision.version
+    await save_history(
+        event=History(
+            entity_type=EntityType.NODE,
+            entity_name=source_node.name,  # type: ignore
+            node=source_node.name,  # type: ignore
+            activity_type=ActivityType.REFRESH,
+            details=refresh_details,
+            user=current_user.username,
+        ),
+        session=session,
+    )
+    await session.commit()
+
+    source_node = await Node.get_by_name(
+        session,
+        name,
+        options=NodeOutput.load_options(),
+    )
+    await session.refresh(source_node, ["current"])
+    return source_node
