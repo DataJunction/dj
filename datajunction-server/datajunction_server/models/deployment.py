@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, validator
 
-from typing import Literal, Union
+from typing import Any, Literal, Union
 
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.dimensionlink import JoinType, LinkType
@@ -35,6 +35,18 @@ class ColumnSpec(BaseModel):
     description: str | None = None
     attributes: list[str] = Field(default_factory=list)
 
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, ColumnSpec):
+            return False
+
+        return (
+            self.name == other.name
+            and self.type == other.type
+            and (self.display_name == other.display_name or self.display_name is None)
+            and (self.description == other.description or self.description is None)
+            and set(self.attributes) == set(other.attributes)
+        )
+
 
 class DimensionLinkSpec(BaseModel):
     """
@@ -44,6 +56,11 @@ class DimensionLinkSpec(BaseModel):
     type: LinkType
     role: str | None = None
     namespace: str | None = Field(default=None, exclude=True)
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, DimensionLinkSpec):
+            return False
+        return self.type == other.type and self.role == other.role
 
 
 class DimensionJoinLinkSpec(DimensionLinkSpec):
@@ -77,6 +94,45 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
             else None
         )
 
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.rendered_dimension_node,
+                self.join_type,
+                self.rendered_join_on,
+                self.node_column,
+            ),
+        )
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, DimensionJoinLinkSpec):
+            return False
+        print(
+            "Comparing DimensionJoinLinkSpec",
+            self.rendered_join_on,
+            "super().__eq__(other)",
+            super().__eq__(other),
+            "self.rendered_dimension_node == other.rendered_dimension_node",
+            self.rendered_dimension_node == other.rendered_dimension_node,
+            "self.join_type == other.join_type",
+            self.join_type == other.join_type,
+            "self.rendered_join_on == other.rendered_join_on",
+            self.rendered_join_on == other.rendered_join_on,
+            "self.node_column == other.node_column",
+            self.node_column,
+            other.node_column,
+        )
+        return (
+            super().__eq__(other)
+            and self.rendered_dimension_node == other.rendered_dimension_node
+            and self.join_type == other.join_type
+            and self.rendered_join_on == other.rendered_join_on
+            and (
+                self.node_column == other.node_column
+                or (self.node_column is None and other.node_column is None)
+            )
+        )
+
 
 class DimensionReferenceLinkSpec(DimensionLinkSpec):
     """
@@ -102,6 +158,25 @@ class DimensionReferenceLinkSpec(DimensionLinkSpec):
     @property
     def dimension_attribute(self) -> str:
         return self.dimension.rsplit(".", 1)[-1]
+
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.dimension_node,
+                self.dimension_attribute,
+                self.node_column,
+            ),
+        )
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, DimensionReferenceLinkSpec):
+            return False
+        return (
+            super().__eq__(other)
+            and self.dimension_node == other.dimension_node
+            and self.dimension_attribute == other.dimension_attribute
+            and self.node_column == other.node_column
+        )
 
 
 def render_prefixes(parameterized_string: str, prefix: str | None = None) -> str:
@@ -147,6 +222,50 @@ class NodeSpec(BaseModel):
                 return render_prefixes(query, self.namespace)
         return None
 
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, NodeSpec):
+            return False
+
+        print(
+            "Comparing NodeSpec",
+            "name",
+            self.fully_qualified_name,
+            other.name,
+            "node_type",
+            self.node_type == other.node_type,
+            "display_name",
+            self.display_name,
+            other.display_name,
+            "description",
+            (self.description == other.description),
+            "owners",
+            set(self.owners) == set(other.owners),
+            "tags",
+            set(self.tags) == set(other.tags),
+            "mode",
+            self.mode == other.mode,
+            "custom_metadata",
+            (
+                self.custom_metadata == other.custom_metadata
+                or self.custom_metadata is None
+                and other.custom_metadata == {}
+            ),
+        )
+        return (
+            self.fully_qualified_name == other.name
+            and self.node_type == other.node_type
+            and (self.display_name == other.display_name or self.display_name is None)
+            and (self.description == other.description)
+            and set(self.owners) == set(other.owners)
+            and set(self.tags) == set(other.tags)
+            and self.mode == other.mode
+            and (
+                self.custom_metadata == other.custom_metadata
+                or self.custom_metadata is None
+                and other.custom_metadata == {}
+            )
+        )
+
 
 class LinkableNodeSpec(NodeSpec):
     """
@@ -174,6 +293,21 @@ class LinkableNodeSpec(NodeSpec):
             return mapping[link_type](**value, namespace=deployment_ns)
         return value
 
+    def __eq__(self, other: Any) -> bool:
+        print(
+            "Comparing LinkableNodeSpec super().__eq__(other)",
+            super().__eq__(other),
+            "self.columns == other.columns",
+            self.columns == other.columns,
+            "self.dimension_links == other.dimension_links",
+            self.dimension_links == other.dimension_links,
+        )
+        return (
+            super().__eq__(other)
+            and (self.columns or []) == (other.columns or [])
+            and (set(self.dimension_links or []) == set(other.dimension_links or []))
+        )
+
 
 class SourceSpec(LinkableNodeSpec):
     """
@@ -196,6 +330,15 @@ class SourceSpec(LinkableNodeSpec):
                 "<catalog>.<schema>.<table>",
             )
 
+    def __eq__(self, other: Any) -> bool:
+        print(
+            "Comparing SourceSpec super().__eq__(other)",
+            super().__eq__(other),
+            "self.table == other.table",
+            self.table == other.table,
+        )
+        return super().__eq__(other) and self.table == other.table
+
 
 class TransformSpec(LinkableNodeSpec):
     """
@@ -205,6 +348,15 @@ class TransformSpec(LinkableNodeSpec):
     node_type: Literal[NodeType.TRANSFORM] = NodeType.TRANSFORM
     query: str
 
+    def __eq__(self, other: Any) -> bool:
+        print(
+            "Comparing TransformSpec super().__eq__(other)",
+            super().__eq__(other),
+            "self.query == other.query",
+            self.query == other.query,
+        )
+        return super().__eq__(other) and self.rendered_query == other.rendered_query
+
 
 class DimensionSpec(LinkableNodeSpec):
     """
@@ -213,6 +365,15 @@ class DimensionSpec(LinkableNodeSpec):
 
     node_type: Literal[NodeType.DIMENSION] = NodeType.DIMENSION
     query: str
+
+    def __eq__(self, other: Any) -> bool:
+        print(
+            "Comparing DimensionSpec super().__eq__(other)",
+            super().__eq__(other),
+            "self.query == other.query",
+            self.query == other.query,
+        )
+        return super().__eq__(other) and self.rendered_query == other.rendered_query
 
 
 class MetricSpec(NodeSpec):
@@ -228,6 +389,18 @@ class MetricSpec(NodeSpec):
     significant_digits: int | None = None
     min_decimal_exponent: int | None
     max_decimal_exponent: int | None
+
+    def __eq__(self, other: Any) -> bool:
+        return (
+            super().__eq__(other)
+            and self.rendered_query == other.rendered_query
+            and (self.required_dimensions or []) == (other.required_dimensions or [])
+            and self.direction == other.direction
+            and self.unit == other.unit
+            and self.significant_digits == other.significant_digits
+            and self.min_decimal_exponent == other.min_decimal_exponent
+            and self.max_decimal_exponent == other.max_decimal_exponent
+        )
 
 
 class CubeSpec(NodeSpec):
@@ -253,6 +426,14 @@ class CubeSpec(NodeSpec):
         return [
             render_prefixes(filter_, self.namespace) for filter_ in self.filters or []
         ]
+
+    def __eq__(self, other: Any) -> bool:
+        return (
+            super().__eq__(other)
+            and set(self.rendered_metrics) == set(other.rendered_metrics)
+            and set(self.rendered_dimensions) == set(other.rendered_dimensions)
+            and (self.rendered_filters or []) == (other.rendered_filters or [])
+        )
 
 
 NodeUnion = Union[

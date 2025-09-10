@@ -5,7 +5,7 @@ import zlib
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
 from pydantic import Extra
@@ -49,11 +49,21 @@ from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
+    DJException,
     DJInvalidInputException,
     DJInvalidMetricQueryException,
     DJNodeNotFound,
 )
 from datajunction_server.models.base import labelize
+from datajunction_server.models.deployment import (
+    CubeSpec,
+    DimensionReferenceLinkSpec,
+    DimensionSpec,
+    MetricSpec,
+    NodeSpec,
+    SourceSpec,
+    TransformSpec,
+)
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     BuildCriteria,
@@ -302,6 +312,111 @@ class Node(Base):
     def upstream_cache_key(self, node_type: NodeType | None = None) -> str:
         base = f"upstream:{self.name}@{self.current_version}"
         return f"{base}:{node_type.value}" if node_type is not None else base
+
+    async def _inject_prefix(
+        self,
+        session: AsyncSession,
+        prefix: str = "${prefix}",
+    ) -> str:
+        """
+        Inject a prefix into the query name
+        """
+        from datajunction_server.sql.parsing.backends.antlr4 import parse, ast
+        from datajunction_server.sql.parsing.ast import CompileContext
+
+        query_ast = parse(self.current.query)
+        ctx = CompileContext(session, DJException())
+        await query_ast.compile(ctx)
+        dependencies_map, _ = await query_ast.bake_ctes().extract_dependencies(ctx)
+        for _, tables in dependencies_map.items():
+            for table in tables:
+                table.name = ast.Name(prefix + table.name.identifier())
+        return str(query_ast)
+
+    async def to_spec(self, session: AsyncSession) -> NodeSpec:
+        """
+        Convert the node to a spec
+        """
+
+        node_spec_class_map: dict[NodeType, type[NodeSpec]] = {
+            NodeType.SOURCE: SourceSpec,
+            NodeType.TRANSFORM: TransformSpec,
+            NodeType.DIMENSION: DimensionSpec,
+            NodeType.METRIC: MetricSpec,
+            NodeType.CUBE: CubeSpec,
+        }
+        await session.refresh(self, ["owners"])
+        base_kwargs = dict(
+            name=self.name,
+            node_type=self.type,
+            owners=[owner.username for owner in self.owners],
+            display_name=self.current.display_name,
+            description=self.current.description,
+            tags=[tag.name for tag in self.tags],
+            mode=self.current.mode,
+            custom_metadata=self.current.custom_metadata,
+        )
+        # Type-specific kwargs
+        extra_kwargs: dict[str, Any] = {}
+        if self.type in (NodeType.TRANSFORM, NodeType.DIMENSION, NodeType.METRIC):
+            extra_kwargs.update(
+                query=self.current.query,
+            )  # await self._inject_prefix(session))
+        if self.type in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):
+            join_link_specs = [
+                link.to_spec()
+                for link in self.current.dimension_links  # type: ignore
+            ]
+            ref_link_specs = [
+                DimensionReferenceLinkSpec(
+                    node_column=col.name,
+                    dimension=f"{col.dimension.name}{SEPARATOR}{col.dimension_column}",
+                )
+                for col in self.current.columns
+                if col.dimension_id and col.dimension_column
+            ]
+            extra_kwargs.update(
+                primary_key=[col.name for col in self.current.primary_key()],
+                dimension_links=join_link_specs + ref_link_specs,
+            )
+        if self.type == NodeType.SOURCE:
+            extra_kwargs.update(
+                table=f"{self.current.catalog.name}.{self.current.schema_}.{self.current.table}",
+                columns=[col.to_spec() for col in self.current.columns],
+            )
+        if self.type == NodeType.METRIC:
+            extra_kwargs.update(
+                required_dimensions=[
+                    col.name for col in self.current.required_dimensions
+                ],
+                direction=self.current.metric_metadata.direction
+                if self.current.metric_metadata
+                else None,
+                unit=self.current.metric_metadata.unit
+                if self.current.metric_metadata
+                else None,
+                significant_digits=self.current.metric_metadata.significant_digits
+                if self.current.metric_metadata
+                else None,
+                min_decimal_exponent=self.current.metric_metadata.min_decimal_exponent
+                if self.current.metric_metadata
+                else None,
+                max_decimal_exponent=self.current.metric_metadata.max_decimal_exponent
+                if self.current.metric_metadata
+                else None,
+            )
+        if self.type == NodeType.CUBE:
+            extra_kwargs.update(
+                metrics=self.current.cube_node_metrics,
+                dimensions=self.current.cube_node_dimensions,
+            )
+        node_spec_cls = node_spec_class_map.get(self.type)
+        if not node_spec_cls:
+            raise DJInvalidInputException(
+                message=f"Invalid node type: {self.type}",
+                http_status_code=HTTPStatus.BAD_REQUEST,
+            )
+        return node_spec_cls(**base_kwargs, **extra_kwargs)
 
     @classmethod
     async def get_by_name(
