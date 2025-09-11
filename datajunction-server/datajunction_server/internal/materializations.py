@@ -41,7 +41,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import TimestampType
-from datajunction_server.utils import SEPARATOR
+from datajunction_server.utils import SEPARATOR, session_context
 
 MAX_COLUMN_NAME_LENGTH = 128
 _logger = logging.getLogger(__name__)
@@ -329,6 +329,25 @@ async def schedule_materialization_jobs(
                 request_headers=request_headers,
             )
     return materialization_to_output
+
+
+async def schedule_materialization_jobs_bg(
+    node_revision_id: int,
+    materialization_names: List[str],
+    query_service_client: QueryServiceClient,
+    request_headers: Optional[Dict[str, str]] = None,
+) -> None:
+    """
+    Schedule a materialization job in the background.
+    """
+    async with session_context() as session:
+        await schedule_materialization_jobs(
+            session=session,
+            node_revision_id=node_revision_id,
+            materialization_names=materialization_names,
+            query_service_client=query_service_client,
+            request_headers=request_headers,
+        )
 
 
 def _get_readable_name(expr):
