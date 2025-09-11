@@ -4,6 +4,7 @@ Fixtures for testing.
 
 import asyncio
 from collections import namedtuple
+from contextlib import ExitStack, contextmanager
 from datetime import timedelta
 import os
 import pathlib
@@ -389,6 +390,19 @@ def query_service_client(
     yield qs_client
 
 
+@contextmanager
+def patch_session_contexts(session):
+    patch_targets = [
+        "datajunction_server.internal.caching.query_cache_manager.session_context",
+        "datajunction_server.internal.nodes.session_context",
+        "datajunction_server.internal.materializations.session_context",
+    ]
+    with ExitStack() as stack:
+        for target in patch_targets:
+            stack.enter_context(patch(target, return_value=session))
+        yield
+
+
 @pytest_asyncio.fixture
 async def client(
     session: AsyncSession,
@@ -422,10 +436,7 @@ async def client(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as test_client:
-        with patch(
-            "datajunction_server.internal.caching.query_cache_manager.session_context",
-            return_value=session,
-        ):
+        with patch_session_contexts(session):
             test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
             test_client.app = app
             yield test_client
@@ -685,10 +696,7 @@ async def client_qs(
             transport=httpx.ASGITransport(app=app),
             base_url="http://test",
         ) as test_client:
-            with patch(
-                "datajunction_server.internal.caching.query_cache_manager.session_context",
-                return_value=session,
-            ):
+            with patch_session_contexts(session):
                 test_client.headers.update(
                     {
                         "Authorization": f"Bearer {jwt_token}",
@@ -851,10 +859,7 @@ async def module__client(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as test_client:
-        with patch(
-            "datajunction_server.internal.caching.query_cache_manager.session_context",
-            return_value=module__session,
-        ):
+        with patch_session_contexts(module__session):
             test_client.headers.update(
                 {
                     "Authorization": f"Bearer {jwt_token}",
