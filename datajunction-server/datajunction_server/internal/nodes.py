@@ -49,6 +49,7 @@ from datajunction_server.errors import (
 from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
+    schedule_materialization_jobs_bg,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.validation import NodeValidator, validate_node_data
@@ -101,6 +102,7 @@ from datajunction_server.utils import (
     VersionUpgrade,
     get_namespace_from_name,
     get_settings,
+    session_context,
 )
 
 _logger = logging.getLogger(__name__)
@@ -259,8 +261,7 @@ async def create_a_node(
     )
     background_tasks.add_task(
         save_column_level_lineage,
-        session=session,
-        node_revision=node_revision,
+        node_revision_id=node_revision.id,
     )
 
     node = await Node.get_by_name(  # type: ignore
@@ -1043,8 +1044,7 @@ async def update_node_with_query(
                 ),
             )
         background_tasks.add_task(
-            schedule_materialization_jobs,
-            session=session,
+            schedule_materialization_jobs_bg,
             node_revision_id=node.current.id,  # type: ignore
             materialization_names=[
                 mat.name
@@ -1059,8 +1059,7 @@ async def update_node_with_query(
     if background_tasks:  # pragma: no cover
         background_tasks.add_task(
             save_column_level_lineage,
-            session=session,
-            node_revision=new_revision,
+            node_revision_id=new_revision.id,
         )
         # TODO: Do not save this until:
         #   1. We get to the bottom of why there are query building discrepancies
@@ -1089,7 +1088,6 @@ async def update_node_with_query(
 
     background_tasks.add_task(
         propagate_update_downstream,
-        session,
         node,
         current_user=current_user,
         save_history=save_history,
@@ -1303,8 +1301,7 @@ async def update_cube_node(
     await session.refresh(new_cube_revision, ["materializations"])
     if background_tasks:
         background_tasks.add_task(  # pragma: no cover
-            schedule_materialization_jobs,
-            session=session,
+            schedule_materialization_jobs_bg,
             node_revision_id=new_cube_revision.id,
             materialization_names=[
                 mat.name for mat in new_cube_revision.materializations
@@ -1330,9 +1327,27 @@ async def update_cube_node(
 
 
 async def propagate_update_downstream(
+    node: Node,
+    current_user: User,
+    save_history: Callable,
+    cache: Cache | None = None,
+):
+    """
+    Background task to propagate the updated node's changes to all of its downstream children.
+    """
+    async with session_context() as session:
+        await _propagate_update_downstream(
+            session=session,
+            node=node,
+            current_user=current_user,
+            save_history=save_history,
+            cache=cache,
+        )
+
+
+async def _propagate_update_downstream(
     session: AsyncSession,
     node: Node,
-    *,
     current_user: User,
     save_history: Callable,
     cache: Cache | None = None,
@@ -1792,18 +1807,27 @@ async def create_new_revision_from_existing(
     return new_revision
 
 
-async def save_column_level_lineage(
-    session: AsyncSession,
-    node_revision: NodeRevision,
-):
+async def save_column_level_lineage(node_revision_id: int):
     """
-    Saves the column-level lineage for a node
+    Saves the column-level lineage for a node revision
     """
-    node = await Node.get_by_name(session, node_revision.name)
-    column_level_lineage = await get_column_level_lineage(session, node.current)  # type: ignore
-    node.current.lineage = [lineage.dict() for lineage in column_level_lineage]  # type: ignore
-    session.add(node.current)  # type: ignore
-    await session.commit()
+    async with session_context() as session:
+        statement = (
+            select(NodeRevision)
+            .where(NodeRevision.id == node_revision_id)
+            .options(
+                selectinload(NodeRevision.columns),
+            )
+        )
+        node_revision = (await session.execute(statement)).unique().scalar_one_or_none()
+        if node_revision:  # pragma: no cover
+            column_level_lineage = await get_column_level_lineage(
+                session,
+                node_revision,
+            )
+            node_revision.lineage = [lineage.dict() for lineage in column_level_lineage]
+            session.add(node_revision)
+            await session.commit()
 
 
 async def save_query_ast(  # pragma: no cover
