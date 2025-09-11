@@ -1304,7 +1304,6 @@ async def update_cube_node(
         )
     else:
         await schedule_materialization_jobs(  # pragma: no cover
-            session=session,
             node_revision_id=new_cube_revision.id,
             materialization_names=[
                 mat.name for mat in new_cube_revision.materializations
