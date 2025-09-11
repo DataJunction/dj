@@ -49,6 +49,7 @@ from datajunction_server.errors import (
 from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
+    schedule_materialization_jobs_bg,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.validation import NodeValidator, validate_node_data
@@ -1043,7 +1044,7 @@ async def update_node_with_query(
                 ),
             )
         background_tasks.add_task(
-            schedule_materialization_jobs,
+            schedule_materialization_jobs_bg,
             node_revision_id=node.current.id,  # type: ignore
             materialization_names=[
                 mat.name
@@ -1300,7 +1301,7 @@ async def update_cube_node(
     await session.refresh(new_cube_revision, ["materializations"])
     if background_tasks:
         background_tasks.add_task(  # pragma: no cover
-            schedule_materialization_jobs,
+            schedule_materialization_jobs_bg,
             node_revision_id=new_cube_revision.id,
             materialization_names=[
                 mat.name for mat in new_cube_revision.materializations
@@ -1310,6 +1311,7 @@ async def update_cube_node(
         )
     else:
         await schedule_materialization_jobs(  # pragma: no cover
+            session=session,
             node_revision_id=new_cube_revision.id,
             materialization_names=[
                 mat.name for mat in new_cube_revision.materializations
@@ -1810,14 +1812,21 @@ async def save_column_level_lineage(node_revision_id: int):
     Saves the column-level lineage for a node revision
     """
     async with session_context() as session:
-        node_revision = await session.get(NodeRevision, node_revision_id)
-        if node_revision:
+        statement = (
+            select(NodeRevision)
+            .where(NodeRevision.id == node_revision_id)
+            .options(
+                selectinload(NodeRevision.columns),
+            )
+        )
+        node_revision = (await session.execute(statement)).unique().scalar_one_or_none()
+        if node_revision:  # pragma: no cover
             column_level_lineage = await get_column_level_lineage(
                 session,
                 node_revision,
-            )  # type: ignore
-            node_revision.lineage = [lineage.dict() for lineage in column_level_lineage]  # type: ignore
-            session.add(node_revision)  # type: ignore
+            )
+            node_revision.lineage = [lineage.dict() for lineage in column_level_lineage]
+            session.add(node_revision)
             await session.commit()
 
 

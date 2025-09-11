@@ -246,9 +246,6 @@ async def session_context(request: Request = None) -> AsyncIterator[AsyncSession
     session = await gen.__anext__()
     try:
         yield session
-    except Exception as exc:
-        await session.rollback()
-        raise exc
     finally:
         await gen.aclose()  # type: ignore
 
