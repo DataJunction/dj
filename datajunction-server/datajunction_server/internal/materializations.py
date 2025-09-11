@@ -302,6 +302,7 @@ async def create_new_materialization(
 
 
 async def schedule_materialization_jobs(
+    session: AsyncSession,
     node_revision_id: int,
     materialization_names: List[str],
     query_service_client: QueryServiceClient,
@@ -310,25 +311,43 @@ async def schedule_materialization_jobs(
     """
     Schedule recurring materialization jobs
     """
+    materializations = await Materialization.get_by_names(
+        session,
+        node_revision_id,
+        materialization_names,
+    )
+    materialization_jobs = {
+        cls.__name__: cls for cls in MaterializationJob.__subclasses__()
+    }
+    materialization_to_output = {}
+    for materialization in materializations:
+        clazz = materialization_jobs.get(materialization.job)
+        if clazz and materialization.name:  # pragma: no cover
+            materialization_to_output[materialization.name] = clazz().schedule(  # type: ignore
+                materialization,
+                query_service_client,
+                request_headers=request_headers,
+            )
+    return materialization_to_output
+
+
+async def schedule_materialization_jobs_bg(
+    node_revision_id: int,
+    materialization_names: List[str],
+    query_service_client: QueryServiceClient,
+    request_headers: Optional[Dict[str, str]] = None,
+) -> None:
+    """
+    Schedule a materialization job in the background.
+    """
     async with session_context() as session:
-        materializations = await Materialization.get_by_names(
-            session,
-            node_revision_id,
-            materialization_names,
+        await schedule_materialization_jobs(
+            session=session,
+            node_revision_id=node_revision_id,
+            materialization_names=materialization_names,
+            query_service_client=query_service_client,
+            request_headers=request_headers,
         )
-        materialization_jobs = {
-            cls.__name__: cls for cls in MaterializationJob.__subclasses__()
-        }
-        materialization_to_output = {}
-        for materialization in materializations:
-            clazz = materialization_jobs.get(materialization.job)
-            if clazz and materialization.name:  # pragma: no cover
-                materialization_to_output[materialization.name] = clazz().schedule(  # type: ignore
-                    materialization,
-                    query_service_client,
-                    request_headers=request_headers,
-                )
-        return materialization_to_output
 
 
 async def schedule_materialization_jobs_bg(
