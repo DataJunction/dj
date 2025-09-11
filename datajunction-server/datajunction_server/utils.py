@@ -221,14 +221,15 @@ async def is_graphql_query(request: Request) -> bool:
         return False
 
 
-async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
+async def get_session(request: Request = None) -> AsyncIterator[AsyncSession]:
     """
     Async database session.
     """
     session_manager = get_session_manager()
     session_maker = (
         session_manager.reader_sessionmaker
-        if request.method.upper() == "GET" or await is_graphql_query(request)
+        if request
+        and (request.method.upper() == "GET" or await is_graphql_query(request))
         else session_manager.writer_sessionmaker
     )
     async with session_maker() as session:
@@ -240,11 +241,14 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 
 @asynccontextmanager
-async def session_context(request: Request):
+async def session_context(request: Request = None) -> AsyncIterator[AsyncSession]:
     gen = get_session(request)
     session = await gen.__anext__()
     try:
         yield session
+    except Exception as exc:
+        await session.rollback()
+        raise exc
     finally:
         await gen.aclose()  # type: ignore
 
