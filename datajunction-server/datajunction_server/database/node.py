@@ -84,7 +84,11 @@ class NodeRelationship(Base):
     )
 
     parent_id: Mapped[int] = mapped_column(
-        ForeignKey("node.id", name="fk_noderelationship_parent_id_node"),
+        ForeignKey(
+            "node.id",
+            name="fk_noderelationship_parent_id_node",
+            ondelete="CASCADE",
+        ),
         primary_key=True,
     )
 
@@ -93,7 +97,11 @@ class NodeRelationship(Base):
     parent_version: Mapped[Optional[str]] = mapped_column(default="latest")
 
     child_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id", name="fk_noderelationship_child_id_noderevision"),
+        ForeignKey(
+            "noderevision.id",
+            name="fk_noderelationship_child_id_noderevision",
+            ondelete="CASCADE",
+        ),
         primary_key=True,
     )
 
@@ -107,12 +115,20 @@ class CubeRelationship(Base):
     __table_args__ = (Index("idx_cube_cube_id", "cube_id"),)
 
     cube_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id", name="fk_cube_cube_id_noderevision"),
+        ForeignKey(
+            "noderevision.id",
+            name="fk_cube_cube_id_noderevision",
+            ondelete="CASCADE",
+        ),
         primary_key=True,
     )
 
     cube_element_id: Mapped[int] = mapped_column(
-        ForeignKey("column.id", name="fk_cube_cube_element_id_column"),
+        ForeignKey(
+            "column.id",
+            name="fk_cube_cube_element_id_column",
+            ondelete="CASCADE",
+        ),
         primary_key=True,
     )
 
@@ -129,6 +145,7 @@ class BoundDimensionsRelationship(Base):
         ForeignKey(
             "noderevision.id",
             name="fk_metric_required_dimensions_metric_id_noderevision",
+            ondelete="CASCADE",
         ),
         primary_key=True,
     )
@@ -137,6 +154,7 @@ class BoundDimensionsRelationship(Base):
         ForeignKey(
             "column.id",
             name="fk_metric_required_dimensions_bound_dimension_id_column",
+            ondelete="CASCADE",
         ),
         primary_key=True,
     )
@@ -650,7 +668,7 @@ class NodeRevision(
         default=str(DEFAULT_DRAFT_VERSION),
     )
     node_id: Mapped[int] = mapped_column(
-        ForeignKey("node.id", name="fk_noderevision_node_id_node"),
+        ForeignKey("node.id", name="fk_noderevision_node_id_node", ondelete="CASCADE"),
     )
     node: Mapped[Node] = relationship(
         "Node",
@@ -1151,10 +1169,18 @@ class NodeColumns(Base):
     __table_args__ = (Index("idx_nodecolumns_node_id", "node_id"),)
 
     node_id: Mapped[int] = mapped_column(
-        ForeignKey("noderevision.id", name="fk_nodecolumns_node_id_noderevision"),
+        ForeignKey(
+            "noderevision.id",
+            name="fk_nodecolumns_node_id_noderevision",
+            ondelete="CASCADE",
+        ),
         primary_key=True,
     )
     column_id: Mapped[int] = mapped_column(
-        ForeignKey("column.id", name="fk_nodecolumns_column_id_column"),
+        ForeignKey(
+            "column.id",
+            name="fk_nodecolumns_column_id_column",
+            ondelete="CASCADE",
+        ),
         primary_key=True,
     )
