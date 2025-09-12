@@ -1,5 +1,7 @@
 import asyncio
+import json
 import random
+from unittest import mock
 from datajunction_server.internal.deployment import (
     extract_node_graph,
     safe_task,
@@ -9,6 +11,7 @@ from datajunction_server.models.deployment import (
     ColumnSpec,
     DeploymentResult,
     DeploymentSpec,
+    DeploymentStatus,
     NodeSpec,
     TransformSpec,
     SourceSpec,
@@ -27,6 +30,19 @@ from datajunction_server.models.node import (
     NodeType,
 )
 import pytest
+
+
+@pytest.fixture(autouse=True, scope="module")
+def patch_effective_writer_concurrency():
+    from datajunction_server.internal.deployment import settings
+
+    with mock.patch.object(
+        settings.__class__,
+        "effective_writer_concurrency",
+        new_callable=mock.PropertyMock,
+        return_value=1,
+    ):
+        yield
 
 
 @pytest.fixture(scope="module")
@@ -1333,54 +1349,98 @@ def roads_nodes(
     ]
 
 
+async def deploy_and_wait(module__client, deployment_spec: DeploymentSpec):
+    response = await module__client.post(
+        "/deployments",
+        json=deployment_spec.dict(),
+    )
+    data = response.json()
+    deployment_uuid = data["uuid"]
+    while data["status"] not in (
+        DeploymentStatus.FAILED.value,
+        DeploymentStatus.SUCCESS.value,
+    ):
+        await asyncio.sleep(1)
+        response = await module__client.get(f"/deployments/{deployment_uuid}")
+        data = response.json()
+    return data
+
+
 @pytest.mark.asyncio
-async def test_deploy_failed_on_non_existent_deps(
+@pytest.mark.parametrize("module__client", [False], indirect=True)
+async def test_deploy_failed_on_non_existent_upstream_deps(
     module__client,
     default_hard_hat,
     default_hard_hats,
 ):
     """
-    Test deployment failures with non-existent dependencies
+    Test deployment failures with non-existent upstream dependencies
     """
-    # Deploy with a node that has an upstream dependency that doesn't exist
-    response = await module__client.post(
-        "/namespaces/non_existent_deps/deploy",
-        json=DeploymentSpec(
+    data = await deploy_and_wait(
+        module__client,
+        DeploymentSpec(
             namespace="non_existent_deps",
             nodes=[default_hard_hat],
-        ).dict(),
+        ),
     )
-    assert (
-        response.json()["message"]
-        == "The following dependencies are not in the deployment and do not pre-exist in the "
-        "system: non_existent_deps.default.hard_hats, non_existent_deps.default.us_state"
-    )
-    # Deploy with a node that has a dimension link to a node that doesn't exist
-    response = await module__client.post(
-        "/namespaces/non_existent_deps/deploy",
-        json=DeploymentSpec(
-            namespace="non_existent_deps",
-            nodes=[default_hard_hats, default_hard_hat],
-        ).dict(),
-    )
-    assert (
-        response.json()["message"]
-        == "The following dependencies are not in the deployment and do not pre-exist in the "
-        "system: non_existent_deps.default.us_state"
-    )
+    assert data == {
+        "uuid": mock.ANY,
+        "namespace": "non_existent_deps",
+        "status": "failed",
+        "results": [
+            {
+                "name": "DJInvalidDeploymentConfig",
+                "deploy_type": "general",
+                "status": "failed",
+                "message": "The following dependencies are not in the deployment and do not pre-exist in the system: non_existent_deps.default.hard_hats, non_existent_deps.default.us_state",
+            },
+        ],
+    }
 
 
 @pytest.mark.asyncio
-async def test_deploy_failed_with_bad_node_spec(
+@pytest.mark.parametrize("module__client", [False], indirect=True)
+async def test_deploy_failed_on_non_existent_link_deps(
+    module__client,
+    default_hard_hat,
+    default_hard_hats,
+):
+    """
+    Test deployment failures for a node that has a dimension link to a node that doesn't exist
+    """
+    data = await deploy_and_wait(
+        module__client,
+        DeploymentSpec(
+            namespace="non_existent_deps",
+            nodes=[default_hard_hats, default_hard_hat],
+        ),
+    )
+    assert data == {
+        "uuid": mock.ANY,
+        "namespace": "non_existent_deps",
+        "status": "failed",
+        "results": [
+            {
+                "name": "DJInvalidDeploymentConfig",
+                "deploy_type": "general",
+                "status": "failed",
+                "message": "The following dependencies are not in the deployment and do not pre-exist in the system: non_existent_deps.default.us_state",
+            },
+        ],
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("module__client", [False], indirect=True)
+async def test_deploy_failed_with_bad_node_spec_pk(
     module__client,
     default_hard_hats,
     default_us_states,
     default_us_state,
 ):
     """
-    Test deployment failures with bad node specifications
+    Test deployment failures with bad node specifications (primary key that doesn't exist in the query)
     """
-    # Deploy with a node that has a primary key that doesn't exist in the query
     bad_dim_spec = DimensionSpec(
         name="default.hard_hat",
         description="""Hard hat dimension""",
@@ -1395,9 +1455,9 @@ async def test_deploy_failed_with_bad_node_spec(
             ),
         ],
     )
-    response = await module__client.post(
-        "/namespaces/bad_node_spec/deploy",
-        json=DeploymentSpec(
+    data = await deploy_and_wait(
+        module__client,
+        DeploymentSpec(
             namespace="bad_node_spec",
             nodes=[
                 bad_dim_spec,
@@ -1405,9 +1465,11 @@ async def test_deploy_failed_with_bad_node_spec(
                 default_us_states,
                 default_us_state,
             ],
-        ).dict(),
+        ),
     )
-    assert response.json() == {
+    assert data == {
+        "status": "failed",
+        "uuid": mock.ANY,
         "namespace": "bad_node_spec",
         "results": [
             {
@@ -1438,28 +1500,48 @@ async def test_deploy_failed_with_bad_node_spec(
             },
             {
                 "deploy_type": "link",
-                "message": "Join query bad_node_spec.default.hard_hat.state = "
-                "bad_node_spec.default.us_state.state_short is not valid\n"
-                "The following error happened:\n"
-                "- Column `bad_node_spec.default.hard_hat.state` does not exist on "
-                "any valid table. (error code: 206)",
+                "message": "A node with name `bad_node_spec.default.hard_hat` does not exist.",
                 "name": "bad_node_spec.default.hard_hat -> bad_node_spec.default.us_state",
                 "status": "failed",
             },
         ],
     }
 
-    # Fix the primary key but leave the dimension link invalid
-    bad_dim_spec.query = """
-    SELECT
-        hard_hat_id,
-        last_name,
-        first_name
-    FROM ${prefix}default.hard_hats
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("module__client", [False], indirect=True)
+async def test_deploy_failed_with_bad_node_spec_links(
+    module__client,
+    default_hard_hats,
+    default_us_states,
+    default_us_state,
+):
     """
-    response = await module__client.post(
-        "/namespaces/bad_node_spec/deploy",
-        json=DeploymentSpec(
+    Test deployment failures with bad node specifications (dimension link to a column that doesn't exist)
+    """
+    bad_dim_spec = DimensionSpec(
+        name="default.hard_hat",
+        description="""Hard hat dimension""",
+        query="""
+        SELECT
+            hard_hat_id,
+            last_name,
+            first_name
+        FROM ${prefix}default.hard_hats
+        """,
+        primary_key=["hard_hat_id"],
+        owners=["dj"],
+        dimension_links=[
+            DimensionJoinLinkSpec(
+                dimension_node="${prefix}default.us_state",
+                join_type="inner",
+                join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
+            ),
+        ],
+    )
+    data = await deploy_and_wait(
+        module__client,
+        DeploymentSpec(
             namespace="bad_node_spec",
             nodes=[
                 bad_dim_spec,
@@ -1467,33 +1549,35 @@ async def test_deploy_failed_with_bad_node_spec(
                 default_us_states,
                 default_us_state,
             ],
-        ).dict(),
+        ),
     )
-    assert response.json() == {
+    assert data == {
+        "status": "failed",
+        "uuid": mock.ANY,
         "namespace": "bad_node_spec",
         "results": [
             {
                 "deploy_type": "node",
-                "message": "Node bad_node_spec.default.hard_hats is unchanged.",
+                "message": "",
                 "name": "bad_node_spec.default.hard_hats",
-                "status": "noop",
+                "status": "success",
             },
             {
                 "deploy_type": "node",
-                "message": "Node bad_node_spec.default.us_states is unchanged.",
+                "message": "",
                 "name": "bad_node_spec.default.us_states",
-                "status": "noop",
-            },
-            {
-                "deploy_type": "node",
-                "message": "Node bad_node_spec.default.us_state is unchanged.",
-                "name": "bad_node_spec.default.us_state",
-                "status": "noop",
+                "status": "success",
             },
             {
                 "deploy_type": "node",
                 "message": "",
                 "name": "bad_node_spec.default.hard_hat",
+                "status": "success",
+            },
+            {
+                "deploy_type": "node",
+                "message": "",
+                "name": "bad_node_spec.default.us_state",
                 "status": "success",
             },
             {
@@ -1511,6 +1595,7 @@ async def test_deploy_failed_with_bad_node_spec(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("module__client", [False], indirect=True)
 async def test_deploy_succeeds_with_existing_deps(
     module__client,
     default_hard_hats,
@@ -1530,12 +1615,10 @@ async def test_deploy_succeeds_with_existing_deps(
             default_us_states,
         ],
     )
-    response = await module__client.post(
-        "/namespaces/existing_deps/deploy",
-        json=mini_setup.dict(),
-    )
-    assert response.status_code == 200, response.text
-    assert response.json() == {
+    data = await deploy_and_wait(module__client, mini_setup)
+    assert data == {
+        "status": "success",
+        "uuid": mock.ANY,
         "namespace": "existing_deps",
         "results": [
             {
@@ -1572,21 +1655,24 @@ async def test_deploy_succeeds_with_existing_deps(
     }
 
     # Re-deploying the same setup should be a noop
-    response = await module__client.post(
-        "/namespaces/existing_deps/deploy",
-        json=mini_setup.dict(),
-    )
-    assert response.status_code == 200, response.text
-    assert all(res["status"] == "noop" for res in response.json()["results"])
+    data = await deploy_and_wait(module__client, mini_setup)
+    assert all(res["status"] == "noop" for res in data["results"])
+
+    # Redeploying half the setup should only deploy the missing nodes
+
+    # deploying a new link should trigger a redeploy of the node it is linked from
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("module__client", [False], indirect=True)
 async def test_roads_deployment(module__client, roads_nodes):
-    response = await module__client.post(
-        "/namespaces/base/deploy",
-        json=DeploymentSpec(namespace="base", nodes=roads_nodes).dict(),
+    data = await deploy_and_wait(
+        module__client,
+        DeploymentSpec(namespace="base", nodes=roads_nodes),
     )
-    assert response.json() == {
+    assert data == {
+        "status": "success",
+        "uuid": mock.ANY,
         "namespace": "base",
         "results": [
             {
@@ -1860,11 +1946,11 @@ async def test_roads_deployment(module__client, roads_nodes):
     data = response.json()
     assert len(data) == len(roads_nodes)
 
-    response = await module__client.post(
-        "/namespaces/base/deploy",
-        json=DeploymentSpec(namespace="base", nodes=roads_nodes).dict(),
+    data = await deploy_and_wait(
+        module__client,
+        DeploymentSpec(namespace="base", nodes=roads_nodes),
     )
-    assert all(res["status"] == "noop" for res in response.json()["results"])
+    assert all(res["status"] == "noop" for res in data["results"])
 
 
 @pytest.mark.asyncio
@@ -2201,3 +2287,14 @@ async def test_safe_task_other_failure():
     )
     assert result.status == DeploymentResult.Status.FAILED
     assert "Something went wrong" in result.message
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip(reason="for debugging")
+async def test_print_roads_spec(roads_nodes):
+    spec = DeploymentSpec(
+        namespace="roads",
+        nodes=roads_nodes,
+    )
+    print("roads_nodes!!", json.dumps(spec.dict()))
+    assert 1 == 2

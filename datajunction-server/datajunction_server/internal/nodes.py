@@ -104,7 +104,6 @@ from datajunction_server.utils import (
     get_namespace_from_name,
     get_settings,
     session_context,
-    session_context,
 )
 
 _logger = logging.getLogger(__name__)
@@ -2780,7 +2779,7 @@ async def hard_delete_node(
         impact.append(
             {
                 "name": node.name,
-                "status": node_validator.status,
+                "status": node_validator.status if node_validator else "unknown",
                 "effect": "downstream node is now invalid",
             },
         )
@@ -2815,7 +2814,7 @@ async def hard_delete_node(
         event=History(
             entity_type=EntityType.NODE,
             entity_name=name,
-            node=name,
+            node=node.name,
             activity_type=ActivityType.DELETE,
             details={
                 "impact": impact,
