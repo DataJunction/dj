@@ -14,6 +14,13 @@ from datajunction_server.models.node import (
 from datajunction_server.utils import SEPARATOR
 
 
+class DeploymentStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    FAILED = "failed"
+    SUCCESS = "success"
+
+
 class TagSpec(BaseModel):
     """
     Specification for a tag
@@ -453,6 +460,7 @@ class DeploymentResult(BaseModel):
         NODE = "node"
         LINK = "link"
         TAG = "tag"
+        GENERAL = "general"
 
     name: str
     deploy_type: Type
@@ -465,7 +473,9 @@ class DeploymentInfo(BaseModel):
     Information about a deployment
     """
 
+    uuid: str
     namespace: str
+    status: DeploymentStatus
     results: list[DeploymentResult] = Field(default_factory=list)
 
     @property

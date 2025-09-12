@@ -425,13 +425,21 @@ def query_service_client(
 
 
 @contextmanager
-def patch_session_contexts(session):
-    patch_targets = [
-        "datajunction_server.internal.caching.query_cache_manager.session_context",
-        "datajunction_server.internal.nodes.session_context",
-        "datajunction_server.internal.materializations.session_context",
-        "datajunction_server.internal.deployment.session_context",
-    ]
+def patch_session_contexts(
+    session: AsyncSession,
+    use_patch: bool = True,
+) -> Iterator[None]:
+    patch_targets = (
+        [
+            "datajunction_server.internal.caching.query_cache_manager.session_context",
+            "datajunction_server.internal.nodes.session_context",
+            "datajunction_server.internal.materializations.session_context",
+            "datajunction_server.internal.deployment.session_context",
+            "datajunction_server.api.deployments.session_context",
+        ]
+        if use_patch
+        else []
+    )
     with ExitStack() as stack:
         for target in patch_targets:
             stack.enter_context(patch(target, return_value=session))
@@ -863,6 +871,7 @@ async def create_default_user(session: AsyncSession) -> User:
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client(
+    request,
     module__session: AsyncSession,
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,
@@ -873,6 +882,8 @@ async def module__client(
     """
     Create a client for testing APIs.
     """
+    use_patch = getattr(request, "param", True)
+
     await default_attribute_types(module__session)
     await seed_default_catalogs(module__session)
     await create_default_user(module__session)
@@ -910,7 +921,7 @@ async def module__client(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as test_client:
-        with patch_session_contexts(module__session):
+        with patch_session_contexts(module__session, use_patch=use_patch):
             test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
             test_client.app = app
 

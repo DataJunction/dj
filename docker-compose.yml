@@ -55,6 +55,7 @@ services:
   postgres_metadata:
     container_name: postgres_metadata
     image: postgres:latest
+    shm_size: 1g
     networks:
       - core
     hostname: postgres_metadata
