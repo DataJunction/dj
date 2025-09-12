@@ -214,7 +214,7 @@ async def create_a_node(
     validate_access: access.ValidateAccessFn,
     save_history: Callable,
     cache: Cache,
-):
+) -> Node:
     request_headers = dict(request.headers)
     if node_type == NodeType.DIMENSION and not data.primary_key:
         raise DJInvalidInputException("Dimension nodes must define a primary key!")
@@ -251,6 +251,25 @@ async def create_a_node(
         created_by_id=current_user.id,
     )
     node_revision = await create_node_revision(data, node_type, session, current_user)
+
+    column_names = {col.name: col for col in node_revision.columns}
+    if data.primary_key:
+        if any(key_column not in column_names for key_column in data.primary_key):
+            raise DJInvalidInputException(
+                f"Some columns in the primary key [{','.join(data.primary_key)}] "
+                f"were not found in the list of available columns for the node {node.name}.",
+            )
+        pk_attribute = await get_attribute_type(
+            session=session,
+            name=ColumnAttributes.PRIMARY_KEY.value,
+            namespace="system",
+        )
+        for key_column in data.primary_key:
+            if key_column in column_names:  # pragma: no cover
+                column_names[key_column].attributes.append(
+                    ColumnAttribute(attribute_type=pk_attribute),
+                )
+
     await save_node(
         session,
         node_revision,
@@ -259,43 +278,16 @@ async def create_a_node(
         current_user=current_user,
         save_history=save_history,
     )
+
+    # For metric nodes, derive the referenced frozen measures and save them
+    if node.type == NodeType.METRIC:
+        background_tasks.add_task(derive_frozen_measures, node_revision.id)
+
     background_tasks.add_task(
         save_column_level_lineage,
         node_revision_id=node_revision.id,
     )
 
-    node = await Node.get_by_name(  # type: ignore
-        session,
-        node.name,
-        options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
-        ],
-    )
-    node_revision = node.current
-    column_names = {col.name for col in node_revision.columns}
-    if data.primary_key and any(
-        key_column not in column_names for key_column in data.primary_key
-    ):
-        raise DJInvalidInputException(
-            f"Some columns in the primary key [{','.join(data.primary_key)}] "
-            f"were not found in the list of available columns for the node {node.name}.",
-        )
-    if data.primary_key:
-        for key_column in data.primary_key:
-            if key_column in column_names:  # pragma: no cover
-                await set_node_column_attributes(
-                    session,
-                    node,
-                    key_column,
-                    [
-                        AttributeTypeIdentifier(
-                            name=ColumnAttributes.PRIMARY_KEY.value,
-                            namespace="system",
-                        ),
-                    ],
-                    current_user=current_user,
-                    save_history=save_history,
-                )
     return await Node.get_by_name(  # type: ignore
         session,
         node.name,
@@ -563,13 +555,6 @@ async def create_node_revision(
         .all()
     )
     node_revision.parents = parent_refs
-
-    _logger.info(
-        "Parent nodes for %s (%s): %s",
-        data.name,
-        node_revision.version,
-        [p.name for p in node_revision.parents],
-    )
     node_revision.columns = node_validator.columns or []
     if node_revision.type == NodeType.METRIC:
         if node_revision.columns:
@@ -650,41 +635,48 @@ async def create_cube_node_revision(
     return node_revision
 
 
-async def derive_frozen_measures(
-    session: AsyncSession,
-    node_revision: NodeRevision,
-) -> list[FrozenMeasure]:
+async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
     """
     Find or create frozen measures
     """
-    extractor = MetricComponentExtractor.from_query_string(node_revision.query.lower())
-    measures, derived_sql = extractor.extract()
-    node_revision.derived_expression = str(derived_sql)
-
-    frozen_measures: list[FrozenMeasure] = []
-    if not node_revision.parents:
-        return frozen_measures  # pragma: no cover
-
-    await session.refresh(node_revision.parents[0], ["current"])
-    for measure in measures:
-        frozen_measure = await FrozenMeasure.get_by_name(
+    async with session_context() as session:
+        node_revision = await NodeRevision.get_by_id(
             session=session,
-            name=measure.name,
+            node_revision_id=node_revision_id,
+            options=[
+                joinedload(NodeRevision.parents).joinedload(Node.current),
+            ],
         )
-        if not frozen_measure and measure.aggregation:
-            frozen_measure = FrozenMeasure(
+        extractor = MetricComponentExtractor.from_query_string(
+            node_revision.query.lower(),
+        )
+        measures, derived_sql = extractor.extract()
+        node_revision.derived_expression = str(derived_sql)
+
+        frozen_measures: list[FrozenMeasure] = []
+        if not node_revision.parents:
+            return frozen_measures  # pragma: no cover
+
+        await session.refresh(node_revision.parents[0], ["current"])
+        for measure in measures:
+            frozen_measure = await FrozenMeasure.get_by_name(
+                session=session,
                 name=measure.name,
-                upstream_revision_id=node_revision.parents[0].current.id,
-                expression=measure.expression,
-                aggregation=measure.aggregation,
-                rule=measure.rule,
-                used_by_node_revisions=[],
             )
-            session.add(frozen_measure)
-        if frozen_measure:
-            frozen_measure.used_by_node_revisions.append(node_revision)
-            frozen_measures.append(frozen_measure)
-    return frozen_measures
+            if not frozen_measure and measure.aggregation:
+                frozen_measure = FrozenMeasure(
+                    name=measure.name,
+                    upstream_revision_id=node_revision.parents[0].current.id,
+                    expression=measure.expression,
+                    aggregation=measure.aggregation,
+                    rule=measure.rule,
+                    used_by_node_revisions=[],
+                )
+                session.add(frozen_measure)
+            if frozen_measure:
+                frozen_measure.used_by_node_revisions.append(node_revision)
+                frozen_measures.append(frozen_measure)
+        return frozen_measures
 
 
 async def save_node(
@@ -722,11 +714,6 @@ async def save_node(
     )
     await session.commit()
     await session.refresh(node, ["current"])
-
-    # For metric nodes, derive the referenced frozen measures and save them
-    if node.type == NodeType.METRIC:
-        await derive_frozen_measures(session, node_revision)
-
     newly_valid_nodes = await resolve_downstream_references(
         session=session,
         node_revision=node_revision,
