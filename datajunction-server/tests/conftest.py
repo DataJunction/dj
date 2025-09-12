@@ -42,6 +42,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
 
+from fastapi import BackgroundTasks
+
 from datajunction_server.api.main import app
 from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.internal.seed import seed_default_catalogs
@@ -69,6 +71,38 @@ from datajunction_server.utils import (
 from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS, SERVICE_SETUP
 
 PostgresCluster = namedtuple("PostgresCluster", ["writer", "reader"])
+
+
+@pytest.fixture(scope="module")
+def module__background_tasks() -> Generator[
+    list[tuple[Callable, tuple, dict]],
+    None,
+    None,
+]:
+    original_add_task = BackgroundTasks.add_task
+    tasks = []
+
+    def fake_add_task(self, func, *args, **kwargs):
+        tasks.append((func, args, kwargs))
+        return None
+
+    BackgroundTasks.add_task = fake_add_task
+    yield tasks
+    BackgroundTasks.add_task = original_add_task
+
+
+@pytest.fixture
+def background_tasks() -> Generator[list[tuple[Callable, tuple, dict]], None, None]:
+    original_add_task = BackgroundTasks.add_task
+    tasks = []
+
+    def fake_add_task(self, func, *args, **kwargs):
+        tasks.append((func, args, kwargs))
+        return None
+
+    BackgroundTasks.add_task = fake_add_task
+    yield tasks
+    BackgroundTasks.add_task = original_add_task
 
 
 @pytest.fixture(scope="module")
@@ -408,6 +442,7 @@ async def client(
     session: AsyncSession,
     settings_no_qs: Settings,
     jwt_token: str,
+    background_tasks,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -439,6 +474,20 @@ async def client(
         with patch_session_contexts(session):
             test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
             test_client.app = app
+
+            # Wrap the request method to run background tasks after each request
+            original_request = test_client.request
+
+            async def wrapped_request(method, url, *args, **kwargs):
+                response = await original_request(method, url, *args, **kwargs)
+                for func, f_args, f_kwargs in background_tasks:
+                    result = func(*f_args, **f_kwargs)
+                    if asyncio.iscoroutine(result):
+                        await result
+                background_tasks.clear()
+                return response
+
+            test_client.request = wrapped_request
             yield test_client
 
     app.dependency_overrides.clear()
@@ -818,6 +867,7 @@ async def module__client(
     module__query_service_client: QueryServiceClient,
     module_mocker: MockerFixture,
     jwt_token: str,
+    module__background_tasks: list[tuple[Callable, tuple, dict]],
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -860,12 +910,22 @@ async def module__client(
         base_url="http://test",
     ) as test_client:
         with patch_session_contexts(module__session):
-            test_client.headers.update(
-                {
-                    "Authorization": f"Bearer {jwt_token}",
-                },
-            )
+            test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
             test_client.app = app
+
+            # Wrap the request method to run background tasks after each request
+            original_request = test_client.request
+
+            async def wrapped_request(method, url, *args, **kwargs):
+                response = await original_request(method, url, *args, **kwargs)
+                for func, f_args, f_kwargs in module__background_tasks:
+                    result = func(*f_args, **f_kwargs)
+                    if asyncio.iscoroutine(result):
+                        await result
+                module__background_tasks.clear()
+                return response
+
+            test_client.request = wrapped_request
             yield test_client
 
     app.dependency_overrides.clear()
