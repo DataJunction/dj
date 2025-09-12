@@ -1,4 +1,5 @@
 # mypy: ignore-errors
+import asyncio
 import collections
 import decimal
 import logging
@@ -2808,11 +2809,18 @@ class Query(TableExpression, UnNamed):
             else []
         ) + referenced_dimension_options
         if table_options:
-            for idx, option in enumerate(table_options):
-                if isinstance(option, Table):
-                    if option.name.name in cte_mapping:
-                        table_options[idx] = cte_mapping[option.name.name]
-                await table_options[idx].compile(ctx)
+
+            async def _maybe_replace_and_compile(idx, option, ctx):
+                if isinstance(option, Table) and option.name.name in cte_mapping:
+                    option = cte_mapping[option.name.name]
+                    table_options[idx] = option
+                return await option.compile(ctx)
+
+            tasks = [
+                _maybe_replace_and_compile(idx, option, ctx)
+                for idx, option in enumerate(table_options)
+            ]
+            await asyncio.gather(*tasks)
 
             expressions_to_compile = [
                 self.select.projection,
@@ -2830,13 +2838,14 @@ class Query(TableExpression, UnNamed):
                         col for expr in expression for col in expr.find_all(Column)
                     ]
 
-            with ThreadPoolExecutor() as executor:
-                list(
-                    executor.map(
-                        _compile,
-                        [(col, table_options) for col in columns_to_compile],
-                    ),
-                )
+            if columns_to_compile:
+                with ThreadPoolExecutor() as executor:
+                    list(
+                        executor.map(
+                            _compile,
+                            [(col, table_options) for col in columns_to_compile],
+                        ),
+                    )
 
         for child in self.children:
             if child is not self and not child.is_compiled():

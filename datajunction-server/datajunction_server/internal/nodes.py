@@ -640,13 +640,18 @@ async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
     Find or create frozen measures
     """
     async with session_context() as session:
-        node_revision = await NodeRevision.get_by_id(
-            session=session,
-            node_revision_id=node_revision_id,
-            options=[
-                joinedload(NodeRevision.parents).joinedload(Node.current),
-            ],
+        node_revision = cast(
+            NodeRevision,
+            await NodeRevision.get_by_id(
+                session=session,
+                node_revision_id=node_revision_id,
+                options=[
+                    joinedload(NodeRevision.parents).joinedload(Node.current),
+                ],
+            ),
         )
+        if not node_revision:
+            raise DJNodeNotFound(f"Node revision with id {node_revision_id} not found")
         extractor = MetricComponentExtractor.from_query_string(
             node_revision.query.lower(),
         )
@@ -676,6 +681,7 @@ async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
             if frozen_measure:
                 frozen_measure.used_by_node_revisions.append(node_revision)
                 frozen_measures.append(frozen_measure)
+        await session.commit()
         return frozen_measures
 
 
