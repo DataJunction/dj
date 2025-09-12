@@ -2,13 +2,14 @@
 Helper methods for namespaces endpoints.
 """
 
+from collections import defaultdict
 import logging
 import os
 import re
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Tuple
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -22,14 +23,22 @@ from datajunction_server.errors import (
     DJDoesNotExistException,
     DJInvalidInputException,
 )
+from datajunction_server.models.namespace import (
+    ImpactedNode,
+    HardDeleteResponse,
+    ImpactedNodes,
+)
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.nodes import (
     get_single_cube_revision_metadata,
-    hard_delete_node,
 )
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.sql.dag import topological_sort
+from datajunction_server.sql.dag import (
+    get_downstream_nodes,
+    get_nodes_with_dimension,
+    topological_sort,
+)
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
 
@@ -244,7 +253,7 @@ async def hard_delete_namespace(
     current_user: User,
     save_history: Callable,
     cascade: bool = False,
-):
+) -> HardDeleteResponse:
     """
     Hard delete a node namespace.
     """
@@ -254,9 +263,7 @@ async def hard_delete_namespace(
                 select(Node.name)
                 .where(
                     or_(
-                        Node.namespace.like(
-                            f"{namespace}.%",
-                        ),
+                        Node.namespace.like(f"{namespace}.%"),
                         Node.namespace == namespace,
                     ),
                 )
@@ -276,25 +283,88 @@ async def hard_delete_namespace(
                 " this action cannot be undone."
             ),
         )
+    impacts = {
+        node_name: {"type": "node in namespace", "status": "hard deleted"}
+        for node_name in node_names
+    }
 
-    impacts = {}
-    for node_name in node_names:
-        impacts[node_name] = await hard_delete_node(
-            node_name,
-            session,
-            current_user=current_user,
-            save_history=save_history,
+    # Track downstream nodes affected by deletions
+    impacted_downstreams = defaultdict(list)
+    impacted_links = defaultdict(list)
+    nodes = await Node.get_by_names(session, node_names)
+    for node in nodes:
+        # Downstream links
+        if node.type == NodeType.DIMENSION:
+            for downstream_link in await get_nodes_with_dimension(
+                session,
+                node,
+                level=2,
+            ):
+                if downstream_link.name not in node_names:
+                    impacted_links[downstream_link.name].append(node.name)
+
+        # Downstream query references
+        for downstream_node in await get_downstream_nodes(
+            session=session,
+            node_name=node.name,
+        ):
+            if downstream_node.name not in node_names:
+                impacted_downstreams[downstream_node.name].append(node.name)
+
+    # Save history and update impacts for downstream nodes
+    for impacted_node, causes in impacted_downstreams.items():
+        await save_history(
+            event=History(
+                entity_type=EntityType.DEPENDENCY,
+                entity_name=impacted_node,
+                activity_type=ActivityType.DELETE,
+                user=current_user.username,
+                details={"caused_by": causes},
+            ),
+            session=session,
         )
 
+    for impacted_node, causes in impacted_links.items():
+        await save_history(
+            event=History(
+                entity_type=EntityType.DEPENDENCY,
+                entity_name=impacted_node,
+                activity_type=ActivityType.DELETE,
+                user=current_user.username,
+                details={"caused_by": causes},
+            ),
+            session=session,
+        )
+
+    # Delete the nodes
+    await session.execute(delete(Node).where(Node.name.in_(node_names)))
+    await session.commit()
+
+    # Delete namespaces and record impact
     namespaces = await list_namespaces_in_hierarchy(session, namespace)
+    deleted_namespaces = [ns.namespace for ns in namespaces]
     for _namespace in namespaces:
         impacts[_namespace.namespace] = {
-            "namespace": _namespace.namespace,
-            "status": "deleted",
+            "type": "namespace",
+            "status": "hard deleted",
         }
         await session.delete(_namespace)
     await session.commit()
-    return impacts
+
+    return HardDeleteResponse(
+        deleted_namespaces=deleted_namespaces,
+        deleted_nodes=node_names,
+        impacted=ImpactedNodes(
+            downstreams=[
+                ImpactedNode(name=downstream, caused_by=caused_by)
+                for downstream, caused_by in impacted_downstreams.items()
+            ],
+            links=[
+                ImpactedNode(name=linked, caused_by=caused_by)
+                for linked, caused_by in impacted_links.items()
+            ],
+        ),
+    )
 
 
 def _get_dir_and_filename(
