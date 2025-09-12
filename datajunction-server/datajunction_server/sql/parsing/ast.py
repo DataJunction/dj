@@ -11,6 +11,7 @@ from enum import Enum
 from functools import reduce
 from itertools import chain, zip_longest
 import re
+import time
 from typing import (
     Any,
     Callable,
