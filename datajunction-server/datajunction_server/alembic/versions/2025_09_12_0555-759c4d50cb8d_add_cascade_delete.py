@@ -1,9 +1,9 @@
-"""Add cascade delete
+"""
+Add cascade delete
 
 Revision ID: 759c4d50cb8d
 Revises: b6398ba852b3
 Create Date: 2025-09-12 05:55:04.580692+00:00
-
 """
 # pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
 

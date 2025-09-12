@@ -1034,18 +1034,23 @@ async def get_nodes_with_dimension(
     session: AsyncSession,
     dimension_node: Node,
     node_types: Optional[List[NodeType]] = None,
+    level: int = -1,
 ) -> List[NodeRevision]:
     """
     Find all nodes that can be joined to a given dimension
     """
-    to_process = [dimension_node]
+    to_process: list[tuple[Node, int]] = [(dimension_node, 0)]  # (node, depth)
     processed: Set[str] = set()
     final_set: Set[NodeRevision] = set()
     while to_process:
-        current_node = to_process.pop()
+        current_node, depth = to_process.pop()
         if current_node.name in processed:
             continue
         processed.add(current_node.name)
+
+        # If we're past the allowed depth, stop traversing further
+        if level >= 0 and depth > level:
+            continue
 
         # Dimension nodes are used to expand the searchable graph by finding
         # the next layer of nodes that are linked to this dimension
@@ -1112,7 +1117,8 @@ async def get_nodes_with_dimension(
             )
             for node_rev in node_revisions + nodes_via_dimension_link:
                 if node_rev.name not in processed:  # pragma: no cover
-                    to_process.append(node_rev.node)
+                    print("(node_rev.node, depth + 1)", (node_rev.node.name, depth + 1))
+                    to_process.append((node_rev.node, depth + 1))
         else:
             # All other nodes are added to the result set
             current_node = await Node.get_by_name(  # type: ignore
@@ -1132,7 +1138,7 @@ async def get_nodes_with_dimension(
                     final_set.add(current_node.current)
                 for child in current_node.children:
                     if child.name not in processed:
-                        to_process.append(child.node)
+                        to_process.append((child.node, depth + 1))
     return list(final_set)
 
 
