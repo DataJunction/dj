@@ -1,3 +1,4 @@
+import asyncio
 from unittest import mock
 from unittest.mock import patch
 
@@ -188,6 +189,7 @@ async def test_build_cache_key(
 async def test_measures_get_or_load(
     module__session: AsyncSession,
     module__client_with_roads: AsyncClient,
+    module__background_tasks,
 ):
     """
     Test measures SQL get_or_load.
@@ -225,8 +227,10 @@ async def test_measures_get_or_load(
         assert expected_result == [mock.ANY]
 
         # Run tasks, should store
-        for task in background.tasks:
-            await task()
+        for func, f_args, f_kwargs in module__background_tasks:
+            result = func(*f_args, **f_kwargs)
+            if asyncio.iscoroutine(result):
+                await result
         assert cache.get(key) == expected_result
 
         # `no-store` => should hit cache, but not store
