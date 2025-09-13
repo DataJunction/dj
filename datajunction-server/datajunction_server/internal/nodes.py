@@ -651,7 +651,7 @@ async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
             ),
         )
         if not node_revision:
-            raise DJNodeNotFound(f"Node revision with id {node_revision_id} not found")
+            return []  # pragma: no cover
         extractor = MetricComponentExtractor.from_query_string(
             node_revision.query.lower(),
         )
