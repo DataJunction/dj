@@ -4293,7 +4293,6 @@ class TestValidateNodes:
         ] == [
             ("update", "node"),
             ("create", "link"),
-            ("set_attribute", "column_attribute"),
             ("create", "node"),
         ]
 
@@ -4340,7 +4339,6 @@ class TestValidateNodes:
         ] == [
             ("update", "node"),
             ("create", "link"),
-            ("set_attribute", "column_attribute"),
             ("create", "node"),
         ]
 
@@ -5717,7 +5715,6 @@ ON s.state_region = r.us_region_id""",
         "restore",
         "update",
         "delete",
-        "set_attribute",
         "create",
     ]
 

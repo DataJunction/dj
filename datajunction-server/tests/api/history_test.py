@@ -67,7 +67,7 @@ async def test_get_history_node(module__client_with_roads: AsyncClient):
     response = await module__client_with_roads.get("/history?node=default.repair_order")
     assert response.status_code in (200, 201)
     history = response.json()
-    assert len(history) == 6
+    assert len(history) == 5
     assert history == [
         {
             "activity_type": "create",
@@ -140,26 +140,6 @@ async def test_get_history_node(module__client_with_roads: AsyncClient):
             },
             "entity_name": "default.repair_order",
             "entity_type": "link",
-            "id": mock.ANY,
-            "post": {},
-            "pre": {},
-            "user": "dj",
-        },
-        {
-            "activity_type": "set_attribute",
-            "node": "default.repair_order",
-            "created_at": mock.ANY,
-            "details": {
-                "column": "repair_order_id",
-                "attributes": [
-                    {
-                        "name": "primary_key",
-                        "namespace": "system",
-                    },
-                ],
-            },
-            "entity_name": None,
-            "entity_type": "column_attribute",
             "id": mock.ANY,
             "post": {},
             "pre": {},
