@@ -829,7 +829,7 @@ async def module__client_example_loader(
     return _load_examples
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
 def session_manager_per_worker():
     """
     Create a unique session manager per pytest-xdist worker.
