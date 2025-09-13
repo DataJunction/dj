@@ -10,7 +10,7 @@ import uuid
 
 from fastapi import Depends, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy import select
 from datajunction_server.database.user import User
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.errors import DJDoesNotExistException
@@ -242,3 +242,23 @@ async def get_deployment_status(
         status=deployment.status.value,
         results=deployment.deployment_results,
     )
+
+
+@router.get("/deployments", response_model=list[DeploymentInfo])
+async def list_deployments(
+    namespace: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> list[DeploymentInfo]:
+    statement = select(Deployment)
+    if namespace:
+        statement = statement.where(Deployment.namespace == namespace)
+    deployments = (await session.execute(statement)).scalars().all()
+    return [
+        DeploymentInfo(
+            uuid=str(deployment.uuid),
+            namespace=deployment.namespace,
+            status=deployment.status,
+            results=deployment.deployment_results,
+        )
+        for deployment in deployments
+    ]

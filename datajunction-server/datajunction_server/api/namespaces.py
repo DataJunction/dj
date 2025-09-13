@@ -9,14 +9,11 @@ from typing import Callable, Dict, List, Optional
 from fastapi import Depends, Query, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
-from datajunction_server.errors import (
-    DJAlreadyExistsException,
-)
+from datajunction_server.errors import DJAlreadyExistsException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     validate_access,
