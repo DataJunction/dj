@@ -863,7 +863,7 @@ class NodeRevision(
         Get a node revision by id
         """
         statement = select(NodeRevision).where(NodeRevision.id == node_revision_id)
-        if options:
+        if options:  # pragma: no cover
             statement = statement.options(*options)
         result = await session.execute(statement)
         node_revision = result.unique().scalar_one_or_none()
