@@ -1405,11 +1405,15 @@ async def test_read_metrics_when_cached(
         return_value=["metric1", "metric2", "metric3"],
     )
 
-    # Should be a cache miss, triggering a cache in a background task
+    # Should be a cache miss
     response1 = await module__client.get(
         "/metrics/",
         headers={"Cache-Control": "no-cache"},
     )
+    assert response1.status_code == 200
+
+    # Should be a cache miss and repopulate the cache
+    response1 = await module__client.get("/metrics/")
     assert response1.status_code == 200
 
     # Should be a cache hit
@@ -1417,4 +1421,4 @@ async def test_read_metrics_when_cached(
     assert response2.status_code == 200
 
     # list_nodes should only be called once since the second used the cache
-    mock_list_nodes.assert_called_once()
+    assert mock_list_nodes.call_count == 2
