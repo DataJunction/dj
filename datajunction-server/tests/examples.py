@@ -10,6 +10,7 @@ from datajunction_server.sql.parsing.types import (
     IntegerType,
     StringType,
     TimestampType,
+    FloatType,
 )
 from datajunction_server.typing import QueryState
 
@@ -2491,6 +2492,80 @@ COLUMN_MAPPINGS = {
         Column(name="dispatched_date", type=TimestampType(), order=5),
         Column(name="dispatcher_id", type=IntegerType(), order=6),
         Column(name="rating", type=IntegerType(), order=7),
+    ],
+    "default.roads.municipality": [
+        Column(name="municipality_id", type=StringType(), order=0),
+        Column(name="contact_name", type=StringType(), order=1),
+        Column(name="contact_title", type=StringType(), order=2),
+        Column(name="local_region", type=StringType(), order=3),
+        Column(name="phone", type=StringType(), order=4),
+        Column(name="state_id", type="int", order=5),
+    ],
+    "default.roads.repair_order_details": [
+        Column(name="repair_order_id", type=IntegerType(), order=0),
+        Column(name="repair_type_id", type=IntegerType(), order=1),
+        Column(name="price", type=FloatType(), order=2),
+        Column(name="quantity", type=IntegerType(), order=3),
+        Column(name="discount", type=FloatType(), order=4),
+    ],
+    "default.roads.repair_type": [
+        Column(name="repair_type_id", type=IntegerType(), order=0),
+        Column(name="repair_type_name", type=StringType(), order=1),
+        Column(name="contractor_id", type=IntegerType(), order=2),
+    ],
+    "default.roads.contractors": [
+        Column(name="contractor_id", type=IntegerType(), order=0),
+        Column(name="company_name", type=StringType(), order=1),
+        Column(name="contact_name", type=StringType(), order=2),
+        Column(name="contact_title", type=StringType(), order=3),
+        Column(name="address", type=StringType(), order=4),
+        Column(name="city", type=StringType(), order=5),
+        Column(name="state", type=StringType(), order=6),
+        Column(name="postal_code", type=StringType(), order=7),
+        Column(name="country", type=StringType(), order=8),
+        Column(name="phone", type=StringType(), order=9),
+    ],
+    "default.roads.municipality_municipality_type": [
+        Column(name="municipality_id", type=StringType(), order=0),
+        Column(name="municipality_type_id", type=StringType(), order=1),
+    ],
+    "default.roads.municipality_type": [
+        Column(name="municipality_type_id", type=StringType(), order=0),
+        Column(name="municipality_type_desc", type=StringType(), order=1),
+    ],
+    "default.roads.dispatchers": [
+        Column(name="dispatcher_id", type=IntegerType(), order=0),
+        Column(name="company_name", type=StringType(), order=1),
+        Column(name="phone", type=StringType(), order=2),
+    ],
+    "default.roads.hard_hats": [
+        Column(name="hard_hat_id", type=IntegerType(), order=0),
+        Column(name="last_name", type=StringType(), order=1),
+        Column(name="first_name", type=StringType(), order=2),
+        Column(name="title", type=StringType(), order=3),
+        Column(name="birth_date", type=TimestampType(), order=4),
+        Column(name="hire_date", type=TimestampType(), order=5),
+        Column(name="address", type=StringType(), order=6),
+        Column(name="city", type=StringType(), order=7),
+        Column(name="state", type=StringType(), order=8),
+        Column(name="postal_code", type=StringType(), order=9),
+        Column(name="country", type=StringType(), order=10),
+        Column(name="manager", type=IntegerType(), order=11),
+        Column(name="contractor_id", type=IntegerType(), order=12),
+    ],
+    "default.roads.hard_hat_state": [
+        Column(name="hard_hat_id", type=IntegerType(), order=0),
+        Column(name="state_id", type=StringType(), order=1),
+    ],
+    "default.roads.us_states": [
+        Column(name="state_id", type=IntegerType(), order=0),
+        Column(name="state_name", type=StringType(), order=1),
+        Column(name="state_abbr", type=StringType(), order=2),
+        Column(name="state_region", type=IntegerType(), order=3),
+    ],
+    "default.roads.us_region": [
+        Column(name="us_region_id", type=IntegerType(), order=0),
+        Column(name="us_region_description", type=StringType(), order=1),
     ],
     "public.main.view_foo": [
         Column(name="one", type=IntegerType(), order=0),

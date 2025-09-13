@@ -82,6 +82,17 @@ class Column(Base):  # type: ignore
         cascade="all,delete",
     )
 
+    def to_spec(self):
+        from datajunction_server.models.deployment import ColumnSpec
+
+        return ColumnSpec(
+            name=self.name,
+            type=str(self.type),
+            display_name=self.display_name,
+            description=self.description,
+            attributes=self.attribute_names(),
+        )
+
     def identifier(self) -> Tuple[str, ColumnType]:
         """
         Unique identifier for this column.

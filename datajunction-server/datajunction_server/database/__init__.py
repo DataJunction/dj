@@ -6,6 +6,7 @@ __all__ = [
     "Catalog",
     "Collection",
     "Database",
+    "Deployment",
     "DimensionLink",
     "Engine",
     "History",
@@ -36,3 +37,4 @@ from datajunction_server.database.queryrequest import QueryRequest
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User
 from datajunction_server.models.history import History
+from datajunction_server.database.deployment import Deployment
