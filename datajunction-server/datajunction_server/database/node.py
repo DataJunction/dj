@@ -852,6 +852,23 @@ class NodeRevision(
         )
         return str(tree)
 
+    @classmethod
+    async def get_by_id(
+        cls,
+        session: AsyncSession,
+        node_revision_id: int,
+        options: list[ExecutableOption] = None,
+    ) -> Optional["NodeRevision"]:
+        """
+        Get a node revision by id
+        """
+        statement = select(NodeRevision).where(NodeRevision.id == node_revision_id)
+        if options:  # pragma: no cover
+            statement = statement.options(*options)
+        result = await session.execute(statement)
+        node_revision = result.unique().scalar_one_or_none()
+        return node_revision
+
     def check_metric(self):
         """
         Check if the Node defines a metric.
