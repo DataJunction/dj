@@ -8,18 +8,18 @@ on:
         type: choice
         description: "Select version cycle"
         required: true
-        default: alpha
+        default: patch
         options:
           # Uncomment next item when ready to switch:
           - alpha
-          # - patch
+          - patch
           # - minor
           # - major
 
 jobs:
   bump:
     env:
-      bump-type: ${{ github.event.inputs.bump || 'alpha' }}  # Default to alpha
+      bump-type: ${{ github.event.inputs.bump || 'patch' }}  # Default to patch
     strategy:
       fail-fast: false
       matrix:
@@ -85,13 +85,14 @@ jobs:
           yarn version --new-version $NEW_VERSION --no-git-tag-version
   
       #
-      # Docs (after alpha)
+      # Docs (after alpha) 
+      # TODO: fix and uncomment
       # 
-      - name: Update docs (for major, minor or patch release)
-        working-directory: ./docs
-        if: ${{ env.bump-type == 'major' || env.bump-type == 'minor' || env.bump-type == 'patch'}}
-        run: |
-          ./build-docs.sh $NEW_VERSION true
+      # - name: Update docs (for major, minor or patch release)
+      #   working-directory: ./docs
+      #   if: ${{ env.bump-type == 'major' || env.bump-type == 'minor' || env.bump-type == 'patch'}}
+      #   run: |
+      #     ./build-docs.sh $NEW_VERSION true
   
       #
       # Pull request
