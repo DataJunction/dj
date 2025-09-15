@@ -1087,6 +1087,8 @@ async def update_node_with_query(
         save_history=save_history,
         cache=cache,
     )
+
+    _logger.info("Session (not in context): %s", session)
     await session.refresh(node, ["current"])
     await session.refresh(node.current, ["materializations"])  # type: ignore
     await session.refresh(node, ["owners"])  # type: ignore
@@ -1353,91 +1355,101 @@ async def _propagate_update_downstream(
     - altered column types: may invalidate downstream nodes
     - new columns: won't affect downstream nodes
     """
-    async with session_context() as session:
-        _logger.info("Propagating update of node %s downstream", node.name)
-        downstreams = await get_downstream_nodes(
-            session,
-            node.name,
-            include_deactivated=False,
-            include_cubes=False,
-        )
-        downstreams = topological_sort(downstreams)
+    # async with session_context() as session:
+    _logger.info("Session: %s", session)
+    _logger.info("Propagating update of node %s downstream", node.name)
+    downstreams = await get_downstream_nodes(
+        session,
+        node.name,
+        include_deactivated=False,
+        include_cubes=False,
+    )
+    downstreams = topological_sort(downstreams)
+    _logger.info(
+        "Node %s updated — revalidating %s downstreams",
+        node.name,
+        len(downstreams),
+    )
+
+    # The downstreams need to be sorted topologically in order for the updates to be done
+    # in the right order. Otherwise it is possible for a leaf node like a metric to be updated
+    # before its upstreams are updated.
+    for idx, downstream in enumerate(downstreams):
+        original_node_revision = downstream.current
+        previous_status = original_node_revision.status
         _logger.info(
-            "Node %s updated — revalidating %s downstreams",
-            node.name,
+            "[%s/%s] Revalidating downstream %s due to update of node %s",
+            idx + 1,
             len(downstreams),
+            downstream.name,
+            node.name,
+        )
+        node_validator = await revalidate_node(
+            downstream.name,
+            session,
+            current_user=current_user,
+            save_history=save_history,
+        )
+        await session.commit()
+        await session.refresh(downstream, ["current"])
+        _logger.info(
+            "Node %s revalidated — status: %s %s %a",
+            downstream.name,
+            node_validator.status,
+            downstream.current.status,
+            downstream.current_version,
         )
 
-        # The downstreams need to be sorted topologically in order for the updates to be done
-        # in the right order. Otherwise it is possible for a leaf node like a metric to be updated
-        # before its upstreams are updated.
-        for idx, downstream in enumerate(downstreams):
-            original_node_revision = downstream.current
-            previous_status = original_node_revision.status
-            _logger.info(
-                "[%s/%s] Revalidating downstream %s due to update of node %s",
-                idx + 1,
-                len(downstreams),
-                downstream.name,
-                node.name,
-            )
-            node_validator = await revalidate_node(
-                downstream.name,
-                session,
-                current_user=current_user,
-                save_history=save_history,
-            )
-
-            # Reset the upstreams DAG cache of any downstream nodes
-            if cache:
-                upstream_cache_key = downstream.upstream_cache_key()
-                results = cache.get(upstream_cache_key)
-                if results is not None:
-                    _logger.info(
-                        "Clearing upstream cache for node %s due to update of node %s (cache key: %s)",
-                        downstream.name,
-                        node.name,
-                        upstream_cache_key,
-                    )
-                    cache.delete(upstream_cache_key)
-
-            # Record history event
-            if (
-                original_node_revision.version != downstream.current_version
-                or previous_status != node_validator.status
-            ):
-                await save_history(
-                    event=History(
-                        entity_type=EntityType.NODE,
-                        entity_name=downstream.name,
-                        node=downstream.name,
-                        activity_type=ActivityType.UPDATE,
-                        details={
-                            "changes": {
-                                "updated_columns": sorted(
-                                    list(node_validator.updated_columns),
-                                ),
-                            },
-                            "upstream": {
-                                "node": node.name,
-                                "version": node.current_version,
-                            },
-                            "reason": f"Caused by update of `{node.name}` to "
-                            f"{node.current_version}",
-                        },
-                        pre={
-                            "status": previous_status,
-                            "version": original_node_revision.version,
-                        },
-                        post={
-                            "status": node_validator.status,
-                            "version": downstream.current_version,
-                        },
-                        user=current_user.username,
-                    ),
-                    session=session,
+        # Reset the upstreams DAG cache of any downstream nodes
+        if cache:
+            upstream_cache_key = downstream.upstream_cache_key()
+            results = cache.get(upstream_cache_key)
+            if results is not None:
+                _logger.info(
+                    "Clearing upstream cache for node %s due to update of node %s (cache key: %s)",
+                    downstream.name,
+                    node.name,
+                    upstream_cache_key,
                 )
-            await session.commit()
+                cache.delete(upstream_cache_key)
+
+        # Record history event
+        if (
+            original_node_revision.version != downstream.current_version
+            or previous_status != node_validator.status
+        ):
+            await save_history(
+                event=History(
+                    entity_type=EntityType.NODE,
+                    entity_name=downstream.name,
+                    node=downstream.name,
+                    activity_type=ActivityType.UPDATE,
+                    details={
+                        "changes": {
+                            "updated_columns": sorted(
+                                list(node_validator.updated_columns),
+                            ),
+                        },
+                        "upstream": {
+                            "node": node.name,
+                            "version": node.current_version,
+                        },
+                        "reason": f"Caused by update of `{node.name}` to "
+                        f"{node.current_version}",
+                    },
+                    pre={
+                        "status": previous_status,
+                        "version": original_node_revision.version,
+                    },
+                    post={
+                        "status": node_validator.status,
+                        "version": downstream.current_version,
+                    },
+                    user=current_user.username,
+                ),
+                session=session,
+            )
+        await session.commit()
 
 
 def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):

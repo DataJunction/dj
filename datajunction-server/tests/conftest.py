@@ -4,7 +4,7 @@ Fixtures for testing.
 
 import asyncio
 from collections import namedtuple
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import StaticPool, NullPool
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from datetime import timedelta
 import os
@@ -85,7 +85,6 @@ def module__background_tasks() -> Generator[
     tasks = []
 
     def fake_add_task(self, func, *args, **kwargs):
-        print("Adding background task:", func, args, kwargs)
         tasks.append((func, args, kwargs))
         return None
 
@@ -255,6 +254,10 @@ def create_session_factory(postgres_container) -> Awaitable[AsyncSession]:
     """
     Returns a factory function that creates a new AsyncSession each time it is called.
     """
+    print(
+        "Creating session factory with Postgres URL:",
+        postgres_container.get_connection_url(),
+    )
     engine = create_async_engine(
         url=postgres_container.get_connection_url(),
         poolclass=NullPool,
@@ -291,7 +294,7 @@ async def session(
     """
     engine = create_async_engine(
         url=postgres_container.get_connection_url(),
-        poolclass=NullPool,
+        poolclass=StaticPool,
     )
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
@@ -531,7 +534,8 @@ async def client(
 
         return _
 
-    app.dependency_overrides[get_session] = get_session_override
+    if use_patch:
+        app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
     app.dependency_overrides[validate_access] = default_validate_access
 
@@ -539,7 +543,7 @@ async def client(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as test_client:
-        with patch_session_contexts(session_factory, use_patch=use_patch):
+        with patch_session_contexts(session_factory):
             test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
             test_client.app = app
 
@@ -993,7 +997,6 @@ async def module__client(
                 response = await original_request(method, url, *args, **kwargs)
                 for func, f_args, f_kwargs in module__background_tasks:
                     result = func(*f_args, **f_kwargs)
-                    print("Running background task:", func, f_args, f_kwargs)
                     if asyncio.iscoroutine(result):
                         await result
                 module__background_tasks.clear()
@@ -1014,7 +1017,7 @@ async def module__session(
     """
     engine = create_async_engine(
         url=module__postgres_container.get_connection_url(),
-        poolclass=NullPool,
+        poolclass=StaticPool,
     )
     async with engine.begin() as conn:
         await conn.execute(text(""))

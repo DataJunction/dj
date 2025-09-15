@@ -1364,7 +1364,7 @@ async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
 @pytest.mark.xdist_group(name="deployments")
 class TestDeployments:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("client", [False], indirect=True)
+    # @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_deploy_failed_on_non_existent_upstream_deps(
         self,
         client,
@@ -1397,7 +1397,7 @@ class TestDeployments:
         }
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("client", [False], indirect=True)
+    # @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_deploy_failed_on_non_existent_link_deps(
         self,
         client,
@@ -1430,7 +1430,7 @@ class TestDeployments:
         }
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("client", [False], indirect=True)
+    # @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_deploy_failed_with_bad_node_spec_pk(
         self,
         client,
@@ -1509,7 +1509,7 @@ class TestDeployments:
         }
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("client", [False], indirect=True)
+    # # @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_deploy_failed_with_bad_node_spec_links(
         self,
         client,
@@ -1596,7 +1596,7 @@ class TestDeployments:
         }
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("client", [False], indirect=True)
+    # @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_deploy_succeeds_with_existing_deps(
         self,
         client,
@@ -1666,7 +1666,7 @@ class TestDeployments:
         # deploying a new link should trigger a redeploy of the node it is linked from
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("client", [False], indirect=True)
+    # @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_roads_deployment(self, client, roads_nodes):
         namespace = "base"
         data = await deploy_and_wait(
@@ -1957,7 +1957,7 @@ class TestDeployments:
 
 
 @pytest.mark.asyncio
-async def test_node_to_spec_source(module__session, client_with_roads):
+async def test_node_to_spec_source(module__session, module__client_with_roads):
     """
     Test that a source node can be converted to a spec correctly
     """
@@ -2037,7 +2037,7 @@ async def test_node_to_spec_source(module__session, client_with_roads):
 
 
 @pytest.mark.asyncio
-async def test_node_to_spec_transform(module__session, client_with_roads):
+async def test_node_to_spec_transform(module__session, module__client_with_roads):
     """
     Test that a transform node can be converted to a spec correctly
     """
@@ -2083,7 +2083,7 @@ async def test_node_to_spec_transform(module__session, client_with_roads):
 
 
 @pytest.mark.asyncio
-async def test_node_to_spec_dimension(module__session, client_with_roads):
+async def test_node_to_spec_dimension(module__session, module__client_with_roads):
     """
     Test that a dimension node can be converted to a spec correctly
     """
@@ -2113,7 +2113,7 @@ async def test_node_to_spec_dimension(module__session, client_with_roads):
 
 
 @pytest.mark.asyncio
-async def test_node_to_spec_metric(module__session, client_with_roads):
+async def test_node_to_spec_metric(module__session, module__client_with_roads):
     """
     Test that a metric node can be converted to a spec correctly
     """
