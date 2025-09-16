@@ -1,18 +1,15 @@
 import asyncio
 import json
-import random
 from unittest import mock
 from datajunction_server.internal.deployment import (
-    extract_node_graph,
     safe_task,
-    topological_levels,
 )
 from datajunction_server.models.deployment import (
     ColumnSpec,
     DeploymentResult,
     DeploymentSpec,
     DeploymentStatus,
-    NodeSpec,
+    DimensionReferenceLinkSpec,
     TransformSpec,
     SourceSpec,
     MetricSpec,
@@ -43,224 +40,6 @@ def patch_effective_writer_concurrency():
         return_value=1,
     ):
         yield
-
-
-@pytest.fixture
-def basic_nodes():
-    """
-    A basic set of nodes for testing
-    """
-    transform_node = TransformSpec(
-        name="example.transform_node",
-        node_type=NodeType.TRANSFORM,
-        query="SELECT id, name FROM ${prefix}catalog.facts.clicks",
-    )
-    source_node = SourceSpec(
-        name="catalog.facts.clicks",
-        node_type=NodeType.SOURCE,
-        table="catalog.facts.clicks",
-    )
-    metric_node = MetricSpec(
-        name="example.metric_node",
-        node_type=NodeType.METRIC,
-        query="SELECT SUM(value) FROM ${prefix}example.transform_node",
-    )
-    dimension_node = DimensionSpec(
-        name="example.dimension_node",
-        node_type=NodeType.DIMENSION,
-        query="SELECT id, category FROM catalog.dim.categories",
-        primary_key=["id"],
-    )
-    cube_node = CubeSpec(
-        name="example.cube_node",
-        node_type=NodeType.CUBE,
-        metrics=["${prefix}example.metric_node"],
-        dimensions=["${prefix}example.dimension_node.category"],
-    )
-    return [transform_node, source_node, metric_node, dimension_node, cube_node]
-
-
-def test_extract_node_graph(basic_nodes):
-    dag = extract_node_graph(basic_nodes)
-    assert dag == {
-        "catalog.facts.clicks": [],
-        "example.cube_node": [
-            "example.metric_node",
-            "example.dimension_node",
-        ],
-        "example.dimension_node": [
-            "catalog.dim.categories",
-        ],
-        "example.transform_node": ["catalog.facts.clicks"],
-        "example.metric_node": ["example.transform_node"],
-    }
-
-
-def test_topological_levels(basic_nodes):
-    dag = extract_node_graph(basic_nodes)
-    assert topological_levels(dag) == [
-        ["example.cube_node"],
-        ["example.dimension_node", "example.metric_node"],
-        ["catalog.dim.categories", "example.transform_node"],
-        ["catalog.facts.clicks"],
-    ]
-    assert topological_levels(dag, ascending=False) == [
-        ["catalog.facts.clicks"],
-        ["catalog.dim.categories", "example.transform_node"],
-        ["example.dimension_node", "example.metric_node"],
-        ["example.cube_node"],
-    ]
-
-
-def test_graph_complex():
-    # Base source nodes
-    clicks = SourceSpec(
-        name="catalog.facts.clicks",
-        node_type=NodeType.SOURCE,
-        table="catalog.facts.clicks",
-    )
-    users = SourceSpec(
-        name="catalog.dim.users",
-        node_type=NodeType.SOURCE,
-        table="catalog.dim.users",
-    )
-
-    # Transform nodes
-    transform_clicks = TransformSpec(
-        name="example.transform_clicks",
-        node_type=NodeType.TRANSFORM,
-        query="SELECT id, user_id FROM catalog.facts.clicks",
-    )
-    transform_users = TransformSpec(
-        name="example.transform_users",
-        node_type=NodeType.TRANSFORM,
-        query="SELECT id, country FROM catalog.dim.users",
-    )
-    combined_transform = TransformSpec(
-        name="example.combined_transform",
-        node_type=NodeType.TRANSFORM,
-        query="""
-            SELECT c.id, c.user_id, u.country
-            FROM example.transform_clicks c
-            JOIN example.transform_users u ON c.user_id = u.id
-        """,
-    )
-
-    # Metric nodes
-    metric_total = MetricSpec(
-        name="example.metric_total",
-        node_type=NodeType.METRIC,
-        query="SELECT SUM(amount) FROM example.combined_transform",
-    )
-    metric_per_country = MetricSpec(
-        name="example.metric_per_country",
-        node_type=NodeType.METRIC,
-        query="SELECT country, SUM(amount) FROM example.combined_transform GROUP BY country",
-    )
-
-    nodes = [
-        clicks,
-        users,
-        transform_clicks,
-        transform_users,
-        combined_transform,
-        metric_total,
-        metric_per_country,
-    ]
-
-    dag = extract_node_graph(nodes)
-
-    expected_dag = {
-        "catalog.dim.users": [],
-        "catalog.facts.clicks": [],
-        "example.transform_clicks": ["catalog.facts.clicks"],
-        "example.transform_users": ["catalog.dim.users"],
-        "example.combined_transform": [
-            "example.transform_clicks",
-            "example.transform_users",
-        ],
-        "example.metric_total": ["example.combined_transform"],
-        "example.metric_per_country": ["example.combined_transform"],
-    }
-
-    assert dag == expected_dag
-    assert topological_levels(dag) == [
-        [
-            "example.metric_per_country",
-            "example.metric_total",
-        ],
-        [
-            "example.combined_transform",
-        ],
-        [
-            "example.transform_clicks",
-            "example.transform_users",
-        ],
-        [
-            "catalog.dim.users",
-            "catalog.facts.clicks",
-        ],
-    ]
-
-
-def generate_random_dag(num_nodes: int = 10, max_deps: int = 3):
-    """
-    Generate a random DAG of nodes for testing extract_node_graph.
-    """
-    nodes: list[NodeSpec] = []
-
-    for i in range(num_nodes):
-        node_type = random.choice(
-            [NodeType.SOURCE, NodeType.TRANSFORM, NodeType.METRIC, NodeType.DIMENSION],
-        )
-        name = f"node_{i}"
-        # dependencies can only point to previous nodes to avoid cycles
-        possible_deps = [n.name for n in nodes]
-        num_deps = random.randint(0, min(max_deps, len(possible_deps)))
-        deps = random.sample(possible_deps, num_deps) if possible_deps else []
-
-        if node_type == NodeType.SOURCE:
-            nodes.append(SourceSpec(name=name, node_type=node_type, table=f"table_{i}"))
-        else:
-            # build query referencing dependencies (simplified)
-            if deps:
-                query = f"SELECT 1 AS col, 2 AS col2 FROM {deps[0]}"  # reference first dep as table
-                if len(deps) > 1:
-                    query += "".join(
-                        f" JOIN {dep} ON 1=1" for dep in deps[1:]
-                    )  # join others
-            else:
-                query = "SELECT 1 AS dummy"  # no dependencies
-            if node_type == NodeType.TRANSFORM:
-                nodes.append(TransformSpec(name=name, node_type=node_type, query=query))
-            elif node_type == NodeType.METRIC:
-                nodes.append(MetricSpec(name=name, node_type=node_type, query=query))
-            elif node_type == NodeType.DIMENSION:
-                nodes.append(
-                    DimensionSpec(
-                        name=name,
-                        node_type=node_type,
-                        query=query,
-                        primary_key=["col"],
-                    ),
-                )
-
-    return nodes
-
-
-@pytest.mark.skip(reason="For stress testing with a large random DAG")
-def test_random_dag():
-    nodes = generate_random_dag(num_nodes=1000, max_deps=30)
-    dag = extract_node_graph(nodes)
-
-    # sanity checks
-    for node in nodes:
-        assert (  # sources may have no deps
-            node.name in dag or node.node_type == NodeType.SOURCE
-        )
-        if node.name in dag:
-            for dep in dag[node.name]:
-                assert dep in [n.name for n in nodes]  # all deps are within nodes
 
 
 @pytest.fixture
@@ -1393,6 +1172,7 @@ class TestDeployments:
                     "deploy_type": "general",
                     "status": "failed",
                     "message": f"The following dependencies are not in the deployment and do not pre-exist in the system: {namespace}.default.hard_hats, {namespace}.default.us_state",
+                    "operation": "unknown",
                 },
             ],
         }
@@ -1426,6 +1206,7 @@ class TestDeployments:
                     "deploy_type": "general",
                     "status": "failed",
                     "message": f"The following dependencies are not in the deployment and do not pre-exist in the system: {namespace}.default.us_state",
+                    "operation": "unknown",
                 },
             ],
         }
@@ -1479,12 +1260,14 @@ class TestDeployments:
                     "message": "",
                     "name": f"{namespace}.default.hard_hats",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
@@ -1493,20 +1276,339 @@ class TestDeployments:
                     f"{namespace}.default.hard_hat.",
                     "name": f"{namespace}.default.hard_hat",
                     "status": "failed",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
                     "message": f"A node with name `{namespace}.default.hard_hat` does not exist.",
                     "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
                     "status": "failed",
+                    "operation": "create",
                 },
             ],
+        }
+
+    @pytest.mark.asyncio
+    async def test_deploy_with_dimension_link_removal(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Test that removing a dimension link from a node works as expected
+        """
+        namespace = "link_removal"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="""Hard hat dimension""",
+            query="""
+            SELECT
+                hard_hat_id,
+                state
+            FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="inner",
+                    join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
+                ),
+            ],
+        )
+        nodes_list = [dim_spec, default_hard_hats, default_us_states, default_us_state]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=nodes_list,
+            ),
+        )
+        assert data["status"] == "success"
+
+        # Remove the dimension link and redeploy
+        dim_spec.dimension_links = []
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert data["results"][-1] == {
+            "deploy_type": "link",
+            "message": "",
+            "name": "link_removal.default.hard_hat -> link_removal.default.us_state",
+            "operation": "delete",
+            "status": "success",
+        }
+
+    @pytest.mark.asyncio
+    async def test_deploy_with_reference_dimension_link(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Test that removing a dimension link from a node works as expected
+        """
+        namespace = "reference_link"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="""Hard hat dimension""",
+            query="""
+            SELECT
+                hard_hat_id,
+                state
+            FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            dimension_links=[
+                DimensionReferenceLinkSpec(
+                    node_column="state",
+                    dimension="${prefix}default.us_state.state_short",
+                ),
+            ],
+        )
+        nodes_list = [dim_spec, default_hard_hats, default_us_states, default_us_state]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert data["results"][-1] == {
+            "deploy_type": "link",
+            "message": "Reference link successfully deployed",
+            "name": "reference_link.default.hard_hat -> reference_link.default.us_state",
+            "operation": "create",
+            "status": "success",
+        }
+
+    @pytest.mark.asyncio
+    async def test_deploy_dimension_with_update(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Test that updating a dimension node's query works as expected
+        """
+        namespace = "node_update"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="""Hard hat dimension""",
+            query="""
+            SELECT
+                hard_hat_id,
+                state
+            FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="inner",
+                    join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
+                ),
+            ],
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    dim_spec,
+                    default_hard_hats,
+                    default_us_states,
+                    default_us_state,
+                ],
+            ),
+        )
+        assert data["status"] == "success"
+        dim_spec.query = """
+        SELECT
+            hard_hat_id,
+            state,
+            first_name,
+            last_name
+        FROM ${prefix}default.hard_hats
+        """
+        nodes_list = [dim_spec, default_hard_hats, default_us_states, default_us_state]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert len(data["results"]) == 5
+        assert all(res["status"] == "skipped" for res in data["results"][:3])
+        assert data["results"][3:] == [
+            {
+                "deploy_type": "node",
+                "name": f"{namespace}.default.hard_hat",
+                "status": "success",
+                "operation": "update",
+                "message": "",
+            },
+            {
+                "deploy_type": "link",
+                "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
+                "status": "success",
+                "operation": "update",
+                "message": "Join link successfully deployed",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_deploy_metric_with_update(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        Test that updating a metric node's works as expected
+        """
+        namespace = "metric_update"
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        # Bad query - metric should fail to deploy
+        default_avg_length_of_employment.query = """
+        SELECT hard_hat_id FROM ${prefix}default.hard_hat
+        """
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "failed"
+        assert data["results"][-1] == {
+            "deploy_type": "node",
+            "message": "Metric metric_update.default.avg_length_of_employment has an invalid "
+            "query, should have an aggregate expression",
+            "name": "metric_update.default.avg_length_of_employment",
+            "operation": "update",
+            "status": "failed",
+        }
+
+        # Fix query - metric should deploy successfully
+        default_avg_length_of_employment.query = """
+        SELECT COUNT(hard_hat_id) FROM ${prefix}default.hard_hat
+        """
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert data["results"][-1] == {
+            "deploy_type": "node",
+            "message": "",
+            "name": "metric_update.default.avg_length_of_employment",
+            "operation": "update",
+            "status": "success",
+        }
+
+    @pytest.mark.asyncio
+    async def test_deploy_cube_with_update(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        Test that updating a cube node's works as expected
+        """
+        namespace = "cube_update"
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="""Cube for analyzing repair orders""",
+            dimensions=[
+                "${prefix}default.hard_hat.state",
+            ],
+            metrics=[
+                "${prefix}default.avg_length_of_employment",
+            ],
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        # Update cube to have a bad dimension - cube should fail to deploy
+        cube.dimensions = [
+            "${prefix}default.hard_hat.state",
+            "${prefix}default.us_state.state_region",
+            "${prefix}default.us_state.non_existent_column",
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "failed"
+        assert data["results"][-1] == {
+            "deploy_type": "node",
+            "message": mock.ANY,
+            "name": "cube_update.default.repairs_cube",
+            "operation": "update",
+            "status": "failed",
+        }
+
+        # Update cube to add an existing dimension - should deploy successfully
+        cube.dimensions = [
+            "${prefix}default.hard_hat.state",
+            "${prefix}default.us_state.state_region",
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert data["results"][-1] == {
+            "deploy_type": "node",
+            "message": "",
+            "name": "cube_update.default.repairs_cube",
+            "operation": "update",
+            "status": "success",
         }
 
     @pytest.mark.asyncio
@@ -1564,24 +1666,28 @@ class TestDeployments:
                     "message": "",
                     "name": f"{namespace}.default.hard_hats",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.hard_hat",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
@@ -1592,6 +1698,7 @@ class TestDeployments:
                     "any valid table. (error code: 206)",
                     "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
                     "status": "failed",
+                    "operation": "create",
                 },
             ],
         }
@@ -1630,37 +1737,43 @@ class TestDeployments:
                     "message": "",
                     "name": f"{namespace}.default.hard_hats",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.hard_hat",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
                     "status": "success",
+                    "operation": "create",
                 },
             ],
         }
 
         # Re-deploying the same setup should be a noop
         data = await deploy_and_wait(client, mini_setup)
-        assert all(res["status"] == "noop" for res in data["results"])
+        assert all(res["status"] == "skipped" for res in data["results"])
+        assert all(res["operation"] == "noop" for res in data["results"])
 
         # Redeploying half the setup should only deploy the missing nodes
 
@@ -1684,264 +1797,308 @@ class TestDeployments:
                     "message": "",
                     "name": f"{namespace}.default.contractors",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.hard_hats",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.municipality",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.repair_order_details",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.repair_orders",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.repair_type",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.us_region",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.dispatchers",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.hard_hat",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.municipality_municipality_type",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.municipality_type",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.national_level_agg",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.regional_level_agg",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.repair_orders_fact",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.avg_length_of_employment",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.avg_repair_order_discounts",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.avg_repair_price",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.avg_time_to_dispatch",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.contractor",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.discounted_orders_rate",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.dispatcher",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.hard_hat_state",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.municipality_dim",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.num_repair_orders",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.regional_repair_efficiency",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.repair_order",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.repair_orders_view",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.total_repair_cost",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.total_repair_order_discounts",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.repair_orders -> base.default.repair_order",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.repair_orders -> base.default.dispatcher",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.repair_order_details -> base.default.repair_order",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.repair_type -> base.default.contractor",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.contractors -> base.default.us_state",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.repair_order -> base.default.dispatcher",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.repair_order -> base.default.municipality_dim",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.repair_order -> base.default.hard_hat",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.hard_hat -> base.default.us_state",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.repair_orders_fact -> base.default.municipality_dim",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.repair_orders_fact -> base.default.hard_hat",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "link",
-                    "message": "",
+                    "message": "Join link successfully deployed",
                     "name": f"{namespace}.default.repair_orders_fact -> base.default.dispatcher",
                     "status": "success",
+                    "operation": "create",
                 },
                 {
                     "deploy_type": "node",
                     "message": "",
                     "name": f"{namespace}.default.repairs_cube",
                     "status": "success",
+                    "operation": "create",
                 },
             ],
         }
@@ -1954,7 +2111,8 @@ class TestDeployments:
             client,
             DeploymentSpec(namespace="base", nodes=roads_nodes),
         )
-        assert all(res["status"] == "noop" for res in data["results"])
+        assert all(res["status"] == "skipped" for res in data["results"])
+        assert all(res["operation"] == "noop" for res in data["results"])
 
 
 @pytest.mark.asyncio
@@ -2208,6 +2366,7 @@ async def test_safe_task_success():
             deploy_type=DeploymentResult.Type.NODE,
             name="node1",
             status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.CREATE,
             message="ok",
         )
 
@@ -2231,6 +2390,7 @@ async def test_safe_task_timeout():
             deploy_type=DeploymentResult.Type.NODE,
             name="node1",
             status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.CREATE,
             message="ok",
         )
 
@@ -2257,6 +2417,7 @@ async def test_safe_task_semaphore_limit():
             deploy_type=DeploymentResult.Type.NODE,
             name=f"node{i}",
             status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.CREATE,
             message="ok",
         )
 

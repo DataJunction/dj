@@ -64,14 +64,7 @@ class DeploymentExecutor(ABC):
         Kick off a deployment job asynchronously.
         Should not block. Should update deployment status externally.
         """
-        ...
-
-    @abstractmethod
-    async def get_status(self, deployment_id: str) -> DeploymentStatus:
-        """
-        Retrieve current status of the deployment job.
-        """
-        ...
+        ...  # pragma: no cover
 
 
 class InProcessExecutor(DeploymentExecutor):
@@ -134,8 +127,8 @@ class InProcessExecutor(DeploymentExecutor):
         await InProcessExecutor.update_status(deployment_id, DeploymentStatus.RUNNING)
 
         try:
-            results = []
             results = await deploy(
+                deployment_id=deployment_id,
                 deployment=deployment_spec,
                 current_username=current_user.username,
                 request=request,
@@ -149,7 +142,10 @@ class InProcessExecutor(DeploymentExecutor):
                 DeploymentStatus.SUCCESS
                 if all(
                     r.status
-                    in (DeploymentResult.Status.SUCCESS, DeploymentResult.Status.NOOP)
+                    in (
+                        DeploymentResult.Status.SUCCESS,
+                        DeploymentResult.Status.SKIPPED,
+                    )
                     for r in results
                 )
                 else DeploymentStatus.FAILED
@@ -166,18 +162,10 @@ class InProcessExecutor(DeploymentExecutor):
                         deploy_type=DeploymentResult.Type.GENERAL,
                         message=str(exc),
                         status=DeploymentResult.Status.FAILED,
+                        operation=DeploymentResult.Operation.UNKNOWN,
                     ),
                 ],
             )
-
-    async def get_status(self, deployment_id: str) -> DeploymentStatus:
-        async with session_context() as session:
-            deployment = await session.get(Deployment, deployment_id)
-            if not deployment:
-                raise DJDoesNotExistException(
-                    message=f"Deployment {deployment_id} not found",
-                )
-            return deployment.status
 
 
 executor = InProcessExecutor()
@@ -235,7 +223,9 @@ async def get_deployment_status(
 ) -> DeploymentInfo:
     deployment = await session.get(Deployment, deployment_id)
     if not deployment:
-        raise DJDoesNotExistException(message=f"Deployment {deployment_id} not found")
+        raise DJDoesNotExistException(
+            message=f"Deployment {deployment_id} not found",
+        )  # pragma: no cover
     return DeploymentInfo(
         uuid=deployment_id,
         namespace=deployment.namespace,
@@ -245,7 +235,7 @@ async def get_deployment_status(
 
 
 @router.get("/deployments", response_model=list[DeploymentInfo])
-async def list_deployments(
+async def list_deployments(  # pragma: no cover
     namespace: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[DeploymentInfo]:

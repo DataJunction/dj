@@ -400,9 +400,12 @@ class Node(Base):
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,
-                unit=self.current.metric_metadata.unit
-                if self.current.metric_metadata
-                else None,
+                unit=(
+                    self.current.metric_metadata.unit.name.lower()
+                    if self.current.metric_metadata
+                    and self.current.metric_metadata.unit
+                    else None
+                ),
                 significant_digits=self.current.metric_metadata.significant_digits
                 if self.current.metric_metadata
                 else None,
@@ -429,6 +432,13 @@ class Node(Base):
             )
 
         return node_spec_cls(**base_kwargs, **extra_kwargs)
+
+    @classmethod
+    def cube_load_options(cls) -> List[ExecutableOption]:
+        return [
+            selectinload(Node.current).options(*NodeRevision.cube_load_options()),
+            selectinload(Node.tags),
+        ]
 
     @classmethod
     async def get_by_name(
@@ -943,6 +953,20 @@ class NodeRevision(
             ),
             selectinload(NodeRevision.required_dimensions),
             selectinload(NodeRevision.availability),
+        )
+
+    @classmethod
+    def cube_load_options(cls):
+        """
+        Default options when loading a cube node
+        """
+        return (
+            *cls.default_load_options(),
+            selectinload(NodeRevision.cube_elements)
+            .selectinload(Column.node_revisions)
+            .options(
+                selectinload(NodeRevision.node),
+            ),
         )
 
     @staticmethod
