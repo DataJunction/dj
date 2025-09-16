@@ -4,7 +4,7 @@ Node namespace related APIs.
 
 import logging
 from http import HTTPStatus
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, cast
 
 from fastapi import Depends, Query, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
@@ -12,8 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException
+from datajunction_server.models.deployment import CubeSpec, DeploymentSpec
+from datajunction_server.models.dimensionlink import LinkType
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     validate_access,
@@ -33,6 +36,7 @@ from datajunction_server.models import access
 from datajunction_server.models.node import NamespaceOutput, NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
+    SEPARATOR,
     get_and_update_current_user,
     get_current_user,
     get_query_service_client,
@@ -377,4 +381,70 @@ async def export_a_namespace(
         session=session,
         nodes=await get_nodes_in_namespace_detailed(session, namespace),
         namespace_requested=namespace,
+    )
+
+
+def inject_prefixes(unparameterized_string: str, prefix: str) -> str:
+    """
+    Replaces a namespace in a string with ${prefix}
+    users.yshang.blah -> ${prefix}.blah
+    users.yshang.blah.foo -> ${prefix}.blah.foo
+    """
+    return unparameterized_string.replace(f"{prefix}" + SEPARATOR, "${prefix}")
+
+
+@router.get(
+    "/namespaces/{namespace}/export/spec",
+    name="Export namespace as a deployment specification",
+)
+async def export_namespace_spec(
+    namespace: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+) -> DeploymentSpec:
+    """
+    Generates a zip of YAML files for the contents of the given namespace
+    as well as a project definition file.
+    """
+    nodes = await NodeNamespace.list_all_nodes(
+        session,
+        namespace,
+        options=Node.cube_load_options(),
+    )
+    node_specs = [await node.to_spec(session) for node in nodes]
+    for node_spec in node_specs:
+        node_spec.name = inject_prefixes(node_spec.name, namespace)
+        if node_spec.node_type in (
+            NodeType.TRANSFORM,
+            NodeType.DIMENSION,
+            NodeType.SOURCE,
+            NodeType.METRIC,
+        ):
+            node_spec.query = inject_prefixes(node_spec.query, namespace)
+        if node_spec.node_type in (
+            NodeType.SOURCE,
+            NodeType.TRANSFORM,
+            NodeType.DIMENSION,
+        ):
+            for link in node_spec.dimension_links:
+                if link.type == LinkType.JOIN:
+                    link.dimension_node = inject_prefixes(
+                        link.dimension_node,
+                        namespace,
+                    )
+                    link.join_on = inject_prefixes(link.join_on, namespace)
+                else:
+                    link.dimension = inject_prefixes(link.dimension, namespace)
+        if node_spec.node_type == NodeType.CUBE:
+            cube = cast(CubeSpec, node_spec)
+            cube.metrics = [
+                inject_prefixes(metric, namespace) for metric in node_spec.metrics
+            ]
+            cube.dimensions = [
+                inject_prefixes(dimension, namespace)
+                for dimension in node_spec.dimensions
+            ]
+    return DeploymentSpec(
+        namespace=namespace,
+        nodes=node_specs,
     )

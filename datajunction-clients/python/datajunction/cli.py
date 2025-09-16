@@ -4,7 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from datajunction import DJBuilder, Project
+from datajunction import DJBuilder, Project, Deployment
 from datajunction.exceptions import DJClientException
 
 logging.basicConfig(level=logging.INFO)
@@ -31,12 +31,18 @@ class DJCLI:
         else:
             compiled_project.deploy(client=self.builder_client)
 
+    def push(self, directory: str, dryrun: bool):
+        """
+        Alias for deploy without dryrun.
+        """
+        Deployment.push(self.builder_client, directory)
+
     def pull(self, namespace: str, directory: str):
         """
         Export nodes from a specific namespace.
         """
         print(f"Exporting namespace {namespace} to {directory}...")
-        Project.pull(
+        Deployment.pull(
             client=self.builder_client,
             namespace=namespace,
             target_path=directory,
@@ -52,6 +58,10 @@ class DJCLI:
         deploy_parser = subparsers.add_parser(
             "deploy",
             help="Deploy node YAML definitions from a directory",
+        )
+        deploy_parser = subparsers.add_parser(
+            "push",
+            help="Push node YAML definitions from a directory to the server",
         )
         deploy_parser.add_argument(
             "directory",
@@ -90,6 +100,8 @@ class DJCLI:
         """
         if args.command == "deploy":
             self.deploy(args.directory, args.dryrun)
+        elif args.command == "push":
+            self.push(args.directory, args.dryrun)
         elif args.command == "pull":
             self.pull(args.namespace, args.directory)
         elif args.command == "seed":

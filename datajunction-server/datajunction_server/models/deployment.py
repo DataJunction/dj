@@ -86,6 +86,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
 
     @property
     def rendered_dimension_node(self) -> str:
+        print("self.dimension_node", self.dimension_node)
         return (
             render_prefixes(self.dimension_node, self.namespace)
             if self.namespace
@@ -94,6 +95,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
 
     @property
     def rendered_join_on(self) -> str | None:
+        print("self.join_on", self.join_on)
         return (
             render_prefixes(self.join_on, self.namespace or "")
             if self.join_on
@@ -204,6 +206,8 @@ class NodeSpec(BaseModel):
     @property
     def rendered_name(self) -> str:
         if self.namespace:
+            if "${prefix}" in self.name:
+                return render_prefixes(self.name, self.namespace)
             return f"{self.namespace}{SEPARATOR}{self.name}"
         return self.name
 
@@ -252,8 +256,8 @@ class LinkableNodeSpec(NodeSpec):
     """
 
     columns: list[ColumnSpec] | None = None
-    dimension_links: list[DimensionJoinLinkSpec | DimensionReferenceLinkSpec] | None = (
-        None
+    dimension_links: list[DimensionJoinLinkSpec | DimensionReferenceLinkSpec] = Field(
+        default_factory=list,
     )
     primary_key: list[str] = Field(default_factory=list)
 
@@ -345,10 +349,27 @@ class MetricSpec(NodeSpec):
     query: str
     required_dimensions: list[str] | None = None
     direction: MetricDirection | None = None
-    unit: MetricUnit | None = None
+    _unit_enum: MetricUnit | None = None
+
     significant_digits: int | None = None
     min_decimal_exponent: int | None
     max_decimal_exponent: int | None
+
+    @property
+    def unit(self) -> str | None:
+        """Return lowercased unit name for JSON serialization."""
+        if self._unit_enum is None:
+            return None
+        return self._unit_enum.value.name.lower()
+
+    @unit.setter
+    def unit(self, unit_enum: MetricUnit | None):
+        self._unit_enum = unit_enum
+
+    def dict(self, *args, **kwargs):
+        d = super().dict(*args, **kwargs)
+        d["unit"] = self.unit
+        return d
 
     def __eq__(self, other: Any) -> bool:
         return (
@@ -388,6 +409,19 @@ class CubeSpec(NodeSpec):
         ]
 
     def __eq__(self, other: Any) -> bool:
+        print("super eq", super().__eq__(other))
+        print(
+            "COMpare metrics",
+            set(self.rendered_metrics) == set(other.rendered_metrics),
+        )
+        print(
+            "compare dimensions",
+            set(self.rendered_dimensions) == set(other.rendered_dimensions),
+        )
+        print(
+            "compare filters",
+            (self.rendered_filters or []) == (other.rendered_filters or []),
+        )
         return (
             super().__eq__(other)
             and set(self.rendered_metrics) == set(other.rendered_metrics)
@@ -419,6 +453,7 @@ class DeploymentSpec(BaseModel):
     def coerce_nodes(cls, value, values):
         if isinstance(value, dict):
             node_type = value.get("node_type")
+            print("node_type", value.get("name"), node_type)
             mapping = {
                 "source": SourceSpec,
                 "transform": TransformSpec,
@@ -452,9 +487,15 @@ class DeploymentResult(BaseModel):
 
     class Status(str, Enum):
         SUCCESS = "success"
-        NOOP = "noop"
         FAILED = "failed"
         SKIPPED = "skipped"
+
+    class Operation(str, Enum):
+        CREATE = "create"
+        UPDATE = "update"
+        DELETE = "delete"
+        NOOP = "noop"
+        UNKNOWN = "unknown"
 
     class Type(str, Enum):
         NODE = "node"
@@ -465,6 +506,7 @@ class DeploymentResult(BaseModel):
     name: str
     deploy_type: Type
     status: Status
+    operation: Operation
     message: str = ""
 
 
