@@ -91,6 +91,7 @@ class Column(Base):  # type: ignore
             display_name=self.display_name,
             description=self.description,
             attributes=self.attribute_names(),
+            partition=self.partition.to_spec() if self.partition else None,
         )
 
     def identifier(self) -> Tuple[str, ColumnType]:

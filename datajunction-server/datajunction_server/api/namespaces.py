@@ -417,7 +417,6 @@ async def export_namespace_spec(
         if node_spec.node_type in (
             NodeType.TRANSFORM,
             NodeType.DIMENSION,
-            NodeType.SOURCE,
             NodeType.METRIC,
         ):
             node_spec.query = inject_prefixes(node_spec.query, namespace)
@@ -436,11 +435,11 @@ async def export_namespace_spec(
                 else:
                     link.dimension = inject_prefixes(link.dimension, namespace)
         if node_spec.node_type == NodeType.CUBE:
-            cube = cast(CubeSpec, node_spec)
-            cube.metrics = [
+            cube_spec = cast(CubeSpec, node_spec)
+            cube_spec.metrics = [
                 inject_prefixes(metric, namespace) for metric in node_spec.metrics
             ]
-            cube.dimensions = [
+            cube_spec.dimensions = [
                 inject_prefixes(dimension, namespace)
                 for dimension in node_spec.dimensions
             ]

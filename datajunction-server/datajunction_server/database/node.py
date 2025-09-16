@@ -365,6 +365,17 @@ class Node(Base):
                 query=self.current.query,
             )
 
+        if self.type in (
+            NodeType.TRANSFORM,
+            NodeType.DIMENSION,
+            NodeType.METRIC,
+            NodeType.CUBE,
+        ):
+            cols = [col.to_spec() for col in self.current.columns]
+            extra_kwargs.update(
+                columns=cols,
+            )
+
         # Nodes with dimension links
         if self.type in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):
             join_link_specs = [
@@ -424,12 +435,12 @@ class Node(Base):
                 dimensions=self.current.cube_node_dimensions,
             )
 
-        node_spec_cls = node_spec_class_map.get(self.type)
-        if not node_spec_cls:
-            raise DJInvalidInputException(
-                message=f"Invalid node type: {self.type}",
-                http_status_code=HTTPStatus.BAD_REQUEST,
-            )
+        node_spec_cls = node_spec_class_map[self.type]
+        # if not node_spec_cls:
+        #     raise DJInvalidInputException(
+        #         message=f"Invalid node type: {self.type}",
+        #         http_status_code=HTTPStatus.BAD_REQUEST,
+        #     )
 
         return node_spec_cls(**base_kwargs, **extra_kwargs)
 
