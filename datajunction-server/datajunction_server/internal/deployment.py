@@ -11,6 +11,7 @@ from datajunction_server.models import access
 from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.api.tags import get_tags_by_name
 
+from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentResult,
@@ -49,6 +50,7 @@ from datajunction_server.internal.nodes import (
     create_a_source_node,
     refresh_source,
     remove_dimension_link,
+    set_node_column_attributes,
     update_any_node,
     upsert_reference_dimension_link,
     upsert_simple_dimension_link,
@@ -638,6 +640,28 @@ async def deploy_node_tags(node_name: str, node_spec: NodeSpec):
         await session.refresh(node)
 
 
+async def deploy_column_attributes(
+    node_name: str,
+    node_spec: NodeSpec,
+    current_username: str,
+    save_history: Callable,
+):
+    async with session_context() as session:
+        node = await Node.get_by_name(session=session, name=node_name)
+        current_user = cast(User, await User.get_by_username(session, current_username))
+        for col in node_spec.columns or []:
+            await set_node_column_attributes(
+                session=session,
+                node=node,  # type: ignore
+                column_name=col.name,
+                attributes=[
+                    AttributeTypeIdentifier(name=attr) for attr in col.attributes
+                ],
+                current_user=current_user,
+                save_history=save_history,
+            )
+
+
 async def deploy_node_from_spec(
     node_spec: NodeSpec,
     current_username: str,
@@ -682,6 +706,13 @@ async def deploy_node_from_spec(
             existing=existing,
         )
         await deploy_node_tags(node_name=node.name, node_spec=node_spec)
+        if node.type in (NodeType.SOURCE, NodeType.TRANSFORM, NodeType.DIMENSION):
+            await deploy_column_attributes(
+                node_name=node.name,
+                node_spec=node_spec,
+                current_username=current_username,
+                save_history=save_history,
+            )
     except DJException as exc:
         return DeploymentResult(
             deploy_type=DeploymentResult.Type.NODE,

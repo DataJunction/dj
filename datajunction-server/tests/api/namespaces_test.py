@@ -662,9 +662,9 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_export_namespaces_deployment(module__client_with_roads: AsyncClient):
+async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
     # Create a cube so that the cube definition export path is tested
-    response = await module__client_with_roads.post(
+    response = await client_with_roads.post(
         "/nodes/cube/",
         json={
             "name": "default.example_cube",
@@ -678,7 +678,7 @@ async def test_export_namespaces_deployment(module__client_with_roads: AsyncClie
     assert response.status_code in (200, 201)
 
     # Mark a column as a dimension attribute
-    response = await module__client_with_roads.post(
+    response = await client_with_roads.post(
         "/nodes/default.regional_level_agg/columns/location_hierarchy/attributes",
         json=[
             {
@@ -690,7 +690,7 @@ async def test_export_namespaces_deployment(module__client_with_roads: AsyncClie
     assert response.status_code in (200, 201)
 
     # Mark a column as a partition
-    await module__client_with_roads.post(
+    await client_with_roads.post(
         "/nodes/default.example_cube/columns/default.hard_hat.hire_date/partition",
         json={
             "type_": "temporal",
@@ -700,12 +700,12 @@ async def test_export_namespaces_deployment(module__client_with_roads: AsyncClie
     )
 
     # Deactivate one node so that it is not included in the export
-    response = await module__client_with_roads.delete(
+    response = await client_with_roads.delete(
         "/nodes/default.hard_hat_to_delete",
     )
     assert response.status_code == HTTPStatus.OK
 
-    response = await module__client_with_roads.get("/namespaces/default/export/spec")
+    response = await client_with_roads.get("/namespaces/default/export/spec")
     assert response.status_code in (200, 201)
     data = response.json()
     assert data["namespace"] == "default"

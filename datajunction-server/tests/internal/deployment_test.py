@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
 import random
 from typing import AsyncGenerator
+from unittest.mock import patch
 from uuid import uuid4
 import pytest_asyncio
+from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.database.column import Column
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.node import Node, NodeRevision
@@ -10,10 +12,12 @@ from datajunction_server.sql.parsing.types import IntegerType, StringType
 from datajunction_server.database.user import User
 from datajunction_server.internal.deployment import (
     check_external_deps,
+    deploy_column_attributes,
     extract_node_graph,
     topological_levels,
 )
 from datajunction_server.models.deployment import (
+    ColumnSpec,
     NodeSpec,
     TransformSpec,
     SourceSpec,
@@ -337,3 +341,92 @@ async def test_check_external_dependencies(
         assert await check_external_deps(session, node_graph, basic_nodes) == {
             "catalog.dim.categories",
         }
+
+
+async def test_deploy_column_attributes(
+    session: AsyncSession,
+    current_user: User,
+    catalog: Catalog,
+):
+    with patch(
+        "datajunction_server.internal.deployment.session_context",
+    ) as mock_session_context:
+        await default_attribute_types(session)
+        mock_session_context.return_value = session
+        node = Node(
+            name="catalog.dim.categories",
+            type=NodeType.SOURCE,
+            current_version="v1",
+            created_by_id=current_user.id,
+        )
+        node_revision = NodeRevision(
+            node=node,
+            name=node.name,
+            catalog_id=catalog.id,
+            schema_="public",
+            table="categories",
+            type=node.type,
+            version="v1",
+            columns=[
+                Column(
+                    name="id",
+                    type=IntegerType(),
+                    attributes=[],
+                    order=0,
+                ),
+                Column(name="name", type=StringType(), attributes=[], order=1),
+            ],
+            created_by_id=current_user.id,
+        )
+        session.add(node_revision)
+        await session.commit()
+
+        node_spec = SourceSpec(
+            name="catalog.dim.categories",
+            node_type=NodeType.SOURCE,
+            columns=[
+                ColumnSpec(name="id", attributes=["dimension"], type="int"),
+                ColumnSpec(
+                    name="name",
+                    attributes=["primary_key", "dimension"],
+                    type="string",
+                ),
+            ],
+            table="catalog.dim.categories",
+        )
+
+        async def mock_save_history(event, session):
+            pass
+
+        await deploy_column_attributes(
+            node.name,
+            node_spec,
+            current_user.username,
+            mock_save_history,
+        )
+
+        node = await Node.get_by_name(session, node.name)  # type: ignore
+        node.current.columns[0].attributes.sort(key=lambda a: a.attribute_type.name)
+        assert [
+            attr.attribute_type.name for attr in node.current.columns[0].attributes
+        ] == ["dimension"]
+        assert [
+            attr.attribute_type.name for attr in node.current.columns[1].attributes
+        ] == ["dimension", "primary_key"]
+
+        node_spec.columns[0].attributes.append("primary_key")  # type: ignore
+        node_spec.columns[1].attributes = []  # type: ignore
+        await deploy_column_attributes(
+            node.name,
+            node_spec,
+            current_user.username,
+            mock_save_history,
+        )
+        node = await Node.get_by_name(session, node.name)  # type: ignore
+        node.current.columns[0].attributes.sort(key=lambda a: a.attribute_type.name)
+        assert [
+            attr.attribute_type.name for attr in node.current.columns[0].attributes
+        ] == ["dimension", "primary_key"]
+        assert [
+            attr.attribute_type.name for attr in node.current.columns[1].attributes
+        ] == []

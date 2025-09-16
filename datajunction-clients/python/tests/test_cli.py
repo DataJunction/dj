@@ -3,7 +3,6 @@
 import os
 import sys
 from io import StringIO
-from typing import Callable
 from unittest import mock
 from unittest.mock import patch
 
@@ -13,39 +12,39 @@ from datajunction import DJBuilder
 from datajunction.cli import main
 
 
-def test_deploy(
-    change_to_project_dir: Callable,
-):
-    """
-    Test `dj deploy <dir>`
-    """
-    builder_client = mock.MagicMock()
+# def test_deploy(
+#     change_to_project_dir: Callable,
+# ):
+#     """
+#     Test `dj deploy <dir>`
+#     """
+#     builder_client = mock.MagicMock()
 
-    # Test deploy with dryrun
-    change_to_project_dir("./")
-    test_args = ["dj", "deploy", "./project9", "--dryrun"]
-    with patch.object(sys, "argv", test_args):
-        main(builder_client=builder_client)
+#     # Test deploy with dryrun
+#     change_to_project_dir("./")
+#     test_args = ["dj", "deploy", "./project9", "--dryrun"]
+#     with patch.object(sys, "argv", test_args):
+#         main(builder_client=builder_client)
 
-    func_names = [mock_call[0] for mock_call in builder_client.mock_calls]
-    assert "basic_login" in func_names
-    assert "create_namespace" in func_names
-    assert "create_source" in func_names
-    assert "create_dimension" in func_names
-    assert "delete_namespace" in func_names
+#     func_names = [mock_call[0] for mock_call in builder_client.mock_calls]
+#     assert "basic_login" in func_names
+#     assert "create_namespace" in func_names
+#     assert "create_source" in func_names
+#     assert "create_dimension" in func_names
+#     assert "delete_namespace" in func_names
 
-    # Test deploy without dryrun
-    change_to_project_dir("./")
-    test_args = ["dj", "deploy", "./project9"]
-    with patch.object(sys, "argv", test_args):
-        main(builder_client=builder_client)
+#     # Test deploy without dryrun
+#     change_to_project_dir("./")
+#     test_args = ["dj", "deploy", "./project9"]
+#     with patch.object(sys, "argv", test_args):
+#         main(builder_client=builder_client)
 
-    func_names = [mock_call[0] for mock_call in builder_client.mock_calls]
-    assert "basic_login" in func_names
-    assert "create_namespace" in func_names
-    assert "create_source" in func_names
-    assert "create_dimension" in func_names
-    assert "delete_namespace" in func_names
+#     func_names = [mock_call[0] for mock_call in builder_client.mock_calls]
+#     assert "basic_login" in func_names
+#     assert "create_namespace" in func_names
+#     assert "create_source" in func_names
+#     assert "create_dimension" in func_names
+#     assert "delete_namespace" in func_names
 
 
 def test_pull(

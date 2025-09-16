@@ -436,12 +436,6 @@ class Node(Base):
             )
 
         node_spec_cls = node_spec_class_map[self.type]
-        # if not node_spec_cls:
-        #     raise DJInvalidInputException(
-        #         message=f"Invalid node type: {self.type}",
-        #         http_status_code=HTTPStatus.BAD_REQUEST,
-        #     )
-
         return node_spec_cls(**base_kwargs, **extra_kwargs)
 
     @classmethod
