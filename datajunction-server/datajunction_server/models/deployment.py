@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field, validator, PrivateAttr
 
 from typing import Any, Literal, Union
 
+from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.dimensionlink import JoinType, LinkType
 from datajunction_server.models.node import (
@@ -32,6 +33,16 @@ class TagSpec(BaseModel):
     tag_metadata: dict | None = None
 
 
+class PartitionSpec(BaseModel):
+    """
+    Represents a partition
+    """
+
+    type: PartitionType
+    granularity: Granularity | None
+    format: str | None
+
+
 class ColumnSpec(BaseModel):
     """
     Represents a column
@@ -42,6 +53,7 @@ class ColumnSpec(BaseModel):
     display_name: str | None = None
     description: str | None = None
     attributes: list[str] = Field(default_factory=list)
+    partition: PartitionSpec | None = None
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, ColumnSpec):
@@ -86,7 +98,6 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
 
     @property
     def rendered_dimension_node(self) -> str:
-        print("self.dimension_node", self.dimension_node)
         return (
             render_prefixes(self.dimension_node, self.namespace)
             if self.namespace
@@ -95,7 +106,6 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
 
     @property
     def rendered_join_on(self) -> str | None:
-        print("self.join_on", self.join_on)
         return (
             render_prefixes(self.join_on, self.namespace or "")
             if self.join_on
@@ -393,6 +403,7 @@ class CubeSpec(NodeSpec):
     metrics: list[str]
     dimensions: list[str] = Field(default_factory=dict)
     filters: list[str] | None = None
+    columns: list[ColumnSpec] | None = None
 
     @property
     def rendered_metrics(self) -> list[str]:
@@ -409,19 +420,6 @@ class CubeSpec(NodeSpec):
         ]
 
     def __eq__(self, other: Any) -> bool:
-        print("super eq", super().__eq__(other))
-        print(
-            "COMpare metrics",
-            set(self.rendered_metrics) == set(other.rendered_metrics),
-        )
-        print(
-            "compare dimensions",
-            set(self.rendered_dimensions) == set(other.rendered_dimensions),
-        )
-        print(
-            "compare filters",
-            (self.rendered_filters or []) == (other.rendered_filters or []),
-        )
         return (
             super().__eq__(other)
             and set(self.rendered_metrics) == set(other.rendered_metrics)
@@ -453,7 +451,6 @@ class DeploymentSpec(BaseModel):
     def coerce_nodes(cls, value, values):
         if isinstance(value, dict):
             node_type = value.get("node_type")
-            print("node_type", value.get("name"), node_type)
             mapping = {
                 "source": SourceSpec,
                 "transform": TransformSpec,
