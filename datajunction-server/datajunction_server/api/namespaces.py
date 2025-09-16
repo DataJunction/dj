@@ -413,7 +413,7 @@ async def export_namespace_spec(
     )
     node_specs = [await node.to_spec(session) for node in nodes]
     for node_spec in node_specs:
-        node_spec.name = inject_prefixes(node_spec.name, namespace)
+        node_spec.name = inject_prefixes(node_spec.rendered_name, namespace)
         if node_spec.node_type in (
             NodeType.TRANSFORM,
             NodeType.DIMENSION,

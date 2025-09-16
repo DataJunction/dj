@@ -79,6 +79,7 @@ async def test_get_session_uses_correct_session(method, expected_session_attr):
     """
     Ensure get_session uses reader_session for GET and writer_session for others.
     """
+    get_session_manager.cache_clear()
     mock_session_manager = get_session_manager()
     request = MagicMock()
     request.method = method

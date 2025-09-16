@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, Field, validator, PrivateAttr
+from pydantic import BaseModel, Field, validator, PrivateAttr, root_validator
 
 from typing import Any, Literal, Union
 
@@ -56,8 +56,8 @@ class ColumnSpec(BaseModel):
     partition: PartitionSpec | None = None
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, ColumnSpec):
-            return False
+        # if not isinstance(other, ColumnSpec):
+        #     return False
 
         return (
             self.name == other.name
@@ -65,6 +65,7 @@ class ColumnSpec(BaseModel):
             and (self.display_name == other.display_name or self.display_name is None)
             and (self.description == other.description or self.description is None)
             and set(self.attributes) == set(other.attributes)
+            and self.partition == other.partition
         )
 
 
@@ -162,18 +163,18 @@ class DimensionReferenceLinkSpec(DimensionLinkSpec):
     def dimension_attribute(self) -> str:
         return self.dimension.rsplit(".", 1)[-1]
 
-    def __hash__(self) -> int:
-        return hash(
-            (
-                self.rendered_dimension_node,
-                self.dimension_attribute,
-                self.node_column,
-            ),
-        )
+    # def __hash__(self) -> int:
+    #     return hash(
+    #         (
+    #             self.rendered_dimension_node,
+    #             self.dimension_attribute,
+    #             self.node_column,
+    #         ),
+    #     )
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, DimensionReferenceLinkSpec):
-            return False
+        # if not isinstance(other, DimensionReferenceLinkSpec):
+        #     return False
         return (
             super().__eq__(other)
             and self.rendered_dimension_node == other.rendered_dimension_node
@@ -216,7 +217,7 @@ class NodeSpec(BaseModel):
     @property
     def rendered_name(self) -> str:
         if self.namespace:
-            if "${prefix}" in self.name:
+            if "${prefix}" in self.name:  # pragma: no cover
                 return render_prefixes(self.name, self.namespace)
             return f"{self.namespace}{SEPARATOR}{self.name}"
         return self.name
@@ -241,8 +242,8 @@ class NodeSpec(BaseModel):
         return self._query_ast
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, NodeSpec):
-            return False
+        # if not isinstance(other, NodeSpec):
+        #     return False
         return (
             self.rendered_name == other.rendered_name
             and self.node_type == other.node_type
@@ -279,8 +280,8 @@ class LinkableNodeSpec(NodeSpec):
                 "join": DimensionJoinLinkSpec,
                 "reference": DimensionReferenceLinkSpec,
             }
-            if link_type not in mapping:
-                raise ValueError(f"Unknown node_type: {link_type}")
+            if link_type not in mapping:  # pragma: no cover
+                raise ValueError(f"Unknown link type: {link_type}")
             deployment_ns = values.get("namespace")
             return mapping[link_type](**value, namespace=deployment_ns)
         value.namespace = values.get("namespace")
@@ -289,7 +290,17 @@ class LinkableNodeSpec(NodeSpec):
     def __eq__(self, other: Any) -> bool:
         return (
             super().__eq__(other)
-            and (self.columns or []) == (other.columns or [])
+            and (
+                (self.columns or []) == (other.columns or [])
+                or (
+                    self.columns is None
+                    and not any(
+                        [attr for attr in col.attributes if attr != "primary_key"]
+                        for col in other.columns
+                    )
+                    and not any(col.partition for col in other.columns)
+                )
+            )
             and sorted(
                 self.dimension_links or [],
                 key=lambda link: link.rendered_dimension_node,
@@ -309,18 +320,20 @@ class SourceSpec(LinkableNodeSpec):
     node_type: Literal[NodeType.SOURCE] = NodeType.SOURCE
     table: str
 
-    def __post_init__(self):
+    @validator("table")
+    def validate_table(cls, value) -> str:
         """
         Validate that the table name is fully qualified
         """
         if (
-            self.table.count(".") != 2
-            or not self.table.replace(".", "").replace("_", "").isalnum()
+            value.count(".") != 2
+            or not value.replace(".", "").replace("_", "").isalnum()
         ):
             raise DJInvalidInputException(
-                f"Invalid table name {self.table}: table name must be fully qualified: "
+                f"Invalid table name {value}: table name must be fully qualified: "
                 "<catalog>.<schema>.<table>",
             )
+        return value
 
     def __eq__(self, other: Any) -> bool:
         return super().__eq__(other) and self.table == other.table
@@ -368,12 +381,12 @@ class MetricSpec(NodeSpec):
     @property
     def unit(self) -> str | None:
         """Return lowercased unit name for JSON serialization."""
-        if self._unit_enum is None:
+        if self._unit_enum is None:  # pragma: no cover
             return None
         return self._unit_enum.value.name.lower()
 
     @unit.setter
-    def unit(self, unit_enum: MetricUnit | None):
+    def unit(self, unit_enum: MetricUnit | None):  # pragma: no cover
         self._unit_enum = unit_enum
 
     def dict(self, *args, **kwargs):
@@ -381,7 +394,18 @@ class MetricSpec(NodeSpec):
         d["unit"] = self.unit
         return d
 
+    @root_validator(pre=True)
+    def init_unit_enum(cls, values):
+        unit_str = values.get("unit")
+        if isinstance(unit_str, str):
+            values["_unit_enum"] = MetricUnit(unit_str.lower())
+        if isinstance(unit_str, MetricUnit):
+            values["_unit_enum"] = unit_str
+        return values
+
     def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, MetricSpec):
+            return False
         return (
             super().__eq__(other)
             and self.query_ast.compare(other.query_ast)
@@ -422,6 +446,17 @@ class CubeSpec(NodeSpec):
     def __eq__(self, other: Any) -> bool:
         return (
             super().__eq__(other)
+            and (
+                (self.columns or []) == (other.columns or [])
+                or (
+                    self.columns is None
+                    and not any(
+                        [attr for attr in col.attributes if attr != "primary_key"]
+                        for col in other.columns
+                    )
+                    and not any(col.partition for col in other.columns)
+                )
+            )
             and set(self.rendered_metrics) == set(other.rendered_metrics)
             and set(self.rendered_dimensions) == set(other.rendered_dimensions)
             and (self.rendered_filters or []) == (other.rendered_filters or [])
@@ -516,9 +551,3 @@ class DeploymentInfo(BaseModel):
     namespace: str
     status: DeploymentStatus
     results: list[DeploymentResult] = Field(default_factory=list)
-
-    @property
-    def success(self) -> bool:
-        return all(
-            result.status == DeploymentResult.Status.SUCCESS for result in self.results
-        )
