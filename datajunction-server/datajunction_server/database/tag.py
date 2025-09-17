@@ -110,10 +110,18 @@ class TagNodeRelationship(Base):
     __tablename__ = "tagnoderelationship"
 
     tag_id: Mapped[int] = mapped_column(
-        ForeignKey("tag.id", name="fk_tagnoderelationship_tag_id_tag"),
+        ForeignKey(
+            "tag.id",
+            name="fk_tagnoderelationship_tag_id_tag",
+            ondelete="CASCADE",
+        ),
         primary_key=True,
     )
     node_id: Mapped[int] = mapped_column(
-        ForeignKey("node.id", name="fk_tagnoderelationship_node_id_node"),
+        ForeignKey(
+            "node.id",
+            name="fk_tagnoderelationship_node_id_node",
+            ondelete="CASCADE",
+        ),
         primary_key=True,
     )
