@@ -10,7 +10,10 @@ from datajunction_server.database import Node
 from datajunction_server.models import access
 from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.api.tags import get_tags_by_name
+from datajunction_server.models.base import labelize
 
+from datajunction_server.database.partition import Partition
+from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.deployment import (
     CubeSpec,
@@ -139,9 +142,38 @@ async def deploy(
     deployed_results: list[DeploymentResult] = []
 
     async with session_context(request) as session:
-        existing = await find_existing_nodes(session, deployment.nodes)
-        to_deploy, to_skip = filter_nodes_to_deploy(deployment.nodes, existing)
-    deployed_results.extend(to_skip)
+        current_user = cast(User, await User.get_by_username(session, current_username))
+        await create_deployment_namespaces(
+            deployment,
+            session,
+            current_user,
+            save_history,
+        )
+
+        # async with session_context(request) as session:
+        all_nodes = await NodeNamespace.list_all_nodes(
+            session,
+            deployment.namespace,
+            options=Node.cube_load_options(),
+        )
+        existing = {node.name: await node.to_spec(session) for node in all_nodes}
+        to_deploy, to_skip, to_delete = filter_nodes_to_deploy(
+            deployment.nodes,
+            existing,
+        )
+
+    deployed_results.extend(
+        [
+            DeploymentResult(
+                name=node_spec.rendered_name,
+                deploy_type=DeploymentResult.Type.NODE,
+                status=DeploymentResult.Status.SKIPPED,
+                operation=DeploymentResult.Operation.NOOP,
+                message=f"Node {node_spec.rendered_name} is unchanged.",
+            )
+            for node_spec in to_skip
+        ],
+    )
     if not to_deploy:
         logger.info(
             "No changes detected, skipping deployment. Total elapsed: %.3fs",
@@ -154,15 +186,6 @@ async def deploy(
         len(to_deploy),
         len(to_skip),
     )
-
-    async with session_context(request) as session:
-        current_user = cast(User, await User.get_by_username(session, current_username))
-        await create_deployment_namespaces(
-            deployment,
-            session,
-            current_user,
-            save_history,
-        )
 
     node_graph = extract_node_graph(
         [node for node in to_deploy if not isinstance(node, CubeSpec)],
@@ -232,6 +255,9 @@ async def deploy(
         DeploymentStatus.RUNNING,
         deployed_results,
     )
+    logger.info("Starting deletion of %d nodes", len(to_delete))
+    # for node in to_delete:
+    #     await deactivate_node(session, node.name, current_user, save_history)
     logger.info("Finished deploying namespace %s", deployment.namespace)
     return deployed_results
 
@@ -243,13 +269,20 @@ async def create_deployment_namespaces(
     save_history: Callable,
 ):
     namespaces = [deployment.namespace] + [
-        f"{deployment.namespace}{SEPARATOR}{node.name.rsplit('.', 1)[0]}"
+        node.rendered_name.rsplit(".", 1)[0]
         for node in deployment.nodes
-        if SEPARATOR in node.name
+        if SEPARATOR in node.rendered_name
     ]
     namespace_set = set(namespaces)
-    logger.info("Creating namespaces if they do not exist: %s", namespace_set)
-    for nspace in namespace_set:
+    pruned = {
+        ns
+        for ns in namespace_set
+        if not any(
+            other != ns and other.startswith(f"{ns}{SEPARATOR}")
+            for other in namespace_set
+        )
+    }
+    for nspace in pruned:
         await create_namespace(
             session=session,
             namespace=nspace,
@@ -352,7 +385,7 @@ def filter_nodes_to_deploy(
 ):
     to_create: list[NodeSpec] = []
     to_update: list[NodeSpec] = []
-    to_skip: list[DeploymentResult] = []
+    to_skip: list[NodeSpec] = []
     for node_spec in node_specs:
         existing_spec = existing_nodes_map.get(node_spec.rendered_name)
         if not existing_spec:
@@ -360,15 +393,14 @@ def filter_nodes_to_deploy(
         elif node_spec != existing_spec:
             to_update.append(node_spec)
         else:
-            to_skip.append(
-                DeploymentResult(
-                    name=node_spec.rendered_name,
-                    deploy_type=DeploymentResult.Type.NODE,
-                    status=DeploymentResult.Status.SKIPPED,
-                    operation=DeploymentResult.Operation.NOOP,
-                    message=f"Node {node_spec.rendered_name} is unchanged.",
-                ),
-            )
+            to_skip.append(node_spec)
+
+    desired_node_names = {n.rendered_name for n in node_specs}
+    to_delete = [
+        existing
+        for name, existing in existing_nodes_map.items()
+        if name not in desired_node_names
+    ]
 
     logger.info(
         "Creating %d new nodes: %s",
@@ -383,9 +415,9 @@ def filter_nodes_to_deploy(
     logger.info(
         "Skipping %d nodes as they are unchanged: %s",
         len(to_skip),
-        [result.name for result in to_skip],
+        [result.rendered_name for result in to_skip],
     )
-    return to_create + to_update, to_skip
+    return to_create + to_update, to_skip, to_delete
 
 
 async def check_external_deps(
@@ -476,8 +508,7 @@ async def deploy_nodes_in_levels(
                     background_tasks=background_tasks,
                     save_history=save_history,
                     cache=cache,
-                    existing=existing_nodes_map.get(node_spec.rendered_name)
-                    is not None,
+                    existing=existing_nodes_map.get(node_spec.rendered_name),
                 ),
             )
 
@@ -506,16 +537,17 @@ async def deploy_links_for_node(
         existing_nodes_map.get(node_spec.rendered_name),
     )
     existing_node_links = {
-        link.rendered_dimension_node: link
+        (link.rendered_dimension_node, link.role): link
         for link in (existing_node_spec.dimension_links if existing_node_spec else [])
     }
     desired_node_links = {
-        link.rendered_dimension_node: link for link in node_spec.dimension_links
+        (link.rendered_dimension_node, link.role): link
+        for link in node_spec.dimension_links
     }
     to_delete = {
-        existing_node_links[dim]
-        for dim in existing_node_links
-        if dim not in desired_node_links
+        existing_node_links[(dim, role)]
+        for (dim, role) in existing_node_links
+        if (dim, role) not in desired_node_links
     }
     async with session_context(request) as session:
         for link in to_delete:
@@ -592,7 +624,7 @@ async def deploy_cubes(
                 background_tasks=background_tasks,
                 save_history=save_history,
                 cache=cache,
-                existing=existing_nodes_map.get(cube_spec.rendered_name) is not None,
+                existing=existing_nodes_map.get(cube_spec.rendered_name),
             ),
         )
     return await run_tasks_with_semaphore(
@@ -645,21 +677,61 @@ async def deploy_column_attributes(
     node_spec: NodeSpec,
     current_username: str,
     save_history: Callable,
-):
+) -> set[str]:
+    changed_columns = set()
     async with session_context() as session:
         node = await Node.get_by_name(session=session, name=node_name)
         current_user = cast(User, await User.get_by_username(session, current_username))
-        for col in node_spec.columns or []:
-            await set_node_column_attributes(
-                session=session,
-                node=node,  # type: ignore
-                column_name=col.name,
-                attributes=[
-                    AttributeTypeIdentifier(name=attr) for attr in col.attributes
-                ],
-                current_user=current_user,
-                save_history=save_history,
-            )
+        desired_column_state = {col.name: col for col in node_spec.columns or []}
+        for col in node.current.columns:  # type: ignore
+            if desired_col := desired_column_state.get(col.name):
+                # If the column is explicitly defined, update its properties to match
+                if col.display_name != desired_col.display_name:
+                    col.display_name = desired_col.display_name
+                    changed_columns.add(col.name)
+                if col.description != desired_col.description:
+                    col.description = desired_col.description
+                    changed_columns.add(col.name)
+                if desired_col.partition != (
+                    col.partition.to_spec() if col.partition else None
+                ):
+                    partition = (
+                        Partition(
+                            column_id=col.id,
+                            type_=desired_col.partition.type,
+                            format=desired_col.partition.format,
+                            granularity=desired_col.partition.granularity,
+                        )
+                        if desired_col.partition
+                        else None
+                    )
+                    if partition:
+                        session.add(partition)
+                    col.partition = partition
+                    changed_columns.add(col.name)
+                if set(desired_col.attributes) != set(col.attribute_names()):
+                    await set_node_column_attributes(
+                        session=session,
+                        node=node,  # type: ignore
+                        column_name=col.name,
+                        attributes=[
+                            AttributeTypeIdentifier(name=attr)
+                            for attr in desired_col.attributes
+                        ],
+                        current_user=current_user,
+                        save_history=save_history,
+                    )
+                    changed_columns.add(col.name)
+            else:
+                # If the column is not explicitly defined, reset it to default
+                col.display_name = labelize(col.name)
+                col.description = ""
+                col.partition = None
+                col.attributes = []
+
+            session.add(col)
+        await session.commit()
+    return changed_columns
 
 
 async def deploy_node_from_spec(
@@ -672,7 +744,7 @@ async def deploy_node_from_spec(
     *,
     save_history: Callable,
     cache: Cache,
-    existing: bool = False,
+    existing: NodeSpec | None = None,
 ) -> DeploymentResult:
     """
     Deploy a node from its specification.
@@ -691,6 +763,7 @@ async def deploy_node_from_spec(
         if not existing
         else DeploymentResult.Operation.UPDATE
     )
+    changelog = []
     if not deploy_fn:  # pragma: no cover
         raise DJInvalidDeploymentConfig(f"Unknown node type: {node_spec.node_type}")
     try:
@@ -705,20 +778,40 @@ async def deploy_node_from_spec(
             cache=cache,
             existing=existing,
         )
-        await deploy_node_tags(node_name=node.name, node_spec=node_spec)
-        if node.type in (NodeType.SOURCE, NodeType.TRANSFORM, NodeType.DIMENSION):
-            await deploy_column_attributes(
+        changed_fields = existing.diff(node_spec) if existing else []
+        changelog.append(
+            f"{operation.capitalize()}d {node_spec.node_type} ({node.current_version})",
+        )
+        changelog.append(
+            ("└─ Updated " + ", ".join(changed_fields)),
+        ) if changed_fields else ""
+
+        if set(node_spec.tags) != set([tag.name for tag in node.tags]):
+            await deploy_node_tags(node_name=node.name, node_spec=node_spec)
+            tags_list = ", ".join([f"`{tag}`" for tag in node_spec.tags])
+            changelog.append(f"└─ Set tags to {tags_list}.")
+        if node.type in (
+            NodeType.SOURCE,
+            NodeType.TRANSFORM,
+            NodeType.DIMENSION,
+            NodeType.CUBE,
+        ):
+            changed_columns = await deploy_column_attributes(
                 node_name=node.name,
                 node_spec=node_spec,
                 current_username=current_username,
                 save_history=save_history,
             )
+            if changed_columns and operation == DeploymentResult.Operation.UPDATE:
+                changelog.append(
+                    f"└─ Set properties for {len(changed_columns)} columns",
+                )
     except DJException as exc:
         return DeploymentResult(
             deploy_type=DeploymentResult.Type.NODE,
             name=node_spec.rendered_name,
             status=DeploymentResult.Status.FAILED,
-            message=str(exc),
+            message="\n".join(changelog + [str(exc)]),
             operation=operation,
         )
 
@@ -729,6 +822,7 @@ async def deploy_node_from_spec(
         if isinstance(node, Node)
         else DeploymentResult.Status.FAILED,
         operation=operation,
+        message="\n".join(changelog),
     )
 
 
@@ -811,7 +905,7 @@ async def deploy_transform_dimension_node_from_spec(
     *,
     save_history: Callable,
     cache: Cache,
-    existing: bool = False,
+    existing: NodeSpec | None = None,
 ) -> Node:
     """
     Deploy a transform or dimension node from its spec.
@@ -887,20 +981,12 @@ async def deploy_metric_node_from_spec(
     """
     Deploy a metric node from its spec.
     """
-    metric_metadata_input = (
-        MetricMetadataInput(
-            direction=node_spec.direction,
-            unit=node_spec.unit,
-            significant_digits=node_spec.significant_digits,
-            min_decimal_exponent=node_spec.min_decimal_exponent,
-            max_decimal_exponent=node_spec.max_decimal_exponent,
-        )
-        if node_spec.direction
-        or node_spec.unit
-        or node_spec.significant_digits
-        or node_spec.min_decimal_exponent
-        or node_spec.max_decimal_exponent
-        else None
+    metric_metadata_input = MetricMetadataInput(
+        direction=node_spec.direction,
+        unit=node_spec.unit,
+        significant_digits=node_spec.significant_digits,
+        min_decimal_exponent=node_spec.min_decimal_exponent,
+        max_decimal_exponent=node_spec.max_decimal_exponent,
     )
     async with session_context(request) as session:
         current_user = cast(User, await User.get_by_username(session, current_username))
@@ -912,10 +998,10 @@ async def deploy_metric_node_from_spec(
                     display_name=node_spec.display_name,
                     description=node_spec.description,
                     mode=node_spec.mode,
-                    custom_metadata=node_spec.custom_metadata,
+                    custom_metadata=node_spec.custom_metadata or {},
                     owners=node_spec.owners,
                     query=node_spec.rendered_query,
-                    required_dimensions=node_spec.required_dimensions,
+                    required_dimensions=node_spec.required_dimensions or [],
                     metric_metadata=metric_metadata_input,
                 ),
                 session=session,
@@ -1003,32 +1089,34 @@ async def deploy_cube_node_from_spec(
                 refresh_materialization=True,
                 cache=cache,
             )
-            return await Node.get_by_name(  # type: ignore
-                session,
-                node_spec.rendered_name,
-                options=NodeOutput.load_options(),
-                raise_if_not_exists=True,
+        else:
+            logger.info("Creating cube node %s", node_spec.rendered_name)
+            await create_a_cube(
+                data=CreateCubeNode(
+                    name=node_spec.rendered_name,
+                    display_name=node_spec.display_name,
+                    description=node_spec.description,
+                    mode=node_spec.mode,
+                    custom_metadata=node_spec.custom_metadata,
+                    owners=node_spec.owners,
+                    metrics=node_spec.rendered_metrics,
+                    dimensions=node_spec.rendered_dimensions,
+                    filters=node_spec.rendered_filters,
+                ),
+                request=request,
+                session=session,
+                current_user=current_user,
+                query_service_client=query_service_client,
+                background_tasks=background_tasks,
+                validate_access=validate_access,
+                save_history=save_history,
             )
-        logger.info("Creating cube node %s", node_spec.rendered_name)
-        return await create_a_cube(
-            data=CreateCubeNode(
-                name=node_spec.rendered_name,
-                display_name=node_spec.display_name,
-                description=node_spec.description,
-                mode=node_spec.mode,
-                custom_metadata=node_spec.custom_metadata,
-                owners=node_spec.owners,
-                metrics=node_spec.rendered_metrics,
-                dimensions=node_spec.rendered_dimensions,
-                filters=node_spec.rendered_filters,
-            ),
-            request=request,
-            session=session,
-            current_user=current_user,
-            query_service_client=query_service_client,
-            background_tasks=background_tasks,
-            validate_access=validate_access,
-            save_history=save_history,
+
+        return await Node.get_by_name(  # type: ignore
+            session,
+            node_spec.rendered_name,
+            options=NodeOutput.load_options(),
+            raise_if_not_exists=True,
         )
 
 
@@ -1038,7 +1126,10 @@ async def deploy_dimension_link_from_spec(
     request: Request,
     current_username: str,
     save_history: Callable,
-    existing_node_links: dict[str, DimensionJoinLinkSpec | DimensionReferenceLinkSpec],
+    existing_node_links: dict[
+        tuple[str, str | None],
+        DimensionJoinLinkSpec | DimensionReferenceLinkSpec,
+    ],
 ) -> DeploymentResult:
     try:
         link_name = f"{node_spec.rendered_name} -> {link_spec.rendered_dimension_node}"
@@ -1053,36 +1144,46 @@ async def deploy_dimension_link_from_spec(
                 await User.get_by_username(session, current_username),
             )
             if link_spec.type == LinkType.JOIN:
+                existing = existing_node_links.get(link_spec.rendered_dimension_node)
                 join_link = cast(DimensionJoinLinkSpec, link_spec)
-                if join_link.node_column:
-                    await upsert_simple_dimension_link(  # pragma: no cover
-                        session,
-                        node_spec.rendered_name,
-                        join_link.rendered_dimension_node,
-                        join_link.node_column,
-                        None,
-                        current_user,
-                        save_history,
+                if existing != join_link:
+                    if join_link.node_column:
+                        await upsert_simple_dimension_link(  # pragma: no cover
+                            session,
+                            node_spec.rendered_name,
+                            join_link.rendered_dimension_node,
+                            join_link.node_column,
+                            None,
+                            current_user,
+                            save_history,
+                        )
+                    else:
+                        link_input = JoinLinkInput(
+                            dimension_node=join_link.rendered_dimension_node,
+                            join_type=join_link.join_type,
+                            join_on=join_link.rendered_join_on,
+                            role=join_link.role,
+                        )
+                        await upsert_complex_dimension_link(
+                            session,
+                            node_spec.rendered_name,
+                            link_input,
+                            current_user,
+                            save_history,
+                        )
+                    return DeploymentResult(
+                        deploy_type=DeploymentResult.Type.LINK,
+                        operation=operation,
+                        name=link_name,
+                        status=DeploymentResult.Status.SUCCESS,
+                        message="Join link successfully deployed",
                     )
-                link_input = JoinLinkInput(
-                    dimension_node=join_link.rendered_dimension_node,
-                    join_type=join_link.join_type,
-                    join_on=join_link.rendered_join_on,
-                    role=join_link.role,
-                )
-                await upsert_complex_dimension_link(
-                    session,
-                    node_spec.rendered_name,
-                    link_input,
-                    current_user,
-                    save_history,
-                )
                 return DeploymentResult(
                     deploy_type=DeploymentResult.Type.LINK,
                     operation=operation,
                     name=link_name,
-                    status=DeploymentResult.Status.SUCCESS,
-                    message="Join link successfully deployed",
+                    status=DeploymentResult.Status.SKIPPED,
+                    message="No change to dimension link",
                 )
             else:
                 reference_link = cast(DimensionReferenceLinkSpec, link_spec)

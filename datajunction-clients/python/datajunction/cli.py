@@ -4,7 +4,8 @@ import argparse
 import logging
 from pathlib import Path
 
-from datajunction import DJBuilder, Project, Deployment
+from datajunction import DJBuilder, Project
+from datajunction.deployment import DeploymentService
 from datajunction.exceptions import DJClientException
 
 logging.basicConfig(level=logging.INFO)
@@ -19,31 +20,20 @@ class DJCLI:
         Initialize the CLI with a builder client.
         """
         self.builder_client = builder_client or DJBuilder()
+        self.deployment_service = DeploymentService(client=self.builder_client)
 
-    def deploy(self, directory: str, dryrun: bool):
-        """
-        Deploy nodes from the specified directory.
-        """
-        project = Project.load(directory)
-        compiled_project = project.compile()
-        if dryrun:
-            compiled_project.validate(client=self.builder_client)
-        else:
-            compiled_project.deploy(client=self.builder_client)
-
-    def push(self, directory: str, dryrun: bool):
+    def push(self, directory: str, namespace: str | None = None):
         """
         Alias for deploy without dryrun.
         """
-        Deployment.push(self.builder_client, directory)
+        self.deployment_service.push(directory, namespace=namespace)
 
     def pull(self, namespace: str, directory: str):
         """
         Export nodes from a specific namespace.
         """
         print(f"Exporting namespace {namespace} to {directory}...")
-        Deployment.pull(
-            client=self.builder_client,
+        self.deployment_service.pull(
             namespace=namespace,
             target_path=directory,
         )
@@ -59,10 +49,6 @@ class DJCLI:
             "deploy",
             help="Deploy node YAML definitions from a directory",
         )
-        deploy_parser = subparsers.add_parser(
-            "push",
-            help="Push node YAML definitions from a directory to the server",
-        )
         deploy_parser.add_argument(
             "directory",
             help="Path to the directory containing YAML files",
@@ -71,6 +57,22 @@ class DJCLI:
             "--dryrun",
             action="store_true",
             help="Perform a dry run",
+        )
+
+        # `dj push <directory>` (alias for deploy without dryrun)
+        push_parser = subparsers.add_parser(
+            "push",
+            help="Push node YAML definitions from a directory (alias for deploy)",
+        )
+        push_parser.add_argument(
+            "directory",
+            help="Path to the directory containing YAML files",
+        )
+        push_parser.add_argument(
+            "--namespace",
+            type=str,
+            default=None,
+            help="The namespace to push to (optionally overrides the namespace in the YAML files)",
         )
 
         # `dj pull <namespace> <directory>`
@@ -98,10 +100,8 @@ class DJCLI:
         """
         Dispatches the command based on the parsed args
         """
-        if args.command == "deploy":
-            self.deploy(args.directory, args.dryrun)
-        elif args.command == "push":
-            self.push(args.directory, args.dryrun)
+        if args.command == "push":
+            self.push(args.directory, namespace=args.namespace)
         elif args.command == "pull":
             self.pull(args.namespace, args.directory)
         elif args.command == "seed":

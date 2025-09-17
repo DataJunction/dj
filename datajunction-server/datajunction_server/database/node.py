@@ -411,8 +411,8 @@ class Node(Base):
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,
-                unit=(
-                    self.current.metric_metadata.unit.name.lower()
+                unit_enum=(
+                    self.current.metric_metadata.unit
                     if self.current.metric_metadata
                     and self.current.metric_metadata.unit
                     else None
@@ -437,6 +437,15 @@ class Node(Base):
 
         node_spec_cls = node_spec_class_map[self.type]
         return node_spec_cls(**base_kwargs, **extra_kwargs)
+
+    @classmethod
+    def default_load_options(cls) -> List[ExecutableOption]:
+        return [
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            selectinload(Node.tags),
+            selectinload(Node.created_by),
+            selectinload(Node.owners),
+        ]
 
     @classmethod
     def cube_load_options(cls) -> List[ExecutableOption]:

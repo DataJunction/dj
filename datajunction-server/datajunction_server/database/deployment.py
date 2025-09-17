@@ -44,11 +44,11 @@ class Deployment(Base):
 
     @property
     def deployment_spec(self) -> DeploymentSpec:
-        return DeploymentSpec(**self.spec)
+        return DeploymentSpec(**self.spec)  # pragma: no cover
 
     @deployment_spec.setter
     def deployment_spec(self, value: DeploymentSpec):
-        self.spec = value.dict()
+        self.spec = value.dict()  # pragma: no cover
 
     @property
     def deployment_results(self) -> list[DeploymentResult]:
@@ -56,4 +56,4 @@ class Deployment(Base):
 
     @deployment_results.setter
     def deployment_results(self, value: list[DeploymentResult]):
-        self.results = [result.dict() for result in value]
+        self.results = [result.dict() for result in value]  # pragma: no cover

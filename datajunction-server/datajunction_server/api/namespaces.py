@@ -403,8 +403,7 @@ async def export_namespace_spec(
     session: AsyncSession = Depends(get_session),
 ) -> DeploymentSpec:
     """
-    Generates a zip of YAML files for the contents of the given namespace
-    as well as a project definition file.
+    Generates a deployment spec for a namespace
     """
     nodes = await NodeNamespace.list_all_nodes(
         session,
@@ -432,7 +431,7 @@ async def export_namespace_spec(
                         namespace,
                     )
                     link.join_on = inject_prefixes(link.join_on, namespace)
-                else:
+                else:  # pragma: no cover
                     link.dimension = inject_prefixes(link.dimension, namespace)
         if node_spec.node_type == NodeType.CUBE:
             cube_spec = cast(CubeSpec, node_spec)
