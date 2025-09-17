@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, Field, validator, PrivateAttr, root_validator
+from pydantic import BaseModel, Field, validator, PrivateAttr
 
 from typing import Any, Literal, Union
 
@@ -56,14 +56,13 @@ class ColumnSpec(BaseModel):
     partition: PartitionSpec | None = None
 
     def __eq__(self, other: Any) -> bool:
-        # if not isinstance(other, ColumnSpec):
-        #     return False
-
+        if not isinstance(other, ColumnSpec):
+            return False
         return (
             self.name == other.name
             and self.type == other.type
             and (self.display_name == other.display_name or self.display_name is None)
-            and (self.description == other.description or self.description is None)
+            and self.description == other.description
             and set(self.attributes) == set(other.attributes)
             and self.partition == other.partition
         )
@@ -126,15 +125,14 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
         )
 
     def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, DimensionJoinLinkSpec):
+            return False
         return (
             super().__eq__(other)
             and self.rendered_dimension_node == other.rendered_dimension_node
             and self.join_type == other.join_type
             and self.rendered_join_on == other.rendered_join_on
-            and (
-                self.node_column == other.node_column
-                or (self.node_column is None and other.node_column is None)
-            )
+            and self.node_column == other.node_column
         )
 
 
@@ -163,18 +161,9 @@ class DimensionReferenceLinkSpec(DimensionLinkSpec):
     def dimension_attribute(self) -> str:
         return self.dimension.rsplit(".", 1)[-1]
 
-    # def __hash__(self) -> int:
-    #     return hash(
-    #         (
-    #             self.rendered_dimension_node,
-    #             self.dimension_attribute,
-    #             self.node_column,
-    #         ),
-    #     )
-
     def __eq__(self, other: Any) -> bool:
-        # if not isinstance(other, DimensionReferenceLinkSpec):
-        #     return False
+        if not isinstance(other, DimensionReferenceLinkSpec):
+            return False
         return (
             super().__eq__(other)
             and self.rendered_dimension_node == other.rendered_dimension_node
@@ -224,10 +213,9 @@ class NodeSpec(BaseModel):
 
     @property
     def rendered_query(self) -> str | None:
-        if hasattr(self, "query"):
+        if hasattr(self, "query") and self.query:
             query = getattr(self, "query")
-            if query:
-                return render_prefixes(query, self.namespace)
+            return render_prefixes(query, self.namespace)
         return None
 
     @property
@@ -242,8 +230,8 @@ class NodeSpec(BaseModel):
         return self._query_ast
 
     def __eq__(self, other: Any) -> bool:
-        # if not isinstance(other, NodeSpec):
-        #     return False
+        if not isinstance(other, NodeSpec):
+            return False  # pragma: no cover
         return (
             self.rendered_name == other.rendered_name
             and self.node_type == other.node_type
@@ -252,11 +240,17 @@ class NodeSpec(BaseModel):
             and set(self.owners) == set(other.owners)
             and set(self.tags) == set(other.tags)
             and self.mode == other.mode
-            and (
-                self.custom_metadata == other.custom_metadata
-                or self.custom_metadata is None
-                and other.custom_metadata == {}
-            )
+            and eq_or_fallback(self.custom_metadata, other.custom_metadata, {})
+        )
+
+    def diff(self, other: "NodeSpec") -> list[str]:
+        """
+        Return a list of fields that differ between this and another NodeSpec.
+        """
+        return diff(
+            self,
+            other,
+            ignore_fields=["name", "namespace", "query", "columns"],
         )
 
 
@@ -288,27 +282,24 @@ class LinkableNodeSpec(NodeSpec):
         return value
 
     def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, LinkableNodeSpec):
+            return False
+        dimension_links_equal = sorted(
+            self.dimension_links or [],
+            key=lambda link: link.rendered_dimension_node,
+        ) == sorted(
+            other.dimension_links or [],
+            key=lambda link: link.rendered_dimension_node,
+        )
+        print(
+            "Comparing LinkableNodeSpec",
+            self.rendered_name,
+            eq_columns(self.columns, other.columns),
+        )
         return (
             super().__eq__(other)
-            and (
-                (self.columns or []) == (other.columns or [])
-                or (
-                    self.columns is None
-                    and not any(
-                        [attr for attr in col.attributes if attr != "primary_key"]
-                        for col in other.columns
-                    )
-                    and not any(col.partition for col in other.columns)
-                )
-            )
-            and sorted(
-                self.dimension_links or [],
-                key=lambda link: link.rendered_dimension_node,
-            )
-            == sorted(
-                other.dimension_links or [],
-                key=lambda link: link.rendered_dimension_node,
-            )
+            and eq_columns(self.columns, other.columns)
+            and dimension_links_equal
         )
 
 
@@ -372,36 +363,35 @@ class MetricSpec(NodeSpec):
     query: str
     required_dimensions: list[str] | None = None
     direction: MetricDirection | None = None
-    _unit_enum: MetricUnit | None = None
+    unit_enum: MetricUnit | None = Field(None, exclude=True)
 
     significant_digits: int | None = None
     min_decimal_exponent: int | None
     max_decimal_exponent: int | None
 
+    def __init__(self, **data: Any):
+        unit = data.pop("unit", None)
+        if unit:
+            try:
+                if isinstance(unit, MetricUnit):
+                    data["unit_enum"] = unit
+                else:
+                    data["unit_enum"] = MetricUnit[unit.strip().upper()]
+            except KeyError:  # pragma: no cover
+                raise DJInvalidInputException(f"Invalid metric unit: {unit}")
+        super().__init__(**data)
+
     @property
     def unit(self) -> str | None:
         """Return lowercased unit name for JSON serialization."""
-        if self._unit_enum is None:  # pragma: no cover
+        if self.unit_enum is None:  # pragma: no cover
             return None
-        return self._unit_enum.value.name.lower()
-
-    @unit.setter
-    def unit(self, unit_enum: MetricUnit | None):  # pragma: no cover
-        self._unit_enum = unit_enum
+        return self.unit_enum.value.name.lower()
 
     def dict(self, *args, **kwargs):
         d = super().dict(*args, **kwargs)
         d["unit"] = self.unit
         return d
-
-    @root_validator(pre=True)
-    def init_unit_enum(cls, values):
-        unit_str = values.get("unit")
-        if isinstance(unit_str, str):
-            values["_unit_enum"] = MetricUnit(unit_str.lower())
-        if isinstance(unit_str, MetricUnit):
-            values["_unit_enum"] = unit_str
-        return values
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, MetricSpec):
@@ -410,8 +400,8 @@ class MetricSpec(NodeSpec):
             super().__eq__(other)
             and self.query_ast.compare(other.query_ast)
             and (self.required_dimensions or []) == (other.required_dimensions or [])
-            and self.direction == other.direction
-            and self.unit == other.unit
+            and eq_or_fallback(self.direction, other.direction, MetricDirection.NEUTRAL)
+            and eq_or_fallback(self.unit, other.unit, MetricUnit.UNKNOWN.value.name)
             and self.significant_digits == other.significant_digits
             and self.min_decimal_exponent == other.min_decimal_exponent
             and self.max_decimal_exponent == other.max_decimal_exponent
@@ -444,19 +434,14 @@ class CubeSpec(NodeSpec):
         ]
 
     def __eq__(self, other: Any) -> bool:
+        print(
+            "Comparing CubeSpec",
+            self.rendered_name,
+            eq_columns(self.columns, other.columns),
+        )
         return (
             super().__eq__(other)
-            and (
-                (self.columns or []) == (other.columns or [])
-                or (
-                    self.columns is None
-                    and not any(
-                        [attr for attr in col.attributes if attr != "primary_key"]
-                        for col in other.columns
-                    )
-                    and not any(col.partition for col in other.columns)
-                )
-            )
+            and eq_columns(self.columns, other.columns)
             and set(self.rendered_metrics) == set(other.rendered_metrics)
             and set(self.rendered_dimensions) == set(other.rendered_dimensions)
             and (self.rendered_filters or []) == (other.rendered_filters or [])
@@ -470,6 +455,30 @@ NodeUnion = Union[
     MetricSpec,
     CubeSpec,
 ]
+
+
+def diff(one: BaseModel, two: BaseModel, ignore_fields: list[str] = None) -> list[str]:
+    """
+    Compare two Pydantic models and return a list of fields that have changed.
+    """
+    changed_fields = [
+        field
+        for field in one.__fields__.keys()
+        if field not in (ignore_fields or [])
+        and hasattr(one, field)
+        and hasattr(two, field)
+        and (
+            (
+                isinstance(getattr(one, field), (list, dict))
+                and set(getattr(one, field) or []) != set(getattr(two, field) or [])
+            )
+            or (
+                not isinstance(getattr(one, field), (list, dict))
+                and getattr(one, field) != getattr(two, field)
+            )
+        )
+    ]
+    return changed_fields
 
 
 class DeploymentSpec(BaseModel):
@@ -493,7 +502,7 @@ class DeploymentSpec(BaseModel):
                 "metric": MetricSpec,
                 "cube": CubeSpec,
             }
-            if node_type not in mapping:
+            if node_type not in mapping:  # pragma: no cover
                 raise ValueError(f"Unknown node_type: {node_type}")
             deployment_ns = values.get("namespace")
             return mapping[node_type](**value, namespace=deployment_ns)
@@ -551,3 +560,40 @@ class DeploymentInfo(BaseModel):
     namespace: str
     status: DeploymentStatus
     results: list[DeploymentResult] = Field(default_factory=list)
+
+
+def eq_or_fallback(a, b, fallback):
+    """
+    Helper to compare two values that may be None, with a fallback value
+    """
+    return a == b or (a is None and b == fallback)
+
+
+def eq_columns(a: list[ColumnSpec] | None, b: list[ColumnSpec] | None) -> bool:
+    """
+    Compare two lists of ColumnSpec objects (or None) with special rules:
+      - None or [] is considered equivalent to a list where every column only has 'primary_key'
+        in attributes and partition is None.
+    """
+    a_list = a or []
+    b_list = b or []
+
+    a_map = {col.name: col for col in a_list}
+    b_map = {col.name: col for col in b_list}
+    for col_name, col_a in a_map.items():
+        col_b = b_map.get(col_name)
+        if (set(col_a.attributes if col_a else []) - {"primary_key"}) != (  # type: ignore
+            set(col_b.attributes if col_b else []) - {"primary_key"}  # type: ignore
+        ) or (col_a.partition if col_a else None) != (
+            col_b.partition if col_b else None
+        ):  # type: ignore
+            return False
+    for col_name, col_b in b_map.items():
+        col_a = a_map.get(col_name)  # type: ignore
+        if (set(col_b.attributes if col_b else []) - {"primary_key"}) != (  # type: ignore
+            set(col_a.attributes if col_a else []) - {"primary_key"}  # type: ignore
+        ) or (col_b.partition if col_b else None) != (
+            col_a.partition if col_a else None
+        ):  # type: ignore
+            return False
+    return True

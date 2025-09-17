@@ -1137,7 +1137,12 @@ def has_minor_changes(
     Whether the node has minor changes
     """
     return (
-        (data and data.description and old_revision.description != data.description)
+        (
+            data
+            and data.description
+            and old_revision.description
+            and (old_revision.description != data.description)
+        )
         or (data and data.mode and old_revision.mode != data.mode)
         or (
             data
@@ -1595,7 +1600,7 @@ async def create_new_revision_from_existing(
         )
         or (
             data
-            and data.custom_metadata
+            and data.custom_metadata is not None
             and old_revision.custom_metadata != data.custom_metadata
         )
     )
@@ -1621,7 +1626,7 @@ async def create_new_revision_from_existing(
     )
     required_dim_changes = (
         data
-        and data.required_dimensions
+        and isinstance(data.required_dimensions, list)
         and {col.name for col in old_revision.required_dimensions}
         != set(data.required_dimensions)
     )
@@ -1692,10 +1697,10 @@ async def create_new_revision_from_existing(
         created_by_id=current_user.id,
         custom_metadata=old_revision.custom_metadata,
     )
-    if data and data.required_dimensions:  # type: ignore
+    if data and data.required_dimensions is not None:  # type: ignore
         new_revision.required_dimensions = data.required_dimensions  # type: ignore
 
-    if data and data.custom_metadata:  # type: ignore
+    if data and data.custom_metadata is not None:  # type: ignore
         new_revision.custom_metadata = data.custom_metadata  # type: ignore
 
     # Link the new revision to its parents if a new revision was created and update its status

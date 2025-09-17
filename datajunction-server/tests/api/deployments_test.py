@@ -1212,7 +1212,6 @@ class TestDeployments:
         }
 
     @pytest.mark.asyncio
-    # @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_deploy_failed_with_bad_node_spec_pk(
         self,
         client,
@@ -1257,14 +1256,14 @@ class TestDeployments:
             "results": [
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.hard_hats",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
                     "operation": "create",
@@ -1280,7 +1279,7 @@ class TestDeployments:
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
                     "operation": "create",
@@ -1461,13 +1460,14 @@ class TestDeployments:
                 "name": f"{namespace}.default.hard_hat",
                 "status": "success",
                 "operation": "update",
-                "message": "",
+                "message": "Updated dimension (v2.0)\n"
+                "└─ Updated display_name, primary_key",
             },
             {
                 "deploy_type": "link",
                 "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
                 "status": "success",
-                "operation": "update",
+                "operation": "create",
                 "message": "Join link successfully deployed",
             },
         ]
@@ -1528,7 +1528,8 @@ class TestDeployments:
         assert data["status"] == "success"
         assert data["results"][-1] == {
             "deploy_type": "node",
-            "message": "",
+            "message": "Updated metric (v2.0)\n"
+            "└─ Updated display_name, direction, unit_enum",
             "name": "metric_update.default.avg_length_of_employment",
             "operation": "update",
             "status": "success",
@@ -1605,14 +1606,13 @@ class TestDeployments:
         assert data["status"] == "success"
         assert data["results"][-1] == {
             "deploy_type": "node",
-            "message": "",
+            "message": "Updated cube (v2.0)\n└─ Updated metrics, dimensions",
             "name": "cube_update.default.repairs_cube",
             "operation": "update",
             "status": "success",
         }
 
     @pytest.mark.asyncio
-    # # @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_deploy_failed_with_bad_node_spec_links(
         self,
         client,
@@ -1663,28 +1663,28 @@ class TestDeployments:
             "results": [
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.hard_hats",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.hard_hat",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
                     "operation": "create",
@@ -1704,7 +1704,6 @@ class TestDeployments:
         }
 
     @pytest.mark.asyncio
-    # @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_deploy_succeeds_with_existing_deps(
         self,
         client,
@@ -1734,28 +1733,28 @@ class TestDeployments:
             "results": [
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.hard_hats",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.hard_hat",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
                     "operation": "create",
@@ -1780,7 +1779,6 @@ class TestDeployments:
         # deploying a new link should trigger a redeploy of the node it is linked from
 
     @pytest.mark.asyncio
-    # @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_roads_deployment(self, client, roads_nodes):
         namespace = "base"
         data = await deploy_and_wait(
@@ -1794,217 +1792,217 @@ class TestDeployments:
             "results": [
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.contractors",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.hard_hats",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.municipality",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.repair_order_details",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.repair_orders",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.repair_type",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.us_region",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.dispatchers",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.hard_hat",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.municipality_municipality_type",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.municipality_type",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created transform (v1.0)",
                     "name": f"{namespace}.default.national_level_agg",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created transform (v1.0)",
                     "name": f"{namespace}.default.regional_level_agg",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created transform (v1.0)",
                     "name": f"{namespace}.default.repair_orders_fact",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created metric (v1.0)",
                     "name": f"{namespace}.default.avg_length_of_employment",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created metric (v1.0)",
                     "name": f"{namespace}.default.avg_repair_order_discounts",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created metric (v1.0)",
                     "name": f"{namespace}.default.avg_repair_price",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created metric (v1.0)",
                     "name": f"{namespace}.default.avg_time_to_dispatch",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.contractor",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created metric (v1.0)",
                     "name": f"{namespace}.default.discounted_orders_rate",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.dispatcher",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.hard_hat_state",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.municipality_dim",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created metric (v1.0)",
                     "name": f"{namespace}.default.num_repair_orders",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created metric (v1.0)",
                     "name": f"{namespace}.default.regional_repair_efficiency",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.repair_order",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.repair_orders_view",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created metric (v1.0)",
                     "name": f"{namespace}.default.total_repair_cost",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created metric (v1.0)",
                     "name": f"{namespace}.default.total_repair_order_discounts",
                     "status": "success",
                     "operation": "create",
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
                     "operation": "create",
@@ -2095,7 +2093,7 @@ class TestDeployments:
                 },
                 {
                     "deploy_type": "node",
-                    "message": "",
+                    "message": "Created cube (v1.0)",
                     "name": f"{namespace}.default.repairs_cube",
                     "status": "success",
                     "operation": "create",
@@ -2513,7 +2511,7 @@ async def test_node_to_spec_metric(module__session, module__client_with_roads):
         query=num_repair_orders.current.query,
         required_dimensions=[],
         direction=MetricDirection.HIGHER_IS_BETTER,
-        unit=MetricUnit.DOLLAR,
+        unit_enum=MetricUnit.DOLLAR,
         significant_digits=None,
         min_decimal_exponent=None,
         max_decimal_exponent=None,

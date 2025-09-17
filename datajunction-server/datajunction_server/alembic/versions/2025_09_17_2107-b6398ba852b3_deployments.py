@@ -2,7 +2,7 @@
 Deployments
 
 Revision ID: b6398ba852b3
-Revises: 5b00137c69f9
+Revises: b55add7e1ebc
 Create Date: 2025-09-12 00:07:30.531304+00:00
 """
 # pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
@@ -13,7 +13,7 @@ import sqlalchemy_utils
 
 # revision identifiers, used by Alembic.
 revision = "b6398ba852b3"
-down_revision = "759c4d50cb8d"
+down_revision = "b55add7e1ebc"
 branch_labels = None
 depends_on = None
 
