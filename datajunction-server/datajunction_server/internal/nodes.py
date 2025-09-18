@@ -6,33 +6,39 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Callable, Dict, List, Optional, Union, cast
 
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, desc
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
-from sqlalchemy.sql.operators import is_
 
+from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.models.query import QueryCreate
 from datajunction_server.api.helpers import (
     get_attribute_type,
+    get_catalog_by_name,
+    get_column,
     get_node_by_name,
+    get_node_namespace,
     map_dimensions_to_roles,
+    raise_if_node_exists,
     resolve_downstream_references,
     validate_cube,
 )
 from datajunction_server.construction.build_v2 import compile_node_ast
-from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import History
-from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.node import MissingParent, Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.user import User
+from datajunction_server.database.measure import FrozenMeasure
+from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.errors import (
+    DJActionNotAllowedException,
     DJDoesNotExistException,
     DJError,
     DJException,
@@ -43,6 +49,7 @@ from datajunction_server.errors import (
 from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
+    schedule_materialization_jobs_bg,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.validation import NodeValidator, validate_node_data
@@ -53,7 +60,7 @@ from datajunction_server.models.attribute import (
     UniquenessScope,
 )
 from datajunction_server.models.base import labelize
-from datajunction_server.models.cube import CubeElementMetadata, CubeRevisionMetadata
+from datajunction_server.models.cube import CubeRevisionMetadata
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     JoinType,
@@ -69,17 +76,16 @@ from datajunction_server.models.cube_materialization import UpsertCubeMaterializ
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
-    ColumnOutput,
     CreateCubeNode,
     CreateNode,
     CreateSourceNode,
     LineageColumn,
     NodeMode,
+    NodeOutput,
     NodeStatus,
     UpdateNode,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.naming import amenable_name, from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
@@ -88,13 +94,262 @@ from datajunction_server.sql.dag import (
 )
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
-from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import SEPARATOR, Version, VersionUpgrade, get_settings
+from datajunction_server.utils import (
+    SEPARATOR,
+    Version,
+    VersionUpgrade,
+    get_namespace_from_name,
+    get_settings,
+    session_context,
+)
 
 _logger = logging.getLogger(__name__)
 
 settings = get_settings()
+
+
+async def create_a_source_node(
+    request: Request,
+    session: AsyncSession,
+    data: CreateSourceNode,
+    current_user: User,
+    query_service_client: QueryServiceClient,
+    background_tasks: BackgroundTasks,
+    validate_access: access.ValidateAccessFn,
+    save_history: Callable,
+):
+    request_headers = dict(request.headers)
+    await raise_if_node_exists(session, data.name)
+
+    # if the node previously existed and now is inactive
+    if recreated_node := await create_node_from_inactive(
+        new_node_type=NodeType.SOURCE,
+        data=data,
+        session=session,
+        current_user=current_user,
+        request_headers=request_headers,
+        query_service_client=query_service_client,
+        validate_access=validate_access,
+        background_tasks=background_tasks,
+        save_history=save_history,
+    ):
+        return recreated_node
+
+    namespace = get_namespace_from_name(data.name)
+    await get_node_namespace(
+        session=session,
+        namespace=namespace,
+    )  # Will return 404 if namespace doesn't exist
+    data.namespace = namespace
+
+    node = Node(
+        name=data.name,
+        namespace=data.namespace,
+        display_name=data.display_name or f"{data.catalog}.{data.schema_}.{data.table}",
+        type=NodeType.SOURCE,
+        current_version=0,
+        created_by_id=current_user.id,
+    )
+    catalog = await get_catalog_by_name(session=session, name=data.catalog)
+
+    columns = [
+        Column(
+            name=column_data.name,
+            type=column_data.type,
+            dimension=(
+                await get_node_by_name(
+                    session,
+                    name=column_data.dimension,
+                    node_type=NodeType.DIMENSION,
+                    raise_if_not_exists=False,
+                )
+            ),
+            order=idx,
+        )
+        for idx, column_data in enumerate(data.columns)
+    ]
+    node_revision = NodeRevision(
+        name=data.name,
+        display_name=data.display_name or f"{catalog.name}.{data.schema_}.{data.table}",
+        description=data.description,
+        type=NodeType.SOURCE,
+        status=NodeStatus.VALID,
+        catalog_id=catalog.id,
+        schema_=data.schema_,
+        table=data.table,
+        columns=columns,
+        parents=[],
+        created_by_id=current_user.id,
+        query=data.query,
+    )
+    node.display_name = node_revision.display_name
+
+    # Point the node to the new node revision.
+    await save_node(
+        session,
+        node_revision,
+        node,
+        data.mode,
+        current_user=current_user,
+        save_history=save_history,
+    )
+
+    return await Node.get_by_name(  # type: ignore
+        session,
+        node.name,
+        options=NodeOutput.load_options(),
+    )
+
+
+async def create_a_node(
+    data: CreateNode,
+    request: Request,
+    node_type: NodeType,
+    session: AsyncSession,
+    current_user: User,
+    query_service_client: QueryServiceClient,
+    background_tasks: BackgroundTasks,
+    validate_access: access.ValidateAccessFn,
+    save_history: Callable,
+    cache: Cache,
+) -> Node:
+    request_headers = dict(request.headers)
+    if node_type == NodeType.DIMENSION and not data.primary_key:
+        raise DJInvalidInputException("Dimension nodes must define a primary key!")
+
+    await raise_if_node_exists(session, data.name)
+
+    # if the node previously existed and now is inactive
+    if recreated_node := await create_node_from_inactive(
+        new_node_type=node_type,
+        data=data,
+        session=session,
+        current_user=current_user,
+        request_headers=request_headers,
+        query_service_client=query_service_client,
+        background_tasks=background_tasks,
+        validate_access=validate_access,
+        save_history=save_history,
+        cache=cache,
+    ):
+        return recreated_node  # pragma: no cover
+
+    namespace = get_namespace_from_name(data.name)
+    await get_node_namespace(
+        session=session,
+        namespace=namespace,
+    )  # Will return 404 if namespace doesn't exist
+    data.namespace = namespace
+
+    node = Node(
+        name=data.name,
+        namespace=data.namespace,
+        type=NodeType(node_type),
+        current_version=0,
+        created_by_id=current_user.id,
+    )
+    node_revision = await create_node_revision(data, node_type, session, current_user)
+
+    column_names = {col.name: col for col in node_revision.columns}
+    if data.primary_key:
+        if any(key_column not in column_names for key_column in data.primary_key):
+            raise DJInvalidInputException(
+                f"Some columns in the primary key [{','.join(data.primary_key)}] "
+                f"were not found in the list of available columns for the node {node.name}.",
+            )
+        pk_attribute = await get_attribute_type(
+            session=session,
+            name=ColumnAttributes.PRIMARY_KEY.value,
+            namespace="system",
+        )
+        for key_column in data.primary_key:
+            if key_column in column_names:  # pragma: no cover
+                column_names[key_column].attributes.append(
+                    ColumnAttribute(attribute_type=pk_attribute),
+                )
+
+    await save_node(
+        session,
+        node_revision,
+        node,
+        data.mode,
+        current_user=current_user,
+        save_history=save_history,
+    )
+
+    # For metric nodes, derive the referenced frozen measures and save them
+    if node.type == NodeType.METRIC:
+        background_tasks.add_task(derive_frozen_measures, node_revision.id)
+
+    background_tasks.add_task(
+        save_column_level_lineage,
+        node_revision_id=node_revision.id,
+    )
+
+    return await Node.get_by_name(  # type: ignore
+        session,
+        node.name,
+        options=NodeOutput.load_options(),
+    )
+
+
+async def create_a_cube(
+    request: Request,
+    session: AsyncSession,
+    data: CreateCubeNode,
+    current_user: User,
+    query_service_client: QueryServiceClient,
+    background_tasks: BackgroundTasks,
+    validate_access: access.ValidateAccessFn,
+    save_history: Callable,
+) -> Node:
+    request_headers = dict(request.headers)
+    await raise_if_node_exists(session, data.name)
+
+    # if the node previously existed and now is inactive
+    if recreated_node := await create_node_from_inactive(
+        new_node_type=NodeType.CUBE,
+        data=data,
+        session=session,
+        current_user=current_user,
+        request_headers=request_headers,
+        query_service_client=query_service_client,
+        background_tasks=background_tasks,
+        validate_access=validate_access,
+        save_history=save_history,
+    ):
+        return recreated_node  # pragma: no cover
+
+    namespace = get_namespace_from_name(data.name)
+    await get_node_namespace(
+        session=session,
+        namespace=namespace,
+    )
+    data.namespace = namespace
+
+    node = Node(
+        name=data.name,
+        namespace=data.namespace,
+        type=NodeType.CUBE,
+        current_version=0,
+        created_by_id=current_user.id,
+    )
+    node_revision = await create_cube_node_revision(
+        session=session,
+        data=data,
+        current_user=current_user,
+    )
+    await save_node(
+        session,
+        node_revision,
+        node,
+        data.mode,
+        current_user=current_user,
+        save_history=save_history,
+    )
+    return node
 
 
 def get_node_column(node: Node, column_name: str) -> Column:
@@ -300,13 +555,6 @@ async def create_node_revision(
         .all()
     )
     node_revision.parents = parent_refs
-
-    _logger.info(
-        "Parent nodes for %s (%s): %s",
-        data.name,
-        node_revision.version,
-        [p.name for p in node_revision.parents],
-    )
     node_revision.columns = node_validator.columns or []
     if node_revision.type == NodeType.METRIC:
         if node_revision.columns:
@@ -387,6 +635,56 @@ async def create_cube_node_revision(
     return node_revision
 
 
+async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
+    """
+    Find or create frozen measures
+    """
+    async with session_context() as session:
+        node_revision = cast(
+            NodeRevision,
+            await NodeRevision.get_by_id(
+                session=session,
+                node_revision_id=node_revision_id,
+                options=[
+                    joinedload(NodeRevision.parents).joinedload(Node.current),
+                ],
+            ),
+        )
+        if not node_revision:
+            return []  # pragma: no cover
+        extractor = MetricComponentExtractor.from_query_string(
+            node_revision.query.lower(),
+        )
+        measures, derived_sql = extractor.extract()
+        node_revision.derived_expression = str(derived_sql)
+
+        frozen_measures: list[FrozenMeasure] = []
+        if not node_revision.parents:
+            return frozen_measures  # pragma: no cover
+
+        await session.refresh(node_revision.parents[0], ["current"])
+        for measure in measures:
+            frozen_measure = await FrozenMeasure.get_by_name(
+                session=session,
+                name=measure.name,
+            )
+            if not frozen_measure and measure.aggregation:
+                frozen_measure = FrozenMeasure(
+                    name=measure.name,
+                    upstream_revision_id=node_revision.parents[0].current.id,
+                    expression=measure.expression,
+                    aggregation=measure.aggregation,
+                    rule=measure.rule,
+                    used_by_node_revisions=[],
+                )
+                session.add(frozen_measure)
+            if frozen_measure:
+                frozen_measure.used_by_node_revisions.append(node_revision)
+                frozen_measures.append(frozen_measure)
+        await session.commit()
+        return frozen_measures
+
+
 async def save_node(
     session: AsyncSession,
     node_revision: NodeRevision,
@@ -422,7 +720,6 @@ async def save_node(
     )
     await session.commit()
     await session.refresh(node, ["current"])
-
     newly_valid_nodes = await resolve_downstream_references(
         session=session,
         node_revision=node_revision,
@@ -576,6 +873,8 @@ async def update_any_node(
     save_history: Callable,
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn = None,
+    refresh_materialization: bool = False,
+    cache: Cache | None = None,
 ) -> Node:
     """
     Node update helper function that handles updating any node
@@ -602,7 +901,7 @@ async def update_any_node(
     access_control.add_request_by_node(node)
     access_control.validate_and_raise()
 
-    if data.owners:
+    if data.owners and data.owners != [owner.username for owner in node.owners]:
         await update_owners(session, node, data.owners, current_user, save_history)
 
     if node.type == NodeType.CUBE:  # type: ignore
@@ -617,6 +916,7 @@ async def update_any_node(
             background_tasks=background_tasks,
             validate_access=validate_access,  # type: ignore
             save_history=save_history,
+            refresh_materialization=refresh_materialization,
         )
         return node_revision.node if node_revision else node
     return await update_node_with_query(
@@ -629,6 +929,7 @@ async def update_any_node(
         background_tasks=background_tasks,
         validate_access=validate_access,  # type: ignore
         save_history=save_history,
+        cache=cache,
     )
 
 
@@ -643,6 +944,7 @@ async def update_node_with_query(
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn,
     save_history: Callable,
+    cache: Cache,
 ) -> Node:
     """
     Update the named node with the changes defined in the UpdateNode object.
@@ -735,8 +1037,7 @@ async def update_node_with_query(
                 ),
             )
         background_tasks.add_task(
-            schedule_materialization_jobs,
-            session=session,
+            schedule_materialization_jobs_bg,
             node_revision_id=node.current.id,  # type: ignore
             materialization_names=[
                 mat.name
@@ -751,8 +1052,7 @@ async def update_node_with_query(
     if background_tasks:  # pragma: no cover
         background_tasks.add_task(
             save_column_level_lineage,
-            session=session,
-            node_revision=new_revision,
+            node_revision_id=new_revision.id,
         )
         # TODO: Do not save this until:
         #   1. We get to the bottom of why there are query building discrepancies
@@ -781,10 +1081,10 @@ async def update_node_with_query(
 
     background_tasks.add_task(
         propagate_update_downstream,
-        session,
         node,
         current_user=current_user,
         save_history=save_history,
+        cache=cache,
     )
     await session.refresh(node, ["current"])
     await session.refresh(node.current, ["materializations"])  # type: ignore
@@ -873,13 +1173,14 @@ async def update_cube_node(
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn,
     save_history: Callable,
+    refresh_materialization: bool = False,
 ) -> Optional[NodeRevision]:
     """
     Update cube node based on changes
     """
     node = await Node.get_cube_by_name(session, node_revision.name)
     node_revision = node.current  # type: ignore
-    minor_changes = has_minor_changes(node_revision, data)
+    minor_changes = has_minor_changes(node_revision, data) or refresh_materialization
     old_metrics = [m.name for m in node_revision.cube_metrics()]
     old_dimensions = node_revision.cube_dimensions()
     major_changes = (data.metrics and data.metrics != old_metrics) or (
@@ -953,7 +1254,7 @@ async def update_cube_node(
         for mat in node_revision.materializations
         if not mat.deactivated_at and mat.name != "default"
     ]
-    if major_changes and active_materializations:
+    if active_materializations and (major_changes or refresh_materialization):
         for old in active_materializations:
             # Once we've migrated all materializations to the new format, we should only
             # be using UpsertCubeMaterialization for cube nodes
@@ -993,8 +1294,7 @@ async def update_cube_node(
     await session.refresh(new_cube_revision, ["materializations"])
     if background_tasks:
         background_tasks.add_task(  # pragma: no cover
-            schedule_materialization_jobs,
-            session=session,
+            schedule_materialization_jobs_bg,
             node_revision_id=new_cube_revision.id,
             materialization_names=[
                 mat.name for mat in new_cube_revision.materializations
@@ -1020,11 +1320,30 @@ async def update_cube_node(
 
 
 async def propagate_update_downstream(
-    session: AsyncSession,
     node: Node,
-    *,
     current_user: User,
     save_history: Callable,
+    cache: Cache | None = None,
+):
+    """
+    Background task to propagate the updated node's changes to all of its downstream children.
+    """
+    async with session_context() as session:
+        await _propagate_update_downstream(
+            session=session,
+            node=node,
+            current_user=current_user,
+            save_history=save_history,
+            cache=cache,
+        )
+
+
+async def _propagate_update_downstream(
+    session: AsyncSession,
+    node: Node,
+    current_user: User,
+    save_history: Callable,
+    cache: Cache | None = None,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -1042,22 +1361,43 @@ async def propagate_update_downstream(
     )
     downstreams = topological_sort(downstreams)
     _logger.info(
-        "Revalidating the following downstreams %s",
-        [downstream.name for downstream in downstreams],
+        "Node %s updated — revalidating %s downstreams",
+        node.name,
+        len(downstreams),
     )
 
     # The downstreams need to be sorted topologically in order for the updates to be done
     # in the right order. Otherwise it is possible for a leaf node like a metric to be updated
     # before its upstreams are updated.
-    for downstream in downstreams:
+    for idx, downstream in enumerate(downstreams):
         original_node_revision = downstream.current
         previous_status = original_node_revision.status
+        _logger.info(
+            "[%s/%s] Revalidating downstream %s due to update of node %s",
+            idx + 1,
+            len(downstreams),
+            downstream.name,
+            node.name,
+        )
         node_validator = await revalidate_node(
             downstream.name,
             session,
             current_user=current_user,
             save_history=save_history,
         )
+
+        # Reset the upstreams DAG cache of any downstream nodes
+        if cache:
+            upstream_cache_key = downstream.upstream_cache_key()
+            results = cache.get(upstream_cache_key)
+            if results is not None:
+                _logger.info(
+                    "Clearing upstream cache for node %s due to update of node %s (cache key: %s)",
+                    downstream.name,
+                    node.name,
+                    upstream_cache_key,
+                )
+                cache.delete(upstream_cache_key)
 
         # Record history event
         if (
@@ -1125,6 +1465,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
                 join_sql=link.join_sql,
                 join_type=link.join_type,
                 join_cardinality=link.join_cardinality,
+                role=link.role,
                 materialization_conf=link.materialization_conf,
             )
             for link in old_revision.dimension_links
@@ -1145,6 +1486,7 @@ async def create_node_from_inactive(
     save_history: Callable,
     background_tasks: BackgroundTasks = None,
     validate_access: access.ValidateAccessFn = None,
+    cache: Cache | None = None,
 ) -> Optional[Node]:
     """
     If the node existed and is inactive the re-creation takes different steps than
@@ -1195,6 +1537,7 @@ async def create_node_from_inactive(
                 background_tasks=background_tasks,
                 validate_access=validate_access,  # type: ignore
                 save_history=save_history,
+                cache=cache,
             )
         else:
             await update_cube_node(
@@ -1348,10 +1691,10 @@ async def create_new_revision_from_existing(
         created_by_id=current_user.id,
         custom_metadata=old_revision.custom_metadata,
     )
-    if data.required_dimensions:  # type: ignore
+    if data and data.required_dimensions:  # type: ignore
         new_revision.required_dimensions = data.required_dimensions  # type: ignore
 
-    if data.custom_metadata:  # type: ignore
+    if data and data.custom_metadata:  # type: ignore
         new_revision.custom_metadata = data.custom_metadata  # type: ignore
 
     # Link the new revision to its parents if a new revision was created and update its status
@@ -1457,18 +1800,27 @@ async def create_new_revision_from_existing(
     return new_revision
 
 
-async def save_column_level_lineage(
-    session: AsyncSession,
-    node_revision: NodeRevision,
-):
+async def save_column_level_lineage(node_revision_id: int):
     """
-    Saves the column-level lineage for a node
+    Saves the column-level lineage for a node revision
     """
-    node = await Node.get_by_name(session, node_revision.name)
-    column_level_lineage = await get_column_level_lineage(session, node.current)  # type: ignore
-    node.current.lineage = [lineage.dict() for lineage in column_level_lineage]  # type: ignore
-    session.add(node.current)  # type: ignore
-    await session.commit()
+    async with session_context() as session:
+        statement = (
+            select(NodeRevision)
+            .where(NodeRevision.id == node_revision_id)
+            .options(
+                selectinload(NodeRevision.columns),
+            )
+        )
+        node_revision = (await session.execute(statement)).unique().scalar_one_or_none()
+        if node_revision:  # pragma: no cover
+            column_level_lineage = await get_column_level_lineage(
+                session,
+                node_revision,
+            )
+            node_revision.lineage = [lineage.dict() for lineage in column_level_lineage]
+            session.add(node_revision)
+            await session.commit()
 
 
 async def save_query_ast(  # pragma: no cover
@@ -1607,135 +1959,44 @@ async def column_lineage(
     return lineage_column
 
 
-async def derive_sql_column(
-    cube_element: CubeElementMetadata,
-) -> ColumnOutput:
-    """
-    Derives the column name in the generated Cube SQL based on the CubeElement
-    """
-    query_column_name = (
-        cube_element.name
-        if cube_element.type == "metric"
-        else amenable_name(
-            f"{cube_element.node_name}{SEPARATOR}{cube_element.name}",
-        )
-    )
-    return ColumnOutput(
-        name=query_column_name,
-        display_name=cube_element.display_name,
-        type=cube_element.type,
-    )
-
-
-async def _build_cube_revision_statement(name: Optional[str] = None):
-    """
-    Builds the base SQLAlchemy statement for fetching cube revision metadata.
-    This function returns a SQLAlchemy Select object, not the results.
-    """
-    statement = (
-        select(NodeRevision)
-        .select_from(Node)
-        .where(is_(Node.deactivated_at, None))
-        .join(
-            NodeRevision,
-            (NodeRevision.name == Node.name)
-            & (NodeRevision.version == Node.current_version),
-        )
-        .options(
-            selectinload(NodeRevision.columns),
-            selectinload(
-                NodeRevision.availability,
-            ),  # Ensure availability is loaded for filtering
-            selectinload(NodeRevision.materializations).selectinload(
-                Materialization.backfills,
-            ),
-            selectinload(NodeRevision.cube_elements)
-            .selectinload(Column.node_revisions)
-            .options(
-                joinedload(NodeRevision.node),
-            ),
-            selectinload(NodeRevision.node).options(selectinload(Node.tags)),
-        )
-    )
-    if name:
-        statement = statement.where(Node.name == name)
-
-    return statement
-
-
 async def get_single_cube_revision_metadata(
     session: AsyncSession,
     name: str,
+    version: str | None = None,
 ) -> CubeRevisionMetadata:
     """
     Returns cube revision metadata for a single cube named `name`.
     """
-    statement = await _build_cube_revision_statement(name=name)
-    result = (await session.execute(statement)).unique().first()
-
-    if not result:
+    cube = await NodeRevision.get_cube_revision(session, name=name, version=version)
+    if not cube:
         raise DJNodeNotFound(  # pragma: no cover
-            message=f"A cube node with name `{name}` does not exist.",
+            message=(
+                f"A cube node with name `{name}` does not exist."
+                if not version
+                else f"A cube node with name `{name}` and version `{version}` does not exist."
+            ),
             http_status_code=404,
         )
-    cube = result[0]
-
-    # Preserve the ordering of elements
-    element_ordering = {col.name: col.order for col in cube.columns}
-    cube.cube_elements = sorted(
-        cube.cube_elements,
-        key=lambda elem: element_ordering.get(from_amenable_name(elem.name), 0),
-    )
-
-    cube_metadata = CubeRevisionMetadata.from_orm(cube)
-    cube_metadata.tags = cube.node.tags
-    cube_metadata.sql_columns = [
-        await derive_sql_column(element) for element in cube_metadata.cube_elements
-    ]
-    return cube_metadata
+    return CubeRevisionMetadata.parse_obj(cube)
 
 
 async def get_all_cube_revisions_metadata(
     session: AsyncSession,
-    catalog: Optional[str] = None,
+    catalog: str | None = None,
     page: int = 1,
     page_size: int = 10,
-) -> List[CubeRevisionMetadata]:
+) -> list[CubeRevisionMetadata]:
     """
     Returns cube revision metadata for the latest version of all cubes, with pagination.
     Optionally filters by the catalog in which the cube is available.
     """
-    statement = await _build_cube_revision_statement()
-
-    if catalog:
-        statement = statement.join(AvailabilityState, NodeRevision.availability).where(
-            AvailabilityState.catalog == catalog,
-        )
-
-    statement = statement.order_by(desc(NodeRevision.updated_at))
-
-    offset = (page - 1) * page_size
-    statement = statement.offset(offset).limit(page_size)
-
-    result = await session.execute(statement)
-    cubes = result.unique().scalars().all()
-
-    all_cube_metadata: List[CubeRevisionMetadata] = []
-    for cube in cubes:
-        # Preserve the ordering of elements
-        element_ordering = {col.name: col.order for col in cube.columns}
-        cube.cube_elements = sorted(
-            cube.cube_elements,
-            key=lambda elem: element_ordering.get(from_amenable_name(elem.name), 0),
-        )
-        cube_metadata = CubeRevisionMetadata.from_orm(cube)
-        cube_metadata.tags = cube.node.tags
-        cube_metadata.sql_columns = [
-            await derive_sql_column(element) for element in cube_metadata.cube_elements
-        ]
-        all_cube_metadata.append(cube_metadata)
-
-    return all_cube_metadata
+    cubes = await NodeRevision.get_cube_revisions(
+        session=session,
+        catalog=catalog,
+        page=page,
+        page_size=page_size,
+    )
+    return [CubeRevisionMetadata.parse_obj(cube) for cube in cubes]
 
 
 async def upsert_complex_dimension_link(
@@ -1755,6 +2016,7 @@ async def upsert_complex_dimension_link(
     node = await Node.get_by_name(
         session,
         node_name,
+        raise_if_not_exists=True,
     )
     if node.type not in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):  # type: ignore
         raise DJInvalidInputException(
@@ -1766,6 +2028,7 @@ async def upsert_complex_dimension_link(
     dimension_node = await Node.get_by_name(
         session,
         link_input.dimension_node,
+        raise_if_not_exists=True,
     )
     if (
         dimension_node.current.catalog.name != settings.seed_setup.virtual_catalog_name  # type: ignore
@@ -1817,10 +2080,18 @@ async def upsert_complex_dimension_link(
             errors=ctx.exception.errors,
         )
 
+    # Create a new revision for the node to capture the dimension link changes in a new version
+    node = cast(Node, node)
+    new_revision = await create_new_revision_for_dimension_link_update(
+        session,
+        node,
+        current_user,
+    )
+
     # Find an existing dimension link if there is already one defined for this node
     existing_link = [
         link  # type: ignore
-        for link in node.current.dimension_links  # type: ignore
+        for link in new_revision.dimension_links  # type: ignore
         if link.dimension_id == dimension_node.id and link.role == link_input.role  # type: ignore
     ]
     activity_type = ActivityType.CREATE
@@ -1837,18 +2108,18 @@ async def upsert_complex_dimension_link(
     else:
         # If there is no existing link, create new dimension link object
         dimension_link = DimensionLink(
-            node_revision_id=node.current.id,  # type: ignore
+            node_revision_id=new_revision.id,  # type: ignore
             dimension_id=dimension_node.id,  # type: ignore
             join_sql=link_input.join_on,
             join_type=DimensionLink.parse_join_type(join_relation.join_type),
             join_cardinality=link_input.join_cardinality,
             role=link_input.role,
         )
-        node.current.dimension_links.append(dimension_link)  # type: ignore
+        new_revision.dimension_links.append(dimension_link)  # type: ignore
 
     # Add/update the dimension link in the database
     session.add(dimension_link)
-    session.add(node.current)  # type: ignore
+    session.add(new_revision)  # type: ignore
     await save_history(
         event=History(
             entity_type=EntityType.LINK,
@@ -1860,6 +2131,7 @@ async def upsert_complex_dimension_link(
                 "join_sql": link_input.join_on,
                 "join_cardinality": link_input.join_cardinality,
                 "role": link_input.role,
+                "version": node.current_version,
             },
             user=current_user.username,
         ),
@@ -1868,6 +2140,72 @@ async def upsert_complex_dimension_link(
     await session.commit()
     await session.refresh(node)
     return activity_type
+
+
+async def upsert_simple_dimension_link(
+    session: AsyncSession,
+    name: str,
+    dimension: str,
+    column: str,
+    dimension_column: str | None,
+    current_user: User,
+    save_history: Callable,
+) -> ActivityType:
+    """
+    Create or update a simple node-level dimension link on a single column foreign key.
+    """
+
+    node = await Node.get_by_name(
+        session,
+        name,
+        raise_if_not_exists=True,
+    )
+    dimension_node = await Node.get_by_name(
+        session,
+        dimension,
+        raise_if_not_exists=True,
+    )
+    if dimension_node.type != NodeType.DIMENSION:  # type: ignore  # pragma: no cover
+        # pragma: no cover
+        raise DJInvalidInputException(f"Node {node.name} is not of type dimension!")  # type: ignore
+    primary_key_columns = dimension_node.current.primary_key()  # type: ignore
+    if len(primary_key_columns) > 1:
+        raise DJActionNotAllowedException(  # pragma: no cover
+            "Cannot use this endpoint to link a dimension with a compound primary key.",
+        )
+
+    target_column = await get_column(session, node.current, column)  # type: ignore
+    if dimension_column:
+        # Check that the dimension column exists
+        column_from_dimension = await get_column(
+            session,
+            dimension_node.current,  # type: ignore
+            dimension_column,
+        )
+
+        # Check the dimension column's type is compatible with the target column's type
+        if not column_from_dimension.type.is_compatible(target_column.type):
+            raise DJInvalidInputException(
+                f"The column {target_column.name} has type {target_column.type} "
+                f"and is being linked to the dimension {dimension} via the dimension"
+                f" column {dimension_column}, which has type {column_from_dimension.type}."
+                " These column types are incompatible and the dimension cannot be linked",
+            )
+
+    link_input = JoinLinkInput(
+        dimension_node=dimension,
+        join_type=JoinType.LEFT,
+        join_on=(
+            f"{name}.{column} = {dimension_node.name}.{primary_key_columns[0].name}"  # type: ignore
+        ),
+    )
+    return await upsert_complex_dimension_link(
+        session,
+        name,
+        link_input,
+        current_user,
+        save_history,
+    )
 
 
 async def remove_dimension_link(
@@ -1887,6 +2225,7 @@ async def remove_dimension_link(
         session=session,
         name=link_identifier.dimension_node,
         node_type=NodeType.DIMENSION,
+        include_inactive=True,
     )
     removed = False
 
@@ -1918,8 +2257,16 @@ async def remove_dimension_link(
             )
         await session.commit()
 
+    # Create a new revision for dimension link removal
+    node = cast(Node, node)
+    new_revision = await create_new_revision_for_dimension_link_update(
+        session,
+        node,
+        current_user,
+    )
+
     # Delete the dimension link if one exists
-    for link in node.current.dimension_links:  # type: ignore
+    for link in new_revision.dimension_links:  # type: ignore
         if (
             link.dimension_id == dimension_node.id  # pragma: no cover
             and link.role == link_identifier.role  # pragma: no cover
@@ -1943,6 +2290,7 @@ async def remove_dimension_link(
             node=node.name,  # type: ignore
             activity_type=ActivityType.DELETE,
             details={
+                "version": node.current_version,
                 "dimension": dimension_node.name,
                 "role": link_identifier.role,
             },
@@ -1951,7 +2299,7 @@ async def remove_dimension_link(
         session=session,
     )
     await session.commit()
-    await session.refresh(node.current)  # type: ignore
+    await session.refresh(new_revision)  # type: ignore
     await session.refresh(node)
     return JSONResponse(
         status_code=201,
@@ -1969,6 +2317,88 @@ async def remove_dimension_link(
             ),
         },
     )
+
+
+async def upsert_reference_dimension_link(
+    session: AsyncSession,
+    node_name: str,
+    node_column: str,
+    dimension_node: str,
+    dimension_column: str,
+    role: str | None,
+    current_user: User,
+    save_history: Callable,
+):
+    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
+    dim_node = await Node.get_by_name(session, dimension_node, raise_if_not_exists=True)
+    if dim_node.type != NodeType.DIMENSION:  # type: ignore
+        raise DJInvalidInputException(
+            message=f"Node {node.name} is not of type dimension!",  # type: ignore
+        )
+
+    # The target and dimension columns should both exist
+    target_column = await get_column(session, node.current, node_column)  # type: ignore
+    dim_column = await get_column(session, dim_node.current, dimension_column)  # type: ignore
+
+    # Check the dimension column's type is compatible with the target column's type
+    if not dim_column.type.is_compatible(target_column.type):
+        raise DJInvalidInputException(
+            f"The column {target_column.name} has type {target_column.type} "
+            f"and is being linked to the dimension {dimension_node} "
+            f"via the dimension column {dimension_column}, which has "
+            f"type {dim_column.type}. These column types are incompatible"
+            " and the dimension cannot be linked",
+        )
+
+    activity_type = (
+        ActivityType.UPDATE if target_column.dimension_column else ActivityType.CREATE
+    )
+
+    # Create the reference link
+    target_column.dimension_id = dim_node.id  # type: ignore
+    target_column.dimension_column = (
+        f"{dimension_column}[{role}]" if role else dimension_column
+    )
+    session.add(target_column)
+    await save_history(
+        event=History(
+            entity_type=EntityType.LINK,
+            entity_name=node.name,  # type: ignore
+            node=node.name,  # type: ignore
+            activity_type=activity_type,
+            details={
+                "node_name": node_name,  # type: ignore
+                "node_column": node_column,
+                "dimension_node": dimension_node,
+                "dimension_column": dimension_column,
+                "role": role,
+            },
+            user=current_user.username,
+        ),
+        session=session,
+    )
+    await session.commit()
+
+
+async def create_new_revision_for_dimension_link_update(
+    session: AsyncSession,
+    node: Node,
+    current_user: User,
+) -> NodeRevision:
+    """
+    Create a new revision for the node to capture the dimension link changes in a new version
+    """
+    new_revision = copy_existing_node_revision(node.current, current_user)
+    new_revision.version = str(Version.parse(node.current_version).next_minor_version())
+    node.current_version = new_revision.version
+    new_revision.node = node
+
+    session.add(new_revision)
+    await session.commit()
+    await session.refresh(new_revision)
+    await session.refresh(new_revision, ["dimension_links"])
+
+    return new_revision
 
 
 async def propagate_valid_status(
@@ -2393,3 +2823,151 @@ async def hard_delete_node(
     )
     await session.commit()  # Commit the history events
     return impact
+
+
+async def refresh_source(
+    name: str,
+    session: AsyncSession,
+    current_user: User,
+    save_history: Callable,
+    query_service_client: QueryServiceClient,
+    request: Request,
+):
+    request_headers = dict(request.headers)
+    source_node = await Node.get_by_name(
+        session,
+        name,
+        options=NodeOutput.load_options(),
+    )
+    current_revision = source_node.current  # type: ignore
+
+    # If this is a view-based source node, let's rerun the create view
+    new_query = None
+    if current_revision.query:
+        catalog = await get_catalog_by_name(
+            session=session,
+            name=current_revision.catalog.name,
+        )
+        query_create = QueryCreate(
+            engine_name=catalog.engines[0].name,
+            catalog_name=catalog.name,
+            engine_version=catalog.engines[0].version,
+            submitted_query=current_revision.query,
+            async_=False,
+        )
+        query_service_client.create_view(
+            view_name=current_revision.table,
+            query_create=query_create,
+            request_headers=request_headers,
+        )
+        new_query = current_revision.query
+
+    # Get the latest columns for the source node's table from the query service
+    new_columns = []
+    try:
+        new_columns = query_service_client.get_columns_for_table(
+            current_revision.catalog.name,
+            current_revision.schema_,  # type: ignore
+            current_revision.table,  # type: ignore
+            request_headers,
+            current_revision.catalog.engines[0]
+            if len(current_revision.catalog.engines) >= 1
+            else None,
+        )
+    except DJDoesNotExistException:
+        # continue with the update, if the table was not found
+        pass
+
+    refresh_details = {}
+    if new_columns:
+        # check if any of the columns have changed (only continue with update if they have)
+        column_changes = {col.identifier() for col in current_revision.columns} != {
+            (col.name, str(parse_rule(str(col.type), "dataType")))
+            for col in new_columns
+        }
+
+        # if the columns haven't changed and the node has a table, we can skip the update
+        if not column_changes:
+            if not source_node.missing_table:  # type: ignore
+                return source_node  # type: ignore
+            # if the columns haven't changed but the node has a missing table, we should fix it
+            source_node.missing_table = False  # type: ignore
+            refresh_details["missing_table"] = "False"
+    else:
+        # since we don't see any columns, we assume the table is gone
+        if source_node.missing_table:  # type: ignore
+            # but if the node already has a missing table, we can skip the update
+            return source_node  # type: ignore
+        source_node.missing_table = True  # type: ignore
+        new_columns = current_revision.columns
+        refresh_details["missing_table"] = "True"
+
+    # Create a new node revision with the updated columns and bump the version
+    old_version = Version.parse(source_node.current_version)  # type: ignore
+    new_revision = NodeRevision(
+        name=current_revision.name,
+        type=current_revision.type,
+        node_id=current_revision.node_id,
+        display_name=current_revision.display_name,
+        description=current_revision.description,
+        mode=current_revision.mode,
+        catalog_id=current_revision.catalog_id,
+        schema_=current_revision.schema_,
+        table=current_revision.table,
+        status=current_revision.status,
+        dimension_links=[
+            DimensionLink(
+                dimension_id=link.dimension_id,
+                join_sql=link.join_sql,
+                join_type=link.join_type,
+                join_cardinality=link.join_cardinality,
+                materialization_conf=link.materialization_conf,
+            )
+            for link in current_revision.dimension_links
+        ],
+        created_by_id=current_user.id,
+        query=new_query,
+    )
+    new_revision.version = str(old_version.next_major_version())
+    new_revision.columns = [
+        Column(
+            name=column.name,
+            type=column.type,
+            node_revisions=[new_revision],
+            order=idx,
+        )
+        for idx, column in enumerate(new_columns)
+    ]
+
+    # Keep the dimension links and attributes on the columns from the node's
+    # last revision if any existed
+    new_revision.copy_dimension_links_from_revision(current_revision)
+
+    # Point the source node to the new revision
+    source_node.current_version = new_revision.version  # type: ignore
+    new_revision.extra_validation()
+
+    session.add(new_revision)
+    session.add(source_node)
+
+    refresh_details["version"] = new_revision.version
+    await save_history(
+        event=History(
+            entity_type=EntityType.NODE,
+            entity_name=source_node.name,  # type: ignore
+            node=source_node.name,  # type: ignore
+            activity_type=ActivityType.REFRESH,
+            details=refresh_details,
+            user=current_user.username,
+        ),
+        session=session,
+    )
+    await session.commit()
+
+    source_node = await Node.get_by_name(
+        session,
+        name,
+        options=NodeOutput.load_options(),
+    )
+    await session.refresh(source_node, ["current"])
+    return source_node

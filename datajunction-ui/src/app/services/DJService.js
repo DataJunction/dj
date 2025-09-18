@@ -17,9 +17,10 @@ export const DataJunctionAPI = {
     before,
     after,
     limit,
+    sortConfig,
   ) {
     const query = `
-      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $before: String, $after: String, $limit: Int) {
+      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $ascending: Boolean) {
         findNodesPaginated(
           namespace: $namespace
           nodeTypes: $nodeTypes
@@ -28,6 +29,8 @@ export const DataJunctionAPI = {
           limit: $limit
           before: $before
           after: $after
+          orderBy: $orderBy,
+          ascending: $ascending
         ) {
           pageInfo {
             hasNextPage
@@ -58,6 +61,13 @@ export const DataJunctionAPI = {
         }
       }
     `;
+    const sortOrderMapping = {
+      name: 'NAME',
+      displayName: 'DISPLAY_NAME',
+      type: 'TYPE',
+      status: 'STATUS',
+      updatedAt: 'UPDATED_AT',
+    };
 
     return await (
       await fetch(DJ_GQL, {
@@ -76,6 +86,8 @@ export const DataJunctionAPI = {
             before: before,
             after: after,
             limit: limit,
+            orderBy: sortOrderMapping[sortConfig.key],
+            ascending: sortConfig.direction === 'ascending',
           },
         }),
       })
@@ -571,7 +583,8 @@ export const DataJunctionAPI = {
     filters,
     owners,
   ) {
-    const response = await fetch(`${DJ_URL}/nodes/${name}`, {
+    const url = `${DJ_URL}/nodes/${name}`;
+    const response = await fetch(url, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -585,6 +598,19 @@ export const DataJunctionAPI = {
         mode: mode,
         owners: owners,
       }),
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
+
+  refreshLatestMaterialization: async function (name) {
+    const url = `${DJ_URL}/nodes/${name}?refresh_materialization=true`;
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
       credentials: 'include',
     });
     return { status: response.status, json: await response.json() };
@@ -743,7 +769,20 @@ export const DataJunctionAPI = {
 
   materializations: async function (node) {
     const data = await (
-      await fetch(`${DJ_URL}/nodes/${node}/materializations/`, {
+      await fetch(
+        `${DJ_URL}/nodes/${node}/materializations?show_inactive=true&include_all_revisions=true`,
+        {
+          credentials: 'include',
+        },
+      )
+    ).json();
+
+    return data;
+  },
+
+  availabilityStates: async function (node) {
+    const data = await (
+      await fetch(`${DJ_URL}/nodes/${node}/availability/`, {
         credentials: 'include',
       })
     ).json();
@@ -1276,17 +1315,22 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
-  deleteMaterialization: async function (nodeName, materializationName) {
-    const response = await fetch(
-      `${DJ_URL}/nodes/${nodeName}/materializations?materialization_name=${materializationName}`,
-      {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
+  deleteMaterialization: async function (
+    nodeName,
+    materializationName,
+    nodeVersion = null,
+  ) {
+    let url = `${DJ_URL}/nodes/${nodeName}/materializations?materialization_name=${materializationName}`;
+    if (nodeVersion) {
+      url += `&node_version=${nodeVersion}`;
+    }
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
       },
-    );
+      credentials: 'include',
+    });
     return { status: response.status, json: await response.json() };
   },
   listMetricMetadata: async function () {
@@ -1319,13 +1363,9 @@ export const DataJunctionAPI = {
   },
   // GET /notifications/
   getNotificationPreferences: async function (params = {}) {
-    const url = new URL(`${DJ_URL}/notifications/`);
-    Object.entries(params).forEach(([key, value]) =>
-      url.searchParams.append(key, value),
-    );
-
+    const query = new URLSearchParams(params).toString();
     return await (
-      await fetch(url, {
+      await fetch(`${DJ_URL}/notifications/${query ? `?${query}` : ''}`, {
         credentials: 'include',
       })
     ).json();

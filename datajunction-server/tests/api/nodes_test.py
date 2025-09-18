@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
-from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models.node import NodeStatus
@@ -52,9 +52,9 @@ async def test_read_node(client_with_roads: AsyncClient) -> None:
     data = response.json()
 
     assert response.status_code == 200
-    assert data["version"] == "v1.0"
+    assert data["version"] == "v1.2"
     assert data["node_id"] == 1
-    assert data["node_revision_id"] == 1
+    assert data["node_revision_id"] > 1
     assert data["type"] == "source"
 
     response = await client_with_roads.get("/nodes/default.nothing/")
@@ -342,29 +342,6 @@ class TestNodeCRUD:
         session.add(catalog)
         await session.commit()
         return catalog
-
-    @pytest_asyncio.fixture
-    async def current_user(self, session: AsyncSession) -> User:
-        """
-        A user fixture.
-        """
-
-        new_user = User(
-            username="datajunction",
-            password="datajunction",
-            email="dj@datajunction.io",
-            name="DJ",
-            oauth_provider=OAuthProvider.BASIC,
-            is_admin=False,
-        )
-        existing_user = await session.get(User, new_user.id)
-        if not existing_user:
-            session.add(new_user)
-            await session.commit()
-            user = new_user
-        else:
-            user = existing_user
-        return user
 
     @pytest_asyncio.fixture
     async def source_node(self, session: AsyncSession, current_user: User) -> Node:
@@ -2209,6 +2186,13 @@ class TestNodeCRUD:
         )
         assert response.status_code == 200
 
+        # Check upstreams for a downstream metric
+        response = await client_with_roads.get(
+            "/nodes/default.num_repair_orders/upstream",
+        )
+        upstream_names = [upstream["name"] for upstream in response.json()]
+        assert "default.repair_orders_fact" in upstream_names
+
         response = await client_with_roads.patch(
             "/nodes/default.repair_orders_fact",
             json={
@@ -2220,6 +2204,13 @@ class TestNodeCRUD:
             },
         )
         assert response.status_code == 200
+
+        # Check upstreams for a downstream metric
+        response = await client_with_roads.get(
+            "/nodes/default.num_repair_orders/upstream",
+        )
+        upstream_names = [upstream["name"] for upstream in response.json()]
+        assert "default.repair_orders_fact" in upstream_names
 
         # Test updating a transform with a deactivated downstream metric
         response = await client_with_roads.delete(
@@ -3290,7 +3281,6 @@ GROUP BY
         format_regex = r"\${(?P<capture>[^}]+)}"
 
         result_sql = response.json()["sql"]
-
         match = re.search(format_regex, result_sql)
         assert match and match.group("capture") == "dj_logical_timestamp"
         query = re.sub(format_regex, "FORMATTED", result_sql)
@@ -4303,7 +4293,6 @@ class TestValidateNodes:
         ] == [
             ("update", "node"),
             ("create", "link"),
-            ("set_attribute", "column_attribute"),
             ("create", "node"),
         ]
 
@@ -4350,7 +4339,6 @@ class TestValidateNodes:
         ] == [
             ("update", "node"),
             ("create", "link"),
-            ("set_attribute", "column_attribute"),
             ("create", "node"),
         ]
 
@@ -4526,6 +4514,15 @@ class TestValidateNodes:
         """
         Test getting upstream nodes of different node types.
         """
+        response = await client_with_event.get(
+            "/nodes/default.long_events_distinct_countries/upstream/",
+        )
+        data = response.json()
+        assert {node["name"] for node in data} == {
+            "default.event_source",
+            "default.long_events",
+        }
+        # Uses cached response
         response = await client_with_event.get(
             "/nodes/default.long_events_distinct_countries/upstream/",
         )
@@ -5718,7 +5715,6 @@ ON s.state_region = r.us_region_id""",
         "restore",
         "update",
         "delete",
-        "set_attribute",
         "create",
     ]
 
@@ -5817,7 +5813,14 @@ class TestCopyNode:
         )
         copied = (await client_with_roads.get("/nodes/default.contractor")).json()
         original = (await client_with_roads.get("/nodes/default.repair_order")).json()
-        for field in ["name", "node_id", "node_revision_id", "updated_at"]:
+        for field in [
+            "name",
+            "node_id",
+            "node_revision_id",
+            "updated_at",
+            "version",
+            "current_version",
+        ]:
             copied[field] = mock.ANY
         copied_dimension_links = sorted(
             copied["dimension_links"],
@@ -6088,7 +6091,14 @@ class TestCopyNode:
                 copied["dimension_links"],
                 key=lambda link: link["dimension"]["name"],
             )
+            assert sorted(original["parents"], key=lambda node: node["name"]) == sorted(
+                copied["parents"],
+                key=lambda node: node["name"],
+            )
             copied["dimension_links"] = mock.ANY
+            copied["parents"] = mock.ANY
+            copied["current_version"] = mock.ANY
+            copied["version"] = mock.ANY
             original["dimension_links"] = sorted(
                 original["dimension_links"],
                 key=lambda link: link["dimension"]["name"],

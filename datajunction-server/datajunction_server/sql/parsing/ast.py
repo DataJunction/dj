@@ -1,4 +1,5 @@
 # mypy: ignore-errors
+import asyncio
 import collections
 import decimal
 import logging
@@ -1459,6 +1460,36 @@ class UnaryOp(Operation):
         raise DJParseException(f"Unary operation {self.op} not supported!")
 
 
+class ArithmeticUnaryOpKind(DJEnum):
+    """
+    Arithmetic unary operations
+    """
+
+    Minus = "-"
+    Plus = "+"
+    BitwiseNot = "~"
+
+    def __str__(self):
+        return self.value
+
+
+@dataclass(eq=False)
+class ArithmeticUnaryOp(Operation):
+    """
+    An operation that operates on a single expression
+    """
+
+    op: ArithmeticUnaryOpKind
+    expr: Expression
+
+    def __str__(self) -> str:
+        return f"{self.op}{self.expr}"
+
+    @property
+    def type(self) -> ColumnType:
+        return self.expr.type
+
+
 class BinaryOpKind(DJEnum):
     """
     The DJ AST accepted binary operations
@@ -2544,7 +2575,7 @@ class SelectExpression(Aliasable, Expression):
     """
 
     quantifier: str = ""  # Distinct, All
-    projection: List[Union[Aliasable, Expression]] = field(default_factory=list)
+    projection: List[Union[Aliasable, Expression, Column]] = field(default_factory=list)
     from_: Optional[From] = None
     group_by: List[Expression] = field(default_factory=list)
     having: Optional[Expression] = None
@@ -2606,7 +2637,7 @@ class SelectExpression(Aliasable, Expression):
     @property
     def semantic_column_mapping(self) -> Dict[str, "Column"]:
         """
-        Returns a dictionary with the output column names mapped to the columns
+        Returns a dictionary with the semantic entity names mapped to the output columns
         """
         return {col.semantic_entity: col for col in self.projection}
 
@@ -2778,11 +2809,18 @@ class Query(TableExpression, UnNamed):
             else []
         ) + referenced_dimension_options
         if table_options:
-            for idx, option in enumerate(table_options):
-                if isinstance(option, Table):
-                    if option.name.name in cte_mapping:
-                        table_options[idx] = cte_mapping[option.name.name]
-                await table_options[idx].compile(ctx)
+
+            async def _maybe_replace_and_compile(idx, option, ctx):
+                if isinstance(option, Table) and option.name.name in cte_mapping:
+                    option = cte_mapping[option.name.name]
+                    table_options[idx] = option
+                return await option.compile(ctx)
+
+            tasks = [
+                _maybe_replace_and_compile(idx, option, ctx)
+                for idx, option in enumerate(table_options)
+            ]
+            await asyncio.gather(*tasks)
 
             expressions_to_compile = [
                 self.select.projection,
@@ -2800,13 +2838,14 @@ class Query(TableExpression, UnNamed):
                         col for expr in expression for col in expr.find_all(Column)
                     ]
 
-            with ThreadPoolExecutor() as executor:
-                list(
-                    executor.map(
-                        _compile,
-                        [(col, table_options) for col in columns_to_compile],
-                    ),
-                )
+            if columns_to_compile:
+                with ThreadPoolExecutor() as executor:
+                    list(
+                        executor.map(
+                            _compile,
+                            [(col, table_options) for col in columns_to_compile],
+                        ),
+                    )
 
         for child in self.children:
             if child is not self and not child.is_compiled():

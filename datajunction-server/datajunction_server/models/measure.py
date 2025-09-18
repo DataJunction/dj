@@ -92,3 +92,46 @@ class MeasureOutput(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class NodeRevisionNameVersion(BaseModel):
+    """
+    Node name and version
+    """
+
+    name: str
+    version: str
+
+    class Config:
+        orm_mode = True
+
+
+class FrozenMeasureOutput(BaseModel):
+    """
+    The output fields when listing frozen measure metadata
+    """
+
+    name: str
+    expression: str
+    aggregation: str
+    rule: dict[str, str | None]
+    upstream_revision: NodeRevisionNameVersion
+    used_by_node_revisions: list[NodeRevisionNameVersion]
+
+    class Config:
+        orm_mode = True
+
+
+class FrozenMeasureKey(BaseModel):
+    """
+    Base frozen measure fields.
+    """
+
+    name: str
+    expression: str
+    aggregation: str
+    rule: dict[str, str | None]
+    upstream_revision: NodeRevisionNameVersion
+
+    class Config:
+        orm_mode = True

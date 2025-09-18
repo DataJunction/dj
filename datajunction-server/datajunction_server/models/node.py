@@ -352,6 +352,17 @@ class AvailabilityStateBase(TemporalPartitionRange):
         return self
 
 
+class AvailabilityStateInfo(AvailabilityStateBase):
+    """
+    Availability state information for a node
+    """
+
+    id: int
+    updated_at: str
+    node_revision_id: int
+    node_version: str
+
+
 class MetricDirection(StrEnum):
     """
     The direction of the metric that's considered good, i.e., higher is better
