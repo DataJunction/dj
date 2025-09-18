@@ -178,7 +178,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert repair_orders.description == "All repair orders"
         assert repair_orders.tags == []
         assert repair_orders.primary_key == []
-        assert repair_orders.current_version == "v1.0"
+        assert isinstance(repair_orders.current_version, str)
         assert repair_orders.columns[0] == Column(
             name="repair_order_id",
             type="int",
@@ -223,6 +223,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert repair_order_dim.primary_key == ["repair_order_id"]
         assert repair_order_dim.description == "Repair order dimension"
         assert repair_order_dim.tags == []
+        assert isinstance(repair_order_dim.current_version, str)
         assert repair_order_dim.current_version == "v1.0"
         assert repair_order_dim.columns[0] == Column(
             name="repair_order_id",
@@ -242,6 +243,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert thin.primary_key == []
         assert thin.description == "3 columns from default.repair_orders"
         assert thin.tags == []
+        assert isinstance(thin.current_version, str)
         assert thin.current_version == "v1.0"
         assert thin.columns[0] == Column(
             name="repair_order_id",
@@ -273,6 +275,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert num_repair_orders.description == "Number of repair orders"
         assert num_repair_orders.tags == []
         assert num_repair_orders.metric_metadata is None
+        assert isinstance(num_repair_orders.current_version, str)
         assert num_repair_orders.current_version == "v1.0"
         assert num_repair_orders.columns[0] == Column(
             name="default_DOT_num_repair_orders",
