@@ -5,7 +5,7 @@ lint:
 	make check
 
 test:
-	pdm run pytest -n auto --cov=datajunction --cov-report=term -vv tests/ --doctest-modules datajunction --without-integration --without-slow-integration ${PYTEST_ARGS}
+	pdm run pytest -n auto --cov=datajunction --cov-report term-missing -vv tests/ --doctest-modules datajunction --without-integration --without-slow-integration ${PYTEST_ARGS}
 
 dev-release:
 	hatch version dev
