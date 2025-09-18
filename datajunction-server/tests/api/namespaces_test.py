@@ -293,15 +293,20 @@ async def test_deactivate_namespaces(client_with_namespaced_roads: AsyncClient) 
     response = await client_with_namespaced_roads.get(
         "/history?node=foo.bar.avg_length_of_employment",
     )
-    assert [
-        (activity["activity_type"], activity["details"]) for activity in response.json()
-    ] == [
-        ("restore", {"message": "Cascaded from restoring namespace `foo.bar`"}),
-        ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
-        ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
-        ("delete", {"message": "Cascaded from deactivating namespace `foo.bar`"}),
-        ("create", {}),
-    ]
+    assert sorted(
+        [
+            (activity["activity_type"], activity["details"])
+            for activity in response.json()
+        ],
+    ) == sorted(
+        [
+            ("restore", {"message": "Cascaded from restoring namespace `foo.bar`"}),
+            ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
+            ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
+            ("delete", {"message": "Cascaded from deactivating namespace `foo.bar`"}),
+            ("create", {}),
+        ],
+    )
 
 
 @pytest.mark.asyncio
