@@ -4,12 +4,12 @@ Fixtures for testing DJ client.
 
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 import os
 from http.client import HTTPException
 from pathlib import Path
-from typing import AsyncGenerator, Dict, Iterator, List, Optional
-from unittest.mock import MagicMock
+from typing import AsyncGenerator, Awaitable, Dict, Iterator, List, Optional
+from unittest.mock import MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -32,7 +32,7 @@ from fastapi import FastAPI, Request
 from pytest_mock import MockerFixture
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import StaticPool, NullPool
 from starlette.testclient import TestClient
 from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
@@ -278,12 +278,80 @@ def module__query_service_client(
     yield qs_client
 
 
+@contextmanager
+def patch_session_contexts(
+    session_factory,
+    use_patch: bool = True,
+) -> Iterator[None]:
+    patch_targets = (
+        [
+            "datajunction_server.internal.caching.query_cache_manager.session_context",
+            "datajunction_server.internal.nodes.session_context",
+            "datajunction_server.internal.materializations.session_context",
+        ]
+        if use_patch
+        else []
+    )
+
+    @asynccontextmanager
+    async def fake_session_context(
+        request: Request = None,
+    ) -> AsyncGenerator[AsyncSession, None]:
+        session = await session_factory()
+        try:
+            yield session
+        finally:
+            await session.close()
+
+    with ExitStack() as stack:
+        for target in patch_targets:
+            stack.enter_context(patch(target, fake_session_context))
+        yield
+
+
+def create_session_factory(postgres_container) -> Awaitable[AsyncSession]:
+    """
+    Returns a factory function that creates a new AsyncSession each time it is called.
+    """
+    engine = create_async_engine(
+        url=postgres_container.get_connection_url(),
+        poolclass=NullPool,
+    )
+
+    async def init_db():
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+            await conn.run_sync(Base.metadata.create_all)
+
+    # Make sure DB is initialized once
+    asyncio.get_event_loop().run_until_complete(init_db())
+
+    async_session_factory = async_sessionmaker(
+        bind=engine,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    # Return a callable that produces a new session
+    async def get_session_factory() -> AsyncSession:
+        return async_session_factory()
+
+    # Return the session factory and cleanup
+    return get_session_factory  # type: ignore
+
+
+@pytest.fixture(scope="module")
+def module__session_factory(module__postgres_container) -> Awaitable[AsyncSession]:
+    return create_session_factory(module__postgres_container)
+
+
 @pytest.fixture(scope="module")
 def module__server(  # pylint: disable=too-many-statements
     module__session: AsyncSession,
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,
     module_mocker,
+    module__session_factory,
 ) -> Iterator[TestClient]:
     """
     Create a mock server for testing APIs that contains a mock query service.
@@ -321,30 +389,34 @@ def module__server(  # pylint: disable=too-many-statements
         "datajunction_server.internal.caching.query_cache_manager.session_context",
         return_value=module__session,
     )
-    app = create_app(lifespan=noop_lifespan)
-    app.dependency_overrides[get_session] = get_session_override
-    app.dependency_overrides[get_settings] = get_settings_override
-    app.dependency_overrides[get_query_service_client] = (
-        get_query_service_client_override
-    )
+    with patch_session_contexts(
+        session_factory=module__session_factory,
+        use_patch=True,
+    ):
+        app = create_app(lifespan=noop_lifespan)
+        app.dependency_overrides[get_session] = get_session_override
+        app.dependency_overrides[get_settings] = get_settings_override
+        app.dependency_overrides[get_query_service_client] = (
+            get_query_service_client_override
+        )
 
-    with TestClient(app) as test_client:
-        test_client.post(
-            "/basic/user/",
-            data={
-                "email": "dj@datajunction.io",
-                "username": "datajunction",
-                "password": "datajunction",
-            },
-        )
-        test_client.post(
-            "/basic/login/",
-            data={
-                "username": "datajunction",
-                "password": "datajunction",
-            },
-        )
-        yield test_client
+        with TestClient(app) as test_client:
+            test_client.post(
+                "/basic/user/",
+                data={
+                    "email": "dj@datajunction.io",
+                    "username": "datajunction",
+                    "password": "datajunction",
+                },
+            )
+            test_client.post(
+                "/basic/login/",
+                data={
+                    "username": "datajunction",
+                    "password": "datajunction",
+                },
+            )
+            yield test_client
 
     app.dependency_overrides.clear()
 
