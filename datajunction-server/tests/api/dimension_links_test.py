@@ -36,6 +36,32 @@ async def test_link_dimension_with_errors(
     Test linking dimensions with errors
     """
     response = await dimensions_link_client.post(
+        "/nodes/default.does_not_exist/link",
+        json={
+            "dimension_node": "default.users",
+            "join_on": ("default.does_not_exist.x = default.users.y"),
+            "join_cardinality": "many_to_one",
+        },
+    )
+    assert (
+        response.json()["message"]
+        == "A node with name `default.does_not_exist` does not exist."
+    )
+
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.random_dimension",
+            "join_on": ("default.events.x = default.random_dimension.y"),
+            "join_cardinality": "many_to_one",
+        },
+    )
+    assert (
+        response.json()["message"]
+        == "A node with name `default.random_dimension` does not exist."
+    )
+
+    response = await dimensions_link_client.post(
         "/nodes/default.elapsed_secs/link",
         json={
             "dimension_node": "default.users",
@@ -270,6 +296,7 @@ async def test_link_complex_dimension_without_role(
                 "join_sql": "default.events.user_id = default.users.user_id AND "
                 "default.events.event_end_date = default.users.snapshot_date",
                 "role": None,
+                "version": "v1.2",
             },
         ),
         (
@@ -280,6 +307,7 @@ async def test_link_complex_dimension_without_role(
                 "join_sql": "default.events.user_id = default.users.user_id AND "
                 "default.events.event_start_date = default.users.snapshot_date",
                 "role": None,
+                "version": "v1.1",
             },
         ),
     ]
@@ -390,7 +418,7 @@ async def test_link_complex_dimension_with_role(
     response = await dimensions_link_client.get("/nodes/default.events")
     assert sorted(
         response.json()["dimension_links"],
-        key=lambda x: x["role"],
+        key=lambda x: x["role"] or "",
     ) == sorted(
         [
             {
@@ -1006,6 +1034,7 @@ FROM default_DOT_events"""
         "/nodes/default.events/columns/user_registration_country/link",
     )
     assert response.status_code == 200
+    response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
     response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
     response_data = response.json()
     expected_sql = """

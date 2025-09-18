@@ -27,7 +27,6 @@ from datajunction_server.internal.namespaces import (
     hard_delete_namespace,
     mark_namespace_deactivated,
     mark_namespace_restored,
-    validate_namespace,
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
@@ -82,7 +81,6 @@ async def create_node_namespace(
                 "message": f"Node namespace `{namespace}` already exists",
             },
         )
-    validate_namespace(namespace)
     created_namespaces = await create_namespace(
         session=session,
         namespace=namespace,
@@ -357,7 +355,7 @@ async def hard_delete_node_namespace(
         status_code=HTTPStatus.OK,
         content={
             "message": f"The namespace `{namespace}` has been completely removed.",
-            "impact": impacts,
+            "impact": impacts.dict(),
         },
     )
 

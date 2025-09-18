@@ -4,7 +4,10 @@ Fixtures for testing.
 
 import asyncio
 from collections import namedtuple
+from contextlib import ExitStack, contextmanager
+from datetime import timedelta
 import os
+import pathlib
 import re
 from http.client import HTTPException
 from typing import (
@@ -39,6 +42,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
 
+from fastapi import BackgroundTasks
+
 from datajunction_server.api.main import app
 from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.internal.seed import seed_default_catalogs
@@ -53,6 +58,7 @@ from datajunction_server.models.access import AccessControl, ValidateAccessFn
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.models.user import OAuthProvider
+from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
@@ -64,15 +70,52 @@ from datajunction_server.utils import (
 
 from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS, SERVICE_SETUP
 
-
-EXAMPLE_TOKEN = (
-    "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..SxGbG0NRepMY4z9-2-ZZdg.ug"
-    "0FvJUoybiGGpUItL4VbM1O_oinX7dMBUM1V3OYjv30fddn9m9UrrXxv3ERIyKu2zVJ"
-    "xx1gSoM5k8petUHCjatFQqA-iqnvjloFKEuAmxLdCHKUDgfKzCIYtbkDcxtzXLuqlj"
-    "B0-ConD6tpjMjFxNrp2KD4vwaS0oGsDJGqXlMo0MOhe9lHMLraXzOQ6xDgDFHiFert"
-    "Fc0T_9jYkcpmVDPl9pgPf55R.sKF18rttq1OZ_EjZqw8Www"
-)
 PostgresCluster = namedtuple("PostgresCluster", ["writer", "reader"])
+
+
+@pytest.fixture(scope="module")
+def module__background_tasks() -> Generator[
+    list[tuple[Callable, tuple, dict]],
+    None,
+    None,
+]:
+    original_add_task = BackgroundTasks.add_task
+    tasks = []
+
+    def fake_add_task(self, func, *args, **kwargs):
+        tasks.append((func, args, kwargs))
+        return None
+
+    BackgroundTasks.add_task = fake_add_task
+    yield tasks
+    BackgroundTasks.add_task = original_add_task
+
+
+@pytest.fixture
+def background_tasks() -> Generator[list[tuple[Callable, tuple, dict]], None, None]:
+    original_add_task = BackgroundTasks.add_task
+    tasks = []
+
+    def fake_add_task(self, func, *args, **kwargs):
+        tasks.append((func, args, kwargs))
+        return None
+
+    BackgroundTasks.add_task = fake_add_task
+    yield tasks
+    BackgroundTasks.add_task = original_add_task
+
+
+@pytest.fixture(scope="module")
+def jwt_token() -> str:
+    """
+    JWT token fixture for testing.
+    """
+    return create_token(
+        {"username": "dj"},
+        secret="a-fake-secretkey",
+        iss="http://localhost:8000/",
+        expires_delta=timedelta(hours=24),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -381,16 +424,32 @@ def query_service_client(
     yield qs_client
 
 
+@contextmanager
+def patch_session_contexts(session):
+    patch_targets = [
+        "datajunction_server.internal.caching.query_cache_manager.session_context",
+        "datajunction_server.internal.nodes.session_context",
+        "datajunction_server.internal.materializations.session_context",
+    ]
+    with ExitStack() as stack:
+        for target in patch_targets:
+            stack.enter_context(patch(target, return_value=session))
+        yield
+
+
 @pytest_asyncio.fixture
 async def client(
     session: AsyncSession,
     settings_no_qs: Settings,
+    jwt_token: str,
+    background_tasks,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
     """
     await default_attribute_types(session)
     await seed_default_catalogs(session)
+    await create_default_user(session)
 
     def get_session_override() -> AsyncSession:
         return session
@@ -412,9 +471,24 @@ async def client(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as test_client:
-        test_client.headers.update({"Authorization": f"Bearer {EXAMPLE_TOKEN}"})
-        test_client.app = app
-        yield test_client
+        with patch_session_contexts(session):
+            test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
+            test_client.app = app
+
+            # Wrap the request method to run background tasks after each request
+            original_request = test_client.request
+
+            async def wrapped_request(method, url, *args, **kwargs):
+                response = await original_request(method, url, *args, **kwargs)
+                for func, f_args, f_kwargs in background_tasks:
+                    result = func(*f_args, **f_kwargs)
+                    if asyncio.iscoroutine(result):
+                        await result
+                background_tasks.clear()
+                return response
+
+            test_client.request = wrapped_request
+            yield test_client
 
     app.dependency_overrides.clear()
 
@@ -623,6 +697,7 @@ async def client_qs(
     settings: Settings,
     query_service_client: QueryServiceClient,
     mocker: MockerFixture,
+    jwt_token: str,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
@@ -670,13 +745,14 @@ async def client_qs(
             transport=httpx.ASGITransport(app=app),
             base_url="http://test",
         ) as test_client:
-            test_client.headers.update(
-                {
-                    "Authorization": f"Bearer {EXAMPLE_TOKEN}",
-                },
-            )
-            test_client.app = app
-            yield test_client
+            with patch_session_contexts(session):
+                test_client.headers.update(
+                    {
+                        "Authorization": f"Bearer {jwt_token}",
+                    },
+                )
+                test_client.app = app
+                yield test_client
 
         app.dependency_overrides.clear()
 
@@ -730,26 +806,6 @@ def pytest_addoption(parser):
     )
 
 
-#
-# Module scope fixtures
-#
-@pytest_asyncio.fixture(autouse=True, scope="module")
-async def mock_user_dj():
-    """
-    Mock a DJ user for tests
-    """
-    with patch(
-        "datajunction_server.internal.access.authentication.http.get_user",
-        return_value=User(
-            id=1,
-            username="dj",
-            oauth_provider=OAuthProvider.BASIC,
-            is_admin=False,
-        ),
-    ):
-        yield
-
-
 @pytest_asyncio.fixture(scope="module")
 async def module__client_example_loader(
     module__client: AsyncClient,
@@ -781,26 +837,44 @@ def session_manager_per_worker():
     asyncio.run(manager.close())
 
 
+async def create_default_user(session: AsyncSession) -> User:
+    """
+    A user fixture.
+    """
+    new_user = User(
+        username="dj",
+        password="dj",
+        email="dj@datajunction.io",
+        name="DJ",
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=False,
+    )
+    existing_user = await User.get_by_username(session, new_user.username)
+    if not existing_user:
+        session.add(new_user)
+        await session.commit()
+        user = new_user
+    else:
+        user = existing_user
+    await session.refresh(user)
+    return user
+
+
 @pytest_asyncio.fixture(scope="module")
 async def module__client(
     module__session: AsyncSession,
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,
     module_mocker: MockerFixture,
+    jwt_token: str,
+    module__background_tasks: list[tuple[Callable, tuple, dict]],
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
     """
-    statement = insert(User).values(
-        username="dj",
-        email=None,
-        name=None,
-        oauth_provider="basic",
-        is_admin=False,
-    )
-    await module__session.execute(statement)
     await default_attribute_types(module__session)
     await seed_default_catalogs(module__session)
+    await create_default_user(module__session)
 
     def get_query_service_client_override(
         request: Request = None,
@@ -835,13 +909,24 @@ async def module__client(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as test_client:
-        test_client.headers.update(
-            {
-                "Authorization": f"Bearer {EXAMPLE_TOKEN}",
-            },
-        )
-        test_client.app = app
-        yield test_client
+        with patch_session_contexts(module__session):
+            test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
+            test_client.app = app
+
+            # Wrap the request method to run background tasks after each request
+            original_request = test_client.request
+
+            async def wrapped_request(method, url, *args, **kwargs):
+                response = await original_request(method, url, *args, **kwargs)
+                for func, f_args, f_kwargs in module__background_tasks:
+                    result = func(*f_args, **f_kwargs)
+                    if asyncio.iscoroutine(result):
+                        await result
+                module__background_tasks.clear()
+                return response
+
+            test_client.request = wrapped_request
+            yield test_client
 
     app.dependency_overrides.clear()
 
@@ -1070,11 +1155,13 @@ def module__postgres_container(request) -> PostgresContainer:
     """
     Setup postgres container
     """
+    path = pathlib.Path(request.module.__file__).resolve()
+    dbname = f"test_{hash(path)}"
     postgres = PostgresContainer(
         image="postgres:latest",
         username="dj",
         password="dj",
-        dbname=request.module.__name__,
+        dbname=dbname,
         port=5432,
         driver="psycopg",
     )
@@ -1240,30 +1327,6 @@ async def module__client_with_all_examples(
     return await module__client_example_loader(None)
 
 
-@pytest_asyncio.fixture(scope="module")
-async def module__current_user(module__session: AsyncSession) -> User:
-    """
-    A user fixture.
-    """
-
-    new_user = User(
-        username="datajunction",
-        password="datajunction",
-        email="dj@datajunction.io",
-        name="DJ",
-        oauth_provider=OAuthProvider.BASIC,
-        is_admin=False,
-    )
-    existing_user = await module__session.get(User, new_user.id)
-    if not existing_user:
-        module__session.add(new_user)
-        await module__session.commit()
-        user = new_user
-    else:
-        user = existing_user
-    return user
-
-
 @pytest_asyncio.fixture
 async def current_user(session: AsyncSession) -> User:
     """
@@ -1271,14 +1334,14 @@ async def current_user(session: AsyncSession) -> User:
     """
 
     new_user = User(
-        username="datajunction",
-        password="datajunction",
+        username="dj",
+        password="dj",
         email="dj@datajunction.io",
         name="DJ",
         oauth_provider=OAuthProvider.BASIC,
         is_admin=False,
     )
-    existing_user = await session.get(User, new_user.id)
+    existing_user = await User.get_by_username(session, new_user.username)
     if not existing_user:
         session.add(new_user)
         await session.commit()

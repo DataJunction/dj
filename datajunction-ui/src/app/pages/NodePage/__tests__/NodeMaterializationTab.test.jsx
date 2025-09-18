@@ -6,12 +6,19 @@ describe('<NodeMaterializationTab />', () => {
   const mockDjClient = {
     node: jest.fn(),
     materializations: jest.fn(),
+    availabilityStates: jest.fn(),
+    materializationInfo: jest.fn(),
+    refreshLatestMaterialization: jest.fn(),
   };
 
   const mockMaterializations = [
     {
       name: 'mat_one',
-      config: {},
+      config: {
+        cube: {
+          version: 'v1.0',
+        },
+      },
       schedule: '@daily',
       job: 'SparkSqlMaterializationJob',
       backfills: [
@@ -29,6 +36,27 @@ describe('<NodeMaterializationTab />', () => {
       strategy: 'full',
       output_tables: ['table1'],
       urls: ['https://example.com/'],
+      deactivated_at: null,
+    },
+  ];
+
+  const mockAvailabilityStates = [
+    {
+      id: 1,
+      catalog: 'default',
+      schema_: 'foo',
+      table: 'bar',
+      valid_through_ts: 1729667463,
+      url: 'https://www.table.com',
+      links: { dashboard: 'https://www.foobar.com/dashboard' },
+      categorical_partitions: [],
+      temporal_partitions: [],
+      min_temporal_partition: ['2022', '01', '01'],
+      max_temporal_partition: ['2023', '01', '25'],
+      partitions: [],
+      updated_at: '2023-08-21T16:48:52.880498+00:00',
+      node_revision_id: 1,
+      node_version: 'v1.0',
     },
   ];
 
@@ -134,13 +162,27 @@ describe('<NodeMaterializationTab />', () => {
 
   beforeEach(() => {
     mockDjClient.materializations.mockReset();
+    mockDjClient.availabilityStates.mockReset();
+    mockDjClient.materializationInfo.mockReset();
   });
 
   it('renders NodeMaterializationTab tab correctly', async () => {
     mockDjClient.materializations.mockReturnValue(mockMaterializations);
+    mockDjClient.availabilityStates.mockReturnValue(mockAvailabilityStates);
+    mockDjClient.materializationInfo.mockReturnValue({
+      job_types: [],
+      strategies: [],
+    });
 
     render(<NodeMaterializationTab node={mockNode} djClient={mockDjClient} />);
     await waitFor(() => {
+      // Check that the version tab is rendered
+      expect(screen.getByText('v1.0 (latest)')).toBeInTheDocument();
+
+      // Check that the materialization is rendered
+      expect(screen.getByText('Spark Sql')).toBeInTheDocument();
+
+      // Check that the dashboard link is rendered in the availability section
       const link = screen.getByText('dashboard').closest('a');
       expect(link).toHaveAttribute('href', `https://www.foobar.com/dashboard`);
     });

@@ -18,11 +18,11 @@ async def test_login_with_username_and_password(client: AsyncClient):
     """
     await client.post(
         "/basic/user/",
-        data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
+        data={"email": "dj1@datajunction.io", "username": "dj1", "password": "dj1"},
     )
     response = await client.post(
         "/basic/login/",
-        data={"username": "dj", "password": "dj"},
+        data={"username": "dj1", "password": "dj1"},
     )
     assert response.status_code in (200, 201)
     assert response.cookies.get(AUTH_COOKIE)
@@ -57,14 +57,14 @@ async def test_validate_username_and_password(
     """
     await client.post(
         "/basic/user/",
-        data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
+        data={"email": "dj1@datajunction.io", "username": "dj1", "password": "dj1"},
     )
     user = await basic.validate_user_password(
-        username="dj",
-        password="dj",
+        username="dj1",
+        password="dj1",
         session=session,
     )
-    assert user.username == "dj"
+    assert user.username == "dj1"
 
 
 @pytest.mark.asyncio
@@ -74,10 +74,14 @@ async def test_get_user(client: AsyncClient, session: AsyncSession):
     """
     await client.post(
         "/basic/user/",
-        data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
+        data={
+            "email": "auser@datajunction.io",
+            "username": "auser",
+            "password": "auser",
+        },
     )
-    user = await basic.get_user(username="dj", session=session)
-    assert user.username == "dj"
+    user = await basic.get_user(username="auser", session=session)
+    assert user.username == "auser"
 
 
 @pytest.mark.asyncio
@@ -86,8 +90,8 @@ async def test_get_user_raise_on_user_not_found(session: AsyncSession):
     Test raising when trying to get a user that doesn't exist
     """
     with pytest.raises(DJException) as exc_info:
-        await basic.get_user(username="dj", session=session)
-    assert "User dj not found" in str(exc_info.value)
+        await basic.get_user(username="dne", session=session)
+    assert "User dne not found" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -109,11 +113,15 @@ async def test_fail_invalid_credentials(client: AsyncClient, session: AsyncSessi
     """
     await client.post(
         "/basic/user/",
-        data={"email": "dj@datajunction.io", "username": "dj", "password": "incorrect"},
+        data={
+            "email": "dj1@datajunction.io",
+            "username": "dj1",
+            "password": "incorrect",
+        },
     )
     with pytest.raises(DJException) as exc_info:
         await basic.validate_user_password(
-            username="dj",
+            username="dj1",
             password="dj",
             session=session,
         )
@@ -127,19 +135,19 @@ async def test_fail_on_user_already_exists(client: AsyncClient):
     """
     await client.post(
         "/basic/user/",
-        data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
+        data={"email": "dj@datajunction.io", "username": "dj1", "password": "dj1"},
     )
     response = await client.post(
         "/basic/user/",
-        data={"email": "dj@datajunction.io", "username": "dj", "password": "dj"},
+        data={"email": "dj@datajunction.io", "username": "dj1", "password": "dj1"},
     )
     assert response.status_code == 409
     assert response.json() == {
-        "message": "User dj already exists.",
+        "message": "User dj1 already exists.",
         "errors": [
             {
                 "code": 2,
-                "message": "User dj already exists.",
+                "message": "User dj1 already exists.",
                 "debug": None,
                 "context": "",
             },
@@ -163,7 +171,7 @@ async def test_whoami(client: AsyncClient):
         "id": 1,
         "username": "dj",
         "email": "dj@datajunction.io",
-        "name": None,
+        "name": "DJ",
         "oauth_provider": "basic",
         "is_admin": False,
         "created_collections": [],

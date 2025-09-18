@@ -1,8 +1,22 @@
 """User database schema."""
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, Enum, Integer, String, case, select
+from sqlalchemy import (
+    BigInteger,
+    Enum,
+    Integer,
+    String,
+    ForeignKey,
+    case,
+    select,
+    DateTime,
+    and_,
+)
+from datetime import datetime, timezone
+from functools import partial
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql.base import ExecutableOption
@@ -11,6 +25,7 @@ from datajunction_server.database.base import Base
 from datajunction_server.database.nodeowner import NodeOwner
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJDoesNotExistException
+from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
     from datajunction_server.database.collection import Collection
@@ -19,6 +34,8 @@ if TYPE_CHECKING:
         NotificationPreference,
     )
     from datajunction_server.database.tag import Tag
+
+logger = logging.getLogger(__name__)
 
 
 class OAuthProvider(StrEnum):
@@ -29,6 +46,15 @@ class OAuthProvider(StrEnum):
     BASIC = "basic"
     GITHUB = "github"
     GOOGLE = "google"
+
+
+class PrincipalKind(StrEnum):
+    """
+    Principal kinds
+    """
+
+    USER = "user"
+    SERVICE_ACCOUNT = "service_account"
 
 
 class User(Base):
@@ -48,6 +74,23 @@ class User(Base):
         Enum(OAuthProvider),
     )
     is_admin: Mapped[bool] = mapped_column(default=False)
+    kind: Mapped[PrincipalKind] = mapped_column(
+        Enum(PrincipalKind),
+        default=PrincipalKind.USER,
+    )
+
+    created_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+
+    created_at: Mapped[UTCDatetime | None] = mapped_column(
+        DateTime(timezone=True),
+        insert_default=partial(datetime.now, timezone.utc),
+        nullable=True,
+    )
+
+    created_by: Mapped["User"] = relationship("User")
     created_collections: Mapped[list["Collection"]] = relationship(
         "Collection",
         back_populates="created_by",
@@ -138,3 +181,41 @@ class User(Base):
                 f"Users not found: {', '.join(missing_usernames)}",
             )
         return users
+
+    @classmethod
+    async def get_service_accounts_for_user_id(
+        cls,
+        session: AsyncSession,
+        user_id: int,
+        options: list[ExecutableOption] = None,
+    ) -> list["User"]:
+        """
+        Find service accounts created by a user
+        """
+        logger.info("Getting service accounts for user_id=%s", user_id)
+        options = options or [
+            selectinload(User.created_nodes),
+            selectinload(User.created_collections),
+            selectinload(User.created_tags),
+            selectinload(User.owned_nodes),
+        ]
+
+        statement = (
+            select(User)
+            .where(
+                and_(
+                    User.created_by_id == user_id,
+                    User.kind == PrincipalKind.SERVICE_ACCOUNT,
+                ),
+            )
+            .options(*options)
+        )
+
+        result = await session.execute(statement)
+        service_accounts = result.unique().scalars().all()
+        logger.info(
+            "Found %d service accounts for user_id=%s",
+            len(service_accounts),
+            user_id,
+        )
+        return service_accounts

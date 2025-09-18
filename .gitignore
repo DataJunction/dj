@@ -124,3 +124,5 @@ Untitled*
 
 # postgres
 postgres_metadata
+postgres_superset
+node_modules

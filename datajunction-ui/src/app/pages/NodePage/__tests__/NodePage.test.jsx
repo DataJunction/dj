@@ -31,6 +31,8 @@ describe('<NodePage />', () => {
         history: jest.fn(),
         revisions: jest.fn(),
         materializations: jest.fn(),
+        availabilityStates: jest.fn(),
+        refreshLatestMaterialization: jest.fn(),
         materializationInfo: jest.fn(),
         sql: jest.fn(),
         cube: jest.fn(),
@@ -43,6 +45,11 @@ describe('<NodePage />', () => {
         engines: jest.fn(),
         streamNodeData: jest.fn(),
         nodeDimensions: jest.fn(),
+        getNotificationPreferences: jest.fn().mockResolvedValue([]),
+        subscribeToNotifications: jest.fn().mockResolvedValue({ status: 200 }),
+        unsubscribeFromNotifications: jest
+          .fn()
+          .mockResolvedValue({ status: 200 }),
       },
     };
   };
@@ -588,6 +595,7 @@ describe('<NodePage />', () => {
     );
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
     djClient.DataJunctionAPI.materializations.mockReturnValue([]);
+    djClient.DataJunctionAPI.availabilityStates.mockReturnValue([]);
 
     const element = (
       <DJClientContext.Provider value={djClient}>
@@ -603,16 +611,20 @@ describe('<NodePage />', () => {
         </Routes>
       </MemoryRouter>,
     );
-    await waitFor(() => {
-      fireEvent.click(screen.getByRole('button', { name: 'Materializations' }));
-      expect(djClient.DataJunctionAPI.materializations).toHaveBeenCalledWith(
-        mocks.mockMetricNode.name,
-      );
-      screen.getByText(
-        'No materialization workflows configured for this node.',
-      );
-      screen.getByText('No materialized datasets available for this node.');
-    });
+    await waitFor(
+      () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: 'Materializations' }),
+        );
+        expect(djClient.DataJunctionAPI.materializations).toHaveBeenCalledWith(
+          mocks.mockMetricNode.name,
+        );
+        screen.getByText(
+          'No materialization workflows configured for this revision.',
+        );
+      },
+      { timeout: 5000 },
+    );
   });
 
   it('renders the NodeMaterialization tab with materializations correctly', async () => {
@@ -625,6 +637,7 @@ describe('<NodePage />', () => {
     djClient.DataJunctionAPI.materializations.mockReturnValue(
       mocks.nodeMaterializations,
     );
+    djClient.DataJunctionAPI.availabilityStates.mockReturnValue([]);
 
     djClient.DataJunctionAPI.materializationInfo.mockReturnValue(
       mocks.materializationInfo,

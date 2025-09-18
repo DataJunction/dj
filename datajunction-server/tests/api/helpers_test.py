@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api import helpers
+from datajunction_server.internal import sql
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJDoesNotExistException, DJException
@@ -121,13 +122,13 @@ async def test_find_existing_cube():
 
 
 @pytest.mark.asyncio
-@patch("datajunction_server.api.helpers.ColumnMetadata", MagicMock)
-@patch("datajunction_server.api.helpers.validate_cube")
-@patch("datajunction_server.api.helpers.Node.get_by_name")
-@patch("datajunction_server.api.helpers.find_existing_cube")
-@patch("datajunction_server.api.helpers.get_catalog_by_name")
-@patch("datajunction_server.api.helpers.build_materialized_cube_node")
-@patch("datajunction_server.api.helpers.TranslatedSQL.create", MagicMock)
+@patch("datajunction_server.internal.sql.ColumnMetadata", MagicMock)
+@patch("datajunction_server.internal.sql.validate_cube")
+@patch("datajunction_server.internal.sql.Node.get_by_name")
+@patch("datajunction_server.internal.sql.find_existing_cube")
+@patch("datajunction_server.internal.sql.get_catalog_by_name")
+@patch("datajunction_server.internal.sql.build_materialized_cube_node")
+@patch("datajunction_server.internal.sql.TranslatedSQL.create", MagicMock)
 async def test_build_sql_for_multiple_metrics(
     mock_build_materialized_cube_node,
     mock_get_catalog_by_name,
@@ -160,9 +161,9 @@ async def test_build_sql_for_multiple_metrics(
     )
     mock_session = AsyncMock()
 
-    sql = await helpers.build_sql_for_multiple_metrics(
+    built_sql = await sql.build_sql_for_multiple_metrics(
         session=mock_session,
         metrics=["m1", "m2"],
         dimensions=[],
     )
-    assert sql is not None
+    assert built_sql is not None

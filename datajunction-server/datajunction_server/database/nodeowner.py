@@ -24,6 +24,7 @@ class NodeOwner(Base):
         ForeignKey(
             "node.id",
             name="fk_node_owners_node_id",
+            ondelete="CASCADE",
         ),
         primary_key=True,
     )

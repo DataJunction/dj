@@ -111,3 +111,127 @@ async def test_measures_sql(
             "default.roads.us_states",
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_materialization_plan(
+    module__client_with_roads: AsyncClient,
+):
+    """
+    Test requesting materialization plan for a set of metrics, dimensions, and filters
+    """
+
+    query = """
+    query MaterializationPlan($metrics: [String!]!, $dimensions: [String!]!, $filters: [String!]) {
+      materializationPlan(
+        cube: {metrics: $metrics, dimensions: $dimensions, filters: $filters}
+      ) {
+        units {
+          upstream {
+            name
+            version
+          }
+          measures {
+            name
+            aggregation
+            expression
+            rule {
+              type
+              level
+            }
+          }
+          grainDimensions {
+            name
+            version
+          }
+          filters
+          filterRefs {
+            name
+            version
+          }
+        }
+      }
+    }
+    """
+
+    response = await module__client_with_roads.post(
+        "/graphql",
+        json={
+            "query": query,
+            "variables": {
+                "metrics": ["default.num_repair_orders", "default.avg_repair_price"],
+                "dimensions": [
+                    "default.us_state.state_name",
+                    "default.hard_hat.last_name",
+                ],
+                "filters": [
+                    "default.us_state.state_name = 'AZ' OR default.hard_hat.first_name = 'B'",
+                ],
+            },
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["materializationPlan"] == {
+        "units": [
+            {
+                "filterRefs": [
+                    {
+                        "name": "default.us_state.state_name",
+                        "version": mock.ANY,
+                    },
+                    {
+                        "name": "default.hard_hat.first_name",
+                        "version": mock.ANY,
+                    },
+                ],
+                "filters": [
+                    "default.us_state.state_name = 'AZ' OR "
+                    "default.hard_hat.first_name = 'B'",
+                ],
+                "grainDimensions": [
+                    {
+                        "name": "default.us_state",
+                        "version": mock.ANY,
+                    },
+                    {
+                        "name": "default.hard_hat",
+                        "version": mock.ANY,
+                    },
+                ],
+                "measures": [
+                    {
+                        "aggregation": "COUNT",
+                        "expression": "repair_order_id",
+                        "name": "repair_order_id_count_0b7dfba0",
+                        "rule": {
+                            "level": None,
+                            "type": "FULL",
+                        },
+                    },
+                    {
+                        "aggregation": "COUNT",
+                        "expression": "price",
+                        "name": "price_count_78a5eb43",
+                        "rule": {
+                            "level": None,
+                            "type": "FULL",
+                        },
+                    },
+                    {
+                        "aggregation": "SUM",
+                        "expression": "price",
+                        "name": "price_sum_78a5eb43",
+                        "rule": {
+                            "level": None,
+                            "type": "FULL",
+                        },
+                    },
+                ],
+                "upstream": {
+                    "name": "default.repair_orders_fact",
+                    "version": mock.ANY,
+                },
+            },
+        ],
+    }

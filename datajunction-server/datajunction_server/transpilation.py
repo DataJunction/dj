@@ -53,10 +53,15 @@ class SQLTranspilationPlugin:
         return query
 
 
-@dialect_plugin(Dialect.SPARK.value)
-@dialect_plugin(Dialect.TRINO.value)
+@dialect_plugin(Dialect.CLICKHOUSE.value)
 @dialect_plugin(Dialect.DRUID.value)
+@dialect_plugin(Dialect.DUCKDB.value)
 @dialect_plugin(Dialect.POSTGRES.value)
+@dialect_plugin(Dialect.REDSHIFT.value)
+@dialect_plugin(Dialect.SNOWFLAKE.value)
+@dialect_plugin(Dialect.SPARK.value)
+@dialect_plugin(Dialect.SQLITE.value)
+@dialect_plugin(Dialect.TRINO.value)
 class SQLGlotTranspilationPlugin(SQLTranspilationPlugin):
     """
     Implement sqlglot as a transpilation option

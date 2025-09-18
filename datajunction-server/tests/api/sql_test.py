@@ -3603,14 +3603,14 @@ async def test_filter_pushdowns(
 @pytest.mark.asyncio
 async def test_sql_use_materialized_table(
     measures_sql_request,
-    module__client_with_examples: AsyncClient,
+    client_with_roads: AsyncClient,
 ):
     """
     Posting a materialized table for a dimension node should result in building SQL
     that uses the materialized table whenever a dimension attribute on the node is
     requested.
     """
-    availability_response = await module__client_with_examples.post(
+    availability_response = await client_with_roads.post(
         "/data/default.hard_hat/availability",
         json={
             "catalog": "default",
@@ -3622,6 +3622,7 @@ async def test_sql_use_materialized_table(
         },
     )
     assert availability_response.status_code == 200
+    response = (await measures_sql_request()).json()
     response = (await measures_sql_request()).json()
     assert "xyz.hardhat" in response[0]["sql"]
     expected_sql = """WITH default_DOT_repair_orders_fact AS (

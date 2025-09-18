@@ -98,6 +98,7 @@ class ColumnAttribute(Base):
         sa.ForeignKey(
             "attributetype.id",
             name="fk_columnattribute_attribute_type_id_attributetype",
+            ondelete="CASCADE",
         ),
     )
     attribute_type: Mapped[AttributeType] = relationship(
@@ -106,7 +107,11 @@ class ColumnAttribute(Base):
     )
 
     column_id: Mapped[Optional[int]] = mapped_column(
-        sa.ForeignKey("column.id", name="fk_columnattribute_column_id_column"),
+        sa.ForeignKey(
+            "column.id",
+            name="fk_columnattribute_column_id_column",
+            ondelete="CASCADE",
+        ),
     )
     column: Mapped[Optional["Column"]] = relationship(
         back_populates="attributes",

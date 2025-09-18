@@ -6,6 +6,7 @@ from typing import Annotated
 import strawberry
 from strawberry.types import Info
 
+from datajunction_server.api.graphql.scalars.metricmetadata import MetricComponent
 from datajunction_server.api.graphql.scalars.errors import DJError
 from datajunction_server.api.graphql.scalars.node import Node
 from datajunction_server.api.graphql.utils import extract_fields
@@ -157,3 +158,31 @@ class EngineSettings:
     version: str | None = strawberry.field(
         description="The version of the engine used by the generated SQL",
     )
+
+
+@strawberry.type
+class VersionedRef:
+    """
+    Versioned reference
+    """
+
+    name: str
+    version: str
+
+
+@strawberry.type
+class MaterializationUnit:
+    """ """
+
+    upstream: VersionedRef
+    grain_dimensions: list[VersionedRef]
+    measures: list[MetricComponent]
+    filter_refs: list[VersionedRef]
+    filters: list[str]
+
+
+@strawberry.type
+class MaterializationPlan:
+    """ """
+
+    units: list[MaterializationUnit]

@@ -367,11 +367,11 @@ async def test_export_cube_as_notebook(
         == """### Upserting Nodes:
 * default.repair_order_details
 * default.repair_orders
-* default.repair_orders_fact
 * default.hard_hats
+* default.repair_orders_fact
+* default.hard_hat
 * default.total_repair_cost
 * default.num_repair_orders
-* default.hard_hat
 * default.roads_cube"""
     )
     assert (

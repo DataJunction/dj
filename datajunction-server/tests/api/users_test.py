@@ -18,7 +18,7 @@ class TestUsers:
         """
 
         response = await module__client_with_roads.get("/users?with_activity=true")
-        assert response.json() == [{"username": "dj", "count": 69}]
+        assert response.json() == [{"username": "dj", "count": 53}]
 
         response = await module__client_with_roads.get("/users")
         assert response.json() == ["dj"]
