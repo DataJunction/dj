@@ -801,9 +801,9 @@ async def test_druid_cube_incremental(
     assert len(metric1.required_measures) == 1
     assert metric1.required_measures[0].node.name == "default.repair_orders_fact"
     assert metric1.required_measures[0].node.display_name == "Repair Orders Fact"
-    assert metric1.required_measures[0].measure_name == "repair_order_id_count_0b7dfba0"
-    assert "SUM(repair_order_id_count_0b7dfba0)" in metric1.derived_expression
-    assert metric1.metric_expression == "SUM(repair_order_id_count_0b7dfba0)"
+    assert metric1.required_measures[0].measure_name == "repair_order_id_count_bd241964"
+    assert "SUM(repair_order_id_count_bd241964)" in metric1.derived_expression
+    assert metric1.metric_expression == "SUM(repair_order_id_count_bd241964)"
 
     metric2 = mat.metrics[1]
     assert metric2.metric.name == "default.total_repair_cost"
@@ -811,9 +811,9 @@ async def test_druid_cube_incremental(
     assert len(metric2.required_measures) == 1
     assert metric2.required_measures[0].node.name == "default.repair_orders_fact"
     assert metric2.required_measures[0].node.display_name == "Repair Orders Fact"
-    assert metric2.required_measures[0].measure_name == "total_repair_cost_sum_9bdaf803"
-    assert "sum(total_repair_cost_sum_9bdaf803)" in metric2.derived_expression
-    assert metric2.metric_expression == "sum(total_repair_cost_sum_9bdaf803)"
+    assert metric2.required_measures[0].measure_name == "total_repair_cost_sum_67874507"
+    assert "sum(total_repair_cost_sum_67874507)" in metric2.derived_expression
+    assert metric2.metric_expression == "sum(total_repair_cost_sum_67874507)"
     actual_node = mat.measures_materializations[0].node
     assert actual_node.name == "default.repair_orders_fact"
     assert actual_node.display_name == "Repair Orders Fact"
