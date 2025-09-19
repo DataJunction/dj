@@ -439,15 +439,6 @@ class Node(Base):
         return node_spec_cls(**base_kwargs, **extra_kwargs)
 
     @classmethod
-    def default_load_options(cls) -> List[ExecutableOption]:
-        return [
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
-            selectinload(Node.tags),
-            selectinload(Node.created_by),
-            selectinload(Node.owners),
-        ]
-
-    @classmethod
     def cube_load_options(cls) -> List[ExecutableOption]:
         return [
             selectinload(Node.current).options(*NodeRevision.cube_load_options()),
