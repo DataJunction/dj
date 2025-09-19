@@ -51,6 +51,7 @@ from datajunction_server.internal.nodes import (
     create_a_cube,
     create_a_node,
     create_a_source_node,
+    hard_delete_node,
     refresh_source,
     remove_dimension_link,
     set_node_column_attributes,
@@ -101,18 +102,6 @@ async def safe_task(
             operation=DeploymentResult.Operation.UNKNOWN,
             message=str(exc),
         )
-
-
-async def find_existing_nodes(
-    session: AsyncSession,
-    nodes: list[NodeSpec],
-) -> dict[str, NodeSpec]:
-    non_cubes = [n.rendered_name for n in nodes if n.node_type != NodeType.CUBE]
-    cubes = [n.rendered_name for n in nodes if n.node_type == NodeType.CUBE]
-    all_nodes = await Node.get_by_names(session, non_cubes) + [
-        await Node.get_cube_by_name(session, cube) for cube in cubes
-    ]
-    return {node.name: await node.to_spec(session) for node in all_nodes if node}
 
 
 async def deploy(
@@ -174,7 +163,7 @@ async def deploy(
             for node_spec in to_skip
         ],
     )
-    if not to_deploy:
+    if not to_deploy and not to_delete:
         logger.info(
             "No changes detected, skipping deployment. Total elapsed: %.3fs",
             time.perf_counter() - start_total,
@@ -182,9 +171,10 @@ async def deploy(
         return deployed_results
 
     logger.info(
-        "Found %d nodes to deploy; skipped %d nodes",
+        "Found %d nodes to deploy, skipped %d nodes, deleting %d nodes",
         len(to_deploy),
         len(to_skip),
+        len(to_delete),
     )
 
     node_graph = extract_node_graph(
@@ -255,9 +245,14 @@ async def deploy(
         DeploymentStatus.RUNNING,
         deployed_results,
     )
+
     logger.info("Starting deletion of %d nodes", len(to_delete))
-    # for node in to_delete:
-    #     await deactivate_node(session, node.name, current_user, save_history)
+    for node_spec in to_delete:
+        await deploy_delete_node(
+            node_name=node_spec.rendered_name,
+            current_username=current_username,
+            save_history=save_history,
+        )
     logger.info("Finished deploying namespace %s", deployment.namespace)
     return deployed_results
 
@@ -417,6 +412,11 @@ def filter_nodes_to_deploy(
         len(to_skip),
         [result.rendered_name for result in to_skip],
     )
+    logger.info(
+        "Deleting %d nodes: %s",
+        len(to_delete),
+        to_delete,
+    )
     return to_create + to_update, to_skip, to_delete
 
 
@@ -565,7 +565,6 @@ async def deploy_links_for_node(
         deployment_result = await deploy_dimension_link_from_spec(
             node_spec=node_spec,
             link_spec=link,
-            request=request,
             current_username=current_username,
             save_history=save_history,
             existing_node_links=existing_node_links,
@@ -672,7 +671,7 @@ async def deploy_node_tags(node_name: str, node_spec: NodeSpec):
         await session.refresh(node)
 
 
-async def deploy_column_attributes(
+async def deploy_column_properties(
     node_name: str,
     node_spec: NodeSpec,
     current_username: str,
@@ -685,30 +684,33 @@ async def deploy_column_attributes(
         desired_column_state = {col.name: col for col in node_spec.columns or []}
         for col in node.current.columns:  # type: ignore
             if desired_col := desired_column_state.get(col.name):
-                # If the column is explicitly defined, update its properties to match
-                if col.display_name != desired_col.display_name:
+                # Set column display name and description
+                if (
+                    col.display_name != desired_col.display_name
+                    and desired_col.display_name is not None
+                ):
                     col.display_name = desired_col.display_name
                     changed_columns.add(col.name)
                 if col.description != desired_col.description:
                     col.description = desired_col.description
                     changed_columns.add(col.name)
-                if desired_col.partition != (
-                    col.partition.to_spec() if col.partition else None
-                ):
-                    partition = (
-                        Partition(
-                            column_id=col.id,
-                            type_=desired_col.partition.type,
-                            format=desired_col.partition.format,
-                            granularity=desired_col.partition.granularity,
-                        )
-                        if desired_col.partition
-                        else None
+
+                # Set column partition
+                if desired_col.partition is None and col.partition:
+                    session.delete(col.partition)
+                    changed_columns.add(col.name)
+                elif desired_col.partition and desired_col.partition != col.partition:
+                    partition = Partition(
+                        column_id=col.id,
+                        type_=desired_col.partition.type,
+                        format=desired_col.partition.format,
+                        granularity=desired_col.partition.granularity,
                     )
-                    if partition:
-                        session.add(partition)
+                    session.add(partition)
                     col.partition = partition
                     changed_columns.add(col.name)
+
+                # Set column attributes
                 if set(desired_col.attributes) != set(col.attribute_names()):
                     await set_node_column_attributes(
                         session=session,
@@ -726,7 +728,8 @@ async def deploy_column_attributes(
                 # If the column is not explicitly defined, reset it to default
                 col.display_name = labelize(col.name)
                 col.description = ""
-                col.partition = None
+                if col.partition:
+                    session.delete(col.partition)
                 col.attributes = []
 
             session.add(col)
@@ -796,7 +799,7 @@ async def deploy_node_from_spec(
             NodeType.DIMENSION,
             NodeType.CUBE,
         ):
-            changed_columns = await deploy_column_attributes(
+            changed_columns = await deploy_column_properties(
                 node_name=node.name,
                 node_spec=node_spec,
                 current_username=current_username,
@@ -1123,7 +1126,6 @@ async def deploy_cube_node_from_spec(
 async def deploy_dimension_link_from_spec(
     node_spec: NodeSpec,
     link_spec: DimensionLinkSpec,
-    request: Request,
     current_username: str,
     save_history: Callable,
     existing_node_links: dict[
@@ -1138,13 +1140,15 @@ async def deploy_dimension_link_from_spec(
             if link_spec.rendered_dimension_node not in existing_node_links
             else DeploymentResult.Operation.UPDATE
         )
-        async with session_context(request) as session:
+        async with session_context() as session:
             current_user = cast(
                 User,
                 await User.get_by_username(session, current_username),
             )
             if link_spec.type == LinkType.JOIN:
-                existing = existing_node_links.get(link_spec.rendered_dimension_node)
+                existing = existing_node_links.get(
+                    (link_spec.rendered_dimension_node, link_spec.role),
+                )
                 join_link = cast(DimensionJoinLinkSpec, link_spec)
                 if existing != join_link:
                     if join_link.node_column:
@@ -1240,11 +1244,43 @@ async def deploy_remove_dimension_link(
             status=DeploymentResult.Status.SUCCESS,
             operation=DeploymentResult.Operation.DELETE,
         )
-    except Exception as exc:  # pragma: no cover
-        return DeploymentResult(  # pragma: no cover
+    except Exception as exc:
+        return DeploymentResult(
             deploy_type=DeploymentResult.Type.LINK,
             name=f"{node_name} -> {link.rendered_dimension_node}",
             status=DeploymentResult.Status.FAILED,
             operation=DeploymentResult.Operation.DELETE,
             message=str(exc),
         )
+
+
+async def deploy_delete_node(
+    node_name: str,
+    current_username: str,
+    save_history: Callable,
+) -> DeploymentResult:
+    async with session_context() as session:
+        current_user = cast(User, await User.get_by_username(session, current_username))
+        try:
+            await hard_delete_node(
+                name=node_name,
+                session=session,
+                current_user=current_user,
+                save_history=save_history,
+            )
+            return DeploymentResult(
+                name=node_name,
+                deploy_type=DeploymentResult.Type.NODE,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.DELETE,
+                message=f"Node {node_name} has been removed.",
+            )
+        except Exception as exc:
+            logger.exception(exc)
+            return DeploymentResult(
+                name=node_name,
+                deploy_type=DeploymentResult.Type.NODE,
+                status=DeploymentResult.Status.FAILED,
+                operation=DeploymentResult.Operation.DELETE,
+                message=str(exc),
+            )
