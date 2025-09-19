@@ -587,7 +587,7 @@ def eq_columns(a: list[ColumnSpec] | None, b: list[ColumnSpec] | None) -> bool:
         ) or (col_a.partition if col_a else None) != (
             col_b.partition if col_b else None
         ):  # type: ignore
-            return False
+            return False  # pragma: no cover
     for col_name, col_b in b_map.items():
         col_a = a_map.get(col_name)  # type: ignore
         if (set(col_b.attributes if col_b else []) - {"primary_key"}) != (  # type: ignore

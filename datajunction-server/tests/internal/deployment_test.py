@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 import random
-from typing import AsyncGenerator
+from typing import AsyncGenerator, cast
 from unittest.mock import patch
 from uuid import uuid4
 import pytest_asyncio
@@ -10,15 +10,28 @@ from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.sql.parsing.types import IntegerType, StringType
 from datajunction_server.database.user import User
+
+from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.partition import (
+    Granularity,
+    PartitionType,
+)
 from datajunction_server.internal.deployment import (
     check_external_deps,
-    deploy_column_attributes,
+    deploy_column_properties,
+    deploy_delete_node,
+    deploy_dimension_link_from_spec,
+    deploy_remove_dimension_link,
     extract_node_graph,
     topological_levels,
 )
 from datajunction_server.models.deployment import (
     ColumnSpec,
+    DeploymentResult,
+    DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
     NodeSpec,
+    PartitionSpec,
     TransformSpec,
     SourceSpec,
     MetricSpec,
@@ -26,7 +39,11 @@ from datajunction_server.models.deployment import (
     CubeSpec,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from datajunction_server.errors import DJGraphCycleException, DJInvalidDeploymentConfig
+from datajunction_server.errors import (
+    DJException,
+    DJGraphCycleException,
+    DJInvalidDeploymentConfig,
+)
 from datajunction_server.database.node import Node
 from datajunction_server.models.node import (
     NodeType,
@@ -281,7 +298,7 @@ async def external_source_node(
     node = Node(
         name="catalog.dim.categories",
         type=NodeType.SOURCE,
-        current_version="v1",
+        current_version="v1.0",
         created_by_id=current_user.id,
     )
     node_revision = NodeRevision(
@@ -291,7 +308,7 @@ async def external_source_node(
         schema_="public",
         table="categories",
         type=node.type,
-        version="v1",
+        version="v1.0",
         columns=[
             Column(name="id", type=IntegerType(), order=0),
             Column(name="name", type=StringType(), order=1),
@@ -343,90 +360,521 @@ async def test_check_external_dependencies(
         }
 
 
-async def test_deploy_column_attributes(
+async def mock_save_history(event, session):
+    return
+
+
+@pytest_asyncio.fixture
+async def categories(session: AsyncSession, catalog: Catalog, current_user: User):
+    node = Node(
+        name="catalog.dim.categories",
+        type=NodeType.DIMENSION,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    node_revision = NodeRevision(
+        node=node,
+        name=node.name,
+        type=node.type,
+        catalog_id=catalog.id,
+        version="v1.0",
+        columns=[
+            Column(
+                name="id",
+                type=IntegerType(),
+                attributes=[],
+                order=0,
+            ),
+            Column(name="name", type=StringType(), attributes=[], order=1),
+            Column(name="dateint", type=IntegerType(), attributes=[], order=2),
+        ],
+        query="SELECT 1 AS id, 'some' AS name, 20250101 AS dateint",
+        created_by_id=current_user.id,
+    )
+    session.add(node_revision)
+    await session.commit()
+    return node
+
+
+@pytest_asyncio.fixture
+async def date(session: AsyncSession, catalog: Catalog, current_user: User) -> Node:
+    node = Node(
+        name="catalog.dim.date",
+        type=NodeType.DIMENSION,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    node_revision = NodeRevision(
+        node=node,
+        name=node.name,
+        type=node.type,
+        catalog_id=catalog.id,
+        version="v1.0",
+        columns=[
+            Column(
+                name="dateint",
+                type=IntegerType(),
+                attributes=[],
+                order=0,
+            ),
+            Column(name="month", type=IntegerType(), attributes=[], order=1),
+        ],
+        query="SELECT 20250101 AS dateint, 1 AS month",
+        created_by_id=current_user.id,
+    )
+    session.add(node_revision)
+    await session.commit()
+    return node
+
+
+async def test_deploy_column_properties_partition(
     session: AsyncSession,
     current_user: User,
-    catalog: Catalog,
+    categories: Node,
 ):
     with patch(
         "datajunction_server.internal.deployment.session_context",
     ) as mock_session_context:
         await default_attribute_types(session)
         mock_session_context.return_value = session
-        node = Node(
-            name="catalog.dim.categories",
-            type=NodeType.SOURCE,
-            current_version="v1",
-            created_by_id=current_user.id,
-        )
-        node_revision = NodeRevision(
-            node=node,
-            name=node.name,
-            catalog_id=catalog.id,
-            schema_="public",
-            table="categories",
-            type=node.type,
-            version="v1",
-            columns=[
-                Column(
-                    name="id",
-                    type=IntegerType(),
-                    attributes=[],
-                    order=0,
-                ),
-                Column(name="name", type=StringType(), attributes=[], order=1),
-            ],
-            created_by_id=current_user.id,
-        )
-        session.add(node_revision)
-        await session.commit()
-
         node_spec = SourceSpec(
             name="catalog.dim.categories",
             node_type=NodeType.SOURCE,
             columns=[
-                ColumnSpec(name="id", attributes=["dimension"], type="int"),
+                ColumnSpec(name="id", type="int"),
+                ColumnSpec(name="name", type="string"),
                 ColumnSpec(
-                    name="name",
-                    attributes=["primary_key", "dimension"],
-                    type="string",
+                    name="dateint",
+                    attributes=[],
+                    type="int",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMDD",
+                    ),
                 ),
             ],
             table="catalog.dim.categories",
         )
+        await deploy_column_properties(
+            categories.name,
+            node_spec,
+            current_user.username,
+            mock_save_history,
+        )
+        node = cast(Node, await Node.get_by_name(session, categories.name))
+        assert node.current.columns[2].partition.type_ == PartitionType.TEMPORAL
+        assert node.current.columns[2].partition.granularity == Granularity.DAY
+        assert node.current.columns[2].partition.format == "yyyyMMDD"
 
-        async def mock_save_history(event, session):
-            pass
+        # Remove partition
+        node_spec.columns[2].partition = None  # type: ignore
+        await deploy_column_properties(
+            categories.name,
+            node_spec,
+            current_user.username,
+            mock_save_history,
+        )
+        node = await Node.get_by_name(session, categories.name)  # type: ignore
+        assert not node.current.columns[2].partition_id
 
-        await deploy_column_attributes(
-            node.name,
+
+async def test_deploy_column_properties_attributes(
+    session: AsyncSession,
+    current_user: User,
+    categories: Node,
+):
+    with patch(
+        "datajunction_server.internal.deployment.session_context",
+    ) as mock_session_context:
+        await default_attribute_types(session)
+        mock_session_context.return_value = session
+        node_spec = SourceSpec(
+            name="catalog.dim.categories",
+            node_type=NodeType.SOURCE,
+            columns=[
+                ColumnSpec(name="id", attributes=["hidden"], type="int"),
+                ColumnSpec(
+                    name="name",
+                    attributes=["primary_key", "hidden"],
+                    type="string",
+                ),
+                ColumnSpec(name="dateint", type="int"),
+            ],
+            table="catalog.dim.categories",
+        )
+
+        await deploy_column_properties(
+            categories.name,
             node_spec,
             current_user.username,
             mock_save_history,
         )
 
-        node = await Node.get_by_name(session, node.name)  # type: ignore
+        node = cast(Node, await Node.get_by_name(session, categories.name))
         node.current.columns[0].attributes.sort(key=lambda a: a.attribute_type.name)
         assert [
             attr.attribute_type.name for attr in node.current.columns[0].attributes
-        ] == ["dimension"]
+        ] == ["hidden"]
         assert [
             attr.attribute_type.name for attr in node.current.columns[1].attributes
-        ] == ["dimension", "primary_key"]
+        ] == ["hidden", "primary_key"]
 
-        node_spec.columns[0].attributes.append("primary_key")  # type: ignore
-        node_spec.columns[1].attributes = []  # type: ignore
-        await deploy_column_attributes(
-            node.name,
+
+async def test_deploy_column_properties_desc(
+    session: AsyncSession,
+    current_user: User,
+    categories: Node,
+):
+    with patch(
+        "datajunction_server.internal.deployment.session_context",
+    ) as mock_session_context:
+        await default_attribute_types(session)
+        mock_session_context.return_value = session
+        node_spec = SourceSpec(
+            name="catalog.dim.categories",
+            node_type=NodeType.SOURCE,
+            columns=[
+                ColumnSpec(name="id", display_name="Identifier", type="int"),
+                ColumnSpec(
+                    name="name",
+                    description="Category name",
+                    type="string",
+                ),
+                ColumnSpec(name="dateint", type="int"),
+            ],
+            table="catalog.dim.categories",
+        )
+        await deploy_column_properties(
+            categories.name,
             node_spec,
             current_user.username,
             mock_save_history,
         )
-        node = await Node.get_by_name(session, node.name)  # type: ignore
-        node.current.columns[0].attributes.sort(key=lambda a: a.attribute_type.name)
-        assert [
-            attr.attribute_type.name for attr in node.current.columns[0].attributes
-        ] == ["dimension", "primary_key"]
-        assert [
-            attr.attribute_type.name for attr in node.current.columns[1].attributes
-        ] == []
+        node = cast(Node, await Node.get_by_name(session, categories.name))
+        node.current.columns[0].display_name == "Identifier"
+        node.current.columns[0].description == ""
+        node.current.columns[1].display_name == "Category"
+        node.current.columns[1].description == "Category name"
+
+
+async def test_deploy_column_properties_reset(
+    session: AsyncSession,
+    current_user: User,
+    categories: Node,
+):
+    with patch(
+        "datajunction_server.internal.deployment.session_context",
+    ) as mock_session_context:
+        await default_attribute_types(session)
+        mock_session_context.return_value = session
+        node_spec = SourceSpec(
+            name="catalog.dim.categories",
+            node_type=NodeType.SOURCE,
+            columns=[
+                ColumnSpec(
+                    name="id",
+                    display_name="ID",
+                    attributes=["primary_key"],
+                    type="int",
+                ),
+                ColumnSpec(
+                    name="name",
+                    description="Category name",
+                    attributes=["hidden"],
+                    type="string",
+                ),
+                ColumnSpec(
+                    name="dateint",
+                    type="int",
+                    display_name="Date",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMDD",
+                    ),
+                ),
+            ],
+            table="catalog.dim.categories",
+        )
+        await deploy_column_properties(
+            categories.name,
+            node_spec,
+            current_user.username,
+            mock_save_history,
+        )
+
+        # Reset columns to default properties
+        node_spec.columns = []
+        await deploy_column_properties(
+            categories.name,
+            node_spec,
+            current_user.username,
+            mock_save_history,
+        )
+        node = cast(Node, await Node.get_by_name(session, categories.name))
+        node.current.columns[0].display_name == "Id"
+        node.current.columns[0].description == ""
+        assert not node.current.columns[0].attributes
+        assert not node.current.columns[0].partition_id
+
+        node.current.columns[1].display_name == "Name"
+        node.current.columns[1].description == ""
+        assert not node.current.columns[1].attributes
+        assert not node.current.columns[1].partition_id
+
+        node.current.columns[2].display_name == "Dateint"
+        node.current.columns[2].description == ""
+        assert not node.current.columns[2].attributes
+        assert not node.current.columns[2].partition_id
+
+
+async def test_deploy_dimension_join_link(
+    session: AsyncSession,
+    current_user: User,
+    categories: Node,
+    date: Node,
+):
+    with patch(
+        "datajunction_server.internal.deployment.session_context",
+    ) as mock_session_context:
+        await default_attribute_types(session)
+        mock_session_context.return_value = session
+        node = cast(Node, await Node.get_by_name(session, categories.name))
+        categories_spec = await node.to_spec(session)
+        join_sql = "catalog.dim.categories.dateint = catalog.dim.date.dateint"
+        join_link_spec = DimensionJoinLinkSpec(
+            dimension_node=date.name,
+            join_on=join_sql,
+        )
+        result = await deploy_dimension_link_from_spec(
+            node_spec=categories_spec,
+            link_spec=join_link_spec,
+            current_username=current_user.username,
+            save_history=mock_save_history,
+            existing_node_links={},
+        )
+        assert result == DeploymentResult(
+            name="catalog.dim.categories -> catalog.dim.date",
+            deploy_type=DeploymentResult.Type.LINK,
+            status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.CREATE,
+            message="Join link successfully deployed",
+        )
+        node = cast(Node, await Node.get_by_name(session, categories.name))
+        assert len(node.current.dimension_links) == 1
+        node.current.dimension_links[0].dimension.name == date.name
+        node.current.dimension_links[0].join_sql == join_sql
+
+        # Deploying again should skip
+        existing_node_spec = await node.to_spec(session)
+        result = await deploy_dimension_link_from_spec(
+            node_spec=categories_spec,
+            link_spec=join_link_spec,
+            current_username=current_user.username,
+            save_history=mock_save_history,
+            existing_node_links={
+                (link.rendered_dimension_node, link.role): link
+                for link in (
+                    existing_node_spec.dimension_links if existing_node_spec else []
+                )
+            },
+        )
+        assert result == DeploymentResult(
+            name="catalog.dim.categories -> catalog.dim.date",
+            deploy_type=DeploymentResult.Type.LINK,
+            status=DeploymentResult.Status.SKIPPED,
+            operation=DeploymentResult.Operation.CREATE,
+            message="No change to dimension link",
+        )
+
+        # Removing is successful
+        result = await deploy_remove_dimension_link(
+            session=session,
+            node_name=categories.name,
+            link=join_link_spec,
+            current_username=current_user.username,
+            save_history=mock_save_history,
+        )
+        assert result == DeploymentResult(
+            name="catalog.dim.categories -> catalog.dim.date",
+            deploy_type=DeploymentResult.Type.LINK,
+            status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.DELETE,
+            message="",
+        )
+        node = cast(Node, await Node.get_by_name(session, categories.name))
+        assert len(node.current.dimension_links) == 0
+
+
+async def test_deploy_dimension_join_link_failures(
+    session: AsyncSession,
+    current_user: User,
+    categories: Node,
+    date: Node,
+):
+    with patch(
+        "datajunction_server.internal.deployment.session_context",
+    ) as mock_session_context:
+        await default_attribute_types(session)
+        mock_session_context.return_value = session
+        node = cast(Node, await Node.get_by_name(session, categories.name))
+        categories_spec = await node.to_spec(session)
+        join_link_spec = DimensionJoinLinkSpec(
+            dimension_node=date.name,
+            join_on="catalog.dim.categories.dateint = catalog.dim.date.dateint",
+        )
+
+        # Mock upsert link failure
+        def mock_upsert_link(*args, **kwargs):
+            raise DJException("Something went wrong with upserting link")
+
+        existing_node_spec = await node.to_spec(session)
+        with patch(
+            "datajunction_server.internal.deployment.upsert_complex_dimension_link",
+            mock_upsert_link,
+        ):
+            result = await deploy_dimension_link_from_spec(
+                node_spec=categories_spec,
+                link_spec=join_link_spec,
+                current_username=current_user.username,
+                save_history=mock_save_history,
+                existing_node_links={
+                    (link.rendered_dimension_node, link.role): link
+                    for link in (
+                        existing_node_spec.dimension_links if existing_node_spec else []
+                    )
+                },
+            )
+            assert result == DeploymentResult(
+                name="catalog.dim.categories -> catalog.dim.date",
+                deploy_type=DeploymentResult.Type.LINK,
+                status=DeploymentResult.Status.FAILED,
+                operation=DeploymentResult.Operation.CREATE,
+                message="Something went wrong with upserting link",
+            )
+
+        # Mock remove link failure
+        def mock_remove_link(**kwargs):
+            raise DJException("Something went wrong with removing the link")
+
+        with patch(
+            "datajunction_server.internal.deployment.remove_dimension_link",
+            mock_remove_link,
+        ):
+            result = await deploy_remove_dimension_link(
+                session=session,
+                node_name=categories.name,
+                link=join_link_spec,
+                current_username=current_user.username,
+                save_history=mock_save_history,
+            )
+            assert result == DeploymentResult(
+                name="catalog.dim.categories -> catalog.dim.date",
+                deploy_type=DeploymentResult.Type.LINK,
+                status=DeploymentResult.Status.FAILED,
+                operation=DeploymentResult.Operation.DELETE,
+                message="Something went wrong with removing the link",
+            )
+
+
+async def test_deploy_dimension_reference_link(
+    session: AsyncSession,
+    current_user: User,
+    categories: Node,
+    date: Node,
+):
+    with patch(
+        "datajunction_server.internal.deployment.session_context",
+    ) as mock_session_context:
+        await default_attribute_types(session)
+        mock_session_context.return_value = session
+        node = cast(Node, await Node.get_by_name(session, categories.name))
+        categories_spec = await node.to_spec(session)
+        ref_link_spec = DimensionReferenceLinkSpec(
+            node_column="dateint",
+            dimension="catalog.dim.date.dateint",
+        )
+        result = await deploy_dimension_link_from_spec(
+            node_spec=categories_spec,
+            link_spec=ref_link_spec,
+            current_username=current_user.username,
+            save_history=mock_save_history,
+            existing_node_links={},
+        )
+        assert result == DeploymentResult(
+            name="catalog.dim.categories -> catalog.dim.date",
+            deploy_type=DeploymentResult.Type.LINK,
+            status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.CREATE,
+            message="Reference link successfully deployed",
+        )
+        node = cast(Node, await Node.get_by_name(session, categories.name))
+        assert node.current.columns[2].dimension.name == date.name
+
+        # FIXME: Reference link deletion should work
+        # result = await deploy_remove_dimension_link(
+        #     session=session,
+        #     node_name=categories.name,
+        #     link=ref_link_spec,
+        #     current_username=current_user.username,
+        #     save_history=mock_save_history,
+        # )
+        # assert result == DeploymentResult(
+        #     name="catalog.dim.categories -> catalog.dim.date",
+        #     deploy_type=DeploymentResult.Type.LINK,
+        #     status=DeploymentResult.Status.SUCCESS,
+        #     operation=DeploymentResult.Operation.DELETE,
+        #     message="",
+        # )
+        # node = cast(Node, await Node.get_by_name(session, categories.name))
+        # assert not node.current.columns[2].dimension_id
+
+
+async def test_deploy_delete_node_success(
+    session: AsyncSession,
+    current_user: User,
+    categories: Node,
+):
+    with patch(
+        "datajunction_server.internal.deployment.session_context",
+    ) as mock_session_context:
+        await default_attribute_types(session)
+        mock_session_context.return_value = session
+        result = await deploy_delete_node(
+            categories.name,
+            current_user.username,
+            mock_save_history,
+        )
+        assert result == DeploymentResult(
+            name="catalog.dim.categories",
+            deploy_type=DeploymentResult.Type.NODE,
+            status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.DELETE,
+            message="Node catalog.dim.categories has been removed.",
+        )
+        assert await Node.get_by_name(session, categories.name) is None
+
+
+async def test_deploy_delete_node_failure(
+    session: AsyncSession,
+    current_user: User,
+    categories: Node,
+):
+    with patch(
+        "datajunction_server.internal.deployment.session_context",
+    ) as mock_session_context:
+        await default_attribute_types(session)
+        mock_session_context.return_value = session
+        result = await deploy_delete_node(
+            categories.name + "bogus",
+            current_user.username,
+            mock_save_history,
+        )
+        assert result == DeploymentResult(
+            name="catalog.dim.categoriesbogus",
+            deploy_type=DeploymentResult.Type.NODE,
+            status=DeploymentResult.Status.FAILED,
+            operation=DeploymentResult.Operation.DELETE,
+            message="A node with name `catalog.dim.categoriesbogus` does not exist.",
+        )
