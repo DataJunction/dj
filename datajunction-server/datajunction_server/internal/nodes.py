@@ -2746,7 +2746,7 @@ async def hard_delete_node(
         name,
         options=[joinedload(Node.current), joinedload(Node.revisions)],
         include_inactive=True,
-        raise_if_not_exists=False,
+        raise_if_not_exists=True,
     )
     downstream_nodes = await get_downstream_nodes(session=session, node_name=name)
 
