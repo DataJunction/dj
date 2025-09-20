@@ -8,6 +8,7 @@ from datajunction.admin import DJAdmin
 from datajunction.builder import DJBuilder
 from datajunction.client import DJClient
 from datajunction.compile import Project
+from datajunction.deployment import DeploymentService
 from datajunction.models import (
     AvailabilityState,
     ColumnAttribute,
@@ -64,4 +65,5 @@ __all__ = [
     "Engine",
     "Project",
     "Tag",
+    "DeploymentService",
 ]

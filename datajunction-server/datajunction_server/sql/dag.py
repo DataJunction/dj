@@ -1117,7 +1117,6 @@ async def get_nodes_with_dimension(
             )
             for node_rev in node_revisions + nodes_via_dimension_link:
                 if node_rev.name not in processed:  # pragma: no cover
-                    print("(node_rev.node, depth + 1)", (node_rev.node.name, depth + 1))
                     to_process.append((node_rev.node, depth + 1))
         else:
             # All other nodes are added to the result set

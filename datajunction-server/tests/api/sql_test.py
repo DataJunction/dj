@@ -2770,9 +2770,11 @@ async def test_get_sql_for_metrics_no_access(module__client_with_examples: Async
 
 
 @pytest.mark.asyncio
-async def test_get_sql_for_metrics2(module__client_with_examples: AsyncClient):
+async def test_get_sql_including_dimension_ids(
+    module__client_with_examples: AsyncClient,
+):
     """
-    Test getting sql for multiple metrics.
+    Test getting SQL when there are dimensions ids included
     """
 
     response = await module__client_with_examples.get(
@@ -2965,14 +2967,6 @@ async def test_get_sql_for_metrics2(module__client_with_examples: AsyncClient):
         },
     ]
 
-
-@pytest.mark.asyncio
-async def test_get_sql_including_dimension_ids(
-    module__client_with_examples: AsyncClient,
-):
-    """
-    Test getting SQL when there are dimensions ids included
-    """
     response = await module__client_with_examples.get(
         "/sql/",
         params={

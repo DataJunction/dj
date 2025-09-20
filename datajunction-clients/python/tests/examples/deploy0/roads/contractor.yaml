@@ -1,0 +1,24 @@
+name: ${prefix}roads.contractor
+node_type: dimension
+description: Contractor dimension
+query: |
+  SELECT
+  contractor_id,
+  company_name,
+  contact_name,
+  contact_title,
+  address,
+  city,
+  state,
+  postal_code,
+  country
+  FROM ${prefix}roads.contractors
+primary_key:
+  - contractor_id
+dimension_links:
+  - type: join
+    node_column: state
+    dimension_node: ${prefix}roads.us_state
+  - type: reference
+    node_column: company_name
+    dimension: ${prefix}roads.companies_dim.name

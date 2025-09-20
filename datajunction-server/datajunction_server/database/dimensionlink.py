@@ -78,6 +78,16 @@ class DimensionLink(Base):
     # Additional materialization settings that are needed in order to do this join
     materialization_conf: Mapped[Optional[Dict]] = mapped_column(JSON, default={})
 
+    def to_spec(self):
+        from datajunction_server.models.deployment import DimensionJoinLinkSpec
+
+        return DimensionJoinLinkSpec(
+            role=self.role,
+            dimension_node=self.dimension.name,
+            join_on=self.join_sql,
+            join_type=self.join_type if self.join_type else JoinType.LEFT,
+        )
+
     @classmethod
     def parse_join_type(cls, join_type: str) -> Optional[JoinType]:
         """

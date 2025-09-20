@@ -170,3 +170,11 @@ class Settings(BaseSettings):  # pragma: no cover
         )
 
     seed_setup: SeedSetup = SeedSetup()
+
+    @property
+    def effective_reader_concurrency(self) -> int:
+        return max(1, self.reader_db.pool_size // 2)
+
+    @property
+    def effective_writer_concurrency(self) -> int:
+        return max(1, self.writer_db.pool_size // 2)

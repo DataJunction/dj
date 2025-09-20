@@ -4361,6 +4361,7 @@ class TestValidateNodes:
         }
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_propagate_update_downstream(
         self,
         client_with_roads: AsyncClient,

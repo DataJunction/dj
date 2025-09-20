@@ -10,8 +10,9 @@ from datajunction_server.models.node import NodeStatus
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("client", [False], indirect=True)
 async def test_update_source_node(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test updating a source node that has multiple layers of downstream effects
@@ -21,7 +22,7 @@ async def test_update_source_node(
     - any metric selecting from `quantity` should be invalid (now quantity_v2)
     - any metric selecting from `price` should have updated types (now string)
     """
-    await module__client_with_roads.patch(
+    await client_with_roads.patch(
         "/nodes/default.repair_order_details/",
         json={
             "columns": [
@@ -140,12 +141,12 @@ async def test_update_source_node(
 
     # check all affected nodes and verify that their statuses have been updated
     for affected, expected_status in affected_nodes.items():
-        response = await module__client_with_roads.get(f"/nodes/{affected}")
+        response = await client_with_roads.get(f"/nodes/{affected}")
         assert response.json()["status"] == expected_status
 
         # only nodes with a status change will have a history record
         if expected_status == NodeStatus.INVALID:
-            response = await module__client_with_roads.get(f"/history?node={affected}")
+            response = await client_with_roads.get(f"/history?node={affected}")
             if node_history_events.get(affected):
                 assert [
                     event
@@ -153,14 +154,14 @@ async def test_update_source_node(
                     if event["activity_type"] == "update"
                 ] == node_history_events.get(affected)
 
-    await module__client_with_roads.patch(
+    await client_with_roads.patch(
         "/nodes/default.national_level_agg/",
         json={
             "query": "SELECT SUM(cast(rd.price AS float) * rd.quantity_v2) AS total_amount "
             "FROM default.repair_order_details rd",
         },
     )
-    response = await module__client_with_roads.get("/nodes/default.national_level_agg")
+    response = await client_with_roads.get("/nodes/default.national_level_agg")
     data = response.json()
     assert data["status"] == "valid"
     assert data["columns"] == [

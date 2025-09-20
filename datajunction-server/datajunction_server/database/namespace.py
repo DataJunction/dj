@@ -150,6 +150,7 @@ class NodeNamespace(Base):
         session: AsyncSession,
         namespace: str,
         include_deactivated: bool = False,
+        options: Optional[List] = None,
     ) -> List["Node"]:
         """
         List all nodes in the namespace.
@@ -165,7 +166,7 @@ class NodeNamespace(Base):
                 ),
             )
             .options(
-                *_node_output_options(),
+                *(options or _node_output_options()),
             )
         )
         if include_deactivated is False:  # pragma: no cover

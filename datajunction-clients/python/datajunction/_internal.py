@@ -196,6 +196,27 @@ class DJClient:
         )
         return response
 
+    def deploy(self, deployment_spec: Dict[str, Any]):
+        """
+        Deploy a deployment spec to the target namespace.
+        """
+        response = self._session.post(
+            "/deployments",
+            json=deployment_spec,
+            timeout=self._timeout,
+        )
+        return response.json()
+
+    def check_deployment(self, deployment_uuid: str):
+        """
+        Check the status of a deployment spec in the target namespace.
+        """
+        response = self._session.get(
+            f"/deployments/{deployment_uuid}",
+            timeout=self._timeout,
+        )
+        return response.json()
+
     @staticmethod
     def _primary_key_from_columns(columns) -> List[str]:
         """
@@ -612,6 +633,13 @@ class DJClient:
         Export an array of definitions contained within a namespace
         """
         response = self._session.get(f"/namespaces/{namespace}/export/")
+        return response.json()
+
+    def _export_namespace_spec(self, namespace):
+        """
+        Export a deployment spec for a namespace
+        """
+        response = self._session.get(f"/namespaces/{namespace}/export/spec/")
         return response.json()
 
     #
