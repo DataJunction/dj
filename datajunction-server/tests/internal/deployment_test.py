@@ -467,6 +467,18 @@ async def test_deploy_column_properties_partition(
         assert node.current.columns[2].partition.granularity == Granularity.DAY
         assert node.current.columns[2].partition.format == "yyyyMMDD"
 
+        # Update partition
+        node_spec.columns[2].partition.granularity = Granularity.MONTH  # type: ignore
+        await deploy_column_properties(
+            categories.name,
+            node_spec,
+            current_user.username,
+            mock_save_history,
+        )
+        node = cast(Node, await Node.get_by_name(session, categories.name))
+        assert node.current.columns[2].partition.type_ == PartitionType.TEMPORAL
+        assert node.current.columns[2].partition.granularity == Granularity.MONTH
+
         # Remove partition
         node_spec.columns[2].partition = None  # type: ignore
         await deploy_column_properties(

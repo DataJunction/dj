@@ -699,7 +699,7 @@ async def deploy_column_properties(
                 if desired_col.partition is None and col.partition:
                     session.delete(col.partition)
                     changed_columns.add(col.name)
-                elif desired_col.partition and desired_col.partition != col.partition:
+                elif col.partition is None and desired_col.partition:
                     partition = Partition(
                         column_id=col.id,
                         type_=desired_col.partition.type,
@@ -708,6 +708,16 @@ async def deploy_column_properties(
                     )
                     session.add(partition)
                     col.partition = partition
+                    changed_columns.add(col.name)
+                elif (
+                    desired_col.partition
+                    and col.partition
+                    and desired_col.partition != col.partition.to_spec()
+                ):
+                    col.partition.type_ = desired_col.partition.type
+                    col.partition.format = desired_col.partition.format
+                    col.partition.granularity = desired_col.partition.granularity
+                    session.add(col)
                     changed_columns.add(col.name)
 
                 # Set column attributes
