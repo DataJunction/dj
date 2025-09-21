@@ -1466,9 +1466,9 @@ class TestDeployments:
             {
                 "deploy_type": "link",
                 "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
-                "status": "success",
+                "status": "skipped",
                 "operation": "create",
-                "message": "Join link successfully deployed",
+                "message": "No change to dimension link",
             },
         ]
 
