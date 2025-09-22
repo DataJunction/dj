@@ -5,6 +5,7 @@ from typing import Any, Literal, Union
 
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.models.base import labelize
 from datajunction_server.models.dimensionlink import JoinType, LinkType
 from datajunction_server.models.node import (
     MetricDirection,
@@ -575,25 +576,30 @@ def eq_columns(a: list[ColumnSpec] | None, b: list[ColumnSpec] | None) -> bool:
       - None or [] is considered equivalent to a list where every column only has 'primary_key'
         in attributes and partition is None.
     """
-    a_list = a or []
-    b_list = b or []
-
-    a_map = {col.name: col for col in a_list}
-    b_map = {col.name: col for col in b_list}
-    for col_name, col_a in a_map.items():
-        col_b = b_map.get(col_name)
-        if (set(col_a.attributes if col_a else []) - {"primary_key"}) != (  # type: ignore
-            set(col_b.attributes if col_b else []) - {"primary_key"}  # type: ignore
-        ) or (col_a.partition if col_a else None) != (
-            col_b.partition if col_b else None
-        ):  # type: ignore
-            return False  # pragma: no cover
-    for col_name, col_b in b_map.items():
-        col_a = a_map.get(col_name)  # type: ignore
-        if (set(col_b.attributes if col_b else []) - {"primary_key"}) != (  # type: ignore
-            set(col_a.attributes if col_a else []) - {"primary_key"}  # type: ignore
-        ) or (col_b.partition if col_b else None) != (
-            col_a.partition if col_a else None
-        ):  # type: ignore
-            return False
-    return True
+    a_map = {col.name: col for col in a or []}
+    b_map = {col.name: col for col in b or []}
+    a_cols, b_cols = [], []
+    for col_name in set(a_map.keys()).union(set(b_map.keys())):
+        a_col = a_map.get(col_name)
+        b_col = b_map.get(col_name)
+        if not a_col:
+            a_col = ColumnSpec(
+                name=col_name,
+                display_name=labelize(col_name),
+                type=b_col.get("type", "") if b_col else "",
+                attributes=[],
+            )
+        if not b_col:
+            b_col = ColumnSpec(
+                name=col_name,
+                display_name=labelize(col_name),
+                type=a_col.get("type", "") if a_col else "",
+                attributes=[],
+            )
+        if "primary_key" in a_col.attributes:
+            a_col.attributes = list(set(a_col.attributes) - {"primary_key"})
+        if "primary_key" in b_col.attributes:
+            b_col.attributes = list(set(b_col.attributes) - {"primary_key"})
+        a_cols.append(a_col)
+        b_cols.append(b_col)
+    return a_cols == b_cols

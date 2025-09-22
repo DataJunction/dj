@@ -248,10 +248,12 @@ async def deploy(
 
     logger.info("Starting deletion of %d nodes", len(to_delete))
     for node_spec in to_delete:
-        await deploy_delete_node(
-            node_name=node_spec.rendered_name,
-            current_username=current_username,
-            save_history=save_history,
+        deployed_results.append(
+            await deploy_delete_node(
+                node_name=node_spec.rendered_name,
+                current_username=current_username,
+                save_history=save_history,
+            ),
         )
     logger.info("Finished deploying namespace %s", deployment.namespace)
     return deployed_results
@@ -661,10 +663,10 @@ async def run_tasks_with_semaphore(
     )
 
 
-async def deploy_node_tags(node_name: str, node_spec: NodeSpec):
+async def deploy_node_tags(node_name: str, tag_names: list[str]) -> None:
     async with session_context() as session:
         node = await Node.get_by_name(session=session, name=node_name)
-        tags = await get_tags_by_name(session, names=node_spec.tags or [])
+        tags = await get_tags_by_name(session, names=tag_names or [])
         node.tags = tags  # type: ignore
         session.add(node)
         await session.commit()
@@ -800,7 +802,7 @@ async def deploy_node_from_spec(
         ) if changed_fields else ""
 
         if set(node_spec.tags) != set([tag.name for tag in node.tags]):
-            await deploy_node_tags(node_name=node.name, node_spec=node_spec)
+            await deploy_node_tags(node_name=node.name, tag_names=node_spec.tags)
             tags_list = ", ".join([f"`{tag}`" for tag in node_spec.tags])
             changelog.append(f"└─ Set tags to {tags_list}.")
         if node.type in (

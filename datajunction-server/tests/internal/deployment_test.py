@@ -8,6 +8,7 @@ from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.database.column import Column
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.tag import Tag
 from datajunction_server.sql.parsing.types import IntegerType, StringType
 from datajunction_server.database.user import User
 
@@ -21,6 +22,7 @@ from datajunction_server.internal.deployment import (
     deploy_column_properties,
     deploy_delete_node,
     deploy_dimension_link_from_spec,
+    deploy_node_tags,
     deploy_remove_dimension_link,
     extract_node_graph,
     topological_levels,
@@ -40,6 +42,7 @@ from datajunction_server.models.deployment import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.errors import (
+    DJDoesNotExistException,
     DJException,
     DJGraphCycleException,
     DJInvalidDeploymentConfig,
@@ -890,3 +893,38 @@ async def test_deploy_delete_node_failure(
             operation=DeploymentResult.Operation.DELETE,
             message="A node with name `catalog.dim.categoriesbogus` does not exist.",
         )
+
+
+async def test_deploy_node_tags(
+    session: AsyncSession,
+    current_user: User,
+    categories: Node,
+):
+    with patch(
+        "datajunction_server.internal.deployment.session_context",
+    ) as mock_session_context:
+        await default_attribute_types(session)
+        mock_session_context.return_value = session
+        with pytest.raises(DJDoesNotExistException) as excinfo:
+            await deploy_node_tags(categories.name, tag_names=["tag1", "tag2"])
+        assert "Tags not found" in str(excinfo.value)
+
+        # Create tags
+        tag = Tag(name="tag1", created_by_id=current_user.id, tag_type="default")
+        session.add(tag)
+        tag = Tag(name="tag2", created_by_id=current_user.id, tag_type="default")
+        session.add(tag)
+        await session.commit()
+        # Retry deploying tags
+        await deploy_node_tags(categories.name, tag_names=["tag1", "tag2"])
+
+        node = cast(Node, await Node.get_by_name(session, categories.name))
+        assert sorted([tag.name for tag in node.tags]) == ["tag1", "tag2"]
+
+        # Update tags
+        await deploy_node_tags(
+            node_name=categories.name,
+            tag_names=["tag2"],
+        )
+        node = cast(Node, await Node.get_by_name(session, categories.name))
+        assert sorted([tag.name for tag in node.tags]) == ["tag2"]
