@@ -5,7 +5,7 @@ Configuration for the datajunction server.
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
@@ -34,6 +34,21 @@ class DatabaseConfig(BaseModel):
     keepalives_idle: int = 30
     keepalives_interval: int = 10
     keepalives_count: int = 5
+
+
+class QueryClientConfig(BaseModel):
+    """
+    Configuration for query service clients.
+    """
+
+    # Type of query client: 'http', 'snowflake', 'bigquery', 'databricks', 'trino', etc.
+    type: str = "http"
+
+    # Connection parameters (varies by client type)
+    connection: Dict[str, Any] = {}
+
+    # Number of retries for failed requests (mainly for HTTP client)
+    retries: int = 0
 
 
 class SeedSetup(BaseModel):
@@ -93,8 +108,11 @@ class Settings(BaseSettings):  # pragma: no cover
     # How long to wait when pinging databases to find out the fastest online database.
     do_ping_timeout: timedelta = timedelta(seconds=5)
 
-    # Query service
+    # Query service url (only used with "http" query client config)
     query_service: Optional[str] = None
+
+    # Query client configuration
+    query_client: QueryClientConfig = QueryClientConfig()
 
     # The namespace where source nodes for registered tables should exist
     source_node_namespace: Optional[str] = "source"
