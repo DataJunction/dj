@@ -20,6 +20,7 @@ from datajunction_server.models.deployment import (
 from datajunction_server.errors import DJException
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.database.node import Node
+from datajunction_server.database.tag import Tag
 from datajunction_server.models.node import (
     MetricDirection,
     MetricUnit,
@@ -1774,9 +1775,134 @@ class TestDeployments:
         assert all(res["status"] == "skipped" for res in data["results"])
         assert all(res["operation"] == "noop" for res in data["results"])
 
-        # Redeploying half the setup should only deploy the missing nodes
+    @pytest.mark.asyncio
+    async def test_deploy_node_delete(
+        self,
+        client,
+        default_hard_hats,
+    ):
+        """
+        Test that removing a node from the deployment spec will result in deletion
+        """
+        namespace = "node_update"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_hard_hats],
+            ),
+        )
+        assert data["status"] == "success"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[]),
+        )
+        assert data["results"][-1] == {
+            "deploy_type": "node",
+            "message": "Node node_update.default.hard_hats has been removed.",
+            "name": "node_update.default.hard_hats",
+            "operation": "delete",
+            "status": "success",
+        }
 
-        # deploying a new link should trigger a redeploy of the node it is linked from
+    @pytest.mark.asyncio
+    async def test_deploy_tags(
+        self,
+        session,
+        client,
+        current_user,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Test that adding tags to a node in the deployment spec will result in an update
+        """
+        namespace = "node_update"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+            ),
+        )
+        assert data["status"] == "success"
+        default_us_state.tags = ["tag1"]
+
+        tag = Tag(name="tag1", created_by_id=current_user.id, tag_type="default")
+        session.add(tag)
+        await session.commit()
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+            ),
+        )
+        assert data["results"][-1] == {
+            "deploy_type": "node",
+            "message": "Updated dimension (v2.0)\n└─ Updated display_name, tags, primary_key\n"
+            "└─ Set tags to `tag1`.",
+            "name": "node_update.default.us_state",
+            "operation": "update",
+            "status": "success",
+        }
+
+    @pytest.mark.asyncio
+    async def test_deploy_column_properties(
+        self,
+        client,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Test that adding tags to a node in the deployment spec will result in an update
+        """
+        namespace = "node_update"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+            ),
+        )
+        assert data["status"] == "success"
+
+        # Update display name and description of a column
+        default_us_state.columns = [
+            ColumnSpec(
+                name="state_name",
+                type="string",
+                display_name="State Name 1122",
+                description="State name",
+            ),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+            ),
+        )
+        assert data["status"] == "success"
+        assert data["results"] == [
+            {
+                "deploy_type": "node",
+                "message": "Node node_update.default.us_states is unchanged.",
+                "name": "node_update.default.us_states",
+                "operation": "noop",
+                "status": "skipped",
+            },
+            {
+                "deploy_type": "node",
+                "message": "Updated dimension (v2.0)\n"
+                "└─ Updated display_name, primary_key\n"
+                "└─ Set properties for 1 columns",
+                "name": "node_update.default.us_state",
+                "operation": "update",
+                "status": "success",
+            },
+        ]
 
     @pytest.mark.asyncio
     async def test_roads_deployment(self, client, roads_nodes):
