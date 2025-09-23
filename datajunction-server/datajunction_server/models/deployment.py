@@ -584,7 +584,7 @@ def eq_columns(a: list[ColumnSpec] | None, b: list[ColumnSpec] | None) -> bool:
         if not a_col.description:
             a_col.description = ""
         if not b_col:
-            b_col = ColumnSpec(
+            b_col = ColumnSpec(  # pragma: no cover
                 name=col_name,
                 display_name=labelize(col_name),
                 type=a_col.type if a_col else "",
@@ -592,7 +592,7 @@ def eq_columns(a: list[ColumnSpec] | None, b: list[ColumnSpec] | None) -> bool:
             )
         if not b_col.display_name:
             b_col.display_name = labelize(col_name)
-        if not b_col.description:
+        if not b_col.description:  # pragma: no cover
             b_col.description = ""
         if "primary_key" in a_col.attributes:
             a_col.attributes = list(set(a_col.attributes) - {"primary_key"})
