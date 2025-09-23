@@ -630,7 +630,7 @@ async def test_deploy_column_properties_reset(
         node = cast(Node, await Node.get_by_name(session, categories.name))
         node.current.columns[0].display_name == "Id"
         node.current.columns[0].description == ""
-        assert not node.current.columns[0].attributes
+        assert len(node.current.columns[0].attributes) == 1
         assert not node.current.columns[0].partition_id
 
         node.current.columns[1].display_name == "Name"
