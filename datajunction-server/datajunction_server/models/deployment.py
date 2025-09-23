@@ -292,11 +292,6 @@ class LinkableNodeSpec(NodeSpec):
             other.dimension_links or [],
             key=lambda link: link.rendered_dimension_node,
         )
-        print(
-            "Comparing LinkableNodeSpec",
-            self.rendered_name,
-            eq_columns(self.columns, other.columns),
-        )
         return (
             super().__eq__(other)
             and eq_columns(self.columns, other.columns)
@@ -435,11 +430,6 @@ class CubeSpec(NodeSpec):
         ]
 
     def __eq__(self, other: Any) -> bool:
-        print(
-            "Comparing CubeSpec",
-            self.rendered_name,
-            eq_columns(self.columns, other.columns),
-        )
         return (
             super().__eq__(other)
             and eq_columns(self.columns, other.columns)
@@ -586,16 +576,24 @@ def eq_columns(a: list[ColumnSpec] | None, b: list[ColumnSpec] | None) -> bool:
             a_col = ColumnSpec(
                 name=col_name,
                 display_name=labelize(col_name),
-                type=b_col.get("type", "") if b_col else "",
+                type=b_col.type if b_col else "",
                 attributes=[],
             )
+        if not a_col.display_name:
+            a_col.display_name = labelize(col_name)
+        if not a_col.description:
+            a_col.description = ""
         if not b_col:
             b_col = ColumnSpec(
                 name=col_name,
                 display_name=labelize(col_name),
-                type=a_col.get("type", "") if a_col else "",
+                type=a_col.type if a_col else "",
                 attributes=[],
             )
+        if not b_col.display_name:
+            b_col.display_name = labelize(col_name)
+        if not b_col.description:
+            b_col.description = ""
         if "primary_key" in a_col.attributes:
             a_col.attributes = list(set(a_col.attributes) - {"primary_key"})
         if "primary_key" in b_col.attributes:

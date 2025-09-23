@@ -138,8 +138,6 @@ async def deploy(
             current_user,
             save_history,
         )
-
-        # async with session_context(request) as session:
         all_nodes = await NodeNamespace.list_all_nodes(
             session,
             deployment.namespace,
@@ -731,6 +729,11 @@ async def deploy_column_properties(
                         attributes=[
                             AttributeTypeIdentifier(name=attr)
                             for attr in desired_col.attributes
+                        ]
+                        + [
+                            AttributeTypeIdentifier(name=attr)
+                            for attr in col.attribute_names()
+                            if attr == "primary_key"
                         ],
                         current_user=current_user,
                         save_history=save_history,
@@ -742,7 +745,12 @@ async def deploy_column_properties(
                 col.description = ""
                 if col.partition:
                     session.delete(col.partition)
-                col.attributes = []
+                col.attributes = [
+                    attr
+                    for attr in col.attributes
+                    if attr.attribute_type.name == "primary_key"
+                ]
+                # col.attributes = [AttributeTypeIdentifier(name=attr) for attr in col.attributes if attr == "primary_key"]
 
             session.add(col)
         await session.commit()
@@ -977,6 +985,12 @@ async def deploy_transform_dimension_node_from_spec(
             background_tasks=background_tasks,
             save_history=save_history,
             cache=cache,
+        )
+        created_node = await Node.get_by_name(  # type: ignore
+            session,
+            node_spec.rendered_name,
+            options=NodeOutput.load_options(),
+            raise_if_not_exists=True,
         )
         return created_node
 

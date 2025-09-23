@@ -390,8 +390,11 @@ class Node(Base):
                 for col in self.current.columns
                 if col.dimension_id and col.dimension_column
             ]
+            col_specs = [col.to_spec() for col in self.current.columns]
             extra_kwargs.update(
-                primary_key=[col.name for col in self.current.primary_key()],
+                primary_key=[
+                    col.name for col in col_specs if "primary_key" in col.attributes
+                ],
                 dimension_links=join_link_specs + ref_link_specs,
             )
 

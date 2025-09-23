@@ -739,6 +739,7 @@ def default_hard_hat():
 def default_us_state():
     return DimensionSpec(
         name="default.us_state",
+        display_name="US State",
         description="""US state dimension""",
         query="""
                         SELECT
@@ -1399,6 +1400,7 @@ class TestDeployments:
     async def test_deploy_dimension_with_update(
         self,
         client,
+        session,
         default_hard_hats,
         default_us_states,
         default_us_state,
@@ -1409,6 +1411,7 @@ class TestDeployments:
         namespace = "node_update"
         dim_spec = DimensionSpec(
             name="default.hard_hat",
+            display_name="Hard Hat",
             description="""Hard hat dimension""",
             query="""
             SELECT
@@ -1426,19 +1429,34 @@ class TestDeployments:
                 ),
             ],
         )
+        nodes_list = [
+            dim_spec,
+            default_hard_hats,
+            default_us_states,
+            default_us_state,
+        ]
         data = await deploy_and_wait(
             client,
             DeploymentSpec(
                 namespace=namespace,
-                nodes=[
-                    dim_spec,
-                    default_hard_hats,
-                    default_us_states,
-                    default_us_state,
-                ],
+                nodes=nodes_list,
             ),
         )
         assert data["status"] == "success"
+        assert len(data["results"]) == 5
+
+        # node = await Node.get_by_name(session, f"{namespace}.default.hard_hat")
+        # assert node.current.primary_key() == ["hard_hat_id"]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=nodes_list,
+            ),
+        )
+        assert all(res["status"] == "skipped" for res in data["results"])
+
         dim_spec.query = """
         SELECT
             hard_hat_id,
@@ -1454,24 +1472,31 @@ class TestDeployments:
         )
         assert data["status"] == "success"
         assert len(data["results"]) == 5
-        assert all(res["status"] == "skipped" for res in data["results"][:3])
-        assert data["results"][3:] == [
-            {
-                "deploy_type": "node",
-                "name": f"{namespace}.default.hard_hat",
-                "status": "success",
-                "operation": "update",
-                "message": "Updated dimension (v2.0)\n"
-                "└─ Updated display_name, primary_key",
-            },
-            {
-                "deploy_type": "link",
-                "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
-                "status": "skipped",
-                "operation": "create",
-                "message": "No change to dimension link",
-            },
-        ]
+        assert len([res for res in data["results"] if res["status"] == "skipped"]) == 4
+        update_hard_hat = next(
+            res
+            for res in data["results"]
+            if res["name"] == "node_update.default.hard_hat"
+        )
+        assert update_hard_hat == {
+            "deploy_type": "node",
+            "name": f"{namespace}.default.hard_hat",
+            "status": "success",
+            "operation": "update",
+            "message": "Updated dimension (v2.0)",
+        }
+        update_us_state = next(
+            res
+            for res in data["results"]
+            if res["name"] == "node_update.default.us_state"
+        )
+        assert update_us_state == {
+            "deploy_type": "node",
+            "message": "Node node_update.default.us_state is unchanged.",
+            "name": "node_update.default.us_state",
+            "operation": "noop",
+            "status": "skipped",
+        }
 
     @pytest.mark.asyncio
     async def test_deploy_metric_with_update(
@@ -1509,7 +1534,12 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "failed"
-        assert data["results"][-1] == {
+        metric_result = next(
+            res
+            for res in data["results"]
+            if res["name"] == "metric_update.default.avg_length_of_employment"
+        )
+        assert metric_result == {
             "deploy_type": "node",
             "message": "Metric metric_update.default.avg_length_of_employment has an invalid "
             "query, should have an aggregate expression",
@@ -1527,7 +1557,12 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "success"
-        assert data["results"][-1] == {
+        metric_result = next(
+            res
+            for res in data["results"]
+            if res["name"] == "metric_update.default.avg_length_of_employment"
+        )
+        assert metric_result == {
             "deploy_type": "node",
             "message": "Updated metric (v2.0)\n"
             "└─ Updated display_name, direction, unit_enum",
@@ -1841,8 +1876,7 @@ class TestDeployments:
         )
         assert data["results"][-1] == {
             "deploy_type": "node",
-            "message": "Updated dimension (v2.0)\n└─ Updated display_name, tags, primary_key\n"
-            "└─ Set tags to `tag1`.",
+            "message": "Updated dimension (v1.0)\n└─ Updated tags\n└─ Set tags to `tag1`.",
             "name": "node_update.default.us_state",
             "operation": "update",
             "status": "success",
@@ -1895,9 +1929,7 @@ class TestDeployments:
             },
             {
                 "deploy_type": "node",
-                "message": "Updated dimension (v2.0)\n"
-                "└─ Updated display_name, primary_key\n"
-                "└─ Set properties for 1 columns",
+                "message": "Updated dimension (v1.0)\n└─ Set properties for 1 columns",
                 "name": "node_update.default.us_state",
                 "operation": "update",
                 "status": "success",
