@@ -173,5 +173,11 @@ def configure_app(app: FastAPI) -> None:
 
 
 app = create_app(lifespan=lifespan)
-mcp = FastApiMCP(app)
+mcp = FastApiMCP(
+    app,
+    name="DataJunction API MCP",
+    description="DJ MCP server",
+    describe_all_responses=True,
+    describe_full_response_schema=True,
+)
 mcp.mount_http()
