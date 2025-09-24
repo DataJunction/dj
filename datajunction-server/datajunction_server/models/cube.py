@@ -58,7 +58,7 @@ class CubeElementMetadata(BaseModel):
         return values
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
     def derive_sql_column(self) -> ColumnOutput:
         """
@@ -106,7 +106,7 @@ class CubeRevisionMetadata(BaseModel):
 
     class Config:
         allow_population_by_field_name = True
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
     @classmethod
     def parse_obj(cls, cube: "NodeRevision"):
@@ -121,7 +121,7 @@ class CubeRevisionMetadata(BaseModel):
         )
 
         # Parse the database object into a pydantic object
-        cube_metadata = cls.from_orm(cube)
+        cube_metadata = cls.model_validate(cube, from_attributes=True)
 
         # Populate metric measures
         cube_metadata.measures = []

@@ -74,7 +74,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
 from datajunction_server.naming import amenable_name
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import SEPARATOR, execute_with_retry
+from datajunction_server.utils import SEPARATOR
 
 if TYPE_CHECKING:
     from datajunction_server.database.dimensionlink import DimensionLink
@@ -602,6 +602,8 @@ class Node(Base):
         """
         Finds a list of nodes by prefix
         """
+        from datajunction_server.utils import execute_with_retry
+
         if not order_by:
             order_by = Node.created_at
 

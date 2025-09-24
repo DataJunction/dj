@@ -67,7 +67,7 @@ class PartitionBackfill(BaseModel):
     range: Optional[List]
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class PartitionOutput(BaseModel):
@@ -81,7 +81,7 @@ class PartitionOutput(BaseModel):
     expression: Optional[str]
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class PartitionColumnOutput(BaseModel):
@@ -104,4 +104,4 @@ class BackfillOutput(BaseModel):
     urls: Optional[List[str]]
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}

@@ -19,7 +19,7 @@ class CollectionInfo(BaseModel):
     description: str
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class CollectionDetails(CollectionInfo):
@@ -33,4 +33,4 @@ class CollectionDetails(CollectionInfo):
     nodes: list[NodeNameOutput]
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}

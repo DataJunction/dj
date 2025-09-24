@@ -33,7 +33,7 @@ class NodeNameOutput(BaseModel):
     name: str
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class NodeNameVersion(BaseModel):
@@ -46,4 +46,4 @@ class NodeNameVersion(BaseModel):
     display_name: str | None
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}

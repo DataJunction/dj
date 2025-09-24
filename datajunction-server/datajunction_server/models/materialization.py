@@ -3,7 +3,7 @@
 import enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
-from pydantic import AnyHttpUrl, BaseModel, validator
+from pydantic import AnyHttpUrl, BaseModel, field_validator, RootModel
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
@@ -130,7 +130,7 @@ class MaterializationConfigOutput(BaseModel):
     deactivated_at: UTCDatetime | None
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class MaterializationConfigInfoUnified(
@@ -142,10 +142,10 @@ class MaterializationConfigInfoUnified(
     """
 
 
-class SparkConf(BaseModel):
+class SparkConf(RootModel):
     """Spark configuration"""
 
-    __root__: Dict[str, str] = {}
+    root: Dict[str, str] = {}
 
 
 class GenericMaterializationConfigInput(BaseModel):
@@ -493,7 +493,7 @@ class UpsertMaterialization(BaseModel):
     schedule: str
     strategy: MaterializationStrategy
 
-    @validator("job", pre=True)
+    @field_validator("job", mode='before')
     def validate_job(
         cls,
         job: Union[str, MaterializationJobTypeEnum],

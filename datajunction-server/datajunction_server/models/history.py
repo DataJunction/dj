@@ -33,7 +33,7 @@ class HistoryOutput(BaseModel):
     created_at: UTCDatetime
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 def status_change_history(

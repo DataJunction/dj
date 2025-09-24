@@ -15,8 +15,10 @@ field_type=IntegerType(), is_optional=True, doc='an optional field'))
 import re
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, Generator, Optional, Tuple, cast
 
-from pydantic import BaseModel, Extra
-from pydantic.class_validators import AnyCallable
+from typing import Callable
+from pydantic import BaseModel
+
+AnyCallable = Callable[..., Any]
 
 from datajunction_server.enum import StrEnum
 
@@ -50,9 +52,8 @@ class ColumnType(BaseModel):
     _initialized = False
 
     class Config:
-        extra = Extra.allow
+        extra = "allow"
         arbitrary_types_allowed = True
-        underscore_attrs_are_private = False
 
     def __init__(
         self,

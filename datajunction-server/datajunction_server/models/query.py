@@ -6,8 +6,7 @@ from datetime import datetime
 from typing import Any, List, Optional
 
 import msgpack
-from pydantic import AnyHttpUrl, validator
-from pydantic.fields import Field
+from pydantic import AnyHttpUrl, Field, field_validator, RootModel
 from pydantic.main import BaseModel
 
 from datajunction_server.enum import IntEnum
@@ -24,7 +23,7 @@ class BaseQuery(BaseModel):
     engine_version: Optional[str] = None
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 
 class QueryCreate(BaseQuery):
@@ -70,12 +69,12 @@ class StatementResults(BaseModel):
     row_count: int = 0
 
 
-class QueryResults(BaseModel):
+class QueryResults(RootModel):
     """
     Results for a given query.
     """
 
-    __root__: List[StatementResults]
+    root: List[StatementResults]
 
 
 class TableRef(BaseModel):
@@ -113,21 +112,21 @@ class QueryWithResults(BaseModel):
     errors: List[str]
     links: Optional[List[AnyHttpUrl]] = None
 
-    @validator("scheduled", pre=True)
+    @field_validator("scheduled", mode='before')
     def parse_scheduled_date_string(cls, value):
         """
         Convert string date values to datetime
         """
         return datetime.fromisoformat(value) if isinstance(value, str) else value
 
-    @validator("started", pre=True)
+    @field_validator("started", mode='before')
     def parse_started_date_string(cls, value):
         """
         Convert string date values to datetime
         """
         return datetime.fromisoformat(value) if isinstance(value, str) else value
 
-    @validator("finished", pre=True)
+    @field_validator("finished", mode='before')
     def parse_finisheddate_string(cls, value):
         """
         Convert string date values to datetime

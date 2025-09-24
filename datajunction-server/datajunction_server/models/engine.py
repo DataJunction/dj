@@ -19,7 +19,7 @@ class EngineInfo(BaseModel):
     dialect: Optional[Dialect]
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class EngineRef(BaseModel):

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.dimensionlink import JoinCardinality, JoinType
-from datajunction_server.utils import SEPARATOR
+# from datajunction_server.utils import SEPARATOR
 
 if TYPE_CHECKING:
     from datajunction_server.sql.parsing.backends.antlr4 import ast
@@ -183,6 +183,8 @@ class DimensionLink(Base):
         """
         Returns a set of foreign key column names
         """
+        from datajunction_server.utils import SEPARATOR
+
         return {
             fk.replace(f"{self.node_revision.name}{SEPARATOR}", "")
             for fk in self.foreign_keys.keys()

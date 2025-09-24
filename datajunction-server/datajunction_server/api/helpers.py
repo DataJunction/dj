@@ -681,8 +681,8 @@ async def query_event_stream(
                 "query end state detected (%s), sending final event to the client",
                 query_next.state,
             )
-            if query_next.results.__root__:  # pragma: no cover
-                query_next.results.__root__[0].columns = columns or []
+            if query_next.results.root:  # pragma: no cover
+                query_next.results.root[0].columns = columns or []
             yield {
                 "event": "message",
                 "id": uuid.uuid4(),
@@ -879,13 +879,13 @@ def get_node_revision_materialization(
             )
             if materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME:
                 info.urls = [info.urls[0]]
-            materialization_config_output = MaterializationConfigOutput.from_orm(
-                materialization,
+            materialization_config_output = MaterializationConfigOutput.model_validate(
+                materialization, from_attributes=True,
             )
             materializations.append(
                 MaterializationConfigInfoUnified(
-                    **materialization_config_output.dict(),
-                    **info.dict(),
+                    **materialization_config_output.model_dump(),
+                    **info.model_dump(),
                 ),
             )
     return materializations

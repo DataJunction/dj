@@ -51,7 +51,7 @@ class TagMinimum(BaseModel):
     name: str
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class TagOutput(ImmutableTagFields, MutableTagFields):
@@ -60,7 +60,7 @@ class TagOutput(ImmutableTagFields, MutableTagFields):
     """
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class UpdateTag(MutableTagFields):

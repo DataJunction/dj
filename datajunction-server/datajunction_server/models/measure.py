@@ -76,7 +76,7 @@ class ColumnOutput(BaseModel):
         }
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class MeasureOutput(BaseModel):
@@ -91,7 +91,7 @@ class MeasureOutput(BaseModel):
     additive: AggregationRule
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class NodeRevisionNameVersion(BaseModel):
@@ -103,7 +103,7 @@ class NodeRevisionNameVersion(BaseModel):
     version: str
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class FrozenMeasureOutput(BaseModel):
@@ -119,7 +119,7 @@ class FrozenMeasureOutput(BaseModel):
     used_by_node_revisions: list[NodeRevisionNameVersion]
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class FrozenMeasureKey(BaseModel):
@@ -134,4 +134,4 @@ class FrozenMeasureKey(BaseModel):
     upstream_revision: NodeRevisionNameVersion
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}

@@ -7,9 +7,7 @@ import sys
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-from pydantic import BaseModel, Extra, root_validator, validator
-from pydantic.fields import Field
-from pydantic.utils import GetterDict
+from pydantic import BaseModel, Field, field_validator, model_validator, RootModel
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum
@@ -31,11 +29,21 @@ from datajunction_server.models.tag import TagMinimum, TagOutput
 from datajunction_server.models.user import UserNameOnly
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import Version
+# Lazy import to avoid circular dependency
+def _get_version_class():
+    from datajunction_server.utils import Version
+    return Version
 
-DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
-DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
 MIN_VALID_THROUGH_TS = -sys.maxsize - 1
+
+# Initialize version constants after function definition
+try:
+    Version = _get_version_class()
+    DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
+    DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
+except ImportError:
+    DEFAULT_DRAFT_VERSION = None
+    DEFAULT_PUBLISHED_VERSION = None
 
 
 @dataclass(frozen=True)
@@ -283,9 +291,9 @@ class AvailabilityStateBase(TemporalPartitionRange):
     partitions: Optional[List[PartitionAvailability]] = Field(default=[])
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
-    @validator("partitions")
+    @field_validator("partitions")
     def validate_partitions(cls, partitions):
         """
         Validator for partitions
@@ -390,19 +398,15 @@ class Unit(BaseModel):
     def __repr__(self):
         return self.name
 
-    @validator("label", always=True)
-    def get_label(
-        cls,
-        label: str,
-        values: Dict[str, Any],
-    ) -> str:
+    @model_validator(mode='before')
+    def get_label(cls, values):
         """Generate a default label if one was not provided."""
-        if not label and values:
-            return labelize(values["name"])
-        return label
+        if not values.get("label") and values.get("name"):
+            values["label"] = labelize(values["name"])
+        return values
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class MetricUnit(enum.Enum):
@@ -413,8 +417,8 @@ class MetricUnit(enum.Enum):
     (i.e., clicks/hour). For the time being, this enum provides some basic units.
     """
 
-    UNKNOWN = Unit(name="unknown", category="")
-    UNITLESS = Unit(name="unitless", category="")
+    UNKNOWN = Unit(name="unknown", category="", abbreviation=None, description=None)
+    UNITLESS = Unit(name="unitless", category="", abbreviation=None, description=None)
 
     PERCENTAGE = Unit(
         name="percentage",
@@ -431,16 +435,16 @@ class MetricUnit(enum.Enum):
     )
 
     # Monetary
-    DOLLAR = Unit(name="dollar", label="Dollar", category="currency", abbreviation="$")
+    DOLLAR = Unit(name="dollar", label="Dollar", category="currency", abbreviation="$", description=None)
 
     # Time
-    SECOND = Unit(name="second", category="time", abbreviation="s")
-    MINUTE = Unit(name="minute", category="time", abbreviation="m")
-    HOUR = Unit(name="hour", category="time", abbreviation="h")
-    DAY = Unit(name="day", category="time", abbreviation="d")
-    WEEK = Unit(name="week", category="time", abbreviation="w")
-    MONTH = Unit(name="month", category="time", abbreviation="mo")
-    YEAR = Unit(name="year", category="time", abbreviation="y")
+    SECOND = Unit(name="second", category="time", abbreviation="s", description=None)
+    MINUTE = Unit(name="minute", category="time", abbreviation="m", description=None)
+    HOUR = Unit(name="hour", category="time", abbreviation="h", description=None)
+    DAY = Unit(name="day", category="time", abbreviation="d", description=None)
+    WEEK = Unit(name="week", category="time", abbreviation="w", description=None)
+    MONTH = Unit(name="month", category="time", abbreviation="mo", description=None)
+    YEAR = Unit(name="year", category="time", abbreviation="y", description=None)
 
 
 class MetricMetadataOptions(BaseModel):
@@ -479,7 +483,7 @@ class MetricMetadataOutput(BaseModel):
     max_decimal_exponent: int | None
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class MetricMetadataInput(BaseModel):
@@ -524,12 +528,12 @@ class MutableNodeQueryField(BaseModel):
     query: str
 
 
-class NodeNameList(BaseModel):
+class NodeNameList(RootModel):
     """
     List of node names
     """
 
-    __root__: List[str]
+    root: List[str]
 
 
 class NodeIndexItem(BaseModel):
@@ -560,7 +564,7 @@ class NodeMinimumDetail(BaseModel):
     edited_by: Optional[List[str]]
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class AttributeTypeName(BaseModel):
@@ -572,7 +576,7 @@ class AttributeTypeName(BaseModel):
     name: str
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class AttributeOutput(BaseModel):
@@ -583,7 +587,7 @@ class AttributeOutput(BaseModel):
     attribute_type: AttributeTypeName
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class DimensionAttributeOutput(BaseModel):
@@ -618,12 +622,12 @@ class ColumnOutput(BaseModel):
         Should perform validation on assignment
         """
 
-        orm_mode = True
+        model_config = {"from_attributes": True}
         validate_assignment = True
 
-    _extract_type = validator("type", pre=True, allow_reuse=True)(
-        lambda raw: str(raw),
-    )
+    @field_validator("type", mode='before')
+    def extract_type(cls, raw):
+        return str(raw)
 
 
 class SourceColumnOutput(BaseModel):
@@ -643,7 +647,7 @@ class SourceColumnOutput(BaseModel):
 
         validate_assignment = True
 
-    @root_validator
+    @model_validator(mode='before')
     def type_string(cls, values):
         """
         Extracts the type as a string
@@ -743,7 +747,7 @@ class UpdateNode(
         Do not allow fields other than the ones defined here.
         """
 
-        extra = Extra.forbid
+        extra = "forbid"
 
 
 #
@@ -757,11 +761,11 @@ class GenericNodeOutputModel(BaseModel):
     into the top-level fields on the output model.
     """
 
-    @root_validator(pre=True)
+    @model_validator(mode='before')
     def flatten_current(
         cls,
-        values: GetterDict,
-    ) -> Union[GetterDict, Dict[str, Any]]:
+        values: Dict[str, Any],
+    ) -> Dict[str, Any]:
         """
         Flatten the current node revision into top-level fields.
         """
@@ -832,7 +836,7 @@ class NodeRevisionOutput(BaseModel):
     custom_metadata: Optional[Dict] = None
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class NodeOutput(GenericNodeOutputModel):
@@ -870,7 +874,7 @@ class NodeOutput(GenericNodeOutputModel):
     owners: list[UserNameOnly]
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
     @classmethod
     def load_options(cls):
@@ -913,8 +917,8 @@ class DAGNodeRevisionOutput(BaseModel):
     dimension_links: List[LinkDimensionOutput]
 
     class Config:
-        allow_population_by_field_name = True
-        orm_mode = True
+        populate_by_name = True
+        model_config = {"from_attributes": True}
 
 
 class DAGNodeOutput(GenericNodeOutputModel):
@@ -944,7 +948,7 @@ class DAGNodeOutput(GenericNodeOutputModel):
     current_version: str
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class NodeValidation(BaseModel):

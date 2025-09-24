@@ -159,10 +159,10 @@ async def add_availability_state(
             entity_type=EntityType.AVAILABILITY,
             node=node.name,  # type: ignore
             activity_type=ActivityType.CREATE,
-            pre=AvailabilityStateBase.from_orm(old_availability).dict()
+            pre=AvailabilityStateBase.model_validate(old_availability, from_attributes=True).model_dump()
             if old_availability
             else {},
-            post=AvailabilityStateBase.from_orm(node_revision.availability).dict(),
+            post=AvailabilityStateBase.model_validate(node_revision.availability, from_attributes=True).model_dump(),
             user=current_user.username,
         ),
         session=session,
@@ -262,8 +262,8 @@ async def get_data(
     )
 
     # Inject column info if there are results
-    if result.results.__root__:  # pragma: no cover
-        result.results.__root__[0].columns = generated_sql.columns  # type: ignore
+    if result.results.root:  # pragma: no cover
+        result.results.root[0].columns = generated_sql.columns  # type: ignore
     return result
 
 
@@ -447,8 +447,8 @@ async def get_data_for_metrics(
     )
 
     # Inject column info if there are results
-    if result.results.__root__:  # pragma: no cover
-        result.results.__root__[0].columns = translated_sql.columns or []
+    if result.results.root:  # pragma: no cover
+        result.results.root[0].columns = translated_sql.columns or []
     return result
 
 

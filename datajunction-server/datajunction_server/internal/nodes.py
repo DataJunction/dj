@@ -1273,7 +1273,7 @@ async def update_cube_node(
                     session,
                     new_cube_revision,
                     materialization_upsert_class(
-                        **MaterializationConfigOutput.from_orm(old).dict(
+                        **MaterializationConfigOutput.model_validate(old, from_attributes=True).model_dump(
                             exclude={"job", "node_revision_id", "deactivated_at"},
                         ),
                         job=MaterializationJobTypeEnum.find_match(old.job),

@@ -21,4 +21,4 @@ class CatalogInfo(BaseModel):
     engines: Optional[List[EngineInfo]] = []
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}

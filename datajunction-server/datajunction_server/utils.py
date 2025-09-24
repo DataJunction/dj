@@ -31,7 +31,7 @@ from starlette.requests import Request
 from yarl import URL
 
 from datajunction_server.config import DatabaseConfig, Settings
-from datajunction_server.database.user import User
+# Lazy import to avoid circular dependency with database modules
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import (
     DJAuthenticationException,
@@ -40,7 +40,7 @@ from datajunction_server.errors import (
     DJInvalidInputException,
     DJUninitializedResourceException,
 )
-from datajunction_server.service_clients import QueryServiceClient
+# Lazy import service_clients to avoid circular dependency
 
 logger = logging.getLogger(__name__)
 
@@ -291,10 +291,11 @@ async def execute_with_retry(
 
 def get_query_service_client(
     request: Request = None,
-) -> Optional[QueryServiceClient]:
+):
     """
     Return query service client
     """
+    from datajunction_server.service_clients import QueryServiceClient
     settings = get_settings()
     if not settings.query_service:  # pragma: no cover
         return None
@@ -380,10 +381,11 @@ def get_namespace_from_name(name: str) -> str:
     return node_namespace
 
 
-async def get_current_user(request: Request) -> "User":
+async def get_current_user(request: Request):
     """
     Returns the current authenticated user
     """
+    # from datajunction_server.database.user import User
     if not hasattr(request.state, "user"):  # pragma: no cover
         raise DJAuthenticationException(
             message="Unauthorized, request state has no user",
@@ -394,11 +396,13 @@ async def get_current_user(request: Request) -> "User":
 
 async def get_and_update_current_user(
     session: AsyncSession = Depends(get_session),
-    current_user: "User" = Depends(get_current_user),
-) -> "User":
+    current_user = Depends(get_current_user),
+):
     """
     Wrapper for the get_current_user dependency that creates a DJ user object if required
     """
+    from datajunction_server.database.user import User
+    
     statement = insert(User).values(
         username=current_user.username,
         email=current_user.email,

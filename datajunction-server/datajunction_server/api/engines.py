@@ -43,7 +43,7 @@ async def list_engines(
     List all available engines
     """
     return [
-        EngineInfo.from_orm(engine)
+        EngineInfo.model_validate(engine, from_attributes=True)
         for engine in (await session.execute(select(Engine))).scalars()
     ]
 
@@ -58,7 +58,7 @@ async def get_an_engine(
     """
     Return an engine by name and version
     """
-    return EngineInfo.from_orm(await get_engine(session, name, version))
+    return EngineInfo.model_validate(await get_engine(session, name, version), from_attributes=True)
 
 
 @router.post(
@@ -95,4 +95,4 @@ async def add_engine(
     await session.commit()
     await session.refresh(engine)
 
-    return EngineInfo.from_orm(engine)
+    return EngineInfo.model_validate(engine, from_attributes=True)

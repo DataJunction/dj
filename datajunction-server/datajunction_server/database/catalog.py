@@ -23,7 +23,6 @@ from datajunction_server.database.base import Base
 from datajunction_server.database.engine import Engine
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import get_settings
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
@@ -86,6 +85,7 @@ class Catalog(Base):
         """
         Get the virtual catalog
         """
+        from datajunction_server.utils import get_settings
         settings = get_settings()
         catalog = await Catalog.get_by_name(
             session,

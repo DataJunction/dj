@@ -32,7 +32,7 @@ class CreatedNode(BaseModel):
     missing_table: Optional[bool] = False
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class UserOutput(BaseModel):
@@ -40,8 +40,8 @@ class UserOutput(BaseModel):
 
     id: int
     username: str
-    email: Optional[str]
-    name: Optional[str]
+    email: Optional[str] = None
+    name: Optional[str] = None
     oauth_provider: OAuthProvider
     is_admin: bool = False
     created_collections: Optional[List[CollectionInfo]] = []
@@ -50,7 +50,7 @@ class UserOutput(BaseModel):
     created_tags: Optional[List[TagOutput]] = []
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class UserNameOnly(BaseModel):
@@ -61,7 +61,7 @@ class UserNameOnly(BaseModel):
     username: str
 
     class Config:
-        orm_mode = True
+        model_config = {"from_attributes": True}
 
 
 class UserActivity(BaseModel):
