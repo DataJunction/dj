@@ -167,7 +167,7 @@ def test_merging_availability_simple_no_partitions() -> None:
         table="foo",
         valid_through_ts=222,
     )
-    assert avail_1.merge(avail_2).dict() == {
+    assert avail_1.merge(avail_2).model_dump() == {
         "min_temporal_partition": None,
         "max_temporal_partition": None,
         "catalog": "catalog",
@@ -208,7 +208,7 @@ def test_merging_availability_complex_no_partitions() -> None:
         partitions=[],
         valid_through_ts=20230927,
     )
-    assert avail_1.merge(avail_2).dict() == {
+    assert avail_1.merge(avail_2).model_dump() == {
         "min_temporal_partition": ["20230924"],
         "max_temporal_partition": ["20230927"],
         "catalog": "druid",
@@ -276,7 +276,7 @@ def test_merging_availability_complex_with_partitions() -> None:
         valid_through_ts=20231015,
     )
     avail_1 = avail_1.merge(avail_2)
-    assert avail_1.dict() == {
+    assert avail_1.model_dump() == {
         "catalog": "iceberg",
         "schema_": "salad",
         "table": "dressing",

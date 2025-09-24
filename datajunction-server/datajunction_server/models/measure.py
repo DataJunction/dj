@@ -4,10 +4,14 @@ Models for measures.
 
 from typing import TYPE_CHECKING, List, Optional
 
-from pydantic.class_validators import root_validator
 from pydantic.main import BaseModel
+from pydantic import ConfigDict, Field, model_validator
 
 from datajunction_server.enum import StrEnum
+from datajunction_server.models.cube_materialization import (
+    AggregationRule as MeasureAggregationRule,
+)
+
 
 if TYPE_CHECKING:
     pass
@@ -38,9 +42,9 @@ class CreateMeasure(BaseModel):
     """
 
     name: str
-    display_name: Optional[str]
-    description: Optional[str]
-    columns: List[NodeColumn]
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    columns: List[NodeColumn] = Field(default_factory=list)
     additive: AggregationRule = AggregationRule.NON_ADDITIVE
 
 
@@ -49,10 +53,10 @@ class EditMeasure(BaseModel):
     Editable fields on a measure
     """
 
-    display_name: Optional[str]
-    description: Optional[str]
-    columns: Optional[List[NodeColumn]]
-    additive: Optional[AggregationRule]
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    columns: Optional[List[NodeColumn]] = None
+    additive: Optional[AggregationRule] = None
 
 
 class ColumnOutput(BaseModel):
@@ -64,19 +68,24 @@ class ColumnOutput(BaseModel):
     type: str
     node: str
 
-    @root_validator(pre=True)
-    def transform(cls, values):
+    @model_validator(mode="before")
+    def transform(cls, column):
         """
         Transforms the values for output
         """
+        if isinstance(column, dict):
+            return {
+                "name": column.get("name"),
+                "type": str(column.get("type")),
+                "node": column.get("node_revisions")[0].name,
+            }
         return {
-            "name": values.get("name"),
-            "type": str(values.get("type")),
-            "node": values.get("node_revision").name,
+            "name": column.name,
+            "type": str(column.type),
+            "node": column.node_revision.name,
         }
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MeasureOutput(BaseModel):
@@ -85,13 +94,12 @@ class MeasureOutput(BaseModel):
     """
 
     name: str
-    display_name: Optional[str]
-    description: Optional[str]
-    columns: List[ColumnOutput]
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    columns: List[ColumnOutput] = Field(default_factory=list)
     additive: AggregationRule
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NodeRevisionNameVersion(BaseModel):
@@ -102,8 +110,7 @@ class NodeRevisionNameVersion(BaseModel):
     name: str
     version: str
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FrozenMeasureOutput(BaseModel):
@@ -114,12 +121,11 @@ class FrozenMeasureOutput(BaseModel):
     name: str
     expression: str
     aggregation: str
-    rule: dict[str, str | None]
+    rule: MeasureAggregationRule
     upstream_revision: NodeRevisionNameVersion
     used_by_node_revisions: list[NodeRevisionNameVersion]
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FrozenMeasureKey(BaseModel):
@@ -130,8 +136,7 @@ class FrozenMeasureKey(BaseModel):
     name: str
     expression: str
     aggregation: str
-    rule: dict[str, str | None]
+    rule: MeasureAggregationRule
     upstream_revision: NodeRevisionNameVersion
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

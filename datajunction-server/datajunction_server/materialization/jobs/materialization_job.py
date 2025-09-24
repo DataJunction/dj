@@ -81,7 +81,9 @@ class SparkSqlMaterializationJob(  # pragma: no cover
         """
         Placeholder for the actual implementation.
         """
-        generic_config = GenericMaterializationConfig.parse_obj(materialization.config)
+        generic_config = GenericMaterializationConfig.model_validate(
+            materialization.config,
+        )
         temporal_partitions = materialization.node_revision.temporal_partition_columns()
         query_ast = parse(
             generic_config.query.replace(
@@ -171,9 +173,7 @@ class SparkSqlMaterializationJob(  # pragma: no cover
                 schedule=materialization.schedule,
                 query=str(final_query),
                 upstream_tables=generic_config.upstream_tables,
-                spark_conf=generic_config.spark.__root__
-                if generic_config.spark
-                else {},
+                spark_conf=generic_config.spark.root if generic_config.spark else {},
                 columns=generic_config.columns,
                 partitions=(
                     generic_config.temporal_partition(materialization.node_revision)

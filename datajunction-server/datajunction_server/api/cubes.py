@@ -159,7 +159,7 @@ async def cube_materialization_info(
         Granularity.YEAR: "0 0 1 1 *",  # Runs at midnight on January 1st every year
     }
     upsert = UpsertCubeMaterialization(
-        job=MaterializationJobTypeEnum.DRUID_CUBE,
+        job=MaterializationJobTypeEnum.DRUID_CUBE.value.name,
         strategy=(
             MaterializationStrategy.INCREMENTAL_TIME
             if temporal_partition
@@ -186,7 +186,7 @@ async def cube_materialization_info(
         metrics=cube_config.metrics,
         strategy=upsert.strategy,
         schedule=upsert.schedule,
-        job=upsert.job.name,
+        job=upsert.job.name,  # type: ignore
         measures_materializations=cube_config.measures_materializations,
         combiners=cube_config.combiners,
     )
@@ -299,7 +299,7 @@ async def get_cube_dimension_values(
             value=row[0 : count_column[0]] if count_column else row,
             count=row[count_column[0]] if count_column else None,
         )
-        for row in result.results.__root__[0].rows
+        for row in result.results.root[0].rows
     ]
     return DimensionValues(  # pragma: no cover
         dimensions=[
