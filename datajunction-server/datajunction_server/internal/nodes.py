@@ -580,8 +580,8 @@ async def create_cube_node_revision(
         catalog,
     ) = await validate_cube(
         session,
-        data.metrics,
-        data.dimensions,
+        data.metrics or [],
+        data.dimensions or [],
         require_dimensions=False,
     )
     status = (
@@ -596,7 +596,7 @@ async def create_cube_node_revision(
     # Build the "columns" for this node based on the cube elements. These are used
     # for marking partition columns when the cube gets materialized.
     node_columns = []
-    dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions)
+    dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions or [])
     for idx, col in enumerate(metric_columns + dimension_columns):
         await session.refresh(col, ["node_revisions"])
         referenced_node = col.node_revision()

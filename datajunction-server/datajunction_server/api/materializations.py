@@ -96,8 +96,6 @@ def materialization_jobs_info() -> JSONResponse:
 async def upsert_materialization(
     node_name: str,
     data: dict[str, Any],
-    # Field(discriminator=discriminate_materialization)
-    # ],
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
@@ -112,7 +110,8 @@ async def upsert_materialization(
     Add or update a materialization of the specified node. If a node_name is specified
     for the materialization config, it will always update that named config.
     """
-    data = discriminate_materialization(data).model_validate(data)  # type: ignore
+    materialization_class = discriminate_materialization(data)
+    materialization = materialization_class.model_validate(data)
     request_headers = dict(request.headers)
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     if node.type == NodeType.SOURCE:  # type: ignore
@@ -131,20 +130,20 @@ async def upsert_materialization(
     current_revision = node.current  # type: ignore
     old_materializations = {mat.name: mat for mat in current_revision.materializations}
 
-    if data.strategy == MaterializationStrategy.INCREMENTAL_TIME:
+    if materialization.strategy == MaterializationStrategy.INCREMENTAL_TIME:  # type: ignore
         if not node.current.temporal_partition_columns():  # type: ignore
             raise DJInvalidInputException(
                 http_status_code=HTTPStatus.BAD_REQUEST,
                 message="Cannot create materialization with strategy "
-                f"`{data.strategy}` without specifying a time partition column!",
+                f"`{materialization.strategy}` without specifying a time partition column!",  # type: ignore
             )
 
     # Create a new materialization
     new_materialization = await create_new_materialization(
         session,
         current_revision,
-        data,
-        validate_access,
+        materialization,
+        validate_access,  # type: ignore
         current_user=current_user,
     )
 

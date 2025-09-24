@@ -394,7 +394,7 @@ class Unit(BaseModel):
     def __repr__(self):
         return self.name
 
-    model_config = ConfigDict(from_attributes=True)
+    # model_config = ConfigDict(from_attributes=True)
 
 
 class MetricUnit(enum.Enum):
@@ -521,6 +521,18 @@ class MetricMetadataOutput(BaseModel):
     max_decimal_exponent: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("unit", mode="before")
+    def validate_unit(cls, value):
+        if isinstance(value, MetricUnit):
+            return Unit(
+                name=value.value.name,
+                label=value.value.label,
+                category=value.value.category,
+                abbreviation=value.value.abbreviation,
+                description=value.value.description,
+            )
+        return value
 
 
 class MetricMetadataInput(BaseModel):
@@ -747,33 +759,42 @@ class CreateCubeNode(ImmutableNodeFields, MutableNodeFields, CubeNodeFields):
     """
 
 
-# Collect all fields from parent classes and make them optional
-_update_node_fields = {}
-for parent_class in [
-    MutableNodeFields,
-    SourceNodeFields,
-    MutableNodeQueryField,
-    MetricNodeFields,
-    CubeNodeFields,
-]:
-    for field_name, field_info in parent_class.model_fields.items():
-        # Make the field optional by adding None to the union type
-        original_type = field_info.annotation
-        if hasattr(original_type, "__origin__") and original_type.__origin__ is Union:
-            # Already a union type, add None if not present
-            if type(None) not in original_type.__args__:
-                optional_type = original_type | None
+def build_update_node_fields():
+    """
+    Build the fields for the UpdateNode model by collecting fields from parent classes
+    and making them optional.
+    """
+    update_node_fields = {}
+    for parent_class in [
+        MutableNodeFields,
+        SourceNodeFields,
+        MutableNodeQueryField,
+        MetricNodeFields,
+        CubeNodeFields,
+    ]:
+        for field_name, field_info in parent_class.model_fields.items():
+            # Make the field optional by adding None to the union type
+            original_type = field_info.annotation
+            if (
+                hasattr(original_type, "__origin__")
+                and original_type.__origin__ is Union
+            ):
+                # Already a union type, add None if not present
+                if type(None) not in original_type.__args__:
+                    optional_type = original_type | None
+                else:
+                    optional_type = original_type
             else:
-                optional_type = original_type
-        else:
-            # Not a union, make it optional
-            optional_type = original_type | None
-        _update_node_fields[field_name] = (optional_type, None)
+                # Not a union, make it optional
+                optional_type = original_type | None
+            update_node_fields[field_name] = (optional_type, None)
+    return update_node_fields
+
 
 # Create the UpdateNode class with all optional fields
 UpdateNode = create_model(
     "UpdateNode",
-    **_update_node_fields,
+    **build_update_node_fields(),
     __config__=ConfigDict(extra="forbid"),
     __doc__="Update node object where all fields are optional",
 )
