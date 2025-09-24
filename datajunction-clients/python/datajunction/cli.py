@@ -1,11 +1,14 @@
 """DataJunction command-line tool"""
 
 import argparse
+import asyncio
+import json
 import logging
 from pathlib import Path
 
 from datajunction import DJBuilder, Project
 from datajunction.exceptions import DJClientException
+from datajunction.chat import DataJunctionChat
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -82,6 +85,10 @@ class DJCLI:
             default="system",
             help="The type of nodes to seed (defaults to `system`)",
         )
+
+        # `dj chat` - Conversational MCP client
+        subparsers.add_parser("chat", help="Start conversational chat with DataJunction MCP server")
+        
         return parser
 
     def dispatch_command(self, args, parser):
@@ -94,6 +101,8 @@ class DJCLI:
             self.pull(args.namespace, args.directory)
         elif args.command == "seed":
             self.seed()
+        elif args.command == "chat":
+            asyncio.run(self.chat())
         else:
             parser.print_help()  # pragma: no cover
 
@@ -103,7 +112,11 @@ class DJCLI:
         """
         parser = self.create_parser()
         args = parser.parse_args()
-        self.builder_client.basic_login()
+        
+        # Skip DataJunction login for chat command (uses MCP instead)
+        if args.command != "chat":
+            self.builder_client.basic_login()
+        
         self.dispatch_command(args, parser)
 
     def seed(self, type: str = "nodes"):
@@ -148,6 +161,27 @@ class DJCLI:
         logger.info("Deploying DJ system nodes...")
         compiled_project.deploy(client=self.builder_client)
         logger.info("Finished deploying DJ system nodes.")
+
+    async def chat(self):
+        """
+        Start a conversational chat session with DataJunction MCP server.
+        """
+        chat_client = DataJunctionChat()
+        await chat_client.start_chat_session()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def main(builder_client: DJBuilder | None = None):
