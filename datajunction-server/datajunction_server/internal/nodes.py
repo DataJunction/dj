@@ -580,8 +580,8 @@ async def create_cube_node_revision(
         catalog,
     ) = await validate_cube(
         session,
-        data.metrics,
-        data.dimensions,
+        data.metrics or [],
+        data.dimensions or [],
         require_dimensions=False,
     )
     status = (
@@ -596,7 +596,7 @@ async def create_cube_node_revision(
     # Build the "columns" for this node based on the cube elements. These are used
     # for marking partition columns when the cube gets materialized.
     node_columns = []
-    dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions)
+    dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions or [])
     for idx, col in enumerate(metric_columns + dimension_columns):
         await session.refresh(col, ["node_revisions"])
         referenced_node = col.node_revision()
@@ -1273,7 +1273,9 @@ async def update_cube_node(
                     session,
                     new_cube_revision,
                     materialization_upsert_class(
-                        **MaterializationConfigOutput.from_orm(old).dict(
+                        **MaterializationConfigOutput.model_validate(
+                            old,
+                        ).model_dump(
                             exclude={"job", "node_revision_id", "deactivated_at"},
                         ),
                         job=MaterializationJobTypeEnum.find_match(old.job),
@@ -1824,7 +1826,9 @@ async def save_column_level_lineage(node_revision_id: int):
                 session,
                 node_revision,
             )
-            node_revision.lineage = [lineage.dict() for lineage in column_level_lineage]
+            node_revision.lineage = [
+                lineage.model_dump() for lineage in column_level_lineage
+            ]
             session.add(node_revision)
             await session.commit()
 

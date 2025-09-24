@@ -171,9 +171,7 @@ class SparkSqlMaterializationJob(  # pragma: no cover
                 schedule=materialization.schedule,
                 query=str(final_query),
                 upstream_tables=generic_config.upstream_tables,
-                spark_conf=generic_config.spark.__root__
-                if generic_config.spark
-                else {},
+                spark_conf=generic_config.spark.root if generic_config.spark else {},
                 columns=generic_config.columns,
                 partitions=(
                     generic_config.temporal_partition(materialization.node_revision)

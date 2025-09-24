@@ -61,7 +61,7 @@ async def create_a_collection(
     await session.commit()
     await session.refresh(collection)
 
-    return CollectionInfo.from_orm(collection)
+    return CollectionInfo.model_validate(collection, from_attributes=True)
 
 
 @router.delete("/collections/{name}", status_code=HTTPStatus.NO_CONTENT)

@@ -4,7 +4,7 @@ Models for cubes.
 
 from typing import List, Optional
 
-from pydantic import Field, root_validator
+from pydantic import Field, model_validator, ConfigDict
 from pydantic.main import BaseModel
 
 from datajunction_server.naming import SEPARATOR, from_amenable_name, amenable_name
@@ -40,25 +40,30 @@ class CubeElementMetadata(BaseModel):
     display_name: str
     node_name: str
     type: str
-    partition: Optional[PartitionOutput]
+    partition: Optional[PartitionOutput] = None
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def type_string(cls, values):
         """
         Extracts the type as a string
         """
-        values = dict(values)
-        if "node_revisions" in values:
-            values["node_name"] = values["node_revisions"][0].name
-            values["type"] = (
-                values["node_revisions"][0].type
-                if values["node_revisions"][0].type == NodeType.METRIC
+        # In Pydantic v2, values is already a dict when mode="before"
+        if isinstance(values, dict):
+            data = values
+        else:
+            # Handle case where values might be an object (backwards compatibility)
+            data = values.__dict__ if hasattr(values, "__dict__") else values
+
+        if "node_revisions" in data:
+            data["node_name"] = data["node_revisions"][0].name
+            data["type"] = (
+                data["node_revisions"][0].type
+                if data["node_revisions"][0].type == NodeType.METRIC
                 else NodeType.DIMENSION
             )
-        return values
+        return data
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
     def derive_sql_column(self) -> ColumnOutput:
         """
@@ -96,17 +101,18 @@ class CubeRevisionMetadata(BaseModel):
     cube_elements: List[CubeElementMetadata]
     cube_node_metrics: List[str]
     cube_node_dimensions: List[str]
-    query: Optional[str]
+    query: Optional[str] = None
     columns: List[ColumnOutput]
-    sql_columns: Optional[List[ColumnOutput]]
+    sql_columns: Optional[List[ColumnOutput]] = None
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]
-    tags: Optional[List[TagOutput]]
+    tags: Optional[List[TagOutput]] = None
     measures: list[MetricMeasures] | None = None
 
-    class Config:
-        allow_population_by_field_name = True
-        orm_mode = True
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+    )
 
     @classmethod
     def parse_obj(cls, cube: "NodeRevision"):
@@ -121,7 +127,7 @@ class CubeRevisionMetadata(BaseModel):
         )
 
         # Parse the database object into a pydantic object
-        cube_metadata = cls.from_orm(cube)
+        cube_metadata = cls.model_validate(cube)
 
         # Populate metric measures
         cube_metadata.measures = []

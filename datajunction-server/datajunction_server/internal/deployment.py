@@ -455,7 +455,7 @@ async def check_external_deps(
         if len(external_node_deps) != len(deps_not_in_deployment):
             missing_nodes = sorted(
                 set(deps_not_in_deployment)
-                - {node.name for node in external_node_deps},
+                - {node.rendered_name for node in external_node_deps},
             )
             raise DJInvalidDeploymentConfig(
                 message=(

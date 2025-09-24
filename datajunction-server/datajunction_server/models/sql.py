@@ -5,7 +5,7 @@ Models for generated SQL
 from typing import List, Optional
 
 from datajunction_server.transpilation import transpile_sql
-from pydantic import validator
+from pydantic import field_validator
 from pydantic.main import BaseModel
 
 from datajunction_server.errors import DJQueryBuildError
@@ -32,7 +32,7 @@ class TranspiledSQL(BaseModel):
             **{k: v for k, v in kwargs.items() if k not in {"sql", "dialect"}},
         )
 
-    @validator("dialect", pre=True)
+    @field_validator("dialect", mode="before")
     def validate_dialect(cls, v):
         if v is None:
             return None

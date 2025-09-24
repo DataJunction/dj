@@ -299,7 +299,7 @@ async def get_cube_dimension_values(
             value=row[0 : count_column[0]] if count_column else row,
             count=row[count_column[0]] if count_column else None,
         )
-        for row in result.results.__root__[0].rows
+        for row in result.results.root[0].rows
     ]
     return DimensionValues(  # pragma: no cover
         dimensions=[

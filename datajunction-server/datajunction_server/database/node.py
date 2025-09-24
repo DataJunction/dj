@@ -8,7 +8,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
-from pydantic import Extra
+from pydantic import ConfigDict
 from sqlalchemy import JSON, and_, desc
 from sqlalchemy.orm import aliased
 
@@ -1092,8 +1092,7 @@ class NodeRevision(
                 col.attributes = old_columns_mapping[col.name].attributes or []
         return self
 
-    class Config:
-        extra = Extra.allow
+    model_config = ConfigDict(extra="allow")
 
     def has_available_materialization(self, build_criteria: BuildCriteria) -> bool:
         """

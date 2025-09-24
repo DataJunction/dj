@@ -90,7 +90,7 @@ class DJError(BaseModel):
 
     code: ErrorCode
     message: str
-    debug: Optional[Dict[str, Any]]
+    debug: Optional[Dict[str, Any]] = None
     context: str = ""
 
     def __str__(self) -> str:
@@ -194,8 +194,8 @@ class DJException(Exception):
         """
         return {
             "message": self.message,
-            "errors": [error.dict() for error in self.errors],
-            "warnings": [warning.dict() for warning in self.warnings],
+            "errors": [error.model_dump() for error in self.errors],
+            "warnings": [warning.model_dump() for warning in self.warnings],
         }
 
     def __str__(self) -> str:

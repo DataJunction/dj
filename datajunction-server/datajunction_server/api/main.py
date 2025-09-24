@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
+from fastapi_mcp import FastApiMCP
 from starlette.middleware.cors import CORSMiddleware
 
 from datajunction_server import __version__
@@ -172,3 +173,11 @@ def configure_app(app: FastAPI) -> None:
 
 
 app = create_app(lifespan=lifespan)
+mcp = FastApiMCP(
+    app,
+    name="DataJunction API MCP",
+    description="DJ MCP server",
+    describe_all_responses=True,
+    describe_full_response_schema=True,
+)
+mcp.mount_http()
