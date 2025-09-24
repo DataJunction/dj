@@ -77,7 +77,7 @@ class InProcessExecutor(DeploymentExecutor):
             deployment = Deployment(
                 uuid=deployment_uuid,
                 namespace=spec.namespace,
-                spec=spec.dict(),
+                spec=spec.model_dump(),
                 status=DeploymentStatus.PENDING,
                 created_by_id=context.current_user.id,
             )
@@ -109,7 +109,7 @@ class InProcessExecutor(DeploymentExecutor):
             deployment = await session.get(Deployment, deployment_uuid)
             deployment.status = status
             if results is not None:
-                deployment.results = [r.dict() for r in results]
+                deployment.results = [r.model_dump() for r in results]
             await session.commit()
 
     async def _run_deployment(

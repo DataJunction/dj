@@ -5,9 +5,10 @@ Node materialization related APIs.
 import logging
 from datetime import datetime, timezone
 from http import HTTPStatus
-from typing import Callable, List
+from typing import Annotated, Callable, List
 
 from fastapi import Depends, Request
+from pydantic import Discriminator
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,7 +69,9 @@ def materialization_jobs_info() -> JSONResponse:
     return JSONResponse(
         status_code=200,
         content={
-            "job_types": [value.value.dict() for value in MaterializationJobTypeEnum],
+            "job_types": [
+                value.value.model_dump() for value in MaterializationJobTypeEnum
+            ],
             "strategies": [
                 {"name": value, "label": labelize(value)}
                 for value in MaterializationStrategy
@@ -84,7 +87,10 @@ def materialization_jobs_info() -> JSONResponse:
 )
 async def upsert_materialization(
     node_name: str,
-    data: UpsertMaterialization | UpsertCubeMaterialization,
+    materialization: Annotated[
+        UpsertCubeMaterialization | UpsertMaterialization,
+        Discriminator("job"),
+    ],
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
@@ -117,20 +123,20 @@ async def upsert_materialization(
     current_revision = node.current  # type: ignore
     old_materializations = {mat.name: mat for mat in current_revision.materializations}
 
-    if data.strategy == MaterializationStrategy.INCREMENTAL_TIME:
+    if materialization.strategy == MaterializationStrategy.INCREMENTAL_TIME:  # type: ignore
         if not node.current.temporal_partition_columns():  # type: ignore
             raise DJInvalidInputException(
                 http_status_code=HTTPStatus.BAD_REQUEST,
                 message="Cannot create materialization with strategy "
-                f"`{data.strategy}` without specifying a time partition column!",
+                f"`{materialization.strategy}` without specifying a time partition column!",  # type: ignore
             )
 
     # Create a new materialization
     new_materialization = await create_new_materialization(
         session,
         current_revision,
-        data,
-        validate_access,
+        materialization,
+        validate_access,  # type: ignore
         current_user=current_user,
     )
 
@@ -194,7 +200,7 @@ async def upsert_materialization(
                     f"already exists for node `{node_name}` but was deactivated. It has now been "
                     f"restored."
                 ),
-                "info": existing_materialization_info.dict(),
+                "info": existing_materialization_info.model_dump(),
             },
         )
     # If changes are detected, update the existing or save the new materialization
@@ -498,7 +504,10 @@ async def run_materialization_backfill(
     )
     backfill = Backfill(
         materialization=materialization,
-        spec=[backfill_partition.dict() for backfill_partition in backfill_partitions],
+        spec=[
+            backfill_partition.model_dump()
+            for backfill_partition in backfill_partitions
+        ],
         urls=materialization_output.urls,
     )
     materialization.backfills.append(backfill)
@@ -511,7 +520,7 @@ async def run_materialization_backfill(
             details={
                 "materialization": materialization_name,
                 "partition": [
-                    backfill_partition.dict()
+                    backfill_partition.model_dump()
                     for backfill_partition in backfill_partitions
                 ],
             },

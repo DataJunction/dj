@@ -1,6 +1,6 @@
 """Node type"""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from datajunction_server.enum import StrEnum
 
@@ -32,8 +32,7 @@ class NodeNameOutput(BaseModel):
 
     name: str
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NodeNameVersion(BaseModel):
@@ -43,7 +42,6 @@ class NodeNameVersion(BaseModel):
 
     name: str
     version: str
-    display_name: str | None
+    display_name: str | None = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

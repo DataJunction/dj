@@ -31,7 +31,7 @@ async def whoami(
     Returns the current authenticated user
     """
     user = await User.get_by_username(session, current_user.username)
-    return UserOutput.from_orm(user)
+    return UserOutput.model_validate(user, from_attributes=True)
 
 
 @router.get("/token/")

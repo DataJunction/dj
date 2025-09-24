@@ -11,7 +11,8 @@ from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
 from cachelib.redis import RedisCache
 from celery import Celery
-from pydantic import BaseModel, BaseSettings
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings
 
 if TYPE_CHECKING:
     pass
@@ -39,16 +40,16 @@ class DatabaseConfig(BaseModel):
 class SeedSetup(BaseModel):
     # An "default" catalog for nodes that are pure SQL and don't belong in any
     # particular catalog. This typically applies to on-the-fly user-defined dimensions.
-    virtual_catalog_name = "default"
+    virtual_catalog_name: str = "default"
 
     # A "DJ System" catalog that contains all system tables modeled in DJ
-    system_catalog_name = "dj_metadata"
+    system_catalog_name: str = "dj_metadata"
 
     # The engine for DJ's postgres metadata db
-    system_engine_name = "dj_system"
+    system_engine_name: str = "dj_system"
 
     # The namespace for system tables modeled in DJ
-    system_namespace = "system.dj"
+    system_namespace: str = "system.dj"
 
 
 class Settings(BaseSettings):  # pragma: no cover
@@ -56,8 +57,7 @@ class Settings(BaseSettings):  # pragma: no cover
     DataJunction configuration.
     """
 
-    class Config:
-        env_nested_delimiter = "__"  # Enables nesting like WRITER_DB__URI
+    model_config = {"env_nested_delimiter": "__"}  # Enables nesting like WRITER_DB__URI
 
     name: str = "DJ server"
     description: str = "A DataJunction metrics layer"
@@ -131,20 +131,20 @@ class Settings(BaseSettings):  # pragma: no cover
     google_oauth_client_secret_file: Optional[str] = None
 
     # Interval in seconds for which to expire service account tokens
-    service_account_token_expire = 900
+    service_account_token_expire: int = 3600 * 24 * 30
 
     # Interval in seconds with which to expire caching of any indexes
-    index_cache_expire = 60
+    index_cache_expire: int = 60
 
     # Cache expiration for SQL endpoints
-    query_cache_timeout = 86400 * 300
+    query_cache_timeout: int = 86400 * 300
 
     # Maximum amount of nodes to return for requests to list all nodes
-    node_list_max = 10000
+    node_list_max: int = 10000
 
     # DAG traversal configuration
-    fanout_threshold = 50
-    max_concurrency = 20
+    fanout_threshold: int = 50
+    max_concurrency: int = 20
 
     @property
     def celery(self) -> Celery:

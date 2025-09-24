@@ -1,7 +1,14 @@
 from enum import Enum
-from pydantic import BaseModel, Field, validator, PrivateAttr
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+    PrivateAttr,
+    ConfigDict,
+    model_validator,
+)
 
-from typing import Any, Literal, Union
+from typing import Annotated, Any, Literal, Union
 
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.errors import DJInvalidInputException
@@ -40,8 +47,8 @@ class PartitionSpec(BaseModel):
     """
 
     type: PartitionType
-    granularity: Granularity | None
-    format: str | None
+    granularity: Granularity | None = None
+    format: str | None = None
 
 
 class ColumnSpec(BaseModel):
@@ -91,7 +98,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
     """
 
     dimension_node: str
-    type: LinkType = LinkType.JOIN
+    type: Literal[LinkType.JOIN] = LinkType.JOIN
 
     node_column: str | None = None
     join_type: JoinType = JoinType.LEFT
@@ -147,7 +154,7 @@ class DimensionReferenceLinkSpec(DimensionLinkSpec):
 
     node_column: str
     dimension: str
-    type: LinkType = LinkType.REFERENCE
+    type: Literal[LinkType.REFERENCE] = LinkType.REFERENCE
 
     @property
     def rendered_dimension_node(self) -> str:
@@ -262,25 +269,23 @@ class LinkableNodeSpec(NodeSpec):
     """
 
     columns: list[ColumnSpec] | None = None
-    dimension_links: list[DimensionJoinLinkSpec | DimensionReferenceLinkSpec] = Field(
-        default_factory=list,
-    )
+    dimension_links: list[
+        Annotated[
+            DimensionJoinLinkSpec | DimensionReferenceLinkSpec,
+            Field(discriminator="type"),
+        ]
+    ] = Field(default_factory=list)
     primary_key: list[str] = Field(default_factory=list)
 
-    @validator("dimension_links", pre=True, each_item=True)
-    def coerce_dimension_links(cls, value, values):
-        if isinstance(value, dict):
-            link_type = value.get("type")
-            mapping = {
-                "join": DimensionJoinLinkSpec,
-                "reference": DimensionReferenceLinkSpec,
-            }
-            if link_type not in mapping:  # pragma: no cover
-                raise ValueError(f"Unknown link type: {link_type}")
-            deployment_ns = values.get("namespace")
-            return mapping[link_type](**value, namespace=deployment_ns)
-        value.namespace = values.get("namespace")
-        return value
+    @model_validator(mode="after")
+    def set_namespaces(self):
+        """
+        Set namespace on all dimension links
+        """
+        if self.namespace:
+            for link in self.dimension_links:
+                link.namespace = self.namespace
+        return self
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, LinkableNodeSpec):
@@ -307,7 +312,7 @@ class SourceSpec(LinkableNodeSpec):
     node_type: Literal[NodeType.SOURCE] = NodeType.SOURCE
     table: str
 
-    @validator("table")
+    @field_validator("table")
     def validate_table(cls, value) -> str:
         """
         Validate that the table name is fully qualified
@@ -359,11 +364,11 @@ class MetricSpec(NodeSpec):
     query: str
     required_dimensions: list[str] | None = None
     direction: MetricDirection | None = None
-    unit_enum: MetricUnit | None = Field(None, exclude=True)
+    unit_enum: MetricUnit | None = Field(default=None, exclude=True)
 
     significant_digits: int | None = None
-    min_decimal_exponent: int | None
-    max_decimal_exponent: int | None
+    min_decimal_exponent: int | None = None
+    max_decimal_exponent: int | None = None
 
     def __init__(self, **data: Any):
         unit = data.pop("unit", None)
@@ -384,10 +389,10 @@ class MetricSpec(NodeSpec):
             return None
         return self.unit_enum.value.name.lower()
 
-    def dict(self, *args, **kwargs):
-        d = super().dict(*args, **kwargs)
-        d["unit"] = self.unit
-        return d
+    def model_dump(self, **kwargs):
+        base = super().model_dump(**kwargs)
+        base["unit"] = self.unit
+        return base
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, MetricSpec):
@@ -439,12 +444,15 @@ class CubeSpec(NodeSpec):
         )
 
 
-NodeUnion = Union[
-    SourceSpec,
-    TransformSpec,
-    DimensionSpec,
-    MetricSpec,
-    CubeSpec,
+NodeUnion = Annotated[
+    Union[
+        SourceSpec,
+        TransformSpec,
+        DimensionSpec,
+        MetricSpec,
+        CubeSpec,
+    ],
+    Field(discriminator="node_type"),
 ]
 
 
@@ -482,22 +490,23 @@ class DeploymentSpec(BaseModel):
     nodes: list[NodeUnion] = Field(default_factory=list)
     tags: list[TagSpec] = Field(default_factory=list)
 
-    @validator("nodes", pre=True, each_item=True)
-    def coerce_nodes(cls, value, values):
-        if isinstance(value, dict):
-            node_type = value.get("node_type")
-            mapping = {
-                "source": SourceSpec,
-                "transform": TransformSpec,
-                "dimension": DimensionSpec,
-                "metric": MetricSpec,
-                "cube": CubeSpec,
-            }
-            if node_type not in mapping:  # pragma: no cover
-                raise ValueError(f"Unknown node_type: {node_type}")
-            deployment_ns = values.get("namespace")
-            return mapping[node_type](**value, namespace=deployment_ns)
-        return value
+    @model_validator(mode="after")
+    def set_namespaces(self):
+        """
+        Set namespace on all node specs and their dimension links
+        """
+        if hasattr(self, "nodes") and hasattr(self, "namespace") and self.namespace:
+            for node in self.nodes:
+                # Set namespace on the node itself
+                if hasattr(node, "namespace") and not node.namespace:
+                    node.namespace = self.namespace
+
+                # Set namespace on dimension links (for LinkableNodeSpec subclasses)
+                if hasattr(node, "dimension_links") and node.dimension_links:
+                    for link in node.dimension_links:
+                        if not link.namespace:
+                            link.namespace = self.namespace
+        return self
 
 
 class VersionedNode(BaseModel):
@@ -508,8 +517,7 @@ class VersionedNode(BaseModel):
     name: str
     current_version: str
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DeploymentResult(BaseModel):

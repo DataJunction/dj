@@ -48,7 +48,7 @@ async def list_history(
         offset=offset,
         limit=limit,
     )
-    return [HistoryOutput.from_orm(entry) for entry in hist]
+    return [HistoryOutput.model_validate(entry) for entry in hist]
 
 
 @router.get("/history/", response_model=List[HistoryOutput])
@@ -86,4 +86,4 @@ async def list_history_by_node_context(
     )
     result = await session.execute(statement)
     hist = result.scalars().all()
-    return [HistoryOutput.from_orm(entry) for entry in hist]
+    return [HistoryOutput.model_validate(entry) for entry in hist]

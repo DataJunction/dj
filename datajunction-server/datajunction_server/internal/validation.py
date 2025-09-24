@@ -65,7 +65,7 @@ async def validate_node_data(
         validated_node = data
     else:
         node = Node(name=data.name, type=data.type)
-        validated_node = NodeRevision(**data.dict())
+        validated_node = NodeRevision(**data.model_dump())
         validated_node.node = node
 
     ctx = ast.CompileContext(session=session, exception=DJException())
