@@ -2070,6 +2070,7 @@ class TestNodeCRUD:
             },
         )
         data = response.json()
+        print("data!!", data)
 
         assert data["name"] == "basic.source.comments"
         assert data["display_name"] == "Comments facts"

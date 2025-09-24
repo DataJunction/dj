@@ -6,7 +6,14 @@ from datetime import datetime
 from typing import Any, List, Optional
 
 import msgpack
-from pydantic import AnyHttpUrl, Field, field_validator, RootModel, ConfigDict
+from pydantic import (
+    AnyHttpUrl,
+    Field,
+    field_validator,
+    field_serializer,
+    RootModel,
+    ConfigDict,
+)
 from pydantic.main import BaseModel
 
 from datajunction_server.enum import IntEnum
@@ -110,6 +117,14 @@ class QueryWithResults(BaseModel):
     previous: Optional[AnyHttpUrl] = None
     errors: List[str] = []
     links: Optional[List[AnyHttpUrl]] = None
+
+    @field_serializer("next", "previous")
+    def serialize_single_url(self, url: Optional[AnyHttpUrl]) -> Optional[str]:
+        return str(url) if url else None
+
+    @field_serializer("links")
+    def serialize_links(self, links: Optional[List[AnyHttpUrl]]) -> Optional[List[str]]:
+        return [str(url) for url in links] if links else None
 
     @field_validator("scheduled", mode="before")
     def parse_scheduled_date_string(cls, value):

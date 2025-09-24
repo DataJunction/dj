@@ -11,6 +11,9 @@ include = [
 packages = ["datajunction_server"]
 include = ["alembic/**", "alembic.ini"]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.pdm]
 [tool.pdm.build]
 includes = ["dj"]
@@ -89,6 +92,7 @@ dependencies = [
 
     # MCP (Model Context Protocol) server
     "mcp>=1.12.4",
+    "fastapi-mcp @ git+https://github.com/Jai0987/fastapi_mcp.git@fix/resolve-cyclic-schema-refs",
 ]
 requires-python = ">=3.10,<4.0"
 readme = "README.md"

@@ -32,4 +32,4 @@ class CollectionDetails(CollectionInfo):
     description: str
     nodes: list[NodeNameOutput]
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)

@@ -2860,9 +2860,11 @@ async def refresh_source(
             name=current_revision.catalog.name,
         )
         query_create = QueryCreate(
-            engine_name=catalog.engines[0].name,
-            catalog_name=catalog.name,
-            engine_version=catalog.engines[0].version,
+            engine_name=catalog.engines[0].name if catalog and catalog.engines else "",
+            catalog_name=catalog.name if catalog else "",
+            engine_version=catalog.engines[0].version
+            if catalog and catalog.engines
+            else "",
             submitted_query=current_revision.query,
             async_=False,
         )

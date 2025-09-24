@@ -90,6 +90,7 @@ from datajunction_server.models.node import (
     NodeStatusDetails,
     NodeValidation,
     NodeValidationError,
+    SourceColumnOutput,
     UpdateNode,
 )
 from datajunction_server.models.node_type import NodeType
@@ -606,7 +607,7 @@ async def register_table(
         request_headers,
         _catalog.engines[0] if len(_catalog.engines) >= 1 else None,
     )
-
+    print("COLUMNS!!!", columns)
     return await create_source(
         data=CreateSourceNode(
             catalog=catalog,
@@ -614,10 +615,7 @@ async def register_table(
             table=table,
             name=name,
             display_name=name,
-            columns=[
-                ColumnOutput.model_validate(col, from_attributes=True)
-                for col in columns
-            ],
+            columns=[SourceColumnOutput.model_validate(col) for col in columns],
             description="This source node was automatically created as a registered table.",
             mode=NodeMode.PUBLISHED,
         ),

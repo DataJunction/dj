@@ -279,9 +279,11 @@ async def get_cube_dimension_values(
     else:
         catalog = cube.catalog
     query_create = QueryCreate(
-        engine_name=catalog.engines[0].name,
+        engine_name=catalog.engines[0].name if catalog and catalog.engines else "",
         catalog_name=catalog.name,
-        engine_version=catalog.engines[0].version,
+        engine_version=catalog.engines[0].version
+        if catalog and catalog.engines
+        else "",
         submitted_query=translated_sql.sql,
         async_=async_,
     )
@@ -299,7 +301,7 @@ async def get_cube_dimension_values(
             value=row[0 : count_column[0]] if count_column else row,
             count=row[count_column[0]] if count_column else None,
         )
-        for row in result.results.__root__[0].rows
+        for row in result.results.root[0].rows
     ]
     return DimensionValues(  # pragma: no cover
         dimensions=[

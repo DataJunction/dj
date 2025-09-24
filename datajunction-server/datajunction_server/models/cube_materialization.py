@@ -1,7 +1,7 @@
 """Models related to cube materialization"""
 
 import hashlib
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -249,6 +249,7 @@ class UpsertCubeMaterialization(BaseModel):
     An upsert object for cube materializations
     """
 
+    type: Literal["cube"] = "cube"
     # For cubes this is the only materialization type we support
     job: MaterializationJobTypeEnum = MaterializationJobTypeEnum.DRUID_CUBE
 
@@ -257,6 +258,9 @@ class UpsertCubeMaterialization(BaseModel):
 
     # Cron schedule
     schedule: str
+
+    # Configuration for the materialization (optional for compatibility)
+    config: Dict[str, Any] | None = None
 
     # Lookback window, only relevant if materialization strategy is INCREMENTAL_TIME
     lookback_window: str | None = "1 DAY"

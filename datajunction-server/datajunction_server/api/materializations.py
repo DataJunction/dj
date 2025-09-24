@@ -5,7 +5,7 @@ Node materialization related APIs.
 import logging
 from datetime import datetime, timezone
 from http import HTTPStatus
-from typing import Callable, List
+from typing import Any, Callable, List
 
 from fastapi import Depends, Request
 from fastapi.responses import JSONResponse
@@ -56,6 +56,17 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["materializations"])
 
 
+def discriminate_materialization(data):
+    """Discriminate between UpsertMaterialization and UpsertCubeMaterialization based on job type"""
+    if isinstance(data, dict) and "job" in data:
+        job_str = data["job"]
+        if job_str == "druid_cube":
+            return UpsertCubeMaterialization
+        else:
+            return UpsertMaterialization
+    return UpsertMaterialization
+
+
 @router.get(
     "/materialization/info",
     status_code=200,
@@ -84,7 +95,9 @@ def materialization_jobs_info() -> JSONResponse:
 )
 async def upsert_materialization(
     node_name: str,
-    data: UpsertMaterialization | UpsertCubeMaterialization,
+    data: dict[str, Any],
+    # Field(discriminator=discriminate_materialization)
+    # ],
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
@@ -99,6 +112,7 @@ async def upsert_materialization(
     Add or update a materialization of the specified node. If a node_name is specified
     for the materialization config, it will always update that named config.
     """
+    data = discriminate_materialization(data).model_validate(data)  # type: ignore
     request_headers = dict(request.headers)
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     if node.type == NodeType.SOURCE:  # type: ignore
@@ -266,7 +280,10 @@ async def upsert_materialization(
                 f"Successfully updated materialization config named `{new_materialization.name}` "
                 f"for node `{node_name}`"
             ),
-            "urls": [output.urls for output in materialization_response.values()],
+            "urls": [
+                [str(url) for url in output.urls]
+                for output in materialization_response.values()
+            ],
         },
     )
 

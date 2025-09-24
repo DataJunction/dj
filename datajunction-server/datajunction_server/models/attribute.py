@@ -6,6 +6,7 @@ from enum import Enum
 from typing import List, Optional
 
 from pydantic.main import BaseModel
+from pydantic import ConfigDict
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.models.node_type import NodeType
@@ -46,7 +47,7 @@ class AttributeTypeBase(MutableAttributeTypeFields):
 
     id: int
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ColumnAttributes(str, Enum):

@@ -235,7 +235,7 @@ async def build_non_cube_materialization_config(
 async def create_new_materialization(
     session: AsyncSession,
     current_revision: NodeRevision,
-    upsert: UpsertMaterialization | UpsertCubeMaterialization,
+    upsert: UpsertCubeMaterialization | UpsertMaterialization,
     validate_access: access.ValidateAccessFn,
     current_user: User,
 ) -> Materialization:
