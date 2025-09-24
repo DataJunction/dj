@@ -359,7 +359,7 @@ async def hard_delete_node_namespace(
         status_code=HTTPStatus.OK,
         content={
             "message": f"The namespace `{namespace}` has been completely removed.",
-            "impact": impacts.dict(),
+            "impact": impacts.model_dump(),
         },
     )
 

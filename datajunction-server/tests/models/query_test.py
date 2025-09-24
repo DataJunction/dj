@@ -34,7 +34,7 @@ def test_msgpack() -> None:
         progress=1,
         output_table=None,
         results=QueryResults(
-            __root__=[
+            root=[
                 StatementResults(
                     sql="SELECT 42 AS answer",
                     columns=[ColumnMetadata(name="answer", type="int")],

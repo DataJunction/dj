@@ -855,7 +855,6 @@ async def test_reference_dimension_links_errors(
     Test various reference dimension link errors
     """
     # Not a dimension node being linked
-    dimensions_link_client.post("/nodes/{}")
     response = await dimensions_link_client.post(
         "/nodes/default.events/columns/user_registration_country/link",
         params={

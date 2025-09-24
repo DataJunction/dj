@@ -36,7 +36,7 @@ async def list_catalogs(
     """
     statement = select(Catalog).options(joinedload(Catalog.engines))
     return [
-        CatalogInfo.from_orm(catalog)
+        CatalogInfo.model_validate(catalog, from_attributes=True)
         for catalog in (await session.execute(statement)).unique().scalars()
     ]
 
@@ -111,7 +111,7 @@ async def add_catalog(
     await session.commit()
     await session.refresh(catalog, ["engines"])
 
-    return CatalogInfo.from_orm(catalog)
+    return CatalogInfo.model_validate(catalog, from_attributes=True)
 
 
 @router.post(
@@ -136,7 +136,7 @@ async def add_engines_to_catalog(
     session.add(catalog)
     await session.commit()
     await session.refresh(catalog)
-    return CatalogInfo.from_orm(catalog)
+    return CatalogInfo.model_validate(catalog, from_attributes=True)
 
 
 async def list_new_engines(

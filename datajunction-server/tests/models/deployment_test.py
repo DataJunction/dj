@@ -111,18 +111,12 @@ def test_deployment_spec():
         ],
     )
     assert spec.nodes[0].name == "test_node"
+    assert spec.nodes[0].namespace == "test_deployment"
     assert spec.nodes[0].node_type == NodeType.SOURCE
     assert spec.nodes[0].owners == ["user1"]
     assert spec.nodes[0].tags == ["tag1"]
     assert spec.namespace == "test_deployment"
-
-    spec_dict = spec.dict()
-    spec_dict["namespace"] = "test_deployment"
-    spec_dict["node_type"] = "source"
-    spec_nodes = spec_dict["nodes"]
-    DeploymentSpec.coerce_nodes(spec_nodes[0], spec_dict)
-
-    assert spec.dict() == {
+    assert spec.model_dump() == {
         "namespace": "test_deployment",
         "nodes": [
             {

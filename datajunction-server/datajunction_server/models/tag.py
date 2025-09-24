@@ -4,7 +4,7 @@ Models for tags.
 
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from pydantic import Extra
+from pydantic import ConfigDict, Field
 from pydantic.main import BaseModel
 
 if TYPE_CHECKING:
@@ -16,16 +16,11 @@ class MutableTagFields(BaseModel):
     Tag fields that can be changed.
     """
 
-    description: Optional[str]
-    display_name: Optional[str]
-    tag_metadata: Optional[Dict[str, Any]] = {}
+    description: Optional[str] = None
+    display_name: Optional[str] = None
+    tag_metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
-    class Config:
-        """
-        Allow types for tag metadata.
-        """
-
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class ImmutableTagFields(BaseModel):
@@ -49,9 +44,7 @@ class TagMinimum(BaseModel):
     """
 
     name: str
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TagOutput(ImmutableTagFields, MutableTagFields):
@@ -59,8 +52,7 @@ class TagOutput(ImmutableTagFields, MutableTagFields):
     Output tag model.
     """
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UpdateTag(MutableTagFields):
@@ -68,16 +60,12 @@ class UpdateTag(MutableTagFields):
     Update tag model. Only works on mutable fields.
     """
 
-    __annotations__ = {
-        k: Optional[v]
-        for k, v in {
-            **MutableTagFields.__annotations__,
-        }.items()
-    }
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Get all fields from MutableTagFields and make them optional with None defaults
+        for field_name, field_type in MutableTagFields.__annotations__.items():
+            cls.__annotations__[field_name] = Optional[field_type]
+            setattr(cls, field_name, None)
 
-    class Config:
-        """
-        Do not allow fields other than the ones defined here.
-        """
-
-        extra = Extra.forbid
+    # Do not allow fields other than the ones defined here.
+    model_config = ConfigDict(extra="forbid")
