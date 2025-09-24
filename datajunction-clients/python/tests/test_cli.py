@@ -13,41 +13,6 @@ from datajunction import DJBuilder
 from datajunction.cli import main
 
 
-def test_deploy(
-    change_to_project_dir: Callable,
-):
-    """
-    Test `dj deploy <dir>`
-    """
-    builder_client = mock.MagicMock()
-
-    # Test deploy with dryrun
-    change_to_project_dir("./")
-    test_args = ["dj", "deploy", "./project9", "--dryrun"]
-    with patch.object(sys, "argv", test_args):
-        main(builder_client=builder_client)
-
-    func_names = [mock_call[0] for mock_call in builder_client.mock_calls]
-    assert "basic_login" in func_names
-    assert "create_namespace" in func_names
-    assert "create_source" in func_names
-    assert "create_dimension" in func_names
-    assert "delete_namespace" in func_names
-
-    # Test deploy without dryrun
-    change_to_project_dir("./")
-    test_args = ["dj", "deploy", "./project9"]
-    with patch.object(sys, "argv", test_args):
-        main(builder_client=builder_client)
-
-    func_names = [mock_call[0] for mock_call in builder_client.mock_calls]
-    assert "basic_login" in func_names
-    assert "create_namespace" in func_names
-    assert "create_source" in func_names
-    assert "create_dimension" in func_names
-    assert "delete_namespace" in func_names
-
-
 def test_pull(
     tmp_path,
     builder_client: DJBuilder,  # pylint: disable=redefined-outer-name
@@ -64,6 +29,37 @@ def test_pull(
         with patch.object(sys, "argv", test_args):
             main(builder_client=builder_client)
     assert len(os.listdir(tmp_path)) == 30
+
+
+def test_push_full(
+    tmp_path,
+    builder_client: DJBuilder,  # pylint: disable=redefined-outer-name
+    change_to_project_dir: Callable,
+):
+    """
+    Test `dj push <dir>`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    change_to_project_dir("./")
+    test_args = ["dj", "push", "./deploy0"]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            main(builder_client=builder_client)
+    results = builder_client.list_nodes(namespace="deps.deploy0")
+    assert len(results) == 6
+
+    test_args = ["dj", "push", "./deploy0", "--namespace", "deps.deploy0.main"]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            main(builder_client=builder_client)
+
+    results = builder_client.list_nodes(namespace="deps.deploy0.main")
+    assert len(results) == 6
+    results = builder_client.list_nodes(namespace="deps.deploy0")
+    assert len(results) == 12
 
 
 def test_seed():

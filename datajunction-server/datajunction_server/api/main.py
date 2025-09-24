@@ -24,6 +24,7 @@ from datajunction_server.api import (
     collection,
     cubes,
     data,
+    deployments,
     dimensions,
     djsql,
     engines,
@@ -98,6 +99,7 @@ def configure_app(app: FastAPI) -> None:
     )
     app.include_router(catalogs.router)
     app.include_router(collection.router)
+    app.include_router(deployments.router)
     app.include_router(engines.router)
     app.include_router(metrics.router)
     app.include_router(djsql.router)

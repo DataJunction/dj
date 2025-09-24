@@ -4,7 +4,8 @@ Fixtures for testing.
 
 import asyncio
 from collections import namedtuple
-from contextlib import ExitStack, contextmanager
+from sqlalchemy.pool import StaticPool, NullPool
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from datetime import timedelta
 import os
 import pathlib
@@ -13,6 +14,7 @@ from http.client import HTTPException
 from typing import (
     Any,
     AsyncGenerator,
+    Awaitable,
     Callable,
     Collection,
     Coroutine,
@@ -37,7 +39,7 @@ from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from httpx import AsyncClient
 from pytest_mock import MockerFixture
-from sqlalchemy import StaticPool, insert, text
+from sqlalchemy import insert, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
@@ -248,6 +250,37 @@ def postgres_container() -> PostgresContainer:
         yield postgres
 
 
+def create_session_factory(postgres_container) -> Awaitable[AsyncSession]:
+    """
+    Returns a factory function that creates a new AsyncSession each time it is called.
+    """
+    engine = create_async_engine(
+        url=postgres_container.get_connection_url(),
+        poolclass=NullPool,
+    )
+
+    async def init_db():
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+            await conn.run_sync(Base.metadata.create_all)
+
+    # Make sure DB is initialized once
+    asyncio.get_event_loop().run_until_complete(init_db())
+
+    async_session_factory = async_sessionmaker(
+        bind=engine,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    # Return a callable that produces a new session
+    async def get_session_factory() -> AsyncSession:
+        return async_session_factory()
+
+    # Return the session factory and cleanup
+    return get_session_factory  # type: ignore
+
+
 @pytest_asyncio.fixture
 async def session(
     postgres_container: PostgresContainer,
@@ -424,29 +457,63 @@ def query_service_client(
     yield qs_client
 
 
+@pytest.fixture
+def session_factory(postgres_container) -> Awaitable[AsyncSession]:
+    return create_session_factory(postgres_container)
+
+
+@pytest.fixture(scope="module")
+def module__session_factory(module__postgres_container) -> Awaitable[AsyncSession]:
+    return create_session_factory(module__postgres_container)
+
+
 @contextmanager
-def patch_session_contexts(session):
-    patch_targets = [
-        "datajunction_server.internal.caching.query_cache_manager.session_context",
-        "datajunction_server.internal.nodes.session_context",
-        "datajunction_server.internal.materializations.session_context",
-    ]
+def patch_session_contexts(
+    session_factory,
+    use_patch: bool = True,
+) -> Iterator[None]:
+    patch_targets = (
+        [
+            "datajunction_server.internal.caching.query_cache_manager.session_context",
+            "datajunction_server.internal.nodes.session_context",
+            "datajunction_server.internal.materializations.session_context",
+            "datajunction_server.internal.deployment.session_context",
+            "datajunction_server.api.deployments.session_context",
+        ]
+        if use_patch
+        else []
+    )
+
+    @asynccontextmanager
+    async def fake_session_context(
+        request: Request = None,
+    ) -> AsyncGenerator[AsyncSession, None]:
+        session = await session_factory()
+        try:
+            yield session
+        finally:
+            await session.close()
+
     with ExitStack() as stack:
         for target in patch_targets:
-            stack.enter_context(patch(target, return_value=session))
+            stack.enter_context(patch(target, fake_session_context))
         yield
 
 
 @pytest_asyncio.fixture
 async def client(
+    request,
     session: AsyncSession,
     settings_no_qs: Settings,
     jwt_token: str,
     background_tasks,
+    session_factory,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
     """
+    use_patch = getattr(request, "param", True)
+
     await default_attribute_types(session)
     await seed_default_catalogs(session)
     await create_default_user(session)
@@ -463,7 +530,8 @@ async def client(
 
         return _
 
-    app.dependency_overrides[get_session] = get_session_override
+    if use_patch:
+        app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
     app.dependency_overrides[validate_access] = default_validate_access
 
@@ -471,7 +539,7 @@ async def client(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as test_client:
-        with patch_session_contexts(session):
+        with patch_session_contexts(session_factory):
             test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
             test_client.app = app
 
@@ -697,6 +765,7 @@ async def client_qs(
     settings: Settings,
     query_service_client: QueryServiceClient,
     mocker: MockerFixture,
+    session_factory: AsyncSession,
     jwt_token: str,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
@@ -745,7 +814,7 @@ async def client_qs(
             transport=httpx.ASGITransport(app=app),
             base_url="http://test",
         ) as test_client:
-            with patch_session_contexts(session):
+            with patch_session_contexts(session_factory):
                 test_client.headers.update(
                     {
                         "Authorization": f"Bearer {jwt_token}",
@@ -862,16 +931,20 @@ async def create_default_user(session: AsyncSession) -> User:
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client(
+    request,
     module__session: AsyncSession,
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,
     module_mocker: MockerFixture,
     jwt_token: str,
+    module__session_factory: AsyncSession,
     module__background_tasks: list[tuple[Callable, tuple, dict]],
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
     """
+    use_patch = getattr(request, "param", True)
+
     await default_attribute_types(module__session)
     await seed_default_catalogs(module__session)
     await create_default_user(module__session)
@@ -909,7 +982,7 @@ async def module__client(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as test_client:
-        with patch_session_contexts(module__session):
+        with patch_session_contexts(module__session_factory, use_patch=use_patch):
             test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
             test_client.app = app
 
