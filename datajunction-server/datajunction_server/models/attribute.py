@@ -46,8 +46,7 @@ class AttributeTypeBase(MutableAttributeTypeFields):
 
     id: int
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True}
 
 
 class ColumnAttributes(str, Enum):

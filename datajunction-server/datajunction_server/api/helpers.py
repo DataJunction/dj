@@ -880,7 +880,8 @@ def get_node_revision_materialization(
             if materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME:
                 info.urls = [info.urls[0]]
             materialization_config_output = MaterializationConfigOutput.model_validate(
-                materialization, from_attributes=True,
+                materialization,
+                from_attributes=True,
             )
             materializations.append(
                 MaterializationConfigInfoUnified(

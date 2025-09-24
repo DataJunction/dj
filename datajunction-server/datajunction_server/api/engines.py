@@ -58,7 +58,10 @@ async def get_an_engine(
     """
     Return an engine by name and version
     """
-    return EngineInfo.model_validate(await get_engine(session, name, version), from_attributes=True)
+    return EngineInfo.model_validate(
+        await get_engine(session, name, version),
+        from_attributes=True,
+    )
 
 
 @router.post(

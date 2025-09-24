@@ -1273,7 +1273,10 @@ async def update_cube_node(
                     session,
                     new_cube_revision,
                     materialization_upsert_class(
-                        **MaterializationConfigOutput.model_validate(old, from_attributes=True).model_dump(
+                        **MaterializationConfigOutput.model_validate(
+                            old,
+                            from_attributes=True,
+                        ).model_dump(
                             exclude={"job", "node_revision_id", "deactivated_at"},
                         ),
                         job=MaterializationJobTypeEnum.find_match(old.job),
@@ -1824,7 +1827,9 @@ async def save_column_level_lineage(node_revision_id: int):
                 session,
                 node_revision,
             )
-            node_revision.lineage = [lineage.dict() for lineage in column_level_lineage]
+            node_revision.lineage = [
+                lineage.model_dump() for lineage in column_level_lineage
+            ]
             session.add(node_revision)
             await session.commit()
 

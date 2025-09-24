@@ -20,5 +20,4 @@ class CatalogInfo(BaseModel):
     name: str
     engines: Optional[List[EngineInfo]] = []
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True}

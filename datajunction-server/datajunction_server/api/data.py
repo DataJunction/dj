@@ -159,10 +159,16 @@ async def add_availability_state(
             entity_type=EntityType.AVAILABILITY,
             node=node.name,  # type: ignore
             activity_type=ActivityType.CREATE,
-            pre=AvailabilityStateBase.model_validate(old_availability, from_attributes=True).model_dump()
+            pre=AvailabilityStateBase.model_validate(
+                old_availability,
+                from_attributes=True,
+            ).model_dump()
             if old_availability
             else {},
-            post=AvailabilityStateBase.model_validate(node_revision.availability, from_attributes=True).model_dump(),
+            post=AvailabilityStateBase.model_validate(
+                node_revision.availability,
+                from_attributes=True,
+            ).model_dump(),
             user=current_user.username,
         ),
         session=session,

@@ -4,7 +4,7 @@ Models for users and auth
 
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from datajunction_server.database.user import OAuthProvider
 from datajunction_server.models.catalog import CatalogInfo
@@ -31,8 +31,7 @@ class CreatedNode(BaseModel):
     current_version: str
     missing_table: Optional[bool] = False
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserOutput(BaseModel):
@@ -49,8 +48,7 @@ class UserOutput(BaseModel):
     owned_nodes: Optional[List[CreatedNode]] = []
     created_tags: Optional[List[TagOutput]] = []
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserNameOnly(BaseModel):
@@ -60,8 +58,7 @@ class UserNameOnly(BaseModel):
 
     username: str
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserActivity(BaseModel):

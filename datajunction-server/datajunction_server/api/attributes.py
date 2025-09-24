@@ -35,7 +35,10 @@ async def list_attributes(
     List all available attribute types.
     """
     attributes = await AttributeType.get_all(session)
-    return [AttributeTypeBase.model_validate(attr, from_attributes=True) for attr in attributes]
+    return [
+        AttributeTypeBase.model_validate(attr, from_attributes=True)
+        for attr in attributes
+    ]
 
 
 @router.post(

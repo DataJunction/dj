@@ -5,6 +5,7 @@ Models for collections
 from typing import Optional
 
 from pydantic.main import BaseModel
+from pydantic import ConfigDict
 
 from datajunction_server.models.node import NodeNameOutput
 
@@ -18,8 +19,7 @@ class CollectionInfo(BaseModel):
     name: str
     description: str
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CollectionDetails(CollectionInfo):
@@ -32,5 +32,4 @@ class CollectionDetails(CollectionInfo):
     description: str
     nodes: list[NodeNameOutput]
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True}

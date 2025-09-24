@@ -2,7 +2,7 @@
 
 from typing import Dict, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.models.node_type import NodeNameOutput
@@ -56,9 +56,9 @@ class JoinLinkInput(BaseModel):
 
     dimension_node: str
     join_type: Optional[JoinType] = JoinType.LEFT
-    join_on: Optional[str]
+    join_on: Optional[str] = None
     join_cardinality: Optional[JoinCardinality] = JoinCardinality.MANY_TO_ONE
-    role: Optional[str]
+    role: Optional[str] = None
 
 
 class LinkDimensionOutput(BaseModel):
@@ -73,5 +73,4 @@ class LinkDimensionOutput(BaseModel):
     role: Optional[str]
     foreign_keys: Dict[str, str | None]
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)

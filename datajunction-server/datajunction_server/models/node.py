@@ -5,9 +5,16 @@ Model for nodes.
 import enum
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
-from pydantic import BaseModel, Field, field_validator, model_validator, RootModel
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+    model_validator,
+    RootModel,
+    ConfigDict,
+)
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum
@@ -29,21 +36,11 @@ from datajunction_server.models.tag import TagMinimum, TagOutput
 from datajunction_server.models.user import UserNameOnly
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.typing import UTCDatetime
-# Lazy import to avoid circular dependency
-def _get_version_class():
-    from datajunction_server.utils import Version
-    return Version
+from datajunction_server.utils import Version
 
+DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
+DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
 MIN_VALID_THROUGH_TS = -sys.maxsize - 1
-
-# Initialize version constants after function definition
-try:
-    Version = _get_version_class()
-    DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
-    DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
-except ImportError:
-    DEFAULT_DRAFT_VERSION = None
-    DEFAULT_PUBLISHED_VERSION = None
 
 
 @dataclass(frozen=True)
@@ -290,8 +287,7 @@ class AvailabilityStateBase(TemporalPartitionRange):
     # Partition-level availabilities
     partitions: Optional[List[PartitionAvailability]] = Field(default=[])
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
     @field_validator("partitions")
     def validate_partitions(cls, partitions):
@@ -387,10 +383,10 @@ class Unit(BaseModel):
     """
 
     name: str
-    label: Optional[str]
-    category: Optional[str]
-    abbreviation: Optional[str]
-    description: Optional[str]
+    label: Optional[str] = None
+    category: Optional[str] = None
+    abbreviation: Optional[str] = None
+    description: Optional[str] = None
 
     def __str__(self):
         return self.name  # pragma: no cover
@@ -398,15 +394,19 @@ class Unit(BaseModel):
     def __repr__(self):
         return self.name
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     def get_label(cls, values):
         """Generate a default label if one was not provided."""
-        if not values.get("label") and values.get("name"):
-            values["label"] = labelize(values["name"])
+        if isinstance(values, dict):
+            if not values.get("label") and values.get("name"):
+                values["label"] = labelize(values["name"])
+        # if isinstance(values, MetricUnit):
+        else:
+            if not values.value.label and values.value.name:
+                values.value.label = labelize(values.value.name)
         return values
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MetricUnit(enum.Enum):
@@ -435,7 +435,13 @@ class MetricUnit(enum.Enum):
     )
 
     # Monetary
-    DOLLAR = Unit(name="dollar", label="Dollar", category="currency", abbreviation="$", description=None)
+    DOLLAR = Unit(
+        name="dollar",
+        label="Dollar",
+        category="currency",
+        abbreviation="$",
+        description=None,
+    )
 
     # Time
     SECOND = Unit(name="second", category="time", abbreviation="s", description=None)
@@ -476,14 +482,13 @@ class MetricMetadataOutput(BaseModel):
     Metric metadata output
     """
 
-    direction: MetricDirection | None
-    unit: Unit | None
-    significant_digits: int | None
-    min_decimal_exponent: int | None
-    max_decimal_exponent: int | None
+    direction: MetricDirection | None = None
+    unit: Unit | None = None
+    significant_digits: int | None = None
+    min_decimal_exponent: int | None = None
+    max_decimal_exponent: int | None = None
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MetricMetadataInput(BaseModel):
@@ -491,11 +496,11 @@ class MetricMetadataInput(BaseModel):
     Metric metadata output
     """
 
-    direction: MetricDirection | None
-    unit: str | None
-    significant_digits: int | None
-    min_decimal_exponent: int | None
-    max_decimal_exponent: int | None
+    direction: MetricDirection | None = None
+    unit: str | None = None
+    significant_digits: int | None = None
+    min_decimal_exponent: int | None = None
+    max_decimal_exponent: int | None = None
 
 
 class ImmutableNodeFields(BaseModel):
@@ -512,12 +517,12 @@ class MutableNodeFields(BaseModel):
     Node fields that can be changed.
     """
 
-    display_name: str | None
-    description: str | None
+    display_name: str | None = None
+    description: str | None = None
     mode: NodeMode = NodeMode.PUBLISHED
-    primary_key: list[str] | None
-    custom_metadata: dict | None
-    owners: list[str] | None
+    primary_key: list[str] | None = None
+    custom_metadata: dict | None = None
+    owners: list[str] | None = None
 
 
 class MutableNodeQueryField(BaseModel):
@@ -563,8 +568,7 @@ class NodeMinimumDetail(BaseModel):
     tags: Optional[List[TagMinimum]]
     edited_by: Optional[List[str]]
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AttributeTypeName(BaseModel):
@@ -575,8 +579,7 @@ class AttributeTypeName(BaseModel):
     namespace: str
     name: str
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AttributeOutput(BaseModel):
@@ -586,8 +589,7 @@ class AttributeOutput(BaseModel):
 
     attribute_type: AttributeTypeName
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DimensionAttributeOutput(BaseModel):
@@ -610,22 +612,16 @@ class ColumnOutput(BaseModel):
     """
 
     name: str
-    display_name: Optional[str]
+    display_name: Optional[str] = None
     type: str
-    description: Optional[str]
-    attributes: Optional[List[AttributeOutput]]
-    dimension: Optional[NodeNameOutput]
-    partition: Optional[PartitionOutput]
+    description: Optional[str] = None
+    attributes: Optional[List[AttributeOutput]] = None
+    dimension: Optional[NodeNameOutput] = None
+    partition: Optional[PartitionOutput] = None
 
-    class Config:
-        """
-        Should perform validation on assignment
-        """
+    model_config = ConfigDict(from_attributes=True, validate_assignment=True)
 
-        model_config = {"from_attributes": True}
-        validate_assignment = True
-
-    @field_validator("type", mode='before')
+    @field_validator("type", mode="before")
     def extract_type(cls, raw):
         return str(raw)
 
@@ -637,23 +633,21 @@ class SourceColumnOutput(BaseModel):
 
     name: str
     type: ColumnType
-    attributes: Optional[List[AttributeOutput]]
-    dimension: Optional[str]
+    attributes: Optional[List[AttributeOutput]] = None
+    dimension: Optional[str] = None
 
-    class Config:
-        """
-        Should perform validation on assignment
-        """
+    model_config = ConfigDict(validate_assignment=True)
 
-        validate_assignment = True
+    @field_validator("type", mode="before")
+    def validate_column_type(cls, value):
+        """
+        Convert string type to ColumnType object
+        """
+        if isinstance(value, str):
+            from datajunction_server.sql.parsing.types import ColumnType as CT
 
-    @model_validator(mode='before')
-    def type_string(cls, values):
-        """
-        Extracts the type as a string
-        """
-        values["type"] = str(values.get("type"))
-        return values
+            return CT(value)
+        return value
 
 
 class SourceNodeFields(BaseModel):
@@ -675,10 +669,10 @@ class CubeNodeFields(BaseModel):
 
     metrics: List[str]
     dimensions: List[str]
-    filters: Optional[List[str]]
-    orderby: Optional[List[str]]
-    limit: Optional[int]
-    description: Optional[str]
+    filters: Optional[List[str]] = None
+    orderby: Optional[List[str]] = None
+    limit: Optional[int] = None
+    description: Optional[str] = None
     mode: NodeMode
 
 
@@ -687,8 +681,8 @@ class MetricNodeFields(BaseModel):
     Metric node fields that can be changed
     """
 
-    required_dimensions: Optional[List[str]]
-    metric_metadata: Optional[MetricMetadataInput]
+    required_dimensions: Optional[List[str]] = None
+    metric_metadata: Optional[MetricMetadataInput] = None
 
 
 #
@@ -742,12 +736,7 @@ class UpdateNode(
         }.items()
     }
 
-    class Config:
-        """
-        Do not allow fields other than the ones defined here.
-        """
-
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 #
@@ -761,36 +750,36 @@ class GenericNodeOutputModel(BaseModel):
     into the top-level fields on the output model.
     """
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     def flatten_current(
         cls,
-        values: Dict[str, Any],
+        values: Any,
     ) -> Dict[str, Any]:
         """
         Flatten the current node revision into top-level fields.
         """
-        current = values.get("current")
+        current = values.current
         if current is None:
             return values
-        current_dict = dict(current.__dict__.items())
         final_dict = {
-            "namespace": values.get("namespace"),
-            "created_at": values.get("created_at"),
-            "deactivated_at": values.get("deactivated_at"),
-            "current_version": values.get("current_version"),
-            "catalog": values.get("catalog"),
-            "missing_table": values.get("missing_table"),
-            "tags": values.get("tags"),
-            "created_by": values.get("created_by").__dict__,
-            "owners": [owner.__dict__ for owner in values.get("owners")],
+            "namespace": values.namespace,
+            "created_at": values.created_at,
+            "deactivated_at": values.deactivated_at,
+            "current_version": values.current_version,
+            "catalog": values.current.catalog,
+            "missing_table": values.missing_table,
+            "tags": values.tags,
+            "created_by": values.created_by,
+            "owners": [owner for owner in values.owners or []],
         }
+        current_dict = dict(current.__dict__.items())
         for k, v in current_dict.items():
             final_dict[k] = v
 
         final_dict["dimension_links"] = [
             link
-            for link in final_dict["dimension_links"]
-            if link.dimension.deactivated_at is None
+            for link in final_dict["dimension_links"]  # type: ignore
+            if link.dimension.deactivated_at is None  # type: ignore
         ]
         final_dict["node_revision_id"] = final_dict["id"]
         return final_dict
@@ -835,8 +824,7 @@ class NodeRevisionOutput(BaseModel):
     dimension_links: Optional[List[LinkDimensionOutput]]
     custom_metadata: Optional[Dict] = None
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NodeOutput(GenericNodeOutputModel):
@@ -873,8 +861,7 @@ class NodeOutput(GenericNodeOutputModel):
     custom_metadata: Optional[Dict] = None
     owners: list[UserNameOnly]
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
     @classmethod
     def load_options(cls):
@@ -916,9 +903,10 @@ class DAGNodeRevisionOutput(BaseModel):
     parents: List[NodeNameOutput]
     dimension_links: List[LinkDimensionOutput]
 
-    class Config:
-        populate_by_name = True
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+    )
 
 
 class DAGNodeOutput(GenericNodeOutputModel):
@@ -947,8 +935,7 @@ class DAGNodeOutput(GenericNodeOutputModel):
     tags: List[TagOutput] = []
     current_version: str
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NodeValidation(BaseModel):

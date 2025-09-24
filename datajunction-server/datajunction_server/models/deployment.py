@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, Field, validator, PrivateAttr
+from pydantic import BaseModel, Field, field_validator, PrivateAttr, ConfigDict
 
 from typing import Any, Literal, Union
 
@@ -267,20 +267,26 @@ class LinkableNodeSpec(NodeSpec):
     )
     primary_key: list[str] = Field(default_factory=list)
 
-    @validator("dimension_links", pre=True, each_item=True)
-    def coerce_dimension_links(cls, value, values):
-        if isinstance(value, dict):
-            link_type = value.get("type")
-            mapping = {
-                "join": DimensionJoinLinkSpec,
-                "reference": DimensionReferenceLinkSpec,
-            }
-            if link_type not in mapping:  # pragma: no cover
-                raise ValueError(f"Unknown link type: {link_type}")
-            deployment_ns = values.get("namespace")
-            return mapping[link_type](**value, namespace=deployment_ns)
-        value.namespace = values.get("namespace")
-        return value
+    @field_validator("dimension_links", mode="before")
+    def coerce_dimension_links(cls, values):
+        if not isinstance(values, list):
+            values = [values]
+        result = []
+        for value in values:
+            if isinstance(value, dict):
+                link_type = value.get("type")
+                mapping = {
+                    "join": DimensionJoinLinkSpec,
+                    "reference": DimensionReferenceLinkSpec,
+                }
+                if link_type not in mapping:  # pragma: no cover
+                    raise ValueError(f"Unknown link type: {link_type}")
+                deployment_ns = getattr(cls, "namespace", None)
+                result.append(mapping[link_type](**value, namespace=deployment_ns))
+            else:
+                value.namespace = getattr(cls, "namespace", None)
+                result.append(value)
+        return result
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, LinkableNodeSpec):
@@ -307,7 +313,7 @@ class SourceSpec(LinkableNodeSpec):
     node_type: Literal[NodeType.SOURCE] = NodeType.SOURCE
     table: str
 
-    @validator("table")
+    @field_validator("table")
     def validate_table(cls, value) -> str:
         """
         Validate that the table name is fully qualified
@@ -482,22 +488,28 @@ class DeploymentSpec(BaseModel):
     nodes: list[NodeUnion] = Field(default_factory=list)
     tags: list[TagSpec] = Field(default_factory=list)
 
-    @validator("nodes", pre=True, each_item=True)
-    def coerce_nodes(cls, value, values):
-        if isinstance(value, dict):
-            node_type = value.get("node_type")
-            mapping = {
-                "source": SourceSpec,
-                "transform": TransformSpec,
-                "dimension": DimensionSpec,
-                "metric": MetricSpec,
-                "cube": CubeSpec,
-            }
-            if node_type not in mapping:  # pragma: no cover
-                raise ValueError(f"Unknown node_type: {node_type}")
-            deployment_ns = values.get("namespace")
-            return mapping[node_type](**value, namespace=deployment_ns)
-        return value
+    @field_validator("nodes", mode="before")
+    def coerce_nodes(cls, values):
+        if not isinstance(values, list):
+            values = [values]
+        result = []
+        for value in values:
+            if isinstance(value, dict):
+                node_type = value.get("node_type")
+                mapping = {
+                    "source": SourceSpec,
+                    "transform": TransformSpec,
+                    "dimension": DimensionSpec,
+                    "metric": MetricSpec,
+                    "cube": CubeSpec,
+                }
+                if node_type not in mapping:  # pragma: no cover
+                    raise ValueError(f"Unknown node_type: {node_type}")
+                deployment_ns = getattr(cls, "namespace", None)
+                result.append(mapping[node_type](**value, namespace=deployment_ns))
+            else:
+                result.append(value)
+        return result
 
 
 class VersionedNode(BaseModel):
@@ -508,8 +520,7 @@ class VersionedNode(BaseModel):
     name: str
     current_version: str
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DeploymentResult(BaseModel):

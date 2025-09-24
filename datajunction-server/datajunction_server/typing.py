@@ -321,7 +321,7 @@ class UTCDatetime(datetime.datetime):
         Pydantic v2 core schema for datetime validation
         """
         from pydantic_core import core_schema
-        
+
         return core_schema.no_info_after_validator_function(
             cls.validate,
             core_schema.datetime_schema(),
@@ -335,13 +335,15 @@ class UTCDatetime(datetime.datetime):
         if isinstance(value, str):
             # Parse string to datetime first
             from datetime import datetime as dt
+
             try:
-                value = dt.fromisoformat(value.replace('Z', '+00:00'))
+                value = dt.fromisoformat(value.replace("Z", "+00:00"))
             except ValueError:
                 # Try other common formats
                 import dateutil.parser
+
                 value = dateutil.parser.parse(value)
-        
+
         if value.tzinfo is None:
             return value.replace(tzinfo=datetime.timezone.utc)
 

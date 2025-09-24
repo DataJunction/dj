@@ -97,8 +97,9 @@ def register_dialect_plugin(name: str, plugin_cls: type["SQLTranspilationPlugin"
     configured in the settings.
     """
     from datajunction_server.utils import get_settings
+
     settings = get_settings()
-    
+
     if plugin_cls.package_name not in settings.transpilation_plugins:
         logger.warning(
             "Skipping plugin registration for '%s' (%s) (not in configured transpilation plugins: %s)",

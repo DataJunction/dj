@@ -614,7 +614,10 @@ async def register_table(
             table=table,
             name=name,
             display_name=name,
-            columns=[ColumnOutput.model_validate(col, from_attributes=True) for col in columns],
+            columns=[
+                ColumnOutput.model_validate(col, from_attributes=True)
+                for col in columns
+            ],
             description="This source node was automatically created as a registered table.",
             mode=NodeMode.PUBLISHED,
         ),
@@ -702,7 +705,10 @@ async def register_view(
             table=view,
             name=node_name,
             display_name=node_name,
-            columns=[ColumnOutput.model_validate(col, from_attributes=True) for col in columns],
+            columns=[
+                ColumnOutput.model_validate(col, from_attributes=True)
+                for col in columns
+            ],
             description="This source node was automatically created as a registered view.",
             mode=NodeMode.PUBLISHED,
             query=query,

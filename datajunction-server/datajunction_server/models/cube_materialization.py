@@ -3,7 +3,7 @@
 import hashlib
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
@@ -261,7 +261,7 @@ class UpsertCubeMaterialization(BaseModel):
     # Lookback window, only relevant if materialization strategy is INCREMENTAL_TIME
     lookback_window: str | None = "1 DAY"
 
-    @validator("job", pre=True)
+    @field_validator("job", mode="before")
     def validate_job(
         cls,
         job: Union[str, MaterializationJobTypeEnum],

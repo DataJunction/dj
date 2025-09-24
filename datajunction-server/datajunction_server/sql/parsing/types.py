@@ -13,14 +13,22 @@ field_type=IntegerType(), is_optional=True, doc='an optional field'))
 """
 
 import re
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, Generator, Optional, Tuple, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Dict,
+    Generator,
+    Optional,
+    Tuple,
+    cast,
+    Callable,
+)
+from datajunction_server.enum import StrEnum
 
-from typing import Callable
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 AnyCallable = Callable[..., Any]
-
-from datajunction_server.enum import StrEnum
 
 if TYPE_CHECKING:
     from datajunction_server.sql.parsing import ast
@@ -29,6 +37,9 @@ if TYPE_CHECKING:
 DECIMAL_REGEX = re.compile(r"(?i)decimal\((?P<precision>\d+),\s*(?P<scale>\d+)\)")
 FIXED_PARSER = re.compile(r"(?i)fixed\((?P<length>\d+)\)")
 VARCHAR_PARSER = re.compile(r"(?i)varchar(\((?P<length>\d+)\))?")
+
+# Singleton caching temporarily disabled for Pydantic v2 compatibility
+# TODO: Implement proper caching that works with Pydantic v2
 
 
 class Singleton:
@@ -51,9 +62,7 @@ class ColumnType(BaseModel):
 
     _initialized = False
 
-    class Config:
-        extra = "allow"
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
     def __init__(
         self,
@@ -63,9 +72,13 @@ class ColumnType(BaseModel):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self._type_string = type_string
-        self._repr_string = repr_string if repr_string else self._type_string
-        self._initialized = True
+        object.__setattr__(self, "_type_string", type_string)
+        object.__setattr__(
+            self,
+            "_repr_string",
+            repr_string if repr_string else type_string,
+        )
+        object.__setattr__(self, "_initialized", True)
 
     def __repr__(self):
         return self._repr_string
@@ -173,16 +186,9 @@ class FixedType(PrimitiveType):
         True
     """
 
-    _instances: Dict[int, "FixedType"] = {}
-
-    def __new__(cls, length: int):
-        cls._instances[length] = cls._instances.get(length) or object.__new__(cls)
-        return cls._instances[length]
-
     def __init__(self, length: int):
-        if not self._initialized:
-            super().__init__(f"fixed({length})", f"FixedType(length={length})")
-            self._length = length
+        super().__init__(f"fixed({length})", f"FixedType(length={length})")
+        object.__setattr__(self, "_length", length)
 
     @property
     def length(self) -> int:  # pragma: no cover
@@ -210,24 +216,18 @@ class DecimalType(NumberType):
 
     max_precision: ClassVar[int] = 38
     max_scale: ClassVar[int] = 38
-    _instances: Dict[Tuple[int, int], "DecimalType"] = {}
-
-    def __new__(cls, precision: int, scale: int):
-        key = (
-            min(precision, DecimalType.max_precision),
-            min(scale, DecimalType.max_scale),
-        )
-        cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
-        return cls._instances[key]
 
     def __init__(self, precision: int, scale: int):
-        if not self._initialized:
-            super().__init__(
-                f"decimal({precision}, {scale})",
-                f"DecimalType(precision={precision}, scale={scale})",
-            )
-            self._precision = min(precision, DecimalType.max_precision)
-            self._scale = min(scale, DecimalType.max_scale)
+        super().__init__(
+            f"decimal({precision}, {scale})",
+            f"DecimalType(precision={precision}, scale={scale})",
+        )
+        object.__setattr__(
+            self,
+            "_precision",
+            min(precision, DecimalType.max_precision),
+        )
+        object.__setattr__(self, "_scale", min(scale, DecimalType.max_scale))
 
     @property
     def precision(self) -> int:  # pragma: no cover
@@ -250,27 +250,6 @@ class NestedField(ColumnType):
     This is where field IDs, names, docs, and nullability are tracked.
     """
 
-    _instances: Dict[
-        Tuple[bool, str, ColumnType, Optional[str]],
-        "NestedField",
-    ] = {}
-
-    def __new__(
-        cls,
-        name: "ast.Name",
-        field_type: ColumnType,
-        is_optional: bool = True,
-        doc: Optional[str] = None,
-    ):
-        if isinstance(name, str):  # pragma: no cover
-            from datajunction_server.sql.parsing.ast import Name
-
-            name = Name(name)
-
-        key = (is_optional, name.name, field_type, doc)
-        cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
-        return cls._instances[key]
-
     def __init__(
         self,
         name: "ast.Name",
@@ -278,27 +257,44 @@ class NestedField(ColumnType):
         is_optional: bool = True,
         doc: Optional[str] = None,
     ):
-        if not self._initialized:
-            if isinstance(name, str):  # pragma: no cover
-                from datajunction_server.sql.parsing.ast import Name
+        # Handle both string names and ast.Name objects
+        if isinstance(name, str):  # pragma: no cover
+            name_str = name
 
-                name = Name(name)
-            doc_string = "" if doc is None else f", doc={repr(doc)}"
-            super().__init__(
-                (
-                    f"{name} {field_type}"
-                    f"{' NOT NULL' if not is_optional else ''}"
-                    + ("" if doc is None else f" {doc}")
-                ),
-                f"NestedField(name={repr(name)}, "
-                f"field_type={repr(field_type)}, "
-                f"is_optional={is_optional}"
-                f"{doc_string})",
-            )
-            self._is_optional = is_optional
-            self._name = name
-            self._type = field_type
-            self._doc = doc
+            # Create a simple mock Name object to avoid circular import
+            class MockName:
+                def __init__(self, name_str):
+                    self.name = name_str
+                    self.quote_style = ""
+                    self.namespace = None
+
+                def __str__(self):
+                    return self.name
+
+                def __repr__(self):
+                    return f"Name(name='{self.name}', quote_style='', namespace=None)"
+
+            name_obj = MockName(name_str)
+        else:
+            name_str = name.name
+            name_obj = name
+
+        doc_string = "" if doc is None else f", doc={repr(doc)}"
+        super().__init__(
+            (
+                f"{name_str} {field_type}"
+                f"{' NOT NULL' if not is_optional else ''}"
+                + ("" if doc is None else f" {doc}")
+            ),
+            f"NestedField(name={repr(name_obj)}, "
+            f"field_type={repr(field_type)}, "
+            f"is_optional={is_optional}"
+            f"{doc_string})",
+        )
+        object.__setattr__(self, "_is_optional", is_optional)
+        object.__setattr__(self, "_name", name_obj)
+        object.__setattr__(self, "_type", field_type)
+        object.__setattr__(self, "_doc", doc)
 
     @property
     def is_optional(self) -> bool:
@@ -357,19 +353,12 @@ NestedField(name=Name(name='optional_field', quote_style='', namespace=None), \
 field_type=IntegerType(), is_optional=True, doc='an optional field'))
     """
 
-    _instances: Dict[Tuple[NestedField, ...], "StructType"] = {}
-
-    def __new__(cls, *fields: NestedField):
-        cls._instances[fields] = cls._instances.get(fields) or object.__new__(cls)
-        return cls._instances[fields]
-
     def __init__(self, *fields: NestedField):
-        if not self._initialized:
-            super().__init__(
-                f"struct<{','.join(map(str, fields))}>",
-                f"StructType{repr(fields)}",
-            )
-            self._fields = fields
+        super().__init__(
+            f"struct<{','.join(map(str, fields))}>",
+            f"StructType{repr(fields)}",
+        )
+        object.__setattr__(self, "_fields", fields)
 
     @property
     def fields(self) -> Tuple[NestedField, ...]:
@@ -394,16 +383,6 @@ class ListType(ColumnType):
         ListType(element_type=StringType())
     """
 
-    _instances: Dict[Tuple[bool, int, ColumnType], "ListType"] = {}
-
-    def __new__(
-        cls,
-        element_type: ColumnType = None,
-    ):
-        key = (element_type,)
-        cls._instances[key] = cls._instances.get(key) or super().__new__(cls)  # type: ignore
-        return cls._instances[key]  # type: ignore
-
     def __reduce__(self):
         """
         Custom method for pickling.
@@ -415,16 +394,19 @@ class ListType(ColumnType):
         self,
         element_type: ColumnType,
     ):
-        if not self._initialized:
-            super().__init__(
-                f"array<{element_type}>",
-                f"ListType(element_type={repr(element_type)})",
-            )
-            self._element_field = NestedField(
+        super().__init__(
+            f"array<{element_type}>",
+            f"ListType(element_type={repr(element_type)})",
+        )
+        object.__setattr__(
+            self,
+            "_element_field",
+            NestedField(
                 name="col",  # type: ignore
                 field_type=element_type,
                 is_optional=False,  # type: ignore
-            )
+            ),
+        )
 
     @property
     def element(self) -> NestedField:
@@ -437,36 +419,32 @@ class ListType(ColumnType):
 class MapType(ColumnType):
     """A map type"""
 
-    _instances: Dict[Tuple[ColumnType, ColumnType], "MapType"] = {}
-
-    def __new__(
-        cls,
-        key_type: ColumnType,
-        value_type: ColumnType,
-    ):
-        impl_key = (key_type, value_type)
-        cls._instances[impl_key] = cls._instances.get(impl_key) or object.__new__(cls)
-        return cls._instances[impl_key]
-
     def __init__(
         self,
         key_type: ColumnType,
         value_type: ColumnType,
     ):
-        if not self._initialized:
-            super().__init__(
-                f"map<{key_type}, {value_type}>",
-            )
-            self._key_field = NestedField(
+        super().__init__(
+            f"map<{key_type}, {value_type}>",
+        )
+        object.__setattr__(
+            self,
+            "_key_field",
+            NestedField(
                 name="key",  # type: ignore
                 field_type=key_type,
                 is_optional=False,  # type: ignore
-            )
-            self._value_field = NestedField(
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_value_field",
+            NestedField(
                 name="value",  # type: ignore
                 field_type=value_type,
                 is_optional=False,  # type: ignore
-            )
+            ),
+        )
 
     @property
     def key(self) -> NestedField:
@@ -487,7 +465,7 @@ class MapType(ColumnType):
         Custom method for pickling.
         Returns a tuple of (callable, args) to recreate the object.
         """
-        return (self.__class__, (self._key_field, self._value_field))
+        return (self.__class__, (self._key_field._type, self._value_field._type))
 
 
 class BooleanType(PrimitiveType, Singleton):
@@ -759,33 +737,21 @@ class DayTimeIntervalType(IntervalTypeBase):
         True
     """
 
-    _instances: Dict[Tuple[str, str], "DayTimeIntervalType"] = {}
-
-    def __new__(
-        cls,
-        from_: DateTimeBase.Unit = DateTimeBase.Unit.day,
-        to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.second,
-    ):
-        key = (from_.upper(), to_.upper() if to_ else None)
-        cls._instances[key] = cls._instances.get(key) or object.__new__(cls)  # type: ignore
-        return cls._instances[key]  # type: ignore
-
     def __init__(
         self,
         from_: DateTimeBase.Unit = DateTimeBase.Unit.day,
         to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.second,
     ):
-        if not self._initialized:
-            from_ = from_.upper()  # type: ignore
-            to_ = to_.upper() if to_ else None  # type: ignore
-            to_str = f" TO {to_}" if to_ else ""
-            to_repr = f', to="{to_}"' if to_ else ""
-            super().__init__(
-                f"INTERVAL {from_}{to_str}",
-                f'DayTimeIntervalType(from="{from_}"{to_repr})',
-            )
-            self._from = from_
-            self._to = to_
+        from_ = from_.upper()  # type: ignore
+        to_ = to_.upper() if to_ else None  # type: ignore
+        to_str = f" TO {to_}" if to_ else ""
+        to_repr = f', to="{to_}"' if to_ else ""
+        super().__init__(
+            f"INTERVAL {from_}{to_str}",
+            f'DayTimeIntervalType(from="{from_}"{to_repr})',
+        )
+        object.__setattr__(self, "_from", from_)
+        object.__setattr__(self, "_to", to_)
 
     @property
     def from_(self) -> str:
@@ -806,33 +772,21 @@ class YearMonthIntervalType(IntervalTypeBase):
         True
     """
 
-    _instances: Dict[Tuple[str, str], "YearMonthIntervalType"] = {}
-
-    def __new__(
-        cls,
-        from_: DateTimeBase.Unit = DateTimeBase.Unit.year,
-        to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.month,
-    ):
-        key = (from_.upper(), to_.upper() if to_ else None)
-        cls._instances[key] = cls._instances.get(key) or object.__new__(cls)  # type: ignore
-        return cls._instances[key]  # type: ignore
-
     def __init__(
         self,
         from_: DateTimeBase.Unit = DateTimeBase.Unit.year,
         to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.month,
     ):
-        if not self._initialized:
-            from_ = from_.upper()  # type: ignore
-            to_ = to_.upper() if to_ else None  # type: ignore
-            to_str = f" TO {to_}" if to_ else ""
-            to_repr = f', to="{to_}"' if to_ else ""
-            super().__init__(
-                f"INTERVAL {from_}{to_str}",
-                f'YearMonthIntervalType(from="{from_}"{to_repr})',
-            )
-            self._from = from_
-            self._to = to_
+        from_ = from_.upper()  # type: ignore
+        to_ = to_.upper() if to_ else None  # type: ignore
+        to_str = f" TO {to_}" if to_ else ""
+        to_repr = f', to="{to_}"' if to_ else ""
+        super().__init__(
+            f"INTERVAL {from_}{to_str}",
+            f'YearMonthIntervalType(from="{from_}"{to_repr})',
+        )
+        object.__setattr__(self, "_from", from_)
+        object.__setattr__(self, "_to", to_)
 
     @property
     def from_(self) -> str:
@@ -876,7 +830,7 @@ class VarcharType(StringBase):
 
     def __init__(self, length: Optional[int] = None):
         super().__init__("varchar", "VarcharType()")
-        self._length = length
+        object.__setattr__(self, "_length", length)
 
     def __str__(self):
         return (

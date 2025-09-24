@@ -86,7 +86,7 @@ dependencies = [
     # Data validation
     "pydantic<2.11,>=2.0",
     "pydantic-settings>=2.10.1",
-    
+
     # MCP (Model Context Protocol) server
     "mcp>=1.12.4",
 ]

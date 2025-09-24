@@ -31,6 +31,7 @@ from starlette.requests import Request
 from yarl import URL
 
 from datajunction_server.config import DatabaseConfig, Settings
+
 # Lazy import to avoid circular dependency with database modules
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import (
@@ -296,6 +297,7 @@ def get_query_service_client(
     Return query service client
     """
     from datajunction_server.service_clients import QueryServiceClient
+
     settings = get_settings()
     if not settings.query_service:  # pragma: no cover
         return None
@@ -396,13 +398,13 @@ async def get_current_user(request: Request):
 
 async def get_and_update_current_user(
     session: AsyncSession = Depends(get_session),
-    current_user = Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     """
     Wrapper for the get_current_user dependency that creates a DJ user object if required
     """
     from datajunction_server.database.user import User
-    
+
     statement = insert(User).values(
         username=current_user.username,
         email=current_user.email,

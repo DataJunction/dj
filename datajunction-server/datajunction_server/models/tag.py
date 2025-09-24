@@ -4,7 +4,7 @@ Models for tags.
 
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from pydantic import Extra
+from pydantic import ConfigDict
 from pydantic.main import BaseModel
 
 if TYPE_CHECKING:
@@ -20,12 +20,7 @@ class MutableTagFields(BaseModel):
     display_name: Optional[str]
     tag_metadata: Optional[Dict[str, Any]] = {}
 
-    class Config:
-        """
-        Allow types for tag metadata.
-        """
-
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class ImmutableTagFields(BaseModel):
@@ -49,9 +44,7 @@ class TagMinimum(BaseModel):
     """
 
     name: str
-
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TagOutput(ImmutableTagFields, MutableTagFields):
@@ -59,8 +52,7 @@ class TagOutput(ImmutableTagFields, MutableTagFields):
     Output tag model.
     """
 
-    class Config:
-        model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UpdateTag(MutableTagFields):
@@ -75,9 +67,5 @@ class UpdateTag(MutableTagFields):
         }.items()
     }
 
-    class Config:
-        """
-        Do not allow fields other than the ones defined here.
-        """
-
-        extra = Extra.forbid
+    # Do not allow fields other than the ones defined here.
+    model_config = ConfigDict(extra="forbid")

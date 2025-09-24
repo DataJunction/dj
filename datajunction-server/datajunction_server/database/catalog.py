@@ -86,6 +86,7 @@ class Catalog(Base):
         Get the virtual catalog
         """
         from datajunction_server.utils import get_settings
+
         settings = get_settings()
         catalog = await Catalog.get_by_name(
             session,
