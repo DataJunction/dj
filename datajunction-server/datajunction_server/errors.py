@@ -247,6 +247,12 @@ class DJInvalidMetricQueryException(DJInvalidInputException):
     http_status_code: int = HTTPStatus.BAD_REQUEST
 
 
+class DJInvalidDeploymentConfig(DJInvalidInputException):
+    """
+    Exception raised when the deployment configuration is incorrect.
+    """
+
+
 class DJNotImplementedException(DJException):
     """
     Exception raised when some functionality hasn't been implemented in DJ yet.

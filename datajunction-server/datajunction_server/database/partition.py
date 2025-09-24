@@ -1,7 +1,7 @@
 """Partition database schema."""
 
 import re
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import BigInteger, Enum, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -12,6 +12,9 @@ from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.naming import amenable_name
 from datajunction_server.sql.functions import Function, function_registry
 from datajunction_server.sql.parsing.types import TimestampType
+
+if TYPE_CHECKING:
+    from datajunction_server.models.deployment import PartitionSpec
 
 
 class Partition(Base):  # type: ignore
@@ -57,6 +60,15 @@ class Partition(Base):  # type: ignore
         back_populates="partition",
         primaryjoin="Column.id==Partition.column_id",
     )
+
+    def to_spec(self) -> "PartitionSpec":
+        from datajunction_server.models.deployment import PartitionSpec
+
+        return PartitionSpec(
+            type=self.type_,
+            granularity=self.granularity,
+            format=self.format,
+        )
 
     def temporal_expression(self, interval: Optional[str] = None):
         """
