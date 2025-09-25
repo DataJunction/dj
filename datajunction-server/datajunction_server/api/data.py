@@ -145,7 +145,7 @@ async def add_availability_state(
         max_temporal_partition=data.max_temporal_partition,
         partitions=[
             partition.dict() if not isinstance(partition, Dict) else partition
-            for partition in data.partitions  # type: ignore
+            for partition in (data.partitions or [])
         ],
         categorical_partitions=data.categorical_partitions,
         temporal_partitions=data.temporal_partitions,
@@ -161,13 +161,11 @@ async def add_availability_state(
             activity_type=ActivityType.CREATE,
             pre=AvailabilityStateBase.model_validate(
                 old_availability,
-                from_attributes=True,
             ).model_dump()
             if old_availability
             else {},
             post=AvailabilityStateBase.model_validate(
                 node_revision.availability,
-                from_attributes=True,
             ).model_dump(),
             user=current_user.username,
         ),

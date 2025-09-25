@@ -881,7 +881,6 @@ def get_node_revision_materialization(
                 info.urls = [info.urls[0]]
             materialization_config_output = MaterializationConfigOutput.model_validate(
                 materialization,
-                from_attributes=True,
             )
             materializations.append(
                 MaterializationConfigInfoUnified(

@@ -3,7 +3,7 @@
 import hashlib
 from typing import Any, Dict, List, Optional, Union, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, computed_field
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
@@ -147,6 +147,7 @@ class MeasuresMaterialization(BaseModel):
 
         return ast.Table(name=ast.Name(self.output_table_name))
 
+    @computed_field  # type: ignore[misc]
     @property
     def output_table_name(self) -> str:
         """
@@ -165,8 +166,9 @@ class MeasuresMaterialization(BaseModel):
         unique_hash = hashlib.sha256(unique_string.encode()).hexdigest()[:16]
         return f"{self.node.name}_{self.node.version}_{unique_hash}".replace(".", "_")
 
-    def dict(self, **kwargs):
-        base = super().dict(**kwargs)
+    def model_dump(self, **kwargs):
+        """Pydantic v2 serialization method"""
+        base = super().model_dump(**kwargs)
         base["output_table_name"] = self.output_table_name
         # base["druid_spec"] = self.build_druid_spec()
         return base
@@ -294,7 +296,7 @@ class CombineMaterialization(BaseModel):
     """
 
     node: NodeNameVersion
-    query: str | None
+    query: str | None = None
     columns: List[ColumnMetadata]
     grain: list[str] = Field(
         description="The grain at which the node is being materialized.",
@@ -306,16 +308,22 @@ class CombineMaterialization(BaseModel):
         description="List of measures included in this materialization.",
     )
 
-    timestamp_column: str | None = Field(description="Timestamp column name")
+    timestamp_column: str | None = Field(
+        description="Timestamp column name",
+        default=None,
+    )
     timestamp_format: str | None = Field(
         description="Timestamp format. Example: `yyyyMMdd`",
+        default=None,
     )
 
     granularity: Granularity | None = Field(
         description="The time granularity for each materialization run. Examples: DAY, HOUR",
+        default=None,
     )
-    upstream_tables: list[str] = []
+    upstream_tables: list[str] = Field(default_factory=list)
 
+    @computed_field  # type: ignore[misc]
     @property
     def output_table_name(self) -> str:
         """
@@ -355,6 +363,14 @@ class CombineMaterialization(BaseModel):
             )
             in DRUID_AGG_MAPPING
         ]
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def druid_spec(self) -> str:
+        """
+        Builds the Druid ingestion spec based on the materialization config.
+        """
+        return self.build_druid_spec()
 
     def build_druid_spec(self):
         """
@@ -406,8 +422,9 @@ class CombineMaterialization(BaseModel):
         }
         return druid_spec
 
-    def dict(self, **kwargs):
-        base = super().dict(**kwargs)
+    def model_dump(self, **kwargs):
+        """Pydantic v2 serialization method"""
+        base = super().model_dump(**kwargs)
         base["druid_spec"] = self.build_druid_spec()
         base["output_table_name"] = self.output_table_name
         return base

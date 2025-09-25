@@ -40,23 +40,28 @@ class CubeElementMetadata(BaseModel):
     display_name: str
     node_name: str
     type: str
-    partition: Optional[PartitionOutput]
+    partition: Optional[PartitionOutput] = None
 
     @model_validator(mode="before")
     def type_string(cls, values):
         """
         Extracts the type as a string
         """
-        print("values.__dict__", values.__dict__)
-        values = values.__dict__
-        if "node_revisions" in values:
-            values["node_name"] = values["node_revisions"][0].name
-            values["type"] = (
-                values["node_revisions"][0].type
-                if values["node_revisions"][0].type == NodeType.METRIC
+        # In Pydantic v2, values is already a dict when mode="before"
+        if isinstance(values, dict):
+            data = values
+        else:
+            # Handle case where values might be an object (backwards compatibility)
+            data = values.__dict__ if hasattr(values, "__dict__") else values
+
+        if "node_revisions" in data:
+            data["node_name"] = data["node_revisions"][0].name
+            data["type"] = (
+                data["node_revisions"][0].type
+                if data["node_revisions"][0].type == NodeType.METRIC
                 else NodeType.DIMENSION
             )
-        return values
+        return data
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -122,7 +127,7 @@ class CubeRevisionMetadata(BaseModel):
         )
 
         # Parse the database object into a pydantic object
-        cube_metadata = cls.model_validate(cube, from_attributes=True)
+        cube_metadata = cls.model_validate(cube)
 
         # Populate metric measures
         cube_metadata.measures = []

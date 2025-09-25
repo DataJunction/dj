@@ -43,7 +43,7 @@ async def list_engines(
     List all available engines
     """
     return [
-        EngineInfo.model_validate(engine, from_attributes=True)
+        EngineInfo.model_validate(engine)
         for engine in (await session.execute(select(Engine))).scalars()
     ]
 
@@ -60,7 +60,6 @@ async def get_an_engine(
     """
     return EngineInfo.model_validate(
         await get_engine(session, name, version),
-        from_attributes=True,
     )
 
 
@@ -98,4 +97,4 @@ async def add_engine(
     await session.commit()
     await session.refresh(engine)
 
-    return EngineInfo.model_validate(engine, from_attributes=True)
+    return EngineInfo.model_validate(engine)

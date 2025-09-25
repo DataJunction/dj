@@ -338,7 +338,7 @@ async def get_node(
         options=NodeOutput.load_options(),
         raise_if_not_exists=True,
     )
-    return NodeOutput.model_validate(node, from_attributes=True)
+    return NodeOutput.model_validate(node)
 
 
 @router.delete("/nodes/{name}/")
@@ -702,10 +702,7 @@ async def register_view(
             table=view,
             name=node_name,
             display_name=node_name,
-            columns=[
-                ColumnOutput.model_validate(col, from_attributes=True)
-                for col in columns
-            ],
+            columns=[ColumnOutput.model_validate(col) for col in columns],
             description="This source node was automatically created as a registered view.",
             mode=NodeMode.PUBLISHED,
             query=query,

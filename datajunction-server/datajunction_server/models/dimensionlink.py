@@ -46,7 +46,7 @@ class LinkDimensionIdentifier(BaseModel):
     """
 
     dimension_node: str
-    role: Optional[str]
+    role: Optional[str] = None
 
 
 class JoinLinkInput(BaseModel):
@@ -69,8 +69,8 @@ class LinkDimensionOutput(BaseModel):
     dimension: NodeNameOutput
     join_type: JoinType
     join_sql: str
-    join_cardinality: Optional[JoinCardinality]
-    role: Optional[str]
+    join_cardinality: Optional[JoinCardinality] = None
+    role: Optional[str] = None
     foreign_keys: Dict[str, str | None]
 
     model_config = ConfigDict(from_attributes=True)

@@ -1275,7 +1275,6 @@ async def update_cube_node(
                     materialization_upsert_class(
                         **MaterializationConfigOutput.model_validate(
                             old,
-                            from_attributes=True,
                         ).model_dump(
                             exclude={"job", "node_revision_id", "deactivated_at"},
                         ),
@@ -2860,11 +2859,9 @@ async def refresh_source(
             name=current_revision.catalog.name,
         )
         query_create = QueryCreate(
-            engine_name=catalog.engines[0].name if catalog and catalog.engines else "",
-            catalog_name=catalog.name if catalog else "",
-            engine_version=catalog.engines[0].version
-            if catalog and catalog.engines
-            else "",
+            engine_name=catalog.engines[0].name,
+            catalog_name=catalog.name,
+            engine_version=catalog.engines[0].version,
             submitted_query=current_revision.query,
             async_=False,
         )

@@ -275,17 +275,17 @@ class AvailabilityStateBase(TemporalPartitionRange):
 
     # An ordered list of categorical partitions like ["country", "group_id"]
     # or ["region_id", "age_group"]
-    categorical_partitions: list[str] | None = Field(default=list)
+    categorical_partitions: list[str] | None = Field(default_factory=list)
 
     # An ordered list of temporal partitions like ["date", "hour"] or ["date"]
-    temporal_partitions: list[str] | None = Field(default=list)
+    temporal_partitions: list[str] | None = Field(default_factory=list)
 
     # Node-level temporal ranges
-    min_temporal_partition: list[str] | None = Field(default=list)
-    max_temporal_partition: list[str] | None = Field(default=list)
+    min_temporal_partition: list[str] | None = Field(default_factory=list)
+    max_temporal_partition: list[str] | None = Field(default_factory=list)
 
     # Partition-level availabilities
-    partitions: list[PartitionAvailability] | None = Field(default=list)
+    partitions: list[PartitionAvailability] | None = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

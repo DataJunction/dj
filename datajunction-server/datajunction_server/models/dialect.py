@@ -2,6 +2,7 @@ import logging
 
 from pydantic import BaseModel
 from datajunction_server.enum import StrEnum
+from datajunction_server.utils import get_settings
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -9,6 +10,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 class Dialect(StrEnum):
@@ -96,10 +98,6 @@ def register_dialect_plugin(name: str, plugin_cls: type["SQLTranspilationPlugin"
     Registers a plugin for the given dialect. Skips registration if the plugin is not
     configured in the settings.
     """
-    from datajunction_server.utils import get_settings
-
-    settings = get_settings()
-
     if plugin_cls.package_name not in settings.transpilation_plugins:
         logger.warning(
             "Skipping plugin registration for '%s' (%s) (not in configured transpilation plugins: %s)",

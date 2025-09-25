@@ -57,7 +57,9 @@ router = SecureAPIRouter(tags=["materializations"])
 
 
 def discriminate_materialization(data):
-    """Discriminate between UpsertMaterialization and UpsertCubeMaterialization based on job type"""
+    """
+    Discriminate between UpsertMaterialization and UpsertCubeMaterialization based on job type
+    """
     if isinstance(data, dict) and "job" in data:
         job_str = data["job"]
         if job_str == "druid_cube":

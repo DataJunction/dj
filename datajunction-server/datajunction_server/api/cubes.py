@@ -279,11 +279,9 @@ async def get_cube_dimension_values(
     else:
         catalog = cube.catalog
     query_create = QueryCreate(
-        engine_name=catalog.engines[0].name if catalog and catalog.engines else "",
+        engine_name=catalog.engines[0].name,
         catalog_name=catalog.name,
-        engine_version=catalog.engines[0].version
-        if catalog and catalog.engines
-        else "",
+        engine_version=catalog.engines[0].version,
         submitted_query=translated_sql.sql,
         async_=async_,
     )

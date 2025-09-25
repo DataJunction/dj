@@ -174,7 +174,7 @@ async def build_cube_materialization_config(
                     if col.semantic_type == SemanticType.DIMENSION
                 ],
                 measures=metrics_expressions,
-                spark=upsert_input.config.spark.__root__
+                spark=upsert_input.config.spark.root
                 if hasattr(upsert_input, "config") and upsert_input.config.spark
                 else {},
                 upstream_tables=measures_query.upstream_tables,

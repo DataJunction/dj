@@ -390,10 +390,10 @@ class MetricSpec(NodeSpec):
             return None
         return self.unit_enum.value.name.lower()
 
-    def dict(self, *args, **kwargs):
-        d = super().dict(*args, **kwargs)
-        d["unit"] = self.unit
-        return d
+    def model_dump(self, **kwargs):
+        base = super().model_dump(**kwargs)
+        base["unit"] = self.unit
+        return base
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, MetricSpec):
