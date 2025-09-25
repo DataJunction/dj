@@ -5,7 +5,7 @@ Models for columns.
 from typing import TYPE_CHECKING, List, Optional
 
 from pydantic.main import BaseModel
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 
 from datajunction_server.models.engine import EngineInfo
 
@@ -19,6 +19,6 @@ class CatalogInfo(BaseModel):
     """
 
     name: str
-    engines: Optional[List[EngineInfo]] = []
+    engines: Optional[List[EngineInfo]] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)

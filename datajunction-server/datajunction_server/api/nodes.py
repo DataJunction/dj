@@ -607,7 +607,6 @@ async def register_table(
         request_headers,
         _catalog.engines[0] if len(_catalog.engines) >= 1 else None,
     )
-    print("COLUMNS!!!", columns)
     return await create_source(
         data=CreateSourceNode(
             catalog=catalog,

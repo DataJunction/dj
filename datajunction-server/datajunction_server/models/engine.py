@@ -16,8 +16,8 @@ class EngineInfo(BaseModel):
 
     name: str
     version: str
-    uri: Optional[str]
-    dialect: Optional[Dialect]
+    uri: Optional[str] = None
+    dialect: Optional[Dialect] = None
 
     model_config = ConfigDict(from_attributes=True)
 
