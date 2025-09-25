@@ -141,11 +141,15 @@ async def add_availability_state(
         table=data.table,
         valid_through_ts=data.valid_through_ts,
         url=data.url,
-        min_temporal_partition=data.min_temporal_partition,
-        max_temporal_partition=data.max_temporal_partition,
+        min_temporal_partition=[
+            str(part) for part in data.min_temporal_partition or []
+        ],
+        max_temporal_partition=[
+            str(part) for part in data.max_temporal_partition or []
+        ],
         partitions=[
             partition.dict() if not isinstance(partition, Dict) else partition
-            for partition in data.partitions  # type: ignore
+            for partition in (data.partitions or [])
         ],
         categorical_partitions=data.categorical_partitions,
         temporal_partitions=data.temporal_partitions,
@@ -159,10 +163,14 @@ async def add_availability_state(
             entity_type=EntityType.AVAILABILITY,
             node=node.name,  # type: ignore
             activity_type=ActivityType.CREATE,
-            pre=AvailabilityStateBase.from_orm(old_availability).dict()
+            pre=AvailabilityStateBase.model_validate(
+                old_availability,
+            ).model_dump()
             if old_availability
             else {},
-            post=AvailabilityStateBase.from_orm(node_revision.availability).dict(),
+            post=AvailabilityStateBase.model_validate(
+                node_revision.availability,
+            ).model_dump(),
             user=current_user.username,
         ),
         session=session,
@@ -262,8 +270,8 @@ async def get_data(
     )
 
     # Inject column info if there are results
-    if result.results.__root__:  # pragma: no cover
-        result.results.__root__[0].columns = generated_sql.columns  # type: ignore
+    if result.results.root:  # pragma: no cover
+        result.results.root[0].columns = generated_sql.columns  # type: ignore
     return result
 
 
@@ -447,8 +455,8 @@ async def get_data_for_metrics(
     )
 
     # Inject column info if there are results
-    if result.results.__root__:  # pragma: no cover
-        result.results.__root__[0].columns = translated_sql.columns or []
+    if result.results.root:  # pragma: no cover
+        result.results.root[0].columns = translated_sql.columns or []
     return result
 
 

@@ -4,10 +4,15 @@ Models for measures.
 
 from typing import TYPE_CHECKING, List, Optional
 
-from pydantic.class_validators import root_validator
+from pydantic import model_validator
 from pydantic.main import BaseModel
+from pydantic import ConfigDict
 
 from datajunction_server.enum import StrEnum
+from datajunction_server.models.cube_materialization import (
+    AggregationRule as MeasureAggregationRule,
+)
+
 
 if TYPE_CHECKING:
     pass
@@ -64,7 +69,7 @@ class ColumnOutput(BaseModel):
     type: str
     node: str
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def transform(cls, values):
         """
         Transforms the values for output
@@ -75,8 +80,7 @@ class ColumnOutput(BaseModel):
             "node": values.get("node_revisions")[0].name,
         }
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MeasureOutput(BaseModel):
@@ -90,8 +94,7 @@ class MeasureOutput(BaseModel):
     columns: List[ColumnOutput]
     additive: AggregationRule
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NodeRevisionNameVersion(BaseModel):
@@ -102,8 +105,7 @@ class NodeRevisionNameVersion(BaseModel):
     name: str
     version: str
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FrozenMeasureOutput(BaseModel):
@@ -114,12 +116,11 @@ class FrozenMeasureOutput(BaseModel):
     name: str
     expression: str
     aggregation: str
-    rule: dict[str, str | None]
+    rule: MeasureAggregationRule
     upstream_revision: NodeRevisionNameVersion
     used_by_node_revisions: list[NodeRevisionNameVersion]
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FrozenMeasureKey(BaseModel):
@@ -130,8 +131,7 @@ class FrozenMeasureKey(BaseModel):
     name: str
     expression: str
     aggregation: str
-    rule: dict[str, str | None]
+    rule: MeasureAggregationRule
     upstream_revision: NodeRevisionNameVersion
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

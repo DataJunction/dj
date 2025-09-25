@@ -91,7 +91,7 @@ class DruidMaterializationJob(MaterializationJob):
                 node_type=materialization.node_revision.type,
                 schedule=materialization.schedule,
                 query=str(final_query),
-                spark_conf=cube_config.spark.__root__ if cube_config.spark else {},
+                spark_conf=cube_config.spark.root if cube_config.spark else {},
                 druid_spec=druid_spec,
                 upstream_tables=cube_config.upstream_tables or [],
                 columns=cube_config.columns,

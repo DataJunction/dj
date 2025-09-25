@@ -34,7 +34,7 @@ async def make_a_test_cube(
         "default.total_repair_cost",
         "default.total_repair_order_discounts",
     ]
-    await client.post(
+    response = await client.post(
         "/nodes/cube/",
         json={
             "metrics": metrics_list + ["default.double_total_repair_cost"],
@@ -53,9 +53,10 @@ async def make_a_test_cube(
             "name": f"{cube_name}",
         },
     )
+    assert response.status_code < 400, response.json()
     if with_materialization:
         # add materialization to the cube
-        await client.post(
+        response = await client.post(
             f"/nodes/{cube_name}/columns/default.hard_hat.hire_date/partition",
             json={
                 "type_": "temporal",
@@ -63,7 +64,8 @@ async def make_a_test_cube(
                 "format": "yyyyMMdd",
             },
         )
-        await client.post(
+        assert response.status_code < 400, response.json()
+        response = await client.post(
             f"/nodes/{cube_name}/materialization/",
             json={
                 "job": "druid_metrics_cube"
@@ -76,6 +78,7 @@ async def make_a_test_cube(
                 "schedule": "",
             },
         )
+        assert response.status_code < 400, response.json()
 
 
 @pytest.mark.asyncio
@@ -122,6 +125,7 @@ async def test_create_invalid_cube(module__client_with_account_revenue: AsyncCli
     """
     Check that creating a cube with a query fails appropriately
     """
+    # Check that creating a cube with no metrics fails appropriately
     response = await module__client_with_account_revenue.post(
         "/nodes/cube/",
         json={
@@ -137,20 +141,10 @@ async def test_create_invalid_cube(module__client_with_account_revenue: AsyncCli
     )
     assert response.status_code == 422
     data = response.json()
-    assert data["detail"] == [
-        {
-            "loc": ["body", "metrics"],
-            "msg": "field required",
-            "type": "value_error.missing",
-        },
-        {
-            "loc": ["body", "dimensions"],
-            "msg": "field required",
-            "type": "value_error.missing",
-        },
-    ]
+    assert "message" in data
+    assert data["message"] == "At least one metric is required"
 
-    # Check that creating a cube with no cube elements fails appropriately
+    # Check that creating a cube with no dimension attributes fails appropriately
     response = await module__client_with_account_revenue.post(
         "/nodes/cube/",
         json={

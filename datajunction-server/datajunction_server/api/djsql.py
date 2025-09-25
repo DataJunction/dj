@@ -72,8 +72,8 @@ async def get_data_for_djsql(
     )
 
     # Inject column info if there are results
-    if result.results.__root__:  # pragma: no cover
-        result.results.__root__[0].columns = translated_sql.columns or []
+    if result.results.root:  # pragma: no cover
+        result.results.root[0].columns = translated_sql.columns or []
     return result
 
 
