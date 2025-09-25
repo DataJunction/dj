@@ -1571,8 +1571,7 @@ class TestNodeCRUD:
         """
         Registering a view with a query service set up should succeed.
         """
-        res = await module__client_with_basic.get("/catalogs")
-        print("catalogs!", res.json())
+        await module__client_with_basic.get("/catalogs")
         response = await module__client_with_basic.post(
             "/register/view/public/main/view_foo?query=SELECT+1+AS+one+,+'two'+AS+two",
         )
@@ -2072,7 +2071,6 @@ class TestNodeCRUD:
             },
         )
         data = response.json()
-        print("data!!", data)
 
         assert data["name"] == "basic.source.comments"
         assert data["display_name"] == "Comments facts"

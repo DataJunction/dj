@@ -164,7 +164,6 @@ class Column(Base):  # type: ignore
         """
         Returns a full copy of the column
         """
-        print("self.type", self.name, self.type)
         return Column(
             order=self.order,
             name=self.name,
