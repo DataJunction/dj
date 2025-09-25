@@ -141,8 +141,8 @@ class TemporalPartitionRange(BaseModel):
     Any temporal partition range with a min and max partition.
     """
 
-    min_temporal_partition: list[str] | None = None
-    max_temporal_partition: list[str] | None = None
+    min_temporal_partition: list[str | int] | None = None
+    max_temporal_partition: list[str | int] | None = None
 
     def is_outside(self, other) -> bool:
         """
@@ -271,7 +271,7 @@ class AvailabilityStateBase(TemporalPartitionRange):
     table: str
     valid_through_ts: int
     url: str | None = Field(default=None)
-    links: Dict[str, Any] | None = Field(default={})
+    links: Dict[str, Any] | None = Field(default_factory=dict)
 
     # An ordered list of categorical partitions like ["country", "group_id"]
     # or ["region_id", "age_group"]
@@ -281,8 +281,8 @@ class AvailabilityStateBase(TemporalPartitionRange):
     temporal_partitions: list[str] | None = Field(default_factory=list)
 
     # Node-level temporal ranges
-    min_temporal_partition: list[str] | None = Field(default_factory=list)
-    max_temporal_partition: list[str] | None = Field(default_factory=list)
+    min_temporal_partition: list[str | int] | None = Field(default_factory=list)
+    max_temporal_partition: list[str | int] | None = Field(default_factory=list)
 
     # Partition-level availabilities
     partitions: list[PartitionAvailability] | None = Field(default_factory=list)
@@ -295,6 +295,28 @@ class AvailabilityStateBase(TemporalPartitionRange):
         Validator for partitions
         """
         return [partition.dict() for partition in partitions] if partitions else []
+
+    @field_validator("min_temporal_partition", mode="before")
+    def convert_min_temporal_partition(cls, min_temporal_partition):
+        """
+        Validator for min_temporal_partition
+        """
+        return (
+            [str(part) for part in min_temporal_partition]
+            if min_temporal_partition
+            else []
+        )
+
+    @field_validator("max_temporal_partition", mode="before")
+    def convert_max_temporal_partition(cls, max_temporal_partition):
+        """
+        Validator for max_temporal_partition
+        """
+        return (
+            [str(part) for part in max_temporal_partition]
+            if max_temporal_partition
+            else []
+        )
 
     def merge(self, other: "AvailabilityStateBase"):
         """

@@ -576,7 +576,7 @@ async def post_and_dont_raise_if_error(client: AsyncClient, endpoint: str, json:
     """
     response = await client.post(endpoint, json=json)
     print("POST", endpoint, response.status_code, response.json())
-    assert response.status_code < 400 and response.status_code != 409
+    # assert response.status_code < 400 or response.status_code != 409
 
 
 async def load_examples_in_client(

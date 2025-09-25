@@ -141,8 +141,12 @@ async def add_availability_state(
         table=data.table,
         valid_through_ts=data.valid_through_ts,
         url=data.url,
-        min_temporal_partition=data.min_temporal_partition,
-        max_temporal_partition=data.max_temporal_partition,
+        min_temporal_partition=[
+            str(part) for part in data.min_temporal_partition or []
+        ],
+        max_temporal_partition=[
+            str(part) for part in data.max_temporal_partition or []
+        ],
         partitions=[
             partition.dict() if not isinstance(partition, Dict) else partition
             for partition in (data.partitions or [])

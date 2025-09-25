@@ -995,6 +995,7 @@ class TestAvailabilityState:
             },
         )
         data = response.json()
+        print("response!!", data)
 
         assert response.status_code == 404
         assert data == {

@@ -19,7 +19,7 @@ class AttributeTypeIdentifier(BaseModel):
     Fields that can be used to identify an attribute type.
     """
 
-    namespace: str = "system"
+    namespace: str = RESERVED_ATTRIBUTE_NAMESPACE
     name: str
 
 
@@ -39,7 +39,7 @@ class MutableAttributeTypeFields(AttributeTypeIdentifier):
 
     description: str
     allowed_node_types: List[NodeType]
-    uniqueness_scope: Optional[List[UniquenessScope]]
+    uniqueness_scope: Optional[List[UniquenessScope]] = None
 
 
 class AttributeTypeBase(MutableAttributeTypeFields):

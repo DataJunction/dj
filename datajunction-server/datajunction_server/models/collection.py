@@ -15,7 +15,7 @@ class CollectionInfo(BaseModel):
     Class for a collection information
     """
 
-    id: Optional[int]
+    id: Optional[int] = None
     name: str
     description: str
 
@@ -27,7 +27,7 @@ class CollectionDetails(CollectionInfo):
     Collection information with details
     """
 
-    id: Optional[int]
+    id: Optional[int] = None
     name: str
     description: str
     nodes: list[NodeNameOutput]
