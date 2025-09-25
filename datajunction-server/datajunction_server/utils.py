@@ -31,8 +31,7 @@ from starlette.requests import Request
 from yarl import URL
 
 from datajunction_server.config import DatabaseConfig, Settings
-
-# Lazy import to avoid circular dependency with database modules
+from datajunction_server.database.user import User
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import (
     DJAuthenticationException,
@@ -41,7 +40,7 @@ from datajunction_server.errors import (
     DJInvalidInputException,
     DJUninitializedResourceException,
 )
-# Lazy import service_clients to avoid circular dependency
+from datajunction_server.service_clients import QueryServiceClient
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +291,7 @@ async def execute_with_retry(
 
 def get_query_service_client(
     request: Request = None,
-):
+) -> Optional[QueryServiceClient]:
     """
     Return query service client
     """
@@ -383,7 +382,7 @@ def get_namespace_from_name(name: str) -> str:
     return node_namespace
 
 
-async def get_current_user(request: Request):
+async def get_current_user(request: Request) -> User:
     """
     Returns the current authenticated user
     """
@@ -398,13 +397,11 @@ async def get_current_user(request: Request):
 
 async def get_and_update_current_user(
     session: AsyncSession = Depends(get_session),
-    current_user=Depends(get_current_user),
-):
+    current_user: User = Depends(get_current_user),
+) -> User:
     """
     Wrapper for the get_current_user dependency that creates a DJ user object if required
     """
-    from datajunction_server.database.user import User
-
     statement = insert(User).values(
         username=current_user.username,
         email=current_user.email,

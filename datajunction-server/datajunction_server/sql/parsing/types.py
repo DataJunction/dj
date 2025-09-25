@@ -44,13 +44,12 @@ VARCHAR_PARSER = re.compile(r"(?i)varchar(\((?P<length>\d+)\))?")
 
 class Singleton:
     """
-    Singleton for types
+    Singleton for types - each subclass gets its own singleton instance
     """
 
-    _instance = None
-
     def __new__(cls, *args, **kwargs):
-        if not isinstance(cls._instance, cls):
+        # Each subclass gets its own _instance attribute
+        if not hasattr(cls, "_instance") or not isinstance(cls._instance, cls):
             cls._instance = super(Singleton, cls).__new__(cls)
         return cls._instance
 
@@ -257,24 +256,11 @@ class NestedField(ColumnType):
         is_optional: bool = True,
         doc: Optional[str] = None,
     ):
-        # Handle both string names and ast.Name objects
         if isinstance(name, str):  # pragma: no cover
+            from datajunction_server.sql.parsing.ast import Name
+
             name_str = name
-
-            # Create a simple mock Name object to avoid circular import
-            class MockName:
-                def __init__(self, name_str):
-                    self.name = name_str
-                    self.quote_style = ""
-                    self.namespace = None
-
-                def __str__(self):
-                    return self.name
-
-                def __repr__(self):
-                    return f"Name(name='{self.name}', quote_style='', namespace=None)"
-
-            name_obj = MockName(name_str)
+            name_obj = Name(name_str)
         else:
             name_str = name.name
             name_obj = name
