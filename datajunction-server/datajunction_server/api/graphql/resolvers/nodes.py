@@ -164,7 +164,7 @@ def load_node_revision_options(node_revision_fields):
     if "cube_elements" in node_revision_fields or is_cube_request:
         options.append(
             selectinload(DBNodeRevision.cube_elements)
-            .selectinload(Column.node_revisions)
+            .selectinload(Column.node_revision)
             .options(
                 selectinload(DBNodeRevision.node),
             ),

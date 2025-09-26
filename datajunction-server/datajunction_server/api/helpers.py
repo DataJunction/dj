@@ -376,7 +376,7 @@ async def validate_cube(
     # Verify that the provided metrics are metric nodes
     metrics: List[Column] = [metric.current.columns[0] for metric in metric_nodes]
     for metric in metrics:
-        await session.refresh(metric, ["node_revisions"])
+        await session.refresh(metric, ["node_revision"])
     if not metrics:
         raise DJInvalidInputException(
             message=("At least one metric is required"),
@@ -492,7 +492,7 @@ async def check_dimension_attributes_exist(
             options=[
                 joinedload(Node.current).options(
                     selectinload(NodeRevision.columns).options(
-                        selectinload(Column.node_revisions),
+                        selectinload(Column.node_revision),
                     ),
                     defer(NodeRevision.query_ast),
                 ),

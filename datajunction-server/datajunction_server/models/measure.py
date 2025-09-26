@@ -72,7 +72,7 @@ class ColumnOutput(BaseModel):
         return {
             "name": values.get("name"),
             "type": str(values.get("type")),
-            "node": values.get("node_revisions")[0].name,
+            "node": values.get("node_revision").name,
         }
 
     class Config:

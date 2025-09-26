@@ -48,11 +48,11 @@ class CubeElementMetadata(BaseModel):
         Extracts the type as a string
         """
         values = dict(values)
-        if "node_revisions" in values:
-            values["node_name"] = values["node_revisions"][0].name
+        if "node_revision" in values:
+            values["node_name"] = values["node_revision"].name
             values["type"] = (
-                values["node_revisions"][0].type
-                if values["node_revisions"][0].type == NodeType.METRIC
+                values["node_revision"].type
+                if values["node_revision"].type == NodeType.METRIC
                 else NodeType.DIMENSION
             )
         return values

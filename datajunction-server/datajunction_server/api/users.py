@@ -45,7 +45,7 @@ async def list_nodes_by_username(
         options=[
             joinedload(Node.current).options(
                 selectinload(NodeRevision.cube_elements)
-                .selectinload(Column.node_revisions)
+                .selectinload(Column.node_revision)
                 .options(
                     selectinload(NodeRevision.node),
                 ),
