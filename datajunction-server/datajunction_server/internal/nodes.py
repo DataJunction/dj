@@ -843,6 +843,7 @@ async def copy_to_new_node(
         ),
         session=session,
     )
+    await session.refresh(new_node, ["current"])  # type: ignore
 
     # If the new node makes any downstream nodes valid, propagate
     newly_valid_nodes = await resolve_downstream_references(
@@ -854,11 +855,11 @@ async def copy_to_new_node(
     await propagate_valid_status(
         session=session,
         valid_nodes=newly_valid_nodes,
-        catalog_id=node.current.catalog_id,  # type: ignore
+        catalog_id=new_node.current.catalog_id,  # type: ignore
         current_user=current_user,
         save_history=save_history,
     )
-    await session.refresh(node.current)  # type: ignore
+    await session.refresh(new_node, ["current"])  # type: ignore
     return node  # type: ignore
 
 

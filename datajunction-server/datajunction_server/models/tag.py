@@ -60,12 +60,4 @@ class UpdateTag(MutableTagFields):
     Update tag model. Only works on mutable fields.
     """
 
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        # Get all fields from MutableTagFields and make them optional with None defaults
-        for field_name, field_type in MutableTagFields.__annotations__.items():
-            cls.__annotations__[field_name] = Optional[field_type]
-            setattr(cls, field_name, None)
-
-    # Do not allow fields other than the ones defined here.
     model_config = ConfigDict(extra="forbid")

@@ -701,6 +701,7 @@ class ColumnOutput(BaseModel):
 
     @field_validator("type", mode="before")
     def extract_type(cls, raw):
+        print("ColumnOutput type raw:", raw)
         return str(raw)
 
 

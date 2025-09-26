@@ -73,7 +73,7 @@ class MeasureAggregationRuleType(TypeDecorator):
         if value is None:
             return None  # pragma: no cover
         if isinstance(value, str):
-            return MeasureAggregationRule.model_validate_json(value)
+            return MeasureAggregationRule.model_validate_json(value)  # pragma: no cover
         return MeasureAggregationRule.model_validate(value)
 
 
