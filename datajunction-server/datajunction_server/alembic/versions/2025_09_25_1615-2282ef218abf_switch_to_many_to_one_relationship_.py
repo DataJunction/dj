@@ -49,6 +49,11 @@ def upgrade():
         WHERE c.id = sub.column_id;
     """)
 
+    # Remove any orphaned columns that do not have a node_revision_id
+    op.execute("""
+        DELETE FROM "column" WHERE node_revision_id IS NULL;
+    """)
+
     # Make it non-nullable
     with op.batch_alter_table("column") as batch_op:
         batch_op.alter_column("node_revision_id", nullable=False)
