@@ -1315,29 +1315,3 @@ class NodeRevision(
         )
         result = await session.execute(statement)
         return result.unique().scalars().all()
-
-
-class NodeColumns(Base):
-    """
-    Join table for node columns.
-    """
-
-    __tablename__ = "nodecolumns"
-    __table_args__ = (Index("idx_nodecolumns_node_id", "node_id"),)
-
-    node_id: Mapped[int] = mapped_column(
-        ForeignKey(
-            "noderevision.id",
-            name="fk_nodecolumns_node_id_noderevision",
-            ondelete="CASCADE",
-        ),
-        primary_key=True,
-    )
-    column_id: Mapped[int] = mapped_column(
-        ForeignKey(
-            "column.id",
-            name="fk_nodecolumns_column_id_column",
-            ondelete="CASCADE",
-        ),
-        primary_key=True,
-    )
