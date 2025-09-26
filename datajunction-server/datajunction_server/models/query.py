@@ -6,8 +6,14 @@ from datetime import datetime
 from typing import Any, List, Optional
 
 import msgpack
-from pydantic import AnyHttpUrl, validator
-from pydantic.fields import Field
+from pydantic import (
+    AnyHttpUrl,
+    Field,
+    field_validator,
+    field_serializer,
+    RootModel,
+    ConfigDict,
+)
 from pydantic.main import BaseModel
 
 from datajunction_server.enum import IntEnum
@@ -23,8 +29,7 @@ class BaseQuery(BaseModel):
     engine_name: Optional[str] = None
     engine_version: Optional[str] = None
 
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class QueryCreate(BaseQuery):
@@ -46,10 +51,10 @@ class ColumnMetadata(BaseModel):
 
     name: str
     type: str
-    column: Optional[str]
-    node: Optional[str]
-    semantic_entity: Optional[str]
-    semantic_type: Optional[str]
+    column: Optional[str] = None
+    node: Optional[str] = None
+    semantic_entity: Optional[str] = None
+    semantic_type: Optional[str] = None
 
     def __hash__(self):
         return hash((self.name, self.type))  # pragma: no cover
@@ -70,12 +75,12 @@ class StatementResults(BaseModel):
     row_count: int = 0
 
 
-class QueryResults(BaseModel):
+class QueryResults(RootModel):
     """
     Results for a given query.
     """
 
-    __root__: List[StatementResults]
+    root: List[StatementResults]
 
 
 class TableRef(BaseModel):
@@ -106,28 +111,36 @@ class QueryWithResults(BaseModel):
     state: QueryState = QueryState.UNKNOWN
     progress: float = 0.0
 
-    output_table: Optional[TableRef]
+    output_table: Optional[TableRef] = None
     results: QueryResults
     next: Optional[AnyHttpUrl] = None
     previous: Optional[AnyHttpUrl] = None
-    errors: List[str]
+    errors: List[str] = []
     links: Optional[List[AnyHttpUrl]] = None
 
-    @validator("scheduled", pre=True)
+    @field_serializer("next", "previous")
+    def serialize_single_url(self, url: Optional[AnyHttpUrl]) -> Optional[str]:
+        return str(url) if url else None
+
+    @field_serializer("links")
+    def serialize_links(self, links: Optional[List[AnyHttpUrl]]) -> Optional[List[str]]:
+        return [str(url) for url in links] if links else None
+
+    @field_validator("scheduled", mode="before")
     def parse_scheduled_date_string(cls, value):
         """
         Convert string date values to datetime
         """
         return datetime.fromisoformat(value) if isinstance(value, str) else value
 
-    @validator("started", pre=True)
+    @field_validator("started", mode="before")
     def parse_started_date_string(cls, value):
         """
         Convert string date values to datetime
         """
         return datetime.fromisoformat(value) if isinstance(value, str) else value
 
-    @validator("finished", pre=True)
+    @field_validator("finished", mode="before")
     def parse_finisheddate_string(cls, value):
         """
         Convert string date values to datetime

@@ -8,6 +8,7 @@ from pydantic.main import BaseModel
 from sqlalchemy import TypeDecorator
 from sqlalchemy.types import Text
 
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.enum import StrEnum
 from datajunction_server.sql.parsing.types import ColumnType
 
@@ -38,7 +39,10 @@ class ColumnTypeDecorator(TypeDecorator):
 
         if not value:
             return value
-        return parse_rule(value, "dataType")
+        try:
+            return parse_rule(value, "dataType")
+        except DJParseException:
+            return value
 
 
 class ColumnAttributeInput(BaseModel):

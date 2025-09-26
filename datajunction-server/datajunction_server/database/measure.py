@@ -64,7 +64,7 @@ class MeasureAggregationRuleType(TypeDecorator):
         if value is None:
             return None  # pragma: no cover
         if isinstance(value, MeasureAggregationRule):
-            return value.json()
+            return value.model_dump()
         raise ValueError(  # pragma: no cover
             f"Expected AggregationRule, got {type(value)}",
         )
@@ -72,7 +72,9 @@ class MeasureAggregationRuleType(TypeDecorator):
     def process_result_value(self, value, dialect):
         if value is None:
             return None  # pragma: no cover
-        return MeasureAggregationRule.parse_raw(value)
+        if isinstance(value, str):
+            return MeasureAggregationRule.model_validate_json(value)  # pragma: no cover
+        return MeasureAggregationRule.model_validate(value)
 
 
 class FrozenMeasure(Base):

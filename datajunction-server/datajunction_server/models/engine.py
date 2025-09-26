@@ -5,6 +5,7 @@ Models for columns.
 from typing import Optional
 
 from pydantic.main import BaseModel
+from pydantic import ConfigDict
 from datajunction_server.models.dialect import Dialect
 
 
@@ -15,11 +16,10 @@ class EngineInfo(BaseModel):
 
     name: str
     version: str
-    uri: Optional[str]
-    dialect: Optional[Dialect]
+    uri: Optional[str] = None
+    dialect: Optional[Dialect] = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EngineRef(BaseModel):

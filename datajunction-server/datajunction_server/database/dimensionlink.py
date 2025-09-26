@@ -183,6 +183,7 @@ class DimensionLink(Base):
         """
         Returns a set of foreign key column names
         """
+
         return {
             fk.replace(f"{self.node_revision.name}{SEPARATOR}", "")
             for fk in self.foreign_keys.keys()

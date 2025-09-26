@@ -455,7 +455,7 @@ async def check_external_deps(
         if len(external_node_deps) != len(deps_not_in_deployment):
             missing_nodes = sorted(
                 set(deps_not_in_deployment)
-                - {node.name for node in external_node_deps},
+                - {node.rendered_name for node in external_node_deps},
             )
             raise DJInvalidDeploymentConfig(
                 message=(
@@ -697,7 +697,7 @@ async def deploy_column_properties(
 
                 # Set column partition
                 if desired_col.partition is None and col.partition:
-                    session.delete(col.partition)
+                    await session.delete(col.partition)
                     changed_columns.add(col.name)
                 elif col.partition is None and desired_col.partition:
                     partition = Partition(
@@ -744,7 +744,7 @@ async def deploy_column_properties(
                 col.display_name = labelize(col.name)
                 col.description = ""
                 if col.partition:
-                    session.delete(col.partition)
+                    await session.delete(col.partition)
                 col.attributes = [
                     attr
                     for attr in col.attributes

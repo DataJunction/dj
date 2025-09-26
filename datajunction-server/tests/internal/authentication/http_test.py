@@ -79,7 +79,7 @@ def test_dj_http_bearer_w_cookie(
     request.cookies.get.return_value = jwt_token
 
     asyncio.run(bearer(request, session))
-    assert UserOutput.from_orm(request.state.user).dict() == {
+    assert UserOutput.model_validate(request.state.user).model_dump() == {
         "id": 1,
         "username": "dj",
         "email": "dj@datajunction.io",
@@ -107,7 +107,7 @@ def test_dj_http_bearer_w_auth_headers(
     request.headers.get.return_value = f"Bearer {jwt_token}"
 
     asyncio.run(bearer(request, session))
-    assert UserOutput.from_orm(request.state.user).dict() == {
+    assert UserOutput.model_validate(request.state.user).model_dump() == {
         "id": 1,
         "username": "dj",
         "email": "dj@datajunction.io",
