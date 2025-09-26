@@ -188,8 +188,8 @@ async def test_topological_sort(session: AsyncSession) -> None:
     ordering = topological_sort([node_a, node_b, node_c, node_d, node_e])
     assert [node.name for node in ordering] == [
         node_a.name,
-        node_d.name,
         node_b.name,
+        node_d.name,
         node_c.name,
         node_e.name,
     ]
