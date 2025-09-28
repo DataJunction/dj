@@ -2,7 +2,7 @@
 Tests for the data API.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 from unittest import mock
 
 import pytest
@@ -1746,9 +1746,12 @@ class TestAvailabilityState:
         )
 
         # Verify availability exists
-        node = await Node.get_by_name(
-            module__session,
-            "default.large_revenue_payments_and_business_only",
+        node = cast(
+            Node,
+            await Node.get_by_name(
+                module__session,
+                "default.large_revenue_payments_and_business_only",
+            ),
         )
         assert node.current.availability is not None
 
@@ -1776,9 +1779,12 @@ class TestAvailabilityState:
         Test removing an availability state when no availability exists for a node
         """
         # Verify no availability exists to begin with
-        node = await Node.get_by_name(
-            module__session,
-            "default.large_revenue_payments_and_business_only_1",
+        node = cast(
+            Node,
+            await Node.get_by_name(
+                module__session,
+                "default.large_revenue_payments_and_business_only_1",
+            ),
         )
         assert node.current.availability is None
 
@@ -1854,14 +1860,17 @@ class TestAvailabilityState:
         availability_activities = [
             activity for activity in data if activity["entity_type"] == "availability"
         ]
-        
+
         # Should have CREATE and DELETE activities
         assert len(availability_activities) == 2
-        
+
         # Check CREATE activity
         create_activity = availability_activities[1]
         assert create_activity["activity_type"] == "create"
-        assert create_activity["node"] == "default.large_revenue_payments_and_business_only_1"
+        assert (
+            create_activity["node"]
+            == "default.large_revenue_payments_and_business_only_1"
+        )
         assert create_activity["entity_type"] == "availability"
         assert create_activity["pre"] == {}
         assert create_activity["post"] == {
@@ -1881,7 +1890,10 @@ class TestAvailabilityState:
         # Check DELETE activity
         delete_activity = availability_activities[0]
         assert delete_activity["activity_type"] == "delete"
-        assert delete_activity["node"] == "default.large_revenue_payments_and_business_only_1"
+        assert (
+            delete_activity["node"]
+            == "default.large_revenue_payments_and_business_only_1"
+        )
         assert delete_activity["entity_type"] == "availability"
         assert delete_activity["post"] == {}
         assert delete_activity["pre"] == {
