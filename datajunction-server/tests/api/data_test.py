@@ -9,7 +9,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.node import AvailabilityStateBase
@@ -1751,6 +1751,11 @@ class TestAvailabilityState:
             await Node.get_by_name(
                 module__session,
                 "default.large_revenue_payments_and_business_only",
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.availability),
+                    ),
+                ],
             ),
         )
         assert node.current.availability is not None
@@ -1764,9 +1769,19 @@ class TestAvailabilityState:
         assert response.status_code == 201
         assert data == {"message": "Availability state successfully removed"}
 
-        # Verify availability is now None
-        await module__session.refresh(node, ["current"])
-        await module__session.refresh(node.current, ["availability"])
+        # Verify availability is now None - re-fetch the node with availability loaded
+        node = cast(
+            Node,
+            await Node.get_by_name(
+                module__session,
+                "default.large_revenue_payments_and_business_only",
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.availability),
+                    ),
+                ],
+            ),
+        )
         assert node.current.availability is None
 
     @pytest.mark.asyncio
@@ -1784,6 +1799,11 @@ class TestAvailabilityState:
             await Node.get_by_name(
                 module__session,
                 "default.large_revenue_payments_and_business_only_1",
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.availability),
+                    ),
+                ],
             ),
         )
         assert node.current.availability is None
@@ -1797,9 +1817,19 @@ class TestAvailabilityState:
         assert response.status_code == 201
         assert data == {"message": "Availability state successfully removed"}
 
-        # Verify availability is still None
-        await module__session.refresh(node, ["current"])
-        await module__session.refresh(node.current, ["availability"])
+        # Verify availability is still None - re-fetch to confirm
+        node = cast(
+            Node,
+            await Node.get_by_name(
+                module__session,
+                "default.large_revenue_payments_and_business_only_1",
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.availability),
+                    ),
+                ],
+            ),
+        )
         assert node.current.availability is None
 
     @pytest.mark.asyncio
