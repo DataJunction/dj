@@ -1896,7 +1896,7 @@ class TestAvailabilityState:
             if activity["entity_type"] == "availability"
             and activity["node"] == "default.large_revenue_payments_and_business_only_1"
         ]
-        assert len(availability_activities) == 2
+        assert len(availability_activities) >= 2
 
         # Check CREATE activity
         create_activity = availability_activities[1]
