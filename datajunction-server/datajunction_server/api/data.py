@@ -174,6 +174,77 @@ async def add_availability_state(
     )
 
 
+@router.delete(
+    "/data/{node_name}/availability/",
+    name="Remove Availability State from Node",
+)
+async def remove_availability_state(
+    node_name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_and_update_current_user),
+    validate_access: access.ValidateAccessFn = Depends(
+        validate_access,
+    ),
+    save_history: Callable = Depends(get_save_history),
+) -> JSONResponse:
+    """
+    Remove an availability state from a node.
+    """
+    _logger.info("Removing availability for node=%s", node_name)
+
+    node = cast(
+        Node,
+        await Node.get_by_name(
+            session,
+            node_name,
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.catalog),
+                    selectinload(NodeRevision.availability),
+                ),
+            ],
+            raise_if_not_exists=True,
+        ),
+    )
+
+    validate_access_requests(
+        validate_access,
+        current_user,
+        [
+            access.ResourceRequest(
+                verb=access.ResourceRequestVerb.WRITE,
+                access_object=access.Resource.from_node(node),
+            ),
+        ],
+        True,
+    )
+
+    # Save the old availability state for history record
+    old_availability = (
+        AvailabilityStateBase.from_orm(node.current.availability).dict()
+        if node.current.availability
+        else {}
+    )
+    node.current.availability = None
+    await save_history(
+        event=History(
+            entity_type=EntityType.AVAILABILITY,
+            node=node.name,  # type: ignore
+            activity_type=ActivityType.DELETE,
+            pre=old_availability,
+            post={},
+            user=current_user.username,
+        ),
+        session=session,
+    )
+    await session.commit()
+    return JSONResponse(
+        status_code=201,
+        content={"message": "Availability state successfully removed"},
+    )
+
+
 @router.get("/data/{node_name}/", name="Get Data for a Node")
 async def get_data(
     node_name: str,
