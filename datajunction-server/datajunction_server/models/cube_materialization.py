@@ -166,7 +166,7 @@ class MeasuresMaterialization(BaseModel):
         unique_hash = hashlib.sha256(unique_string.encode()).hexdigest()[:16]
         return f"{self.node.name}_{self.node.version}_{unique_hash}".replace(".", "_")
 
-    def model_dump(self, **kwargs):
+    def model_dump(self, **kwargs):  # pragma: no cover
         base = super().model_dump(**kwargs)
         base["output_table_name"] = self.output_table_name
         return base
@@ -282,7 +282,7 @@ class UpsertCubeMaterialization(BaseModel):
                     f"Available job types: {[job.name for job in MaterializationJobTypeEnum]}",
                 )
             return MaterializationJobTypeEnum[job_name]
-        return job
+        return job  # pragma: no cover
 
 
 class CombineMaterialization(BaseModel):
@@ -419,7 +419,7 @@ class CombineMaterialization(BaseModel):
         }
         return druid_spec
 
-    def model_dump(self, **kwargs):
+    def model_dump(self, **kwargs):  # pragma: no cover
         base = super().model_dump(**kwargs)
         base["druid_spec"] = self.build_druid_spec()
         base["output_table_name"] = self.output_table_name

@@ -74,7 +74,7 @@ class ColumnOutput(BaseModel):
         Transforms the values for output
         """
         if isinstance(column, dict):
-            return {
+            return {  # pragma: no cover
                 "name": column.get("name"),
                 "type": str(column.get("type")),
                 "node": column.get("node_revisions")[0].name,

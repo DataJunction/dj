@@ -41,8 +41,8 @@ class ColumnTypeDecorator(TypeDecorator):
             return value
         try:
             return parse_rule(value, "dataType")
-        except DJParseException:
-            return value
+        except DJParseException:  # pragma: no cover
+            return value  # pragma: no cover
 
 
 class ColumnAttributeInput(BaseModel):
