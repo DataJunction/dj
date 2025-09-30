@@ -2,14 +2,14 @@
 Tests for the data API.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 from unittest import mock
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.node import AvailabilityStateBase
@@ -1721,3 +1721,226 @@ class TestAvailabilityState:
         ).json()
         assert node2["custom_metadata"] == {"bar": "baz"}
         assert node2["version"] == "v1.1"
+
+    @pytest.mark.asyncio
+    async def test_removing_availability_state_when_one_exists(
+        self,
+        module__session: AsyncSession,
+        module__client_with_account_revenue: AsyncClient,
+    ) -> None:
+        """
+        Test removing an availability state when one exists for a node
+        """
+        # First, set up availability state
+        await module__client_with_account_revenue.post(
+            "/data/default.large_revenue_payments_and_business_only/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "accounting",
+                "table": "pmts",
+                "valid_through_ts": 20230125,
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
+                "url": "http://some.catalog.com/default.accounting.pmts",
+            },
+        )
+
+        # Verify availability exists
+        node = cast(
+            Node,
+            await Node.get_by_name(
+                module__session,
+                "default.large_revenue_payments_and_business_only",
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.availability),
+                    ),
+                ],
+            ),
+        )
+        assert node.current.availability is not None
+
+        # Now remove the availability state
+        response = await module__client_with_account_revenue.delete(
+            "/data/default.large_revenue_payments_and_business_only/availability/",
+        )
+        data = response.json()
+
+        assert response.status_code == 201
+        assert data == {"message": "Availability state successfully removed"}
+
+        # Verify availability is now None - re-fetch the node with availability loaded
+        node = cast(
+            Node,
+            await Node.get_by_name(
+                module__session,
+                "default.large_revenue_payments_and_business_only",
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.availability),
+                    ),
+                ],
+            ),
+        )
+        assert node.current.availability is None
+
+    @pytest.mark.asyncio
+    async def test_removing_availability_state_when_none_exists(
+        self,
+        module__session: AsyncSession,
+        module__client_with_account_revenue: AsyncClient,
+    ) -> None:
+        """
+        Test removing an availability state when no availability exists for a node
+        """
+        # Verify no availability exists to begin with
+        response = await module__client_with_account_revenue.delete(
+            "/data/default.large_revenue_payments_and_business_only_1/availability",
+        )
+        node = cast(
+            Node,
+            await Node.get_by_name(
+                module__session,
+                "default.large_revenue_payments_and_business_only_1",
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.availability),
+                    ),
+                ],
+            ),
+        )
+        assert node.current.availability is None
+
+        # Attempt to remove availability state
+        response = await module__client_with_account_revenue.delete(
+            "/data/default.large_revenue_payments_and_business_only_1/availability",
+        )
+        data = response.json()
+
+        assert response.status_code == 201
+        assert data == {"message": "Availability state successfully removed"}
+
+        # Verify availability is still None - re-fetch to confirm
+        node = cast(
+            Node,
+            await Node.get_by_name(
+                module__session,
+                "default.large_revenue_payments_and_business_only_1",
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.availability),
+                    ),
+                ],
+            ),
+        )
+        assert node.current.availability is None
+
+    @pytest.mark.asyncio
+    async def test_removing_availability_state_nonexistent_node(
+        self,
+        module__client_with_account_revenue: AsyncClient,
+    ) -> None:
+        """
+        Test removing availability state from a non-existent node
+        """
+        response = await module__client_with_account_revenue.delete(
+            "/data/default.nonexistentnode/availability/",
+        )
+        data = response.json()
+
+        assert response.status_code == 404
+        assert data == {
+            "message": "A node with name `default.nonexistentnode` does not exist.",
+            "errors": [],
+            "warnings": [],
+        }
+
+    @pytest.mark.asyncio
+    async def test_removing_availability_state_history_tracking(
+        self,
+        module__session: AsyncSession,
+        module__client_with_account_revenue: AsyncClient,
+    ) -> None:
+        """
+        Test that removal of availability state is properly tracked in history with DELETE activity type
+        """
+        # First, set up availability state
+        await module__client_with_account_revenue.post(
+            "/data/default.large_revenue_payments_and_business_only_1/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "accounting",
+                "table": "pmts",
+                "valid_through_ts": 20230125,
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
+                "url": "http://some.catalog.com/default.accounting.pmts",
+            },
+        )
+
+        # Now remove the availability state
+        response = await module__client_with_account_revenue.delete(
+            "/data/default.large_revenue_payments_and_business_only_1/availability/",
+        )
+
+        assert response.status_code == 201
+
+        # Check that the history tracker has been updated with DELETE activity
+        response = await module__client_with_account_revenue.get(
+            "/history?node=default.large_revenue_payments_and_business_only_1",
+        )
+        data = response.json()
+        availability_activities = [
+            activity
+            for activity in data
+            if activity["entity_type"] == "availability"
+            and activity["node"] == "default.large_revenue_payments_and_business_only_1"
+        ]
+        assert len(availability_activities) >= 2
+
+        # Check CREATE activity
+        create_activity = availability_activities[1]
+        assert create_activity["activity_type"] == "create"
+        assert (
+            create_activity["node"]
+            == "default.large_revenue_payments_and_business_only_1"
+        )
+        assert create_activity["entity_type"] == "availability"
+        assert create_activity["pre"] == {}
+        assert create_activity["post"] == {
+            "catalog": "default",
+            "categorical_partitions": [],
+            "max_temporal_partition": ["2023", "01", "25"],
+            "min_temporal_partition": ["2022", "01", "01"],
+            "partitions": [],
+            "schema_": "accounting",
+            "table": "pmts",
+            "temporal_partitions": [],
+            "valid_through_ts": 20230125,
+            "url": "http://some.catalog.com/default.accounting.pmts",
+            "links": {},
+        }
+
+        # Check DELETE activity
+        delete_activity = availability_activities[0]
+        assert delete_activity["activity_type"] == "delete"
+        assert (
+            delete_activity["node"]
+            == "default.large_revenue_payments_and_business_only_1"
+        )
+        assert delete_activity["entity_type"] == "availability"
+        assert delete_activity["post"] == {}
+        assert delete_activity["pre"] == {
+            "catalog": "default",
+            "categorical_partitions": [],
+            "max_temporal_partition": ["2023", "01", "25"],
+            "min_temporal_partition": ["2022", "01", "01"],
+            "partitions": [],
+            "schema_": "accounting",
+            "table": "pmts",
+            "temporal_partitions": [],
+            "valid_through_ts": 20230125,
+            "url": "http://some.catalog.com/default.accounting.pmts",
+            "links": {},
+        }
+        assert delete_activity["user"] == "dj"
