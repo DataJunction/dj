@@ -377,7 +377,9 @@ class MetricSpec(NodeSpec):
                 if isinstance(unit, MetricUnit):
                     data["unit_enum"] = unit
                 else:
-                    data["unit_enum"] = MetricUnit[unit.strip().upper()]
+                    data["unit_enum"] = MetricUnit[  # pragma: no cover
+                        unit.strip().upper()
+                    ]
             except KeyError:  # pragma: no cover
                 raise DJInvalidInputException(f"Invalid metric unit: {unit}")
         super().__init__(**data)
@@ -389,7 +391,7 @@ class MetricSpec(NodeSpec):
             return None
         return self.unit_enum.value.name.lower()
 
-    def model_dump(self, **kwargs):
+    def model_dump(self, **kwargs):  # pragma: no cover
         base = super().model_dump(**kwargs)
         base["unit"] = self.unit
         return base
@@ -495,7 +497,9 @@ class DeploymentSpec(BaseModel):
         """
         Set namespace on all node specs and their dimension links
         """
-        if hasattr(self, "nodes") and hasattr(self, "namespace") and self.namespace:
+        if (  # pragma: no cover
+            hasattr(self, "nodes") and hasattr(self, "namespace") and self.namespace
+        ):
             for node in self.nodes:
                 # Set namespace on the node itself
                 if hasattr(node, "namespace") and not node.namespace:

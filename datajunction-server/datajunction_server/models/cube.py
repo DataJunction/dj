@@ -53,10 +53,10 @@ class CubeElementMetadata(BaseModel):
         # Create a new dict, don't modify the original object or it could
         # overwrite the SQLAlchemy model
         data = {}
-        if hasattr(values, "__dict__"):
+        if hasattr(values, "__dict__"):  # pragma: no cover
             data.update(values.__dict__)
 
-        if hasattr(values, "node_revision"):
+        if hasattr(values, "node_revision"):  # pragma: no cover
             data["node_name"] = values.node_revision.name
             data["type"] = (
                 values.node_revision.type

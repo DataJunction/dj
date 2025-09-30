@@ -18,7 +18,6 @@ from typing import (
     Any,
     ClassVar,
     Dict,
-    Generator,
     Optional,
     Tuple,
     cast,
@@ -87,15 +86,6 @@ class ColumnType(BaseModel):
 
     def __deepcopy__(self, memo):
         return self
-
-    @classmethod
-    def __get_validators__(cls) -> Generator[AnyCallable, None, None]:
-        """
-        One or more validators may be yielded which will be called in the
-        order to validate the input, each validator will receive as an input
-        the value returned from the previous validator
-        """
-        yield cls.validate
 
     @classmethod
     def validate(

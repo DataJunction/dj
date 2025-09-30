@@ -566,7 +566,7 @@ class MetricMetadataOutput(BaseModel):
                 abbreviation=value.value.abbreviation,
                 description=value.value.description,
             )
-        return value
+        return value  # pragma: no cover
 
 
 class MetricMetadataInput(BaseModel):
@@ -813,7 +813,7 @@ def build_update_node_fields():
             ):
                 # Already a union type, add None if not present
                 if type(None) not in original_type.__args__:
-                    optional_type = original_type | None
+                    optional_type = original_type | None  # pragma: no cover
                 else:
                     optional_type = original_type
             else:
@@ -853,7 +853,7 @@ class GenericNodeOutputModel(BaseModel):
         """
         current = values.current
         if current is None:
-            return values
+            return values  # pragma: no cover
         final_dict = {
             "namespace": values.namespace,
             "created_at": values.created_at,

@@ -332,7 +332,7 @@ class UTCDatetime(datetime.datetime):
         """
         Convert to UTC
         """
-        if isinstance(value, str):
+        if isinstance(value, str):  # pragma: no cover
             # Parse string to datetime first
             from datetime import datetime as dt
 

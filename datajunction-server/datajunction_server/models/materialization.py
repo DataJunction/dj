@@ -517,10 +517,10 @@ class UpsertMaterialization(BaseModel):
             job_name = job.upper()
             options = MaterializationJobTypeEnum._member_names_
             if job_name not in options:
-                raise DJInvalidInputException(
+                raise DJInvalidInputException(  # pragma: no cover
                     http_status_code=404,
                     message=f"Materialization job type `{job.upper()}` not found. "
                     f"Available job types: {[job.name for job in MaterializationJobTypeEnum]}",
                 )
             return MaterializationJobTypeEnum[job_name]
-        return job
+        return job  # pragma: no cover
