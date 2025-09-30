@@ -11,6 +11,9 @@ include = [
 packages = ["datajunction_server"]
 include = ["alembic/**", "alembic.ini"]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.pdm]
 [tool.pdm.build]
 includes = ["dj"]
@@ -81,10 +84,14 @@ dependencies = [
     "nbformat>=5.10.4",
 
     # GraphQL
-    "strawberry-graphql>=0.204.0",
+    "strawberry-graphql>=0.235.0",
 
     # Data validation
-    "pydantic<2",
+    "pydantic<2.11,>=2.0",
+    "pydantic-settings>=2.10.1",
+
+    # MCP Server
+    "mcp>=1.15.0",
 ]
 requires-python = ">=3.10,<4.0"
 readme = "README.md"
@@ -104,6 +111,9 @@ uvicorn = [
 transpilation = [
     "sqlglot>=18.0.1",
 ]
+
+[project.scripts]
+dj-mcp = "datajunction_server.mcp.cli:cli"
 
 [project.entry-points.'superset.db_engine_specs']
 dj = 'datajunction_server.superset:DJEngineSpec'

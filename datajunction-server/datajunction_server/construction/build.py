@@ -244,7 +244,7 @@ def build_materialized_cube_node(
         ctes=[],
     )
     materialization_config = cube.materializations[0]
-    cube_config = GenericCubeConfig.parse_obj(materialization_config.config)
+    cube_config = GenericCubeConfig.model_validate(materialization_config.config)
 
     if materialization_config.name == "default":
         # TODO: remove after we migrate old Druid materializations

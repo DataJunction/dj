@@ -168,7 +168,7 @@ async def update_a_tag(
             entity_type=EntityType.TAG,
             entity_name=tag.name,
             activity_type=ActivityType.UPDATE,
-            details=data.dict(),
+            details=data.model_dump(),
             user=current_user.username,
         ),
         session=session,

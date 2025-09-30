@@ -398,11 +398,11 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
     assert data["metric_metadata"] == {
         "direction": "higher_is_better",
         "unit": {
-            "abbreviation": None,
-            "category": None,
+            "abbreviation": "$",
+            "category": "currency",
             "description": None,
             "label": "Dollar",
-            "name": "DOLLAR",
+            "name": "dollar",
         },
         "max_decimal_exponent": None,
         "min_decimal_exponent": None,

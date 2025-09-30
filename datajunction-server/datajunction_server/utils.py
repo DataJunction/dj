@@ -295,6 +295,8 @@ def get_query_service_client(
     """
     Return query service client
     """
+    from datajunction_server.service_clients import QueryServiceClient
+
     settings = get_settings()
     if not settings.query_service:  # pragma: no cover
         return None
@@ -380,10 +382,11 @@ def get_namespace_from_name(name: str) -> str:
     return node_namespace
 
 
-async def get_current_user(request: Request) -> "User":
+async def get_current_user(request: Request) -> User:
     """
     Returns the current authenticated user
     """
+    # from datajunction_server.database.user import User
     if not hasattr(request.state, "user"):  # pragma: no cover
         raise DJAuthenticationException(
             message="Unauthorized, request state has no user",
@@ -394,8 +397,8 @@ async def get_current_user(request: Request) -> "User":
 
 async def get_and_update_current_user(
     session: AsyncSession = Depends(get_session),
-    current_user: "User" = Depends(get_current_user),
-) -> "User":
+    current_user: User = Depends(get_current_user),
+) -> User:
     """
     Wrapper for the get_current_user dependency that creates a DJ user object if required
     """

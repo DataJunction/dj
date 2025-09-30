@@ -468,7 +468,7 @@ async def set_node_column_attributes(
             activity_type=ActivityType.SET_ATTRIBUTE,
             details={
                 "column": column.name,
-                "attributes": [attr.dict() for attr in attributes],
+                "attributes": [attr.model_dump() for attr in attributes],
             },
             user=current_user.username,
         ),
@@ -843,6 +843,7 @@ async def copy_to_new_node(
         ),
         session=session,
     )
+    await session.refresh(new_node, ["current"])  # type: ignore
 
     # If the new node makes any downstream nodes valid, propagate
     newly_valid_nodes = await resolve_downstream_references(
@@ -854,11 +855,11 @@ async def copy_to_new_node(
     await propagate_valid_status(
         session=session,
         valid_nodes=newly_valid_nodes,
-        catalog_id=node.current.catalog_id,  # type: ignore
+        catalog_id=new_node.current.catalog_id,  # type: ignore
         current_user=current_user,
         save_history=save_history,
     )
-    await session.refresh(node.current)  # type: ignore
+    await session.refresh(new_node, ["current"])  # type: ignore
     return node  # type: ignore
 
 
@@ -1020,12 +1021,14 @@ async def update_node_with_query(
                         config=old.config,
                         schedule=old.schedule,
                         strategy=old.strategy,
-                        job=MaterializationJobTypeEnum.find_match(old.job),
+                        job=MaterializationJobTypeEnum.find_match(old.job).value.name,
                     )
                     if old.job != MaterializationJobTypeEnum.DRUID_CUBE.value.job_class
                     else (
                         UpsertCubeMaterialization(
-                            job=MaterializationJobTypeEnum.find_match(old.job),
+                            job=MaterializationJobTypeEnum.find_match(
+                                old.job,
+                            ).value.name,
                             strategy=old.strategy,
                             schedule=old.schedule,
                             lookback_window=old.lookback_window,
@@ -1271,10 +1274,12 @@ async def update_cube_node(
                     session,
                     new_cube_revision,
                     materialization_upsert_class(
-                        **MaterializationConfigOutput.from_orm(old).dict(
+                        **MaterializationConfigOutput.model_validate(
+                            old,
+                        ).model_dump(
                             exclude={"job", "node_revision_id", "deactivated_at"},
                         ),
-                        job=MaterializationJobTypeEnum.find_match(old.job),
+                        job=MaterializationJobTypeEnum.find_match(old.job).value.name,
                     ),
                     validate_access,
                     current_user=current_user,
@@ -1831,7 +1836,9 @@ async def save_column_level_lineage(node_revision_id: int):
                 session,
                 node_revision,
             )
-            node_revision.lineage = [lineage.dict() for lineage in column_level_lineage]
+            node_revision.lineage = [
+                lineage.model_dump() for lineage in column_level_lineage
+            ]
             session.add(node_revision)
             await session.commit()
 
@@ -1990,7 +1997,7 @@ async def get_single_cube_revision_metadata(
             ),
             http_status_code=404,
         )
-    return CubeRevisionMetadata.parse_obj(cube)
+    return CubeRevisionMetadata.from_cube_revision(cube)
 
 
 async def get_all_cube_revisions_metadata(
@@ -2009,7 +2016,7 @@ async def get_all_cube_revisions_metadata(
         page=page,
         page_size=page_size,
     )
-    return [CubeRevisionMetadata.parse_obj(cube) for cube in cubes]
+    return [CubeRevisionMetadata.from_cube_revision(cube) for cube in cubes]
 
 
 async def upsert_complex_dimension_link(
@@ -2716,7 +2723,7 @@ async def revalidate_node(
 
         new_revision.status = node_validator.status
         new_revision.lineage = [
-            lineage.dict()
+            lineage.model_dump()
             for lineage in await get_column_level_lineage(session, new_revision)
         ]
 
