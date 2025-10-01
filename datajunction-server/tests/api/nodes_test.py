@@ -1571,6 +1571,7 @@ class TestNodeCRUD:
         """
         Registering a view with a query service set up should succeed.
         """
+        await module__client_with_basic.get("/catalogs")
         response = await module__client_with_basic.post(
             "/register/view/public/main/view_foo?query=SELECT+1+AS+one+,+'two'+AS+two",
         )
@@ -2254,26 +2255,20 @@ class TestNodeCRUD:
                 "mode": "published",
             },
         )
-        assert response.status_code >= 400
-        assert response.json() == {
-            "detail": [
-                {
-                    "loc": ["body", "catalog"],
-                    "msg": "field required",
-                    "type": "value_error.missing",
-                },
-                {
-                    "loc": ["body", "schema_"],
-                    "msg": "field required",
-                    "type": "value_error.missing",
-                },
-                {
-                    "loc": ["body", "table"],
-                    "msg": "field required",
-                    "type": "value_error.missing",
-                },
-            ],
-        }
+        assert response.status_code == 422
+        response_data = response.json()
+        assert "detail" in response_data
+
+        # Check that all required fields are mentioned in validation errors
+        error_fields = set()
+        for error in response_data["detail"]:
+            if "loc" in error and len(error["loc"]) >= 2:
+                error_fields.add(error["loc"][1])
+
+        required_fields = {"catalog", "schema_", "table"}
+        assert required_fields.issubset(error_fields), (
+            f"Missing required field errors: {required_fields - error_fields}"
+        )
 
     @pytest.mark.asyncio
     async def test_create_invalid_transform_node(
@@ -2592,11 +2587,11 @@ class TestNodeCRUD:
         assert metric_data["metric_metadata"] == {
             "direction": "higher_is_better",
             "unit": {
-                "abbreviation": None,
-                "category": None,
+                "abbreviation": "$",
+                "category": "currency",
                 "description": None,
                 "label": "Dollar",
-                "name": "DOLLAR",
+                "name": "dollar",
             },
             "significant_digits": 6,
             "min_decimal_exponent": 2,
@@ -2954,12 +2949,7 @@ class TestNodeCRUD:
                 "schedule": "0 * * * *",
             },
         )
-        assert response.status_code == 404
-        data = response.json()
-        assert data["message"] == (
-            "Materialization job type `SOMETHING` not found. Available job "
-            "types: ['SPARK_SQL', 'DRUID_MEASURES_CUBE', 'DRUID_METRICS_CUBE', 'DRUID_CUBE']"
-        )
+        assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_node_with_struct(

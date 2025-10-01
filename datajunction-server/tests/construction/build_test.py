@@ -331,7 +331,7 @@ def test_build_materialized_cube_node():
             query="SELECT * FROM foo",
             columns=[],
             version="1",
-            materializations=[MagicMock()],
+            materializations=[MagicMock(config={})],
             availability=MagicMock(table=MagicMock(name="foo")),
         ),
         filters=["filter1", "filter2"],

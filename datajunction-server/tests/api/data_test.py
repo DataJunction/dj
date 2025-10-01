@@ -695,9 +695,9 @@ class TestAvailabilityState:
             module__session,
             "default.large_revenue_payments_and_business_only",
         )
-        node_dict = AvailabilityStateBase.from_orm(
+        node_dict = AvailabilityStateBase.model_validate(
             large_revenue_payments_and_business_only.current.availability,  # type: ignore
-        ).dict()
+        ).model_dump()
         assert node_dict == {
             "valid_through_ts": 20230125,
             "catalog": "default",
@@ -906,9 +906,9 @@ class TestAvailabilityState:
             module__session,
             "default.large_revenue_payments_and_business_only_1",
         )
-        node_dict = AvailabilityStateBase.from_orm(
+        node_dict = AvailabilityStateBase.model_validate(
             large_revenue_payments_and_business_only.current.availability,  # type: ignore
-        ).dict()
+        ).model_dump()
         assert node_dict == {
             "valid_through_ts": 20230125,
             "catalog": "default",
@@ -1519,9 +1519,9 @@ class TestAvailabilityState:
         large_revenue_payments_only = (
             (await module__session.execute(statement)).unique().scalar_one()
         )
-        node_dict = AvailabilityStateBase.from_orm(
+        node_dict = AvailabilityStateBase.model_validate(
             large_revenue_payments_only.current.availability,
-        ).dict()
+        ).model_dump()
         assert node_dict == {
             "valid_through_ts": 20230101,
             "catalog": "default",
@@ -1592,9 +1592,9 @@ class TestAvailabilityState:
         large_revenue_payments_only = (
             (await module__session.execute(statement)).unique().scalar_one()
         )
-        node_dict = AvailabilityStateBase.from_orm(
+        node_dict = AvailabilityStateBase.model_validate(
             large_revenue_payments_only.current.availability,
-        ).dict()
+        ).model_dump()
         assert node_dict == {
             "valid_through_ts": 20230101,
             "catalog": "default",
@@ -1640,7 +1640,9 @@ class TestAvailabilityState:
         revenue = (await module__session.execute(statement)).scalar_one()
         await module__session.refresh(revenue, ["current"])
         await module__session.refresh(revenue.current, ["availability"])
-        node_dict = AvailabilityStateBase.from_orm(revenue.current.availability).dict()
+        node_dict = AvailabilityStateBase.model_validate(
+            revenue.current.availability,
+        ).model_dump()
         assert node_dict == {
             "valid_through_ts": 20230101,
             "catalog": "basic",

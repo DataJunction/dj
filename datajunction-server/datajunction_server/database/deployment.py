@@ -48,7 +48,7 @@ class Deployment(Base):
 
     @deployment_spec.setter
     def deployment_spec(self, value: DeploymentSpec):
-        self.spec = value.dict()  # pragma: no cover
+        self.spec = value.model_dump()  # pragma: no cover
 
     @property
     def deployment_results(self) -> list[DeploymentResult]:
@@ -56,4 +56,4 @@ class Deployment(Base):
 
     @deployment_results.setter
     def deployment_results(self, value: list[DeploymentResult]):
-        self.results = [result.dict() for result in value]  # pragma: no cover
+        self.results = [result.model_dump() for result in value]  # pragma: no cover
