@@ -568,6 +568,7 @@ async def register_table(
     catalog: str,
     schema_: str,
     table: str,
+    source_node_namespace: str | None = None,
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
@@ -586,7 +587,12 @@ async def register_table(
             message="Registering tables or views requires that a query "
             "service is configured for columns inference",
         )
-    namespace = f"{settings.source_node_namespace}.{catalog}.{schema_}"
+    prefix = (
+        source_node_namespace
+        if source_node_namespace is not None
+        else settings.source_node_namespace
+    )
+    namespace = f"{(prefix or '') + ('.' if prefix else '')}{catalog}.{schema_}"
     name = f"{namespace}.{table}"
     await raise_if_node_exists(session, name)
 

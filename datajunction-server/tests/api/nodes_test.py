@@ -1670,6 +1670,12 @@ class TestNodeCRUD:
         ]
         assert response.status_code == 201
 
+        response = await module__client_with_basic.post(
+            "/register/table/public/basic/comments/?source_node_namespace=default",
+        )
+        data = response.json()
+        assert data["name"] == "default.public.basic.comments"
+
     @pytest.mark.asyncio
     async def test_refresh_source_node(
         self,
