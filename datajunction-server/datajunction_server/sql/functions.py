@@ -4462,7 +4462,7 @@ class UnixTimestamp(Function):
 
 @UnixTimestamp.register  # type: ignore
 def infer_type(
-    time_exp: Optional[ct.StringType] = None,
+    time_exp: Optional[Union[ct.TimestampType, ct.DateType, ct.StringType]] = None,
     fmt: Optional[ct.StringType] = None,
 ) -> ct.BigIntType:
     return ct.BigIntType()
