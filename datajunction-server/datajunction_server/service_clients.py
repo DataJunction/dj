@@ -165,7 +165,7 @@ class QueryServiceClient:
             }
             if request_headers
             else self.requests_session.headers,
-            json=query_create.dict(),
+            json=query_create.model_dump(),
         )
         response_data = response.json()
         if response.status_code not in (200, 201):
@@ -196,7 +196,7 @@ class QueryServiceClient:
             }
             if request_headers
             else self.requests_session.headers,
-            json=query_create.dict(),
+            json=query_create.model_dump(),
         )
         response_data = response.json()
         if response.status_code not in (200, 201):
@@ -263,7 +263,7 @@ class QueryServiceClient:
         """
         response = self.requests_session.post(
             "/materialization/",
-            json=materialization_input.dict(),
+            json=materialization_input.model_dump(),
             headers={
                 **self.requests_session.headers,
                 **QueryServiceClient.filtered_headers(request_headers),
@@ -275,7 +275,7 @@ class QueryServiceClient:
             _logger.exception(
                 "[DJQS] Failed to materialize node=%s with `POST /materialization/`: %s",
                 materialization_input.node_name,
-                materialization_input.dict(),
+                materialization_input.model_dump(),
                 exc_info=True,
             )
             return MaterializationInfo(urls=[], output_tables=[])
@@ -298,7 +298,7 @@ class QueryServiceClient:
         """
         response = self.requests_session.post(
             "/cubes/materialize",
-            json=materialization_input.dict(),
+            json=materialization_input.model_dump(),
             headers={
                 **self.requests_session.headers,
                 **QueryServiceClient.filtered_headers(request_headers),
@@ -419,7 +419,7 @@ class QueryServiceClient:
         )
         response = self.requests_session.post(
             backfill_endpoint,
-            json=[partition.dict() for partition in partitions],
+            json=[partition.model_dump() for partition in partitions],
             headers={
                 **self.requests_session.headers,
                 **QueryServiceClient.filtered_headers(request_headers),

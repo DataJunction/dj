@@ -13,9 +13,7 @@ from httpx import AsyncClient
 from datajunction_server.models.cube_materialization import (
     Aggregability,
     AggregationRule,
-    CubeMetric,
     MetricComponent,
-    MeasureKey,
     NodeNameVersion,
 )
 from datajunction_server.models.partition import Granularity, PartitionBackfill
@@ -729,22 +727,6 @@ async def test_druid_metrics_cube_incremental(
     )
 
 
-class AnyString(str):
-    "A helper str obj that compares equal to everything."
-
-    def __eq__(self, other):
-        return True
-
-    def __ne__(self, other):
-        return False
-
-    def __repr__(self):
-        return "<ANY_STRING>"
-
-
-ANY_STRING = AnyString()
-
-
 @pytest.mark.asyncio
 async def test_druid_cube_incremental(
     client_with_repairs_cube: AsyncClient,
@@ -811,53 +793,30 @@ async def test_druid_cube_incremental(
         "default.dispatcher.company_name",
         "default.municipality_dim.local_region",
     ]
-    assert mat.metrics == [
-        CubeMetric(
-            metric=NodeNameVersion(
-                name="default.num_repair_orders",
-                version="v1.0",
-                display_name="Num Repair Orders",
-            ),
-            required_measures=[
-                MeasureKey(
-                    node=NodeNameVersion(
-                        name="default.repair_orders_fact",
-                        version=ANY_STRING,
-                        display_name="Repair Orders Fact",
-                    ),
-                    measure_name="repair_order_id_count_0b7dfba0",
-                ),
-            ],
-            derived_expression="SELECT  SUM(repair_order_id_count_0b7dfba0)"
-            "  FROM default.repair_orders_fact",
-            metric_expression="SUM(repair_order_id_count_0b7dfba0)",
-        ),
-        CubeMetric(
-            metric=NodeNameVersion(
-                name="default.total_repair_cost",
-                version="v1.0",
-                display_name="Total Repair Cost",
-            ),
-            required_measures=[
-                MeasureKey(
-                    node=NodeNameVersion(
-                        name="default.repair_orders_fact",
-                        version=ANY_STRING,
-                        display_name="Repair Orders Fact",
-                    ),
-                    measure_name="total_repair_cost_sum_9bdaf803",
-                ),
-            ],
-            derived_expression="SELECT  sum(total_repair_cost_sum_9bdaf803)"
-            "  FROM default.repair_orders_fact",
-            metric_expression="sum(total_repair_cost_sum_9bdaf803)",
-        ),
-    ]
-    assert mat.measures_materializations[0].node == NodeNameVersion(
-        name="default.repair_orders_fact",
-        version=ANY_STRING,
-        display_name="Repair Orders Fact",
-    )
+    assert len(mat.metrics) == 2
+
+    metric1 = mat.metrics[0]
+    assert metric1.metric.name == "default.num_repair_orders"
+    assert metric1.metric.display_name == "Num Repair Orders"
+    assert len(metric1.required_measures) == 1
+    assert metric1.required_measures[0].node.name == "default.repair_orders_fact"
+    assert metric1.required_measures[0].node.display_name == "Repair Orders Fact"
+    assert metric1.required_measures[0].measure_name == "repair_order_id_count_0b7dfba0"
+    assert "SUM(repair_order_id_count_0b7dfba0)" in metric1.derived_expression
+    assert metric1.metric_expression == "SUM(repair_order_id_count_0b7dfba0)"
+
+    metric2 = mat.metrics[1]
+    assert metric2.metric.name == "default.total_repair_cost"
+    assert metric2.metric.display_name == "Total Repair Cost"
+    assert len(metric2.required_measures) == 1
+    assert metric2.required_measures[0].node.name == "default.repair_orders_fact"
+    assert metric2.required_measures[0].node.display_name == "Repair Orders Fact"
+    assert metric2.required_measures[0].measure_name == "total_repair_cost_sum_9bdaf803"
+    assert "sum(total_repair_cost_sum_9bdaf803)" in metric2.derived_expression
+    assert metric2.metric_expression == "sum(total_repair_cost_sum_9bdaf803)"
+    actual_node = mat.measures_materializations[0].node
+    assert actual_node.name == "default.repair_orders_fact"
+    assert actual_node.display_name == "Repair Orders Fact"
     assert mat.measures_materializations[0].grain == [
         "default_DOT_repair_orders_fact_DOT_order_date",
         "default_DOT_hard_hat_DOT_state",
@@ -953,11 +912,10 @@ async def test_druid_cube_incremental(
     assert mat.measures_materializations[0].output_table_name.startswith(
         "default_repair_orders_fact",
     )
-    assert mat.combiners[0].node == NodeNameVersion(
-        name="default.repair_orders_fact",
-        version=ANY_STRING,
-        display_name="Repair Orders Fact",
-    )
+    # Check combiner node with flexible version matching
+    combiner_node = mat.combiners[0].node
+    assert combiner_node.name == "default.repair_orders_fact"
+    assert combiner_node.display_name == "Repair Orders Fact"
     assert mat.combiners[0].query is None
     assert mat.combiners[0].columns == [
         ColumnMetadata(

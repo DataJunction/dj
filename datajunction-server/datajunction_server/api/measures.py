@@ -36,7 +36,19 @@ async def get_measure_by_name(
 ) -> Measure:
     """Retrieve a measure by name"""
     measure = (
-        (await session.execute(select(Measure).where(Measure.name == measure_name)))
+        (
+            await session.execute(
+                select(Measure)
+                .where(Measure.name == measure_name)
+                .options(
+                    joinedload(Measure.columns).options(
+                        joinedload(Column.node_revision).options(
+                            *NodeRevision.default_load_options(),
+                        ),
+                    ),
+                ),
+            )
+        )
         .unique()
         .scalars()
         .one_or_none()

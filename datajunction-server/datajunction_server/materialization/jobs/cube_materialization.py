@@ -91,7 +91,7 @@ class DruidMaterializationJob(MaterializationJob):
                 node_type=materialization.node_revision.type,
                 schedule=materialization.schedule,
                 query=str(final_query),
-                spark_conf=cube_config.spark.__root__ if cube_config.spark else {},
+                spark_conf=cube_config.spark.root if cube_config.spark else {},
                 druid_spec=druid_spec,
                 upstream_tables=cube_config.upstream_tables or [],
                 columns=cube_config.columns,
@@ -142,7 +142,7 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
             raise DJInvalidInputException(  # pragma: no cover
                 "The materialization job config class must be defined!",
             )
-        cube_config = self.config_class.parse_obj(materialization.config)  # type: ignore
+        cube_config = self.config_class.model_validate(materialization.config)  # type: ignore
         _logger.info(
             "Scheduling DruidCubeMaterializationJob for node=%s",
             cube_config.cube,

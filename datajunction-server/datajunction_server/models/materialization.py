@@ -1,9 +1,15 @@
 """Models for materialization"""
 
 import enum
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
 
-from pydantic import AnyHttpUrl, BaseModel, validator
+from pydantic import (
+    BaseModel,
+    field_validator,
+    RootModel,
+    ConfigDict,
+    Field,
+)
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
@@ -91,7 +97,7 @@ class GenericMaterializationInput(BaseModel):
     query: str
     upstream_tables: List[str]
     spark_conf: Optional[Dict] = None
-    partitions: Optional[List[Dict]] = None
+    partitions: Optional[List[PartitionColumnOutput]] = None
     columns: List[ColumnMetadata]
     lookback_window: Optional[str] = "1 DAY"
 
@@ -112,7 +118,7 @@ class MaterializationInfo(BaseModel):
     """
 
     output_tables: List[str]
-    urls: List[AnyHttpUrl]
+    urls: List[str]
 
 
 class MaterializationConfigOutput(BaseModel):
@@ -129,8 +135,7 @@ class MaterializationConfigOutput(BaseModel):
     strategy: Optional[str]
     deactivated_at: UTCDatetime | None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MaterializationConfigInfoUnified(
@@ -142,10 +147,10 @@ class MaterializationConfigInfoUnified(
     """
 
 
-class SparkConf(BaseModel):
+class SparkConf(RootModel):
     """Spark configuration"""
 
-    __root__: Dict[str, str] = {}
+    root: Dict[str, str] = {}
 
 
 class GenericMaterializationConfigInput(BaseModel):
@@ -154,12 +159,12 @@ class GenericMaterializationConfigInput(BaseModel):
     """
 
     # Spark config
-    spark: Optional[SparkConf]
+    spark: Optional[SparkConf] = Field(default_factory=dict)
 
     # The time window to lookback when overwriting materialized datasets
     # This will only be used if a time partition was set on the node and
     # the materialization strategy is INCREMENTAL_TIME
-    lookback_window: Optional[str]
+    lookback_window: Optional[str] = None
 
 
 class GenericMaterializationConfig(GenericMaterializationConfigInput):
@@ -168,9 +173,9 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
     and engine combinations
     """
 
-    query: Optional[str]
-    columns: Optional[List[ColumnMetadata]]
-    upstream_tables: Optional[List[str]]
+    query: Optional[str] = None
+    columns: Optional[List[ColumnMetadata]] = None
+    upstream_tables: Optional[List[str]] = None
 
     def temporal_partition(
         self,
@@ -219,11 +224,11 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
 class DruidConf(BaseModel):
     """Druid configuration"""
 
-    granularity: Optional[str]
-    intervals: Optional[List[str]]
-    timestamp_column: Optional[str]
-    timestamp_format: Optional[str]
-    parse_spec_format: Optional[str]
+    granularity: Optional[str] = None
+    intervals: Optional[List[str]] = None
+    timestamp_column: Optional[str] = None
+    timestamp_format: Optional[str] = None
+    parse_spec_format: Optional[str] = None
 
 
 class Measure(BaseModel):
@@ -261,9 +266,9 @@ class GenericCubeConfigInput(GenericMaterializationConfigInput):
     Generic cube materialization config fields that require user input
     """
 
-    dimensions: Optional[List[str]]
-    measures: Optional[Dict[str, MetricMeasures]]
-    metrics: Optional[List[ColumnMetadata]]
+    dimensions: Optional[List[str]] = None
+    measures: Optional[Dict[str, MetricMeasures]] = None
+    metrics: Optional[List[ColumnMetadata]] = None
 
 
 class GenericCubeConfig(GenericCubeConfigInput, GenericMaterializationConfig):
@@ -280,7 +285,7 @@ class DruidCubeConfigInput(GenericCubeConfigInput):
 
     prefix: Optional[str] = ""
     suffix: Optional[str] = ""
-    druid: Optional[DruidConf]
+    druid: Optional[DruidConf] = None
 
 
 class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
@@ -483,17 +488,24 @@ class UpsertMaterialization(BaseModel):
     An upsert object for materialization configs
     """
 
-    name: Optional[str]
-    job: MaterializationJobTypeEnum
-    config: Union[
-        DruidCubeConfigInput,
-        GenericCubeConfigInput,
-        GenericMaterializationConfigInput,
+    name: Optional[str] = None
+    job: Literal[
+        "spark_sql",
+        "druid_measures_cube",
+        "druid_metrics_cube",
     ]
+    config: (
+        Union[
+            DruidCubeConfigInput,
+            GenericCubeConfigInput,
+            GenericMaterializationConfigInput,
+        ]
+        | None
+    ) = None
     schedule: str
     strategy: MaterializationStrategy
 
-    @validator("job", pre=True)
+    @field_validator("job")
     def validate_job(
         cls,
         job: Union[str, MaterializationJobTypeEnum],
@@ -505,10 +517,10 @@ class UpsertMaterialization(BaseModel):
             job_name = job.upper()
             options = MaterializationJobTypeEnum._member_names_
             if job_name not in options:
-                raise DJInvalidInputException(
+                raise DJInvalidInputException(  # pragma: no cover
                     http_status_code=404,
                     message=f"Materialization job type `{job.upper()}` not found. "
                     f"Available job types: {[job.name for job in MaterializationJobTypeEnum]}",
                 )
             return MaterializationJobTypeEnum[job_name]
-        return job
+        return job  # pragma: no cover

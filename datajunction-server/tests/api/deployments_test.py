@@ -1129,7 +1129,7 @@ def roads_nodes(
 async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
     response = await client.post(
         "/deployments",
-        json=deployment_spec.dict(),
+        json=deployment_spec.model_dump(),
     )
     data = response.json()
     deployment_uuid = data["uuid"]
@@ -2838,5 +2838,5 @@ async def test_print_roads_spec(roads_nodes):
         namespace="roads",
         nodes=roads_nodes,
     )
-    print("Roads Spec:", json.dumps(spec.dict()))
+    print("Roads Spec:", json.dumps(spec.model_dump()))
     assert 1 == 2

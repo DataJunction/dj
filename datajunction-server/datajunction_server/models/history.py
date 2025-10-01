@@ -5,6 +5,7 @@ Model for history.
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from pydantic.main import BaseModel
+from pydantic import ConfigDict
 
 from datajunction_server.database.history import History
 from datajunction_server.internal.history import ActivityType, EntityType
@@ -32,8 +33,7 @@ class HistoryOutput(BaseModel):
     details: Dict[str, Any]
     created_at: UTCDatetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 def status_change_history(

@@ -24,6 +24,7 @@ from datajunction_server.models.cube_materialization import (
 )
 from datajunction_server.models.materialization import (
     GenericMaterializationInput,
+    MaterializationInfo,
     MaterializationStrategy,
 )
 from datajunction_server.models.node_type import NodeType
@@ -587,10 +588,10 @@ class TestQueryServiceClient:
             },
             headers=ANY,
         )
-        assert response == {
-            "urls": ["http://fake.url/job"],
-            "output_tables": ["common.a", "common.b"],
-        }
+        assert response == MaterializationInfo(
+            urls=["http://fake.url/job"],
+            output_tables=["common.a", "common.b"],
+        )
 
     def test_get_materialization_info(self, mocker: MockerFixture) -> None:
         """
@@ -620,10 +621,10 @@ class TestQueryServiceClient:
             timeout=3,
             headers=ANY,
         )
-        assert response == {
-            "urls": ["http://fake.url/job"],
-            "output_tables": ["common.a", "common.b"],
-        }
+        assert response == MaterializationInfo(
+            urls=["http://fake.url/job"],
+            output_tables=["common.a", "common.b"],
+        )
 
     def test_get_materialization_info_error(self, mocker: MockerFixture) -> None:
         """
@@ -645,10 +646,10 @@ class TestQueryServiceClient:
             node_type=NodeType.DIMENSION,
             materialization_name="default",
         )
-        assert response == {
-            "urls": [],
-            "output_tables": [],
-        }
+        assert response == MaterializationInfo(
+            urls=[],
+            output_tables=[],
+        )
 
     def test_run_backfill(self, mocker: MockerFixture) -> None:
         """
@@ -679,10 +680,10 @@ class TestQueryServiceClient:
             ],
             materialization_name="default",
         )
-        assert response == {
-            "urls": ["http://fake.url/job"],
-            "output_tables": [],
-        }
+        assert response == MaterializationInfo(
+            urls=["http://fake.url/job"],
+            output_tables=[],
+        )
         mocked_call.assert_called_with(
             "/materialization/run/default.hard_hat/default/?node_version=v1&node_type=dimension",
             json=[
@@ -715,10 +716,10 @@ class TestQueryServiceClient:
             ],
             materialization_name="default",
         )
-        assert response == {
-            "urls": ["http://fake.url/job"],
-            "output_tables": [],
-        }
+        assert response == MaterializationInfo(
+            urls=["http://fake.url/job"],
+            output_tables=[],
+        )
         mocked_call.assert_called_with(
             "/materialization/run/default.hard_hat/default/?node_version=v1&node_type=dimension",
             json=[
@@ -830,11 +831,11 @@ class TestQueryServiceClient:
         response = query_service_client.materialize_cube(materialization_input)
         mock_request.assert_called_with(
             "/cubes/materialize",
-            json=materialization_input.dict(),
+            json=materialization_input.model_dump(),
             timeout=20,
             headers=ANY,
         )
-        assert response == {
-            "urls": ["http://fake.url/job"],
-            "output_tables": ["common.a", "common.b"],
-        }
+        assert response == MaterializationInfo(
+            urls=["http://fake.url/job"],
+            output_tables=["common.a", "common.b"],
+        )

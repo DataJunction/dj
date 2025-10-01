@@ -8,7 +8,6 @@ import datetime
 from types import ModuleType
 from typing import Any, Iterator, List, Literal, Optional, Tuple, TypedDict, Union
 
-from pydantic.datetime_parse import parse_datetime
 from typing_extensions import Protocol
 
 from datajunction_server.enum import StrEnum
@@ -313,19 +312,39 @@ class UTCDatetime(datetime.datetime):
     """
 
     @classmethod
-    def __get_validators__(cls):
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type,
+        handler,
+    ):
         """
-        Extend the builtin pydantic datetime parser with a custom validate method
+        Pydantic v2 core schema for datetime validation
         """
-        yield parse_datetime
-        yield cls.validate
+        from pydantic_core import core_schema
+
+        return core_schema.no_info_after_validator_function(
+            cls.validate,
+            core_schema.datetime_schema(),
+        )
 
     @classmethod
-    def validate(cls, value) -> str:
+    def validate(cls, value):
         """
         Convert to UTC
         """
+        if isinstance(value, str):  # pragma: no cover
+            # Parse string to datetime first
+            from datetime import datetime as dt
+
+            try:
+                value = dt.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                # Try other common formats
+                import dateutil.parser
+
+                value = dateutil.parser.parse(value)
+
         if value.tzinfo is None:
-            return value.replace(tzinfo=datetime.timezone.utc)  # pragma: no cover
+            return value.replace(tzinfo=datetime.timezone.utc)
 
         return value.astimezone(datetime.timezone.utc)
