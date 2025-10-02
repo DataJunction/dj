@@ -948,6 +948,7 @@ async def module__client(
     await default_attribute_types(module__session)
     await seed_default_catalogs(module__session)
     await create_default_user(module__session)
+    await module__session.commit()
 
     def get_query_service_client_override(
         request: Request = None,
@@ -1229,7 +1230,8 @@ def module__postgres_container(request) -> PostgresContainer:
     Setup postgres container
     """
     path = pathlib.Path(request.module.__file__).resolve()
-    dbname = f"test_{hash(path)}"
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+    dbname = f"test_{hash(path)}_{worker_id}"
     postgres = PostgresContainer(
         image="postgres:latest",
         username="dj",
