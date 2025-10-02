@@ -5,6 +5,7 @@ from typing import Dict, List, Set, Union
 
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.api.helpers import find_bound_dimensions
 from datajunction_server.database import Node, NodeRevision
@@ -16,6 +17,46 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
+
+
+async def create_compile_context_with_bulk_deps(
+    session: AsyncSession,
+    node_names: set[str] | None = None,
+    exception: DJException | None = None,
+) -> ast.CompileContext:
+    """
+    Create a CompileContext with bulk-loaded dependencies.
+
+    Args:
+        session: Database session
+        node_names: Node names to bulk load (if None, creates empty cache)
+        exception: DJException instance (creates new one if None)
+        max_depth: Maximum depth for transitive dependency loading
+
+    Returns:
+        CompileContext with preloaded dependencies cache
+    """
+    if exception is None:
+        exception = DJException()
+
+    dependencies_cache = {}
+    if node_names:
+        nodes = await Node.get_by_names(
+            session,
+            list(node_names),
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.columns),
+                ),
+            ],
+        )
+        dependencies_cache = {node.name: node for node in nodes}
+
+    return ast.CompileContext(
+        session=session,
+        exception=exception,
+        dependencies_cache=dependencies_cache,
+    )
 
 
 @dataclass
@@ -63,12 +104,18 @@ async def validate_node_data(
 
     if isinstance(data, NodeRevision):
         validated_node = data
+        await session.refresh(data, ["parents"])
+        ctx = await create_compile_context_with_bulk_deps(
+            session=session,
+            node_names={parent.name for parent in data.parents},
+        )
     else:
         node = Node(name=data.name, type=data.type)
         validated_node = NodeRevision(**data.model_dump())
         validated_node.node = node
 
-    ctx = ast.CompileContext(session=session, exception=DJException())
+        # Create context without bulk loading for new nodes
+        ctx = ast.CompileContext(session=session, exception=DJException())
 
     # Try to parse the node's query, extract dependencies and missing parents
     try:
