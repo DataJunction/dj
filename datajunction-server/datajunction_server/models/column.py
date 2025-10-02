@@ -8,7 +8,6 @@ from pydantic.main import BaseModel
 from sqlalchemy import TypeDecorator
 from sqlalchemy.types import Text
 
-from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.enum import StrEnum
 from datajunction_server.sql.parsing.types import ColumnType
 
@@ -41,7 +40,7 @@ class ColumnTypeDecorator(TypeDecorator):
             return value
         try:
             return parse_rule(value, "dataType")
-        except DJParseException:  # pragma: no cover
+        except Exception:  # pragma: no cover
             return value  # pragma: no cover
 
 

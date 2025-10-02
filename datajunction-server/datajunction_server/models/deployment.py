@@ -9,7 +9,6 @@ from pydantic import (
 )
 
 from typing import Annotated, Any, Literal, Union
-
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.base import labelize
@@ -36,6 +35,7 @@ class TagSpec(BaseModel):
     """
 
     name: str
+    display_name: str
     description: str = ""
     tag_type: str = ""
     tag_metadata: dict | None = None
@@ -134,7 +134,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, DimensionJoinLinkSpec):
-            return False
+            return False  # pragma: no cover
         return (
             super().__eq__(other)
             and self.rendered_dimension_node == other.rendered_dimension_node
@@ -244,7 +244,11 @@ class NodeSpec(BaseModel):
             self.rendered_name == other.rendered_name
             and self.node_type == other.node_type
             and (self.display_name == other.display_name or self.display_name is None)
-            and (self.description == other.description)
+            and (
+                self.description == other.description
+                or not self.description
+                and not other.description
+            )
             and set(self.owners) == set(other.owners)
             and set(self.tags) == set(other.tags)
             and self.mode == other.mode
@@ -287,6 +291,14 @@ class LinkableNodeSpec(NodeSpec):
                 link.namespace = self.namespace
         return self
 
+    @property
+    def links_mapping(self) -> dict[tuple[str, str | None], DimensionLinkSpec]:
+        """Map dimension links by (dimension_node, role)"""
+        return {
+            (link.rendered_dimension_node, link.role): link
+            for link in self.dimension_links
+        }
+
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, LinkableNodeSpec):
             return False
@@ -299,7 +311,11 @@ class LinkableNodeSpec(NodeSpec):
         )
         return (
             super().__eq__(other)
-            and eq_columns(self.columns, other.columns)
+            and eq_columns(
+                self.columns,
+                other.columns,
+                compare_types=True if self.node_type == NodeType.SOURCE else False,
+            )
             and dimension_links_equal
         )
 
@@ -329,6 +345,11 @@ class SourceSpec(LinkableNodeSpec):
 
     def __eq__(self, other: Any) -> bool:
         return super().__eq__(other) and self.table == other.table
+
+    @property
+    def catalog(self) -> str | None:
+        """Return catalog name from table."""
+        return self.table.split(".")[0] if self.table and "." in self.table else None
 
 
 class TransformSpec(LinkableNodeSpec):
@@ -362,7 +383,7 @@ class MetricSpec(NodeSpec):
 
     node_type: Literal[NodeType.METRIC] = NodeType.METRIC
     query: str
-    required_dimensions: list[str] | None = None
+    required_dimensions: list[str] | None = None  # Field(default_factory=list)
     direction: MetricDirection | None = None
     unit_enum: MetricUnit | None = Field(default=None, exclude=True)
 
@@ -464,14 +485,25 @@ def diff(one: BaseModel, two: BaseModel, ignore_fields: list[str] = None) -> lis
     """
     changed_fields = [
         field
-        for field in one.__fields__.keys()
+        for field in one.model_fields.keys()
         if field not in (ignore_fields or [])
         and hasattr(one, field)
         and hasattr(two, field)
         and (
             (
                 isinstance(getattr(one, field), (list, dict))
-                and set(getattr(one, field) or []) != set(getattr(two, field) or [])
+                and {
+                    tuple(sorted(item.model_dump().items()))
+                    if isinstance(item, BaseModel)
+                    else item
+                    for item in getattr(one, field) or []
+                }
+                != {
+                    tuple(sorted(item.model_dump().items()))
+                    if isinstance(item, BaseModel)
+                    else item
+                    for item in getattr(two, field) or []
+                }
             )
             or (
                 not isinstance(getattr(one, field), (list, dict))
@@ -572,18 +604,24 @@ def eq_or_fallback(a, b, fallback):
     return a == b or (a is None and b == fallback)
 
 
-def eq_columns(a: list[ColumnSpec] | None, b: list[ColumnSpec] | None) -> bool:
+def eq_columns(
+    a: list[ColumnSpec] | None,
+    b: list[ColumnSpec] | None,
+    compare_types: bool = True,
+) -> bool:
     """
     Compare two lists of ColumnSpec objects (or None) with special rules:
       - None or [] is considered equivalent to a list where every column only has 'primary_key'
         in attributes and partition is None.
+      - If a column is missing display_name or description, it's treated as empty string.
+    If the compare_types flag is False, the column types will not be compared.
     """
     a_map = {col.name: col for col in a or []}
     b_map = {col.name: col for col in b or []}
     a_cols, b_cols = [], []
     for col_name in set(a_map.keys()).union(set(b_map.keys())):
-        a_col = a_map.get(col_name)
-        b_col = b_map.get(col_name)
+        a_col = a_map.get(col_name).model_copy() if a_map.get(col_name) else None  # type: ignore
+        b_col = b_map.get(col_name).model_copy() if b_map.get(col_name) else None  # type: ignore
         if not a_col:
             a_col = ColumnSpec(
                 name=col_name,
@@ -606,6 +644,10 @@ def eq_columns(a: list[ColumnSpec] | None, b: list[ColumnSpec] | None) -> bool:
             b_col.display_name = labelize(col_name)
         if not b_col.description:  # pragma: no cover
             b_col.description = ""
+        if not compare_types:
+            a_col.type = ""
+            b_col.type = ""
+        # Remove primary_key from copies for comparison
         if "primary_key" in a_col.attributes:
             a_col.attributes = list(set(a_col.attributes) - {"primary_key"})
         if "primary_key" in b_col.attributes:
