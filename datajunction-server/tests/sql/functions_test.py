@@ -3672,6 +3672,15 @@ async def test_unix_timestamp(session: AsyncSession):
     assert query.select.projection[0].type == ct.BigIntType()  # type: ignore
     assert query.select.projection[1].type == ct.BigIntType()  # type: ignore
 
+    query = parse(
+        "SELECT unix_timestamp(to_timestamp('2025-01-01 10:10:10.123', 'yyyy-MM-dd HH:mm:ss.SSS'))",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BigIntType()  # type: ignore
+
 
 @pytest.mark.asyncio
 async def test_timestamp(session: AsyncSession):
