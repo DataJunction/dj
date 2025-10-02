@@ -3,7 +3,6 @@ Bulk deployment APIs.
 """
 
 import asyncio
-from dataclasses import dataclass
 import logging
 from typing import Callable
 import uuid
@@ -23,9 +22,8 @@ from datajunction_server.models.deployment import (
     DeploymentSpec,
     DeploymentInfo,
 )
-from datajunction_server.internal.deployment import (
-    deploy,
-)
+from datajunction_server.internal.deployment.deployment import deploy
+from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     validate_access,
@@ -44,17 +42,6 @@ from abc import ABC, abstractmethod
 logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["deployments"])
-
-
-@dataclass
-class DeploymentContext:
-    current_user: User
-    request: Request
-    query_service_client: QueryServiceClient
-    save_history: Callable
-    validate_access: access.ValidateAccessFn
-    background_tasks: BackgroundTasks
-    cache: Cache
 
 
 class DeploymentExecutor(ABC):
@@ -88,13 +75,7 @@ class InProcessExecutor(DeploymentExecutor):
             self._run_deployment(
                 deployment_id=deployment_uuid,
                 deployment_spec=spec,
-                current_user=context.current_user,
-                request=context.request,
-                query_service_client=context.query_service_client,
-                save_history=context.save_history,
-                validate_access=context.validate_access,
-                background_tasks=context.background_tasks,
-                cache=context.cache,
+                context=context,
             ),
         )
         return deployment_uuid
@@ -116,41 +97,35 @@ class InProcessExecutor(DeploymentExecutor):
         self,
         deployment_id: str,
         deployment_spec: DeploymentSpec,
-        current_user: User,
-        request: Request,
-        query_service_client: QueryServiceClient,
-        save_history: Callable,
-        validate_access: access.ValidateAccessFn,
-        background_tasks: BackgroundTasks,
-        cache: Cache,
+        context: DeploymentContext,
     ):
         await InProcessExecutor.update_status(deployment_id, DeploymentStatus.RUNNING)
 
         try:
-            results = await deploy(
-                deployment_id=deployment_id,
-                deployment=deployment_spec,
-                current_username=current_user.username,
-                request=request,
-                query_service_client=query_service_client,
-                save_history=save_history,
-                validate_access=validate_access,
-                background_tasks=background_tasks,
-                cache=cache,
-            )
-            final_status = (
-                DeploymentStatus.SUCCESS
-                if all(
-                    r.status
-                    in (
-                        DeploymentResult.Status.SUCCESS,
-                        DeploymentResult.Status.SKIPPED,
-                    )
-                    for r in results
+            async with session_context() as session:
+                results = await deploy(
+                    session=session,
+                    deployment_id=deployment_id,
+                    deployment=deployment_spec,
+                    context=context,
                 )
-                else DeploymentStatus.FAILED
-            )
-            await InProcessExecutor.update_status(deployment_id, final_status, results)
+                final_status = (
+                    DeploymentStatus.SUCCESS
+                    if all(
+                        r.status
+                        in (
+                            DeploymentResult.Status.SUCCESS,
+                            DeploymentResult.Status.SKIPPED,
+                        )
+                        for r in results
+                    )
+                    else DeploymentStatus.FAILED
+                )
+                await InProcessExecutor.update_status(
+                    deployment_id,
+                    final_status,
+                    results,
+                )
         except Exception as exc:
             logger.error("Deployment %s failed: %s", deployment_id, exc, exc_info=True)
             await InProcessExecutor.update_status(

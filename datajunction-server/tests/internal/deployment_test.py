@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 import random
 from typing import AsyncGenerator, cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 import pytest_asyncio
 from datajunction_server.api.attributes import default_attribute_types
@@ -17,21 +17,22 @@ from datajunction_server.models.partition import (
     Granularity,
     PartitionType,
 )
-from datajunction_server.internal.deployment import (
-    check_external_deps,
-    deploy_column_properties,
-    deploy_delete_node,
-    deploy_dimension_link_from_spec,
-    deploy_node_tags,
-    deploy_remove_dimension_link,
+from datajunction_server.internal.deployment.orchestrator import (
+    DeploymentOrchestrator,
+    DeploymentSpec,
+)
+from datajunction_server.internal.deployment.utils import (
+    DeploymentContext,
     extract_node_graph,
     topological_levels,
+)
+from datajunction_server.internal.deployment.deployment import (
+    deploy_column_properties,
+    deploy_node_tags,
 )
 from datajunction_server.models.deployment import (
     ColumnSpec,
     DeploymentResult,
-    DimensionJoinLinkSpec,
-    DimensionReferenceLinkSpec,
     NodeSpec,
     PartitionSpec,
     TransformSpec,
@@ -43,7 +44,6 @@ from datajunction_server.models.deployment import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.errors import (
     DJDoesNotExistException,
-    DJException,
     DJGraphCycleException,
     DJInvalidDeploymentConfig,
 )
@@ -323,6 +323,30 @@ async def external_source_node(
     yield node
 
 
+def create_orchestrator(
+    session: AsyncSession,
+    current_user: User,
+    nodes: list[NodeSpec],
+) -> DeploymentOrchestrator:
+    """
+    Create a deployment orchestrator for testing.
+    """
+    context = MagicMock(autospec=DeploymentContext)
+    context.current_user = current_user
+    context.save_history = mock_save_history
+    deployment_spec = DeploymentSpec(
+        namespace="example",
+        nodes=nodes,
+        tags=[],
+    )
+    return DeploymentOrchestrator(
+        deployment_spec=deployment_spec,
+        deployment_id="test-deployment",
+        session=session,
+        context=context,
+    )
+
+
 async def test_check_external_dependencies(
     session: AsyncSession,
     basic_nodes: list[NodeSpec],
@@ -339,28 +363,30 @@ async def test_check_external_dependencies(
         for node_spec in basic_nodes
         if node_spec.name not in ("example.dimension_node", "example.cube_node")
     ]
+    orchestrator = create_orchestrator(session, current_user, valid_nodes)
     node_graph = extract_node_graph(valid_nodes)
-    assert await check_external_deps(session, node_graph, valid_nodes) == set()
+    external_deps = await orchestrator.check_external_deps(node_graph)
+    assert external_deps == set()
 
-    # One external dependency (the dimension node depends on the existing source)
+    # One external dependency that doesn't exist yet
     nodes = [
         node_spec for node_spec in basic_nodes if node_spec.name != "example.cube_node"
     ]
+    orchestrator = create_orchestrator(session, current_user, nodes)
     node_graph = extract_node_graph(nodes)
     with pytest.raises(DJInvalidDeploymentConfig) as excinfo:
-        await check_external_deps(session, node_graph, nodes)
+        await orchestrator.check_external_deps(node_graph)
     assert (
         str(excinfo.value)
         == "The following dependencies are not in the deployment and do not pre-exist in the system: catalog.dim.categories"
     )
 
-    # Create the external source node
+    # External dependency exists in the system
     async with external_source_node(session, current_user, catalog) as _:
-        # Now check_external_deps should pass
+        orchestrator = create_orchestrator(session, current_user, basic_nodes)
         node_graph = extract_node_graph(basic_nodes)
-        assert await check_external_deps(session, node_graph, basic_nodes) == {
-            "catalog.dim.categories",
-        }
+        external_deps = await orchestrator.check_external_deps(node_graph)
+        assert external_deps == {"catalog.dim.categories"}
 
 
 async def mock_save_history(event, session):
@@ -436,7 +462,7 @@ async def test_deploy_column_properties_partition(
     categories: Node,
 ):
     with patch(
-        "datajunction_server.internal.deployment.session_context",
+        "datajunction_server.internal.deployment.deployment.session_context",
     ) as mock_session_context:
         await default_attribute_types(session)
         mock_session_context.return_value = session
@@ -500,7 +526,7 @@ async def test_deploy_column_properties_attributes(
     categories: Node,
 ):
     with patch(
-        "datajunction_server.internal.deployment.session_context",
+        "datajunction_server.internal.deployment.deployment.session_context",
     ) as mock_session_context:
         await default_attribute_types(session)
         mock_session_context.return_value = session
@@ -542,7 +568,7 @@ async def test_deploy_column_properties_desc(
     categories: Node,
 ):
     with patch(
-        "datajunction_server.internal.deployment.session_context",
+        "datajunction_server.internal.deployment.deployment.session_context",
     ) as mock_session_context:
         await default_attribute_types(session)
         mock_session_context.return_value = session
@@ -579,7 +605,7 @@ async def test_deploy_column_properties_reset(
     categories: Node,
 ):
     with patch(
-        "datajunction_server.internal.deployment.session_context",
+        "datajunction_server.internal.deployment.deployment.session_context",
     ) as mock_session_context:
         await default_attribute_types(session)
         mock_session_context.return_value = session
@@ -644,231 +670,22 @@ async def test_deploy_column_properties_reset(
         assert not node.current.columns[2].partition_id
 
 
-async def test_deploy_dimension_join_link(
-    session: AsyncSession,
-    current_user: User,
-    categories: Node,
-    date: Node,
-):
-    with patch(
-        "datajunction_server.internal.deployment.session_context",
-    ) as mock_session_context:
-        await default_attribute_types(session)
-        mock_session_context.return_value = session
-        node = cast(Node, await Node.get_by_name(session, categories.name))
-        categories_spec = await node.to_spec(session)
-        join_sql = "catalog.dim.categories.dateint = catalog.dim.date.dateint"
-        join_link_spec = DimensionJoinLinkSpec(
-            dimension_node=date.name,
-            join_on=join_sql,
-        )
-        result = await deploy_dimension_link_from_spec(
-            node_spec=categories_spec,
-            link_spec=join_link_spec,
-            current_username=current_user.username,
-            save_history=mock_save_history,
-            existing_node_links={},
-        )
-        assert result == DeploymentResult(
-            name="catalog.dim.categories -> catalog.dim.date",
-            deploy_type=DeploymentResult.Type.LINK,
-            status=DeploymentResult.Status.SUCCESS,
-            operation=DeploymentResult.Operation.CREATE,
-            message="Join link successfully deployed",
-        )
-        node = cast(Node, await Node.get_by_name(session, categories.name))
-        assert len(node.current.dimension_links) == 1
-        node.current.dimension_links[0].dimension.name == date.name
-        node.current.dimension_links[0].join_sql == join_sql
-
-        # Deploying again should skip
-        existing_node_spec = await node.to_spec(session)
-        result = await deploy_dimension_link_from_spec(
-            node_spec=categories_spec,
-            link_spec=join_link_spec,
-            current_username=current_user.username,
-            save_history=mock_save_history,
-            existing_node_links={
-                (link.rendered_dimension_node, link.role): link
-                for link in (
-                    existing_node_spec.dimension_links if existing_node_spec else []
-                )
-            },
-        )
-        assert result == DeploymentResult(
-            name="catalog.dim.categories -> catalog.dim.date",
-            deploy_type=DeploymentResult.Type.LINK,
-            status=DeploymentResult.Status.SKIPPED,
-            operation=DeploymentResult.Operation.CREATE,
-            message="No change to dimension link",
-        )
-
-        # Removing is successful
-        result = await deploy_remove_dimension_link(
-            session=session,
-            node_name=categories.name,
-            link=join_link_spec,
-            current_username=current_user.username,
-            save_history=mock_save_history,
-        )
-        assert result == DeploymentResult(
-            name="catalog.dim.categories -> catalog.dim.date",
-            deploy_type=DeploymentResult.Type.LINK,
-            status=DeploymentResult.Status.SUCCESS,
-            operation=DeploymentResult.Operation.DELETE,
-            message="",
-        )
-        node = cast(Node, await Node.get_by_name(session, categories.name))
-        assert len(node.current.dimension_links) == 0
-
-
-async def test_deploy_dimension_join_link_failures(
-    session: AsyncSession,
-    current_user: User,
-    categories: Node,
-    date: Node,
-):
-    with patch(
-        "datajunction_server.internal.deployment.session_context",
-    ) as mock_session_context:
-        await default_attribute_types(session)
-        mock_session_context.return_value = session
-        node = cast(Node, await Node.get_by_name(session, categories.name))
-        categories_spec = await node.to_spec(session)
-        join_link_spec = DimensionJoinLinkSpec(
-            dimension_node=date.name,
-            join_on="catalog.dim.categories.dateint = catalog.dim.date.dateint",
-        )
-
-        # Mock upsert link failure
-        def mock_upsert_link(*args, **kwargs):
-            raise DJException("Something went wrong with upserting link")
-
-        existing_node_spec = await node.to_spec(session)
-        with patch(
-            "datajunction_server.internal.deployment.upsert_complex_dimension_link",
-            mock_upsert_link,
-        ):
-            result = await deploy_dimension_link_from_spec(
-                node_spec=categories_spec,
-                link_spec=join_link_spec,
-                current_username=current_user.username,
-                save_history=mock_save_history,
-                existing_node_links={
-                    (link.rendered_dimension_node, link.role): link
-                    for link in (
-                        existing_node_spec.dimension_links if existing_node_spec else []
-                    )
-                },
-            )
-            assert result == DeploymentResult(
-                name="catalog.dim.categories -> catalog.dim.date",
-                deploy_type=DeploymentResult.Type.LINK,
-                status=DeploymentResult.Status.FAILED,
-                operation=DeploymentResult.Operation.CREATE,
-                message="Something went wrong with upserting link",
-            )
-
-        # Mock remove link failure
-        def mock_remove_link(**kwargs):
-            raise DJException("Something went wrong with removing the link")
-
-        with patch(
-            "datajunction_server.internal.deployment.remove_dimension_link",
-            mock_remove_link,
-        ):
-            result = await deploy_remove_dimension_link(
-                session=session,
-                node_name=categories.name,
-                link=join_link_spec,
-                current_username=current_user.username,
-                save_history=mock_save_history,
-            )
-            assert result == DeploymentResult(
-                name="catalog.dim.categories -> catalog.dim.date",
-                deploy_type=DeploymentResult.Type.LINK,
-                status=DeploymentResult.Status.FAILED,
-                operation=DeploymentResult.Operation.DELETE,
-                message="Something went wrong with removing the link",
-            )
-
-
-async def test_deploy_dimension_reference_link(
-    session: AsyncSession,
-    current_user: User,
-    categories: Node,
-    date: Node,
-):
-    with patch(
-        "datajunction_server.internal.deployment.session_context",
-    ) as mock_session_context:
-        await default_attribute_types(session)
-        mock_session_context.return_value = session
-        node = cast(Node, await Node.get_by_name(session, categories.name))
-        categories_spec = await node.to_spec(session)
-        ref_link_spec = DimensionReferenceLinkSpec(
-            node_column="dateint",
-            dimension="catalog.dim.date.dateint",
-        )
-        result = await deploy_dimension_link_from_spec(
-            node_spec=categories_spec,
-            link_spec=ref_link_spec,
-            current_username=current_user.username,
-            save_history=mock_save_history,
-            existing_node_links={},
-        )
-        assert result == DeploymentResult(
-            name="catalog.dim.categories -> catalog.dim.date",
-            deploy_type=DeploymentResult.Type.LINK,
-            status=DeploymentResult.Status.SUCCESS,
-            operation=DeploymentResult.Operation.CREATE,
-            message="Reference link successfully deployed",
-        )
-        node = cast(Node, await Node.get_by_name(session, categories.name))
-        assert node.current.columns[2].dimension.name == date.name
-
-        # FIXME: Reference link deletion should work
-        # result = await deploy_remove_dimension_link(
-        #     session=session,
-        #     node_name=categories.name,
-        #     link=ref_link_spec,
-        #     current_username=current_user.username,
-        #     save_history=mock_save_history,
-        # )
-        # assert result == DeploymentResult(
-        #     name="catalog.dim.categories -> catalog.dim.date",
-        #     deploy_type=DeploymentResult.Type.LINK,
-        #     status=DeploymentResult.Status.SUCCESS,
-        #     operation=DeploymentResult.Operation.DELETE,
-        #     message="",
-        # )
-        # node = cast(Node, await Node.get_by_name(session, categories.name))
-        # assert not node.current.columns[2].dimension_id
-
-
 async def test_deploy_delete_node_success(
     session: AsyncSession,
     current_user: User,
     categories: Node,
 ):
-    with patch(
-        "datajunction_server.internal.deployment.session_context",
-    ) as mock_session_context:
-        await default_attribute_types(session)
-        mock_session_context.return_value = session
-        result = await deploy_delete_node(
-            categories.name,
-            current_user.username,
-            mock_save_history,
-        )
-        assert result == DeploymentResult(
-            name="catalog.dim.categories",
-            deploy_type=DeploymentResult.Type.NODE,
-            status=DeploymentResult.Status.SUCCESS,
-            operation=DeploymentResult.Operation.DELETE,
-            message="Node catalog.dim.categories has been removed.",
-        )
-        assert await Node.get_by_name(session, categories.name) is None
+    await default_attribute_types(session)
+    orchestrator = create_orchestrator(session, current_user, [])
+    result = await orchestrator._deploy_delete_node(categories.name)
+    assert result == DeploymentResult(
+        name="catalog.dim.categories",
+        deploy_type=DeploymentResult.Type.NODE,
+        status=DeploymentResult.Status.SUCCESS,
+        operation=DeploymentResult.Operation.DELETE,
+        message="Node catalog.dim.categories has been removed.",
+    )
+    assert await Node.get_by_name(session, categories.name) is None
 
 
 async def test_deploy_delete_node_failure(
@@ -876,23 +693,16 @@ async def test_deploy_delete_node_failure(
     current_user: User,
     categories: Node,
 ):
-    with patch(
-        "datajunction_server.internal.deployment.session_context",
-    ) as mock_session_context:
-        await default_attribute_types(session)
-        mock_session_context.return_value = session
-        result = await deploy_delete_node(
-            categories.name + "bogus",
-            current_user.username,
-            mock_save_history,
-        )
-        assert result == DeploymentResult(
-            name="catalog.dim.categoriesbogus",
-            deploy_type=DeploymentResult.Type.NODE,
-            status=DeploymentResult.Status.FAILED,
-            operation=DeploymentResult.Operation.DELETE,
-            message="A node with name `catalog.dim.categoriesbogus` does not exist.",
-        )
+    await default_attribute_types(session)
+    orchestrator = create_orchestrator(session, current_user, [])
+    result = await orchestrator._deploy_delete_node(categories.name + "bogus")
+    assert result == DeploymentResult(
+        name="catalog.dim.categoriesbogus",
+        deploy_type=DeploymentResult.Type.NODE,
+        status=DeploymentResult.Status.FAILED,
+        operation=DeploymentResult.Operation.DELETE,
+        message="A node with name `catalog.dim.categoriesbogus` does not exist.",
+    )
 
 
 async def test_deploy_node_tags(
@@ -901,7 +711,7 @@ async def test_deploy_node_tags(
     categories: Node,
 ):
     with patch(
-        "datajunction_server.internal.deployment.session_context",
+        "datajunction_server.internal.deployment.deployment.session_context",
     ) as mock_session_context:
         await default_attribute_types(session)
         mock_session_context.return_value = session

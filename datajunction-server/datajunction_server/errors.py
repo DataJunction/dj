@@ -56,6 +56,12 @@ class ErrorCode(IntEnum):
     INVALID_PARENT = 600
     INVALID_DIMENSION = 601
     INVALID_METRIC = 602
+    INVALID_DIMENSION_LINK = 603
+
+    # Deployment
+    TAG_NOT_FOUND = 700
+    CATALOG_NOT_FOUND = 701
+    INVALID_NAMESPACE = 702
 
 
 class DebugType(TypedDict, total=False):
@@ -127,7 +133,7 @@ class DJWarning(BaseModel):
 
     code: Optional[ErrorCode] = None
     message: str
-    debug: Optional[Dict[str, Any]]
+    debug: Optional[Dict[str, Any]] = None
 
 
 DBAPIExceptions = Literal[
