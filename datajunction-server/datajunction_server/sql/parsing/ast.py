@@ -30,6 +30,7 @@ from typing import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from datajunction_server.utils import refresh_if_needed
 from datajunction_server.construction.utils import get_dj_node, to_namespaced_name
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node as DJNodeRef
@@ -91,6 +92,7 @@ def flatten(maybe_iterables: Any) -> Iterator:
 class CompileContext:
     session: AsyncSession
     exception: DJException
+    dependencies_cache: dict[str, DJNodeRef] = field(default_factory=dict)
 
 
 # typevar used for node methods that return self
@@ -987,14 +989,20 @@ class Column(Aliasable, Named, Expression):
                     current_table.set_dj_node(current_table.dj_node.current)
                 for dj_col in current_table.dj_node.columns:
                     if dj_col.dimension:
-                        col_dimension = await DJNodeRef.get_by_name(
-                            ctx.session,
+                        if not ctx.dependencies_cache.get(dj_col.dimension.name):
+                            ctx.dependencies_cache[
+                                dj_col.dimension.name
+                            ] = await DJNodeRef.get_by_name(
+                                ctx.session,
+                                dj_col.dimension.name,
+                                options=[
+                                    joinedload(DJNodeRef.current).options(
+                                        selectinload(DJNode.columns),
+                                    ),
+                                ],
+                            )
+                        col_dimension = ctx.dependencies_cache.get(
                             dj_col.dimension.name,
-                            options=[
-                                joinedload(DJNodeRef.current).options(
-                                    selectinload(DJNode.columns),
-                                ),
-                            ],
                         )
                         if col_dimension:
                             new_table = Table(
@@ -1392,11 +1400,17 @@ class Table(TableExpression, Named):
         self._is_compiled = True
         try:
             if not self.dj_node:
-                dj_node = await get_dj_node(
-                    ctx.session,
-                    self.identifier(quotes=False),
-                    {DJNodeType.SOURCE, DJNodeType.TRANSFORM, DJNodeType.DIMENSION},
-                )
+                db_node = ctx.dependencies_cache.get(self.identifier(quotes=False))
+                if db_node:
+                    await refresh_if_needed(ctx.session, db_node, ["current"])
+                    await refresh_if_needed(ctx.session, db_node.current, ["columns"])
+                    dj_node = db_node.current
+                else:
+                    dj_node = await get_dj_node(
+                        ctx.session,
+                        self.identifier(quotes=False),
+                        {DJNodeType.SOURCE, DJNodeType.TRANSFORM, DJNodeType.DIMENSION},
+                    )
                 self.set_dj_node(dj_node)
             self._columns = [
                 Column(Name(col.name), _type=col.type, _table=self)
