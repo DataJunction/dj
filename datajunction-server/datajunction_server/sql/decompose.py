@@ -133,8 +133,8 @@ class MetricComponentExtractor:
 
         MAX_BY/MIN_BY functions have limited aggregability because they depend on the
         ordering dimension. The pre-aggregation level is constrained by the ordering
-        dimension - we must preserve it in order to maintain the correctness of the
-        MAX_BY/MIN_BY operation.
+        dimension, and we must include it in the GROUP BY in order to maintain the
+        correctness of the MAX_BY/MIN_BY operation.
 
         Example:
           MAX_BY(coalesce(clicked, 0), dateint)
