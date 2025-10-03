@@ -2070,7 +2070,14 @@ async def upsert_complex_dimension_link(
         + (f"ON {link_input.join_on}" if link_input.join_on else ""),
     )
     exc = DJException()
-    ctx = ast.CompileContext(session=session, exception=exc)
+    ctx = ast.CompileContext(
+        session=session,
+        exception=exc,
+        dependencies_cache={
+            node_name: node,  # type: ignore
+            link_input.dimension_node: dimension_node,  # type: ignore
+        },
+    )
     await join_query.compile(ctx)
     join_relation = join_query.select.from_.relations[0].extensions[0]  # type: ignore
 
