@@ -716,7 +716,7 @@ def test_min_by():
     Test decomposition for a metric that uses MIN_BY.
     """
     extractor = MetricComponentExtractor.from_query_string(
-        "SELECT MIN_BY(IF(condition, 1, 0), dimension) FROM parent_node",
+        "SELECT MIN_BY(IF(condition, 1, 0), CAST(dimension AS INT)) FROM parent_node",
     )
     measures, derived_sql = extractor.extract()
     expected_measures = [
@@ -724,10 +724,15 @@ def test_min_by():
             name="condition_min_by_da873133",
             expression="IF(condition, 1, 0)",
             aggregation="MIN",
-            rule=AggregationRule(type=Aggregability.LIMITED, level=["dimension"]),
+            rule=AggregationRule(
+                type=Aggregability.LIMITED,
+                level=["CAST(dimension AS INT)"],
+            ),
         ),
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT MIN_BY(condition_min_by_da873133, dimension) FROM parent_node"),
+        parse(
+            "SELECT MIN_BY(condition_min_by_da873133, CAST(dimension AS INT)) FROM parent_node",
+        ),
     )
