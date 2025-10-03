@@ -25,9 +25,9 @@ class MetricComponentExtractor:
             dj_functions.Count: self._simple_associative_agg,
             dj_functions.CountIf: self._simple_associative_agg,
             dj_functions.Max: self._simple_associative_agg,
-            dj_functions.MaxBy: self._simple_associative_agg,
+            dj_functions.MaxBy: self._max_min_by_agg,
             dj_functions.Min: self._simple_associative_agg,
-            dj_functions.MinBy: self._simple_associative_agg,
+            dj_functions.MinBy: self._max_min_by_agg,
             dj_functions.Avg: self._avg,
             dj_functions.AnyValue: self._simple_associative_agg,
         }
@@ -75,7 +75,6 @@ class MetricComponentExtractor:
                 if handler and dj_function.is_aggregation:
                     if func_components := handler(func):  # pragma: no cover
                         MetricComponentExtractor.update_ast(func, func_components)
-
                     for component in sorted(func_components, key=lambda m: m.name):
                         if component.name not in self._components_tracker:
                             self._components_tracker.add(component.name)
@@ -84,7 +83,7 @@ class MetricComponentExtractor:
             self._extracted = True
         return self._components, self._query_ast
 
-    def _simple_associative_agg(self, func) -> list[MetricComponent]:
+    def _simple_associative_agg(self, func: ast.Function) -> list[MetricComponent]:
         """
         Handles decomposition for a single-argument associative aggregation function.
         Examples: SUM, MAX, MIN, COUNT
@@ -128,7 +127,58 @@ class MetricComponentExtractor:
             ),
         ]
 
-    def _avg(self, func) -> list[MetricComponent]:
+    def _max_min_by_agg(self, func: ast.Function) -> list[MetricComponent]:
+        """
+        Handles decomposition for MAX_BY or MIN_BY aggregation functions.
+
+        MAX_BY/MIN_BY functions have limited aggregability because they depend on the
+        ordering dimension. The pre-aggregation level is constrained by the ordering
+        dimension, and we must include it in the GROUP BY in order to maintain the
+        correctness of the MAX_BY/MIN_BY operation.
+
+        Example:
+          MAX_BY(coalesce(clicked, 0), dateint)
+
+          Here we can pre-aggregate as long as dateint is always included in the GROUP BY.
+          When dateint is in GROUP BY, `MAX_BY(clicked, dateint)` becomes `MAX(clicked)`,
+          since all rows in each group have the same ordering value.
+
+          The derived query should then be MAX_BY(condition_expr, ordering_expr).
+
+        Args:
+            func: The MAX_BY or MIN_BY function AST node
+
+        Returns:
+            List containing a single MetricComponent with limited aggregability,
+            where the aggregation rule level specifies the ordering dimension
+            that must be preserved for correct pre-computation.
+        """
+        measure_expr, ordering_expr = func.args
+        component_name = "_".join(
+            [amenable_name(str(col)) for col in measure_expr.find_all(ast.Column)]
+            + [func.name.name.lower()],
+        )
+
+        expression = str(measure_expr)
+        short_hash = hashlib.md5(expression.encode("utf-8").lower()).hexdigest()[:8]
+        agg_mapping = {
+            dj_functions.MaxBy: dj_functions.Max,
+            dj_functions.MinBy: dj_functions.Min,
+        }
+
+        return [
+            MetricComponent(
+                name=f"{component_name}_{short_hash}",
+                expression=expression,
+                aggregation=agg_mapping[func.function()].__name__.upper(),
+                rule=AggregationRule(
+                    type=Aggregability.LIMITED,
+                    level=(str(ordering_expr),),
+                ),
+            ),
+        ]
+
+    def _avg(self, func: ast.Function) -> list[MetricComponent]:
         """
         Handles decomposition for AVG (it requires both the SUM and COUNT of
         the function's argument).
@@ -171,12 +221,13 @@ class MetricComponentExtractor:
         ]
 
     @staticmethod
-    def update_ast(func, components: list[MetricComponent]):
+    def update_ast(func: ast.Function, components: list[MetricComponent]):
         """
         Updates the query AST based on the metric components derived from the function.
         """
-        if func.function() == dj_functions.Avg:
-            func.parent.replace(
+        function = func.function()
+        if function == dj_functions.Avg:
+            func.parent.replace(  # type: ignore
                 from_=func,
                 to=ast.BinaryOp(
                     op=ast.BinaryOpKind.Divide,
@@ -190,7 +241,7 @@ class MetricComponentExtractor:
                     ),
                 ),
             )
-        elif func.function() in (dj_functions.Count, dj_functions.CountIf):
+        elif function in (dj_functions.Count, dj_functions.CountIf):
             if func.quantifier != ast.SetQuantifier.Distinct:
                 func.name.name = "SUM"
                 func.args = [
@@ -200,6 +251,8 @@ class MetricComponentExtractor:
                 func.args = [
                     ast.Column(ast.Name(component.name)) for component in components
                 ]
+        elif function in (dj_functions.MaxBy, dj_functions.MinBy):
+            func.args = [ast.Column(ast.Name(components[0].name)), func.args[1]]
         else:
             func.args = [
                 ast.Column(ast.Name(component.name)) for component in components
