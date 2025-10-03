@@ -133,23 +133,23 @@ class MetricComponentExtractor:
 
         MAX_BY/MIN_BY functions have limited aggregability because they depend on the
         ordering dimension. The pre-aggregation level is constrained by the ordering
-        dimension - you must preserve it in order to maintain the semantic meaning
-        of the MAX_BY/MIN_BY operation.
+        dimension - we must preserve it in order to maintain the correctness of the
+        MAX_BY/MIN_BY operation.
 
         Example:
-          MAX_BY(coalesce(is_clicked, 0), dateint)
+          MAX_BY(coalesce(clicked, 0), dateint)
 
           Here we can pre-aggregate as long as dateint is always included in the GROUP BY.
-          When dateint is in GROUP BY, `MAX_BY(is_retained, dateint)` becomes `MAX(is_retained)`,
+          When dateint is in GROUP BY, `MAX_BY(clicked, dateint)` becomes `MAX(clicked)`,
           since all rows in each group have the same ordering value.
 
-          The derived query should then just be MAX(condition_expr, ordering_expr).
+          The derived query should then be MAX_BY(condition_expr, ordering_expr).
 
         Args:
             func: The MAX_BY or MIN_BY function AST node
 
         Returns:
-            List containing a single MetricComponent with LIMITED aggregability,
+            List containing a single MetricComponent with limited aggregability,
             where the aggregation rule level specifies the ordering dimension
             that must be preserved for correct pre-computation.
         """
