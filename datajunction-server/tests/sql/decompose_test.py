@@ -377,7 +377,7 @@ def test_rate():
     )
 
 
-def test_has_ever():
+def test_max_if():
     """
     Test decomposition for a metric definition that uses MAX.
     """
@@ -686,4 +686,48 @@ def test_metric_query_with_aliases():
             "SELECT SUM(time_to_dispatch_sum_bf99afd6) / "
             "SUM(time_to_dispatch_count_bf99afd6) FROM default.repair_orders_fact",
         ),
+    )
+
+
+def test_max_by():
+    """
+    Test decomposition for a metric that uses MAX_BY.
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT MAX_BY(IF(condition, 1, 0), dimension) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+    expected_measures = [
+        MetricComponent(
+            name="condition_max_by_da873133",
+            expression="IF(condition, 1, 0)",
+            aggregation="MAX",
+            rule=AggregationRule(type=Aggregability.LIMITED, level=["dimension"]),
+        ),
+    ]
+    assert measures == expected_measures
+    assert str(derived_sql) == str(
+        parse("SELECT MAX_BY(condition_max_by_da873133, dimension) FROM parent_node"),
+    )
+
+
+def test_min_by():
+    """
+    Test decomposition for a metric that uses MIN_BY.
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT MIN_BY(IF(condition, 1, 0), dimension) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+    expected_measures = [
+        MetricComponent(
+            name="condition_min_by_da873133",
+            expression="IF(condition, 1, 0)",
+            aggregation="MIN",
+            rule=AggregationRule(type=Aggregability.LIMITED, level=["dimension"]),
+        ),
+    ]
+    assert measures == expected_measures
+    assert str(derived_sql) == str(
+        parse("SELECT MIN_BY(condition_min_by_da873133, dimension) FROM parent_node"),
     )
