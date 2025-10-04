@@ -80,7 +80,7 @@ def test_http_client_submit_query(mock_submit_query):
         submitted_query="SELECT 1",
         executed_query="SELECT 1",
         state="FINISHED",
-        results=QueryResults(__root__=[]),
+        results=QueryResults([]),
         errors=[],
     )
     mock_submit_query.return_value = mock_result
@@ -113,7 +113,7 @@ def test_http_client_get_query(mock_get_query):
         submitted_query="SELECT 1",
         executed_query="SELECT 1",
         state="FINISHED",
-        results=QueryResults(__root__=[]),
+        results=QueryResults([]),
         errors=[],
     )
     mock_get_query.return_value = mock_result
