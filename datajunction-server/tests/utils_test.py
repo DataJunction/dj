@@ -33,11 +33,13 @@ from datajunction_server.utils import (
     get_and_update_current_user,
     get_issue_url,
     get_query_service_client,
+    get_legacy_query_service_client,
     get_session,
     get_session_manager,
     get_settings,
     setup_logging,
     is_graphql_query,
+    _create_configured_query_client,
 )
 
 
@@ -180,8 +182,7 @@ def test_get_query_service_client(mocker: MockerFixture, settings: Settings) -> 
     Test ``get_query_service_client``.
     """
     settings.query_service = "http://query_service:8001"
-    mocker.patch("datajunction_server.utils.get_settings", return_value=settings)
-    query_service_client = get_query_service_client()
+    query_service_client = get_query_service_client(settings=settings)
     assert query_service_client.uri == "http://query_service:8001"  # type: ignore
 
 
@@ -332,3 +333,237 @@ async def test_is_graphql_query(path, body, expected):
     request = Request(scope, receive)
     result = await is_graphql_query(request)
     assert result is expected
+
+
+def test_get_query_service_client_with_configured_client(
+    mocker: MockerFixture,
+    settings: Settings,
+) -> None:
+    """
+    Test get_query_service_client with configured client (non-HTTP).
+    """
+    from datajunction_server.config import QueryClientConfig
+
+    # Configure Snowflake client
+    settings.query_client = QueryClientConfig(
+        type="snowflake",
+        connection={"account": "test_account", "user": "test_user"},
+    )
+    settings.query_service = None
+
+    # Mock the SnowflakeClient import to avoid dependency issues
+    mock_snowflake_client = mocker.MagicMock()
+    mocker.patch(
+        "datajunction_server.query_clients.SnowflakeClient",
+        mock_snowflake_client,
+    )
+
+    client = get_query_service_client(settings=settings)
+    assert client is not None
+    mock_snowflake_client.assert_called_once_with(
+        account="test_account",
+        user="test_user",
+    )
+
+
+def test_get_query_service_client_returns_none(
+    mocker: MockerFixture,
+    settings: Settings,
+) -> None:
+    """
+    Test get_query_service_client returns None when no configuration is provided.
+    """
+    settings.query_service = None
+    from datajunction_server.config import QueryClientConfig
+
+    settings.query_client = QueryClientConfig(type="http", connection={})
+
+    client = get_query_service_client(settings=settings)
+    assert client is None
+
+
+def test_create_configured_query_client_http_success(mocker: MockerFixture) -> None:
+    """
+    Test _create_configured_query_client creates HTTP client successfully.
+    """
+    from datajunction_server.config import QueryClientConfig
+    from datajunction_server.query_clients import HttpQueryServiceClient
+
+    config = QueryClientConfig(type="http", connection={"uri": "http://test:8001"})
+
+    client = _create_configured_query_client(config)
+    assert isinstance(client, HttpQueryServiceClient)
+    assert client.uri == "http://test:8001"
+
+
+def test_create_configured_query_client_http_missing_uri(mocker: MockerFixture) -> None:
+    """
+    Test _create_configured_query_client raises error for HTTP client without URI.
+    """
+    from datajunction_server.config import QueryClientConfig
+
+    config = QueryClientConfig(type="http", connection={})
+
+    with pytest.raises(ValueError) as exc_info:
+        _create_configured_query_client(config)
+    assert "HTTP client requires 'uri' in connection parameters" in str(exc_info.value)
+
+
+def test_create_configured_query_client_snowflake_missing_params(
+    mocker: MockerFixture,
+) -> None:
+    """
+    Test _create_configured_query_client raises error for Snowflake client without required params.
+    """
+    from datajunction_server.config import QueryClientConfig
+
+    # Missing 'user' parameter
+    config = QueryClientConfig(type="snowflake", connection={"account": "test_account"})
+
+    with pytest.raises(ValueError) as exc_info:
+        _create_configured_query_client(config)
+    assert "Snowflake client requires 'user' in connection parameters" in str(
+        exc_info.value,
+    )
+
+    # Missing 'account' parameter
+    config = QueryClientConfig(type="snowflake", connection={"user": "test_user"})
+
+    with pytest.raises(ValueError) as exc_info:
+        _create_configured_query_client(config)
+    assert "Snowflake client requires 'account' in connection parameters" in str(
+        exc_info.value,
+    )
+
+
+def test_create_configured_query_client_snowflake_import_error(
+    mocker: MockerFixture,
+) -> None:
+    """
+    Test _create_configured_query_client handles ImportError for Snowflake client.
+    """
+    from datajunction_server.config import QueryClientConfig
+
+    config = QueryClientConfig(
+        type="snowflake",
+        connection={"account": "test_account", "user": "test_user"},
+    )
+
+    # Mock the import to fail
+    mocker.patch(
+        "datajunction_server.query_clients.SnowflakeClient",
+        side_effect=ImportError("No module named 'snowflake'"),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        _create_configured_query_client(config)
+    assert "Snowflake client dependencies not installed" in str(exc_info.value)
+    assert "pip install 'datajunction-server[snowflake]'" in str(exc_info.value)
+
+
+def test_create_configured_query_client_unsupported_type(mocker: MockerFixture) -> None:
+    """
+    Test _create_configured_query_client raises error for unsupported client type.
+    """
+    from datajunction_server.config import QueryClientConfig
+
+    config = QueryClientConfig(type="unsupported", connection={})
+
+    with pytest.raises(ValueError) as exc_info:
+        _create_configured_query_client(config)
+    assert "Unsupported query client type: unsupported" in str(exc_info.value)
+
+
+def test_get_legacy_query_service_client(
+    mocker: MockerFixture,
+    settings: Settings,
+) -> None:
+    """
+    Test get_legacy_query_service_client returns QueryServiceClient.
+    """
+    settings.query_service = "http://query_service:8001"
+
+    mock_query_service_client_cls = mocker.MagicMock()
+    mock_query_service_client_instance = mocker.MagicMock()
+    mock_query_service_client_cls.return_value = mock_query_service_client_instance
+    mocker.patch(
+        "datajunction_server.service_clients.QueryServiceClient",
+        mock_query_service_client_cls,
+    )
+
+    client = get_legacy_query_service_client(settings=settings)
+    mock_query_service_client_cls.assert_called_once_with("http://query_service:8001")
+    assert client == mock_query_service_client_instance
+
+
+def test_http_query_service_client_wrapper(mocker: MockerFixture) -> None:
+    """
+    Test HttpQueryServiceClient properly wraps QueryServiceClient.
+    """
+    from datajunction_server.query_clients import HttpQueryServiceClient
+    from datajunction_server.models.query import QueryCreate
+
+    # Mock the underlying QueryServiceClient
+    mock_client = mocker.MagicMock()
+    mocker.patch(
+        "datajunction_server.query_clients.http.QueryServiceClient",
+        return_value=mock_client,
+    )
+
+    # Create HTTP client
+    client = HttpQueryServiceClient("http://test:8001", retries=3)
+    assert client.uri == "http://test:8001"
+
+    # Test get_columns_for_table
+    mock_client.get_columns_for_table.return_value = []
+    result = client.get_columns_for_table("cat", "sch", "tbl")
+    assert result == []
+    mock_client.get_columns_for_table.assert_called_once()
+
+    # Test submit_query
+    mock_result = mocker.MagicMock()
+    mock_client.submit_query.return_value = mock_result
+    query = QueryCreate(
+        submitted_query="SELECT 1",
+        catalog_name="test",
+        engine_name="test",
+        engine_version="v1",
+    )
+    result = client.submit_query(query)
+    assert result == mock_result
+    mock_client.submit_query.assert_called_once()
+
+
+def test_snowflake_client_initialization_with_mock(mocker: MockerFixture) -> None:
+    """
+    Test SnowflakeClient initialization when snowflake package is available.
+    """
+    # Mock snowflake being available
+    mocker.patch(
+        "datajunction_server.query_clients.snowflake.SNOWFLAKE_AVAILABLE",
+        True,
+    )
+
+    # Mock the snowflake connector
+    mock_snowflake = mocker.MagicMock()
+    mocker.patch(
+        "datajunction_server.query_clients.snowflake.snowflake",
+        mock_snowflake,
+    )
+
+    from datajunction_server.query_clients.snowflake import SnowflakeClient
+
+    # Create client with basic params
+    client = SnowflakeClient(
+        account="test_account",
+        user="test_user",
+        password="test_pass",
+        warehouse="TEST_WH",
+        database="TEST_DB",
+    )
+
+    assert client.connection_params["account"] == "test_account"
+    assert client.connection_params["user"] == "test_user"
+    assert client.connection_params["password"] == "test_pass"
+    assert client.connection_params["warehouse"] == "TEST_WH"
+    assert client.connection_params["database"] == "TEST_DB"
