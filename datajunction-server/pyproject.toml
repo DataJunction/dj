@@ -109,6 +109,15 @@ transpilation = [
     "sqlglot>=18.0.1",
 ]
 
+# Query client dependencies for different data warehouse vendors
+snowflake = [
+    "snowflake-connector-python>=3.0.0",
+]
+
+all = [
+    "snowflake-connector-python>=3.0.0",
+]
+
 [project.entry-points.'superset.db_engine_specs']
 dj = 'datajunction_server.superset:DJEngineSpec'
 
