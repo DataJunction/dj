@@ -211,7 +211,7 @@ class SnowflakeClient(BaseQueryServiceClient):
             raise DJQueryServiceClientException(
                 message=f"Error retrieving columns from Snowflake: {str(e)}",
             )
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             _logger.exception(
                 "Unexpected error in get_columns_for_table",
             )  # pragma: no cover

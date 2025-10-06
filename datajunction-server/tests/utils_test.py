@@ -502,6 +502,7 @@ def test_http_query_service_client_wrapper(mocker: MockerFixture) -> None:
     """
     from datajunction_server.query_clients import HttpQueryServiceClient
     from datajunction_server.models.query import QueryCreate
+    from datajunction_server.models.node_type import NodeType
 
     # Mock the underlying QueryServiceClient
     mock_client = mocker.MagicMock()
@@ -516,22 +517,62 @@ def test_http_query_service_client_wrapper(mocker: MockerFixture) -> None:
 
     # Test get_columns_for_table
     mock_client.get_columns_for_table.return_value = []
-    result = client.get_columns_for_table("cat", "sch", "tbl")
-    assert result == []
+    get_columns_for_table_result = client.get_columns_for_table("cat", "sch", "tbl")
+    assert get_columns_for_table_result == []
     mock_client.get_columns_for_table.assert_called_once()
 
-    # Test submit_query
-    mock_result = mocker.MagicMock()
-    mock_client.submit_query.return_value = mock_result
+    # Test create_view
+    mock_client.create_view.return_value = "view_created"
     query = QueryCreate(
         submitted_query="SELECT 1",
         catalog_name="test",
         engine_name="test",
         engine_version="v1",
     )
-    result = client.submit_query(query)
-    assert result == mock_result
-    mock_client.submit_query.assert_called_once()
+    create_view_result = client.create_view("test_view", query)
+    assert create_view_result == "view_created"
+
+    # Test submit_query
+    mock_result = mocker.MagicMock()
+    mock_client.submit_query.return_value = mock_result
+    submit_query_result = client.submit_query(query)
+    assert submit_query_result == mock_result
+
+    # Test get_query
+    mock_client.get_query.return_value = mock_result
+    get_query_result = client.get_query("query_id_123")
+    assert get_query_result == mock_result
+
+    # Test materialize
+    mock_mat_result = mocker.MagicMock()
+    mock_client.materialize.return_value = mock_mat_result
+    materialize_result = client.materialize(mocker.MagicMock())
+    assert materialize_result == mock_mat_result
+
+    # Test materialize_cube
+    mock_client.materialize_cube.return_value = mock_mat_result
+    materialize_cube_result = client.materialize_cube(mocker.MagicMock())
+    assert materialize_cube_result == mock_mat_result
+
+    # Test deactivate_materialization
+    mock_client.deactivate_materialization.return_value = mock_mat_result
+    deactivate_materialization_result = client.deactivate_materialization("node", "mat")
+    assert deactivate_materialization_result == mock_mat_result
+
+    # Test get_materialization_info
+    mock_client.get_materialization_info.return_value = mock_mat_result
+    get_materialization_info_result = client.get_materialization_info(
+        "node",
+        "v1",
+        NodeType.SOURCE,
+        "mat",
+    )
+    assert get_materialization_info_result == mock_mat_result
+
+    # Test run_backfill
+    mock_client.run_backfill.return_value = mock_mat_result
+    run_backfill_result = client.run_backfill("node", "v1", NodeType.SOURCE, "mat", [])
+    assert run_backfill_result == mock_mat_result
 
 
 def test_snowflake_client_initialization_with_mock(mocker: MockerFixture) -> None:
@@ -546,6 +587,21 @@ def test_snowflake_client_initialization_with_mock(mocker: MockerFixture) -> Non
 
     # Mock the snowflake connector
     mock_snowflake = mocker.MagicMock()
+    mock_conn = mocker.MagicMock()
+    mock_cursor = mocker.MagicMock()
+    mock_cursor.fetchall.return_value = [
+        {
+            "COLUMN_NAME": "id",
+            "DATA_TYPE": "NUMBER",
+            "IS_NULLABLE": "NO",
+            "ORDINAL_POSITION": 1,
+        },
+    ]
+    mock_cursor.fetchone.return_value = (1,)
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+    mock_snowflake.connector.connect.return_value = mock_conn
+    mock_snowflake.connector.DatabaseError = Exception
+
     mocker.patch(
         "datajunction_server.query_clients.snowflake.snowflake",
         mock_snowflake,
@@ -553,7 +609,7 @@ def test_snowflake_client_initialization_with_mock(mocker: MockerFixture) -> Non
 
     from datajunction_server.query_clients.snowflake import SnowflakeClient
 
-    # Create client with basic params
+    # Create client with password auth
     client = SnowflakeClient(
         account="test_account",
         user="test_user",
@@ -567,3 +623,96 @@ def test_snowflake_client_initialization_with_mock(mocker: MockerFixture) -> Non
     assert client.connection_params["password"] == "test_pass"
     assert client.connection_params["warehouse"] == "TEST_WH"
     assert client.connection_params["database"] == "TEST_DB"
+
+    # Test get_columns_for_table
+    result = client.get_columns_for_table("catalog", "schema", "table")
+    assert len(result) == 1
+    assert result[0].name == "id"
+
+    # Test connection test
+    assert client.test_connection() is True
+
+    # Test with private key and role
+    mock_open_func = mocker.mock_open(read_data=b"private_key_data")
+    mocker.patch("builtins.open", mock_open_func)
+
+    client2 = SnowflakeClient(
+        account="test_account",
+        user="test_user",
+        private_key_path="/path/to/key.pem",
+        warehouse="TEST_WH",
+        role="TEST_ROLE",
+    )
+    assert "private_key" in client2.connection_params
+    assert client2.connection_params["private_key"] == b"private_key_data"
+    assert client2.connection_params["role"] == "TEST_ROLE"
+
+    # Test _get_database_from_engine with engine URI
+    mock_engine = mocker.MagicMock()
+    mock_engine.uri = "snowflake://user:pass@account/DATABASE_FROM_URI?warehouse=WH"
+    db_name = client._get_database_from_engine(mock_engine, "fallback")
+    assert db_name == "DATABASE_FROM_URI"
+
+    # Test with database in query params
+    mock_engine.uri = (
+        "snowflake://user:pass@account/?database=DB_FROM_QUERY&warehouse=WH"
+    )
+    db_name = client._get_database_from_engine(mock_engine, "fallback")
+    assert db_name == "DB_FROM_QUERY"
+
+    # Test with no database in URI (falls back to connection params)
+    mock_engine.uri = "snowflake://user:pass@account/?warehouse=WH"
+    db_name = client._get_database_from_engine(mock_engine, "fallback")
+    assert db_name == "TEST_DB"  # From client.connection_params
+
+    # Test with empty path (no database, no query params - falls back)
+    mock_engine.uri = "snowflake://user:pass@account"
+    db_name = client._get_database_from_engine(mock_engine, "fallback")
+    assert db_name == "TEST_DB"  # From client.connection_params
+
+    # Test with empty database name in path (just slash, no query)
+    mock_engine.uri = "snowflake://user:pass@account/"
+    db_name = client._get_database_from_engine(mock_engine, "fallback")
+    assert db_name == "TEST_DB"  # From client.connection_params
+
+    # Test with path that becomes empty after processing (double slash case)
+    mock_engine.uri = "snowflake://user:pass@account//"
+    db_name = client._get_database_from_engine(mock_engine, "fallback")
+    assert db_name == "TEST_DB"  # From client.connection_params
+
+    # Test error handling in get_columns_for_table
+    from datajunction_server.errors import DJDoesNotExistException
+
+    mock_cursor.fetchall.return_value = []
+    with pytest.raises(DJDoesNotExistException):
+        client.get_columns_for_table("catalog", "schema", "nonexistent")
+
+    # Test connection failure
+    mock_snowflake.connector.connect.side_effect = Exception("Connection failed")
+    assert client.test_connection() is False
+
+    # Reset side effect for next tests
+    mock_snowflake.connector.connect.side_effect = None
+    mock_snowflake.connector.connect.return_value = mock_conn
+
+    # Test database error handling
+    from datajunction_server.errors import DJQueryServiceClientException
+
+    mock_cursor.execute.side_effect = mock_snowflake.connector.DatabaseError(
+        "Table does not exist",
+    )
+    with pytest.raises(DJDoesNotExistException):
+        client.get_columns_for_table("catalog", "schema", "missing_table")
+
+    # Test other database error
+    mock_cursor.execute.side_effect = mock_snowflake.connector.DatabaseError(
+        "Connection timeout",
+    )
+    with pytest.raises(DJQueryServiceClientException):
+        client.get_columns_for_table("catalog", "schema", "table")
+
+    # Test type mapping with decimal parameters
+    assert client._map_snowflake_type_to_dj("NUMBER(10,2)")
+    assert client._map_snowflake_type_to_dj("DECIMAL(20,5)")
+    assert client._map_snowflake_type_to_dj("NUMERIC(15)")  # No scale parameter
+    assert client._map_snowflake_type_to_dj("NUMBER(invalid)")  # Invalid params
