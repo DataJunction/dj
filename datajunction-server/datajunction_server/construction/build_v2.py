@@ -1280,8 +1280,12 @@ async def dimension_join_path(
     processing_queue = collections.deque(
         [(link, [link]) for link in node.dimension_links],
     )
+    visited = set()
     while processing_queue:
         current_link, join_path = processing_queue.popleft()
+        if current_link.id in visited:
+            continue
+        visited.add(current_link.id)
         await refresh_if_needed(session, current_link, ["dimension"])
         if current_link.dimension.name == dimension_attr.node_name:
             return join_path
