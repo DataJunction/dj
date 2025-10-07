@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.api.helpers import find_bound_dimensions
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.column import Column, ColumnAttribute
-from datajunction_server.errors import DJError, DJException, ErrorCode
+from datajunction_server.errors import (
+    DJError,
+    DJException,
+    DJInvalidMetricQueryException,
+    ErrorCode,
+)
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
@@ -223,3 +228,47 @@ async def validate_node_data(
         node_validator.errors.extend(errors)
 
     return node_validator
+
+
+def validate_metric_query(query_ast: ast.Query, name: str) -> None:
+    """
+    Validate a metric query.
+    The Node SQL query should have a single expression in its
+    projections and it should be an aggregation function.
+    """
+    if len(query_ast.select.projection) != 1:
+        raise DJInvalidMetricQueryException(
+            message="Metric queries can only have a single "
+            f"expression, found {len(query_ast.select.projection)}",
+        )
+
+    projection_0 = query_ast.select.projection[0]
+    if not projection_0.is_aggregation():  # type: ignore
+        raise DJInvalidMetricQueryException(
+            f"Metric {name} has an invalid query, should have an aggregate expression",
+        )
+
+    if query_ast.select.where:
+        raise DJInvalidMetricQueryException(
+            "Metric cannot have a WHERE clause. Please use IF(<clause>, ...) instead",
+        )
+
+    clauses = [
+        "GROUP BY" if query_ast.select.group_by else None,
+        "HAVING" if query_ast.select.having else None,
+        "LATERAL VIEW" if query_ast.select.lateral_views else None,
+        "UNION or INTERSECT" if query_ast.select.set_op else None,
+        "LIMIT" if query_ast.select.limit else None,
+        "ORDER BY"
+        if query_ast.select.organization and query_ast.select.organization.order
+        else None,
+        "SORT BY"
+        if query_ast.select.organization and query_ast.select.organization.sort
+        else None,
+    ]
+    invalid_clauses = [clause for clause in clauses if clause is not None]
+    if invalid_clauses:
+        raise DJInvalidMetricQueryException(
+            "Metric has an invalid query. The following are not allowed: "
+            + ", ".join(invalid_clauses),
+        )

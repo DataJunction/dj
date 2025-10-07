@@ -1397,6 +1397,9 @@ class Table(TableExpression, Named):
     async def compile(self, ctx: CompileContext):
         # things we can validate here:
         # - if the node is a dimension in a groupby, is it joinable?
+        if self.is_compiled():
+            return
+
         self._is_compiled = True
         try:
             if not self.dj_node:
