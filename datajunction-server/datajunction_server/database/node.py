@@ -4,7 +4,6 @@ import pickle
 import zlib
 from datetime import datetime, timezone
 from functools import partial
-from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import sqlalchemy as sa
@@ -50,7 +49,6 @@ from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJInvalidInputException,
-    DJInvalidMetricQueryException,
     DJNodeNotFound,
 )
 from datajunction_server.models.base import labelize
@@ -1017,43 +1015,10 @@ class NodeRevision(
         projections and it should be an aggregation function.
         """
         from datajunction_server.sql.parsing.backends.antlr4 import parse
+        from datajunction_server.internal.validation import validate_metric_query
 
-        # must have a single expression
         tree = parse(self.query)
-        if len(tree.select.projection) != 1:
-            raise DJInvalidInputException(
-                http_status_code=HTTPStatus.BAD_REQUEST,
-                message="Metric queries can only have a single "
-                f"expression, found {len(tree.select.projection)}",
-            )
-        projection_0 = tree.select.projection[0]
-
-        # must have an aggregation
-        if not projection_0.is_aggregation():
-            raise DJInvalidMetricQueryException(
-                f"Metric {self.name} has an invalid query, should have an aggregate expression",
-            )
-
-        if tree.select.where:
-            raise DJInvalidMetricQueryException(
-                "Metric cannot have a WHERE clause. Please use IF(<clause>, ...) instead",
-            )
-
-        clauses = [
-            "GROUP BY" if tree.select.group_by else None,
-            "HAVING" if tree.select.having else None,
-            "LATERAL VIEW" if tree.select.lateral_views else None,
-            "UNION or INTERSECT" if tree.select.set_op else None,
-            "LIMIT" if tree.select.limit else None,
-            "ORDER BY" if tree.select.organization.order else None,
-            "SORT BY" if tree.select.organization.sort else None,
-        ]
-        invalid_clauses = [clause for clause in clauses if clause is not None]
-        if invalid_clauses:
-            raise DJInvalidMetricQueryException(
-                "Metric has an invalid query. The following are not allowed: "
-                + ", ".join(invalid_clauses),
-            )
+        return validate_metric_query(tree, self.name)
 
     def extra_validation(self) -> None:
         """
