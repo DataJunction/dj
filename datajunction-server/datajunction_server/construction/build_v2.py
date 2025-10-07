@@ -15,7 +15,6 @@ from typing import (
 )
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
@@ -41,46 +40,6 @@ from datajunction_server.sql.parsing.backends.antlr4 import ast, cached_parse, p
 from datajunction_server.utils import SEPARATOR, refresh_if_needed
 
 logger = logging.getLogger(__name__)
-
-
-async def create_compile_context_with_bulk_deps(
-    session: AsyncSession,
-    node_names: set[str] | None = None,
-    exception: DJException | None = None,
-) -> ast.CompileContext:
-    """
-    Create a CompileContext with bulk-loaded dependencies.
-
-    Args:
-        session: Database session
-        node_names: Node names to bulk load (if None, creates empty cache)
-        exception: DJException instance (creates new one if None)
-        max_depth: Maximum depth for transitive dependency loading
-
-    Returns:
-        CompileContext with preloaded dependencies cache
-    """
-    if exception is None:
-        exception = DJException()
-
-    dependencies_cache = {}
-    if node_names:
-        nodes = await Node.get_by_names(
-            session,
-            list(node_names),
-            options=[
-                joinedload(Node.current).options(
-                    selectinload(NodeRevision.columns),
-                ),
-            ],
-        )
-        dependencies_cache = {node.name: node for node in nodes}
-
-    return ast.CompileContext(
-        session=session,
-        exception=exception,
-        dependencies_cache=dependencies_cache,
-    )
 
 
 @dataclass
@@ -1442,11 +1401,7 @@ async def compile_node_ast(session, node_revision: NodeRevision) -> ast.Query:
     Parses the node's query into an AST and compiles it.
     """
     node_ast = parse(node_revision.query)
-    await refresh_if_needed(session, node_revision, ["parents"])
-    ctx = await create_compile_context_with_bulk_deps(
-        session,
-        {parent.name for parent in node_revision.parents},
-    )
+    ctx = CompileContext(session, DJException())
     await node_ast.compile(ctx)
     return node_ast
 
