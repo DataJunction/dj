@@ -17,11 +17,13 @@ if TYPE_CHECKING:
 try:  # pragma: no cover
     import snowflake.connector
     from snowflake.connector import DictCursor
+    from snowflake.connector import DatabaseError as SnowflakeDatabaseError
 
     SNOWFLAKE_AVAILABLE = True
 except ImportError:  # pragma: no cover
     snowflake = None
     DictCursor = None
+    SnowflakeDatabaseError = None
     SNOWFLAKE_AVAILABLE = False
 
 _logger = logging.getLogger(__name__)
@@ -201,17 +203,22 @@ class SnowflakeClient(BaseQueryServiceClient):
         except DJDoesNotExistException:
             # Re-raise DJDoesNotExistException as-is
             raise
-        except snowflake.connector.DatabaseError as e:
-            if "does not exist" in str(e).lower():
-                actual_database = self._get_database_from_engine(engine, catalog)
-                raise DJDoesNotExistException(
-                    message=f"Table not found: {actual_database}.{schema}.{table} "
-                    f"(DJ catalog: {catalog})",
-                )
-            raise DJQueryServiceClientException(
-                message=f"Error retrieving columns from Snowflake: {str(e)}",
-            )
         except Exception as e:  # pragma: no cover
+            # Check if it's a Snowflake DatabaseError (only if snowflake is available)
+            if (
+                SNOWFLAKE_AVAILABLE
+                and SnowflakeDatabaseError
+                and isinstance(e, SnowflakeDatabaseError)
+            ):
+                if "does not exist" in str(e).lower():
+                    actual_database = self._get_database_from_engine(engine, catalog)
+                    raise DJDoesNotExistException(
+                        message=f"Table not found: {actual_database}.{schema}.{table} "
+                        f"(DJ catalog: {catalog})",
+                    )
+                raise DJQueryServiceClientException(
+                    message=f"Error retrieving columns from Snowflake: {str(e)}",
+                )
             _logger.exception(
                 "Unexpected error in get_columns_for_table",
             )  # pragma: no cover
