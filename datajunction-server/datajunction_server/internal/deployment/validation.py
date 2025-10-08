@@ -4,6 +4,7 @@ Validation logic for node specifications during deployment
 
 import logging
 from dataclasses import dataclass
+import time
 from typing import Dict, List, Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -313,6 +314,8 @@ async def bulk_validate_node_data(
     """
     Bulk validate node specifications
     """
+    logger.info("Validating %d node queries", len(node_specs))
+    validate_start = time.perf_counter()
     context = ValidationContext(
         session=session,
         node_graph=node_graph,
@@ -324,4 +327,10 @@ async def bulk_validate_node_data(
         ),
     )
     validator = NodeSpecBulkValidator(context)
-    return await validator.validate(node_specs)
+    validation_results = await validator.validate(node_specs)
+    logger.info(
+        "Validated %d node queries in %.2fs",
+        len(node_specs),
+        time.perf_counter() - validate_start,
+    )
+    return validation_results

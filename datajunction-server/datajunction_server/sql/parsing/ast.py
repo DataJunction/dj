@@ -1062,7 +1062,7 @@ class Column(Aliasable, Named, Expression):
         if self.table and isinstance(self.table.parent, Column):
             await self.table.add_ref_column(self, ctx)
         else:
-            found_sources = await self.find_table_sources(ctx)
+            found_sources = list(set(await self.find_table_sources(ctx)))
             if len(found_sources) < 1:
                 ctx.exception.errors.append(
                     DJError(

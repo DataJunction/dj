@@ -304,10 +304,10 @@ class LinkableNodeSpec(NodeSpec):
             return False
         dimension_links_equal = sorted(
             self.dimension_links or [],
-            key=lambda link: link.rendered_dimension_node,
+            key=lambda link: (link.rendered_dimension_node, link.role or ""),
         ) == sorted(
             other.dimension_links or [],
-            key=lambda link: link.rendered_dimension_node,
+            key=lambda link: (link.rendered_dimension_node, link.role or ""),
         )
         return (
             super().__eq__(other)
