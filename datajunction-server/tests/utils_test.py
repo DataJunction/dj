@@ -584,6 +584,10 @@ def test_snowflake_client_initialization_with_mock(mocker: MockerFixture) -> Non
         "datajunction_server.query_clients.snowflake.SNOWFLAKE_AVAILABLE",
         True,
     )
+    mocker.patch(
+        "datajunction_server.query_clients.snowflake.SnowflakeDatabaseError",
+        Exception,
+    )
 
     # Mock the snowflake connector
     mock_snowflake = mocker.MagicMock()
