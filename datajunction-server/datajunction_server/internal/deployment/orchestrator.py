@@ -497,7 +497,6 @@ class DeploymentOrchestrator:
 
     async def _execute_deployment_plan(self, plan: DeploymentPlan):
         """Execute the actual deployment based on the plan"""
-        # Deploy nodes
         if plan.to_deploy:
             deployed_results, deployed_nodes = await self._deploy_nodes(plan)
             self.deployed_results.extend(deployed_results)
@@ -512,7 +511,6 @@ class DeploymentOrchestrator:
             self.deployed_results.extend(deployed_cubes)
             await self._update_deployment_status()
 
-        # Handle deletions
         if plan.to_delete:
             delete_results = await self._delete_nodes(plan.to_delete)
             self.deployed_results.extend(delete_results)
@@ -545,12 +543,13 @@ class DeploymentOrchestrator:
                 and node_name not in plan.external_deps
             ]
             if node_specs:
-                level_results, nodes = await self.bulk_deploy(
+                level_results, nodes = await self.bulk_deploy_nodes_in_level(
                     node_specs,
                     plan.node_graph,
                 )
                 deployed_results.extend(level_results)
                 deployed_nodes.update(nodes)
+                self.registry.add_nodes(nodes)
 
         logger.info("Finished deploying %d non-cube nodes", len(deployed_nodes))
         return deployed_results, deployed_nodes
@@ -933,7 +932,7 @@ class DeploymentOrchestrator:
         )
         return link_mapping
 
-    async def bulk_deploy(
+    async def bulk_deploy_nodes_in_level(
         self,
         node_specs: list[NodeSpec],
         node_graph: dict[str, list[str]],
@@ -947,9 +946,40 @@ class DeploymentOrchestrator:
         start = time.perf_counter()
         logger.info("Starting bulk deployment of %d nodes", len(node_specs))
 
+        dependency_nodes = await self.get_dependencies(node_graph)
+
         # Validate all node queries to determine columns, types, and dependencies
-        logger.info("Validating %d node queries", len(node_specs))
-        validate_start = time.perf_counter()
+        validation_results = await bulk_validate_node_data(
+            node_specs,
+            node_graph,
+            self.session,
+            dependency_nodes,
+        )
+
+        # Process validation results and create nodes
+        nodes, revisions, deployment_results = await self.create_nodes_from_validation(
+            validation_results,
+            dependency_nodes,
+            node_graph,
+        )
+        self.session.add_all(nodes)
+        self.session.add_all(revisions)
+        await self.session.commit()
+
+        # Refresh nodes for latest state
+        all_nodes = await self.refresh_nodes(
+            [node.rendered_name for node in node_specs],
+        )
+
+        logger.info(
+            f"Deployed {len(nodes)} nodes in bulk in {time.perf_counter() - start:.2f}s",
+        )
+        return deployment_results, all_nodes
+
+    async def get_dependencies(
+        self,
+        node_graph: dict[str, list[str]],
+    ) -> dict[str, Node]:
         all_required_nodes = node_graph.keys() | {
             dep for deps in node_graph.values() for dep in deps
         }
@@ -969,18 +999,29 @@ class DeploymentOrchestrator:
                             column.type = parse_rule(column.type, "dataType")
                         except Exception:  # pragma: no cover
                             pass  # pragma: no cover
+        return dependency_nodes
 
-        validation_results = await bulk_validate_node_data(
-            node_specs,
-            node_graph,
-            self.session,
-            dependency_nodes,
-        )
+    async def refresh_nodes(self, node_names: list[str]) -> dict[str, Node]:
+        refresh_start = time.perf_counter()
+        all_nodes = {
+            node.name: node
+            for node in await Node.get_by_names(self.session, node_names)
+        }
+        for node in all_nodes.values():
+            await self.session.refresh(node, ["current"])
         logger.info(
-            "Validated %d node queries in %.2fs",
-            len(node_specs),
-            time.perf_counter() - validate_start,
+            "Refreshed %d nodes in %.2fs",
+            len(all_nodes),
+            time.perf_counter() - refresh_start,
         )
+        return all_nodes
+
+    async def create_nodes_from_validation(
+        self,
+        validation_results: list[NodeValidationResult],
+        dependency_nodes: dict[str, Node],
+        node_graph: dict[str, list[str]],
+    ) -> tuple[list[Node], list[NodeRevision], list[DeploymentResult]]:
         nodes, revisions = [], []
         deployment_results = []
         for result in validation_results:
@@ -999,29 +1040,7 @@ class DeploymentOrchestrator:
                 deployment_results.append(deployment_result)
                 nodes.append(new_node)
                 revisions.append(new_revision)
-        self.session.add_all(nodes)
-        self.session.add_all(revisions)
-        await self.session.commit()
-
-        refresh_start = time.perf_counter()
-        all_nodes = {
-            node.name: node
-            for node in await Node.get_by_names(
-                self.session,
-                [node.rendered_name for node in node_specs],
-            )
-        }
-        for node in all_nodes.values():
-            await self.session.refresh(node, ["current"])
-        logger.info(
-            "Refreshed %d nodes in %.2fs",
-            len(all_nodes),
-            time.perf_counter() - refresh_start,
-        )
-        logger.info(
-            f"Deployed {len(nodes)} nodes in bulk in {time.perf_counter() - start:.2f}s",
-        )
-        return deployment_results, all_nodes
+        return nodes, revisions, deployment_results
 
     def _process_invalid_node_deploy(
         self,
@@ -1048,9 +1067,9 @@ class DeploymentOrchestrator:
 
     async def _process_valid_node_deploy(
         self,
-        result: "NodeValidationResult",
-        dependency_nodes,
-        node_graph,
+        result: NodeValidationResult,
+        dependency_nodes: dict[str, Node],
+        node_graph: dict[str, list[str]],
     ) -> tuple[DeploymentResult, Node, NodeRevision]:
         existing = self.registry.nodes.get(result.spec.rendered_name)  # is not None
         operation = (
@@ -1079,7 +1098,7 @@ class DeploymentOrchestrator:
         )
         return deployment_result, new_node, new_revision
 
-    async def _generate_changelog(self, result) -> list[str]:
+    async def _generate_changelog(self, result: NodeValidationResult) -> list[str]:
         """Generate changelog entries for a node update"""
         changelog: list[str] = []
 
@@ -1142,17 +1161,23 @@ class DeploymentOrchestrator:
             new_node.current_version = str(
                 Version.parse(new_node.current_version).next_major_version(),
             )
+            new_node.display_name = node_spec.display_name
+            new_node.owners = [
+                self.registry.owners[owner_name]
+                for owner_name in node_spec.owners
+                if owner_name in self.registry.owners
+            ]
         if set(node_spec.tags) != set([tag.name for tag in new_node.tags]):
             tags = [self.registry.tags.get(tag) for tag in node_spec.tags]
-            new_node.tags += tags  # type: ignore
+            new_node.tags = tags  # type: ignore
         return new_node
 
     async def _create_node_revision(
         self,
-        new_node,
-        result,
-        dependency_nodes,
-        node_graph,
+        new_node: Node,
+        result: NodeValidationResult,
+        dependency_nodes: dict[str, Node],
+        node_graph: dict[str, list[str]],
     ):
         """Create node revision with inferred columns and dependencies"""
         existing = self.registry.nodes.get(result.spec.rendered_name)
@@ -1163,7 +1188,7 @@ class DeploymentOrchestrator:
             if parent in dependency_nodes
         ]
         if result.spec.node_type != NodeType.SOURCE:
-            catalog = parents[0].current.catalog if parents else None
+            catalog = parents[0].current.catalog if parents else None  # type: ignore
         else:
             catalog = self.registry.catalogs.get(result.spec.catalog)
 
@@ -1176,23 +1201,12 @@ class DeploymentOrchestrator:
             version=new_node.current_version,
             node=new_node,
             catalog=catalog,
-            # cube_elements=list(old_revision.cube_elements),
             status=result.status,
             parents=[
                 dependency_nodes.get(parent)
                 for parent in node_graph.get(result.spec.rendered_name, [])
                 if parent in dependency_nodes
             ],
-            # TODO: handle missing parents
-            # missing_parents=[
-            #     MissingParent(name=missing_parent.name)
-            #     for missing_parent in old_revision.missing_parents
-            # ],
-            # columns=[Column(name=col.name, type=col.type) for col in node_spec.columns],
-            # TODO: availability and materializations are missing here
-            # TODO: partitions
-            # TODO: lineage?
-            # lineage=old_revision.lineage,
             created_by_id=self.context.current_user.id,
             custom_metadata=result.spec.custom_metadata,
         )
@@ -1208,6 +1222,7 @@ class DeploymentOrchestrator:
                         join_type=link.join_type,
                         join_cardinality=link.join_cardinality,
                         materialization_conf=link.materialization_conf,
+                        role=link.role,
                     ),
                 )
         pk_columns = (
@@ -1302,11 +1317,15 @@ class DeploymentOrchestrator:
         existing_link = [
             link  # type: ignore
             for link in node_revision.dimension_links  # type: ignore
-            if link.dimension_id == dimension_node.id and link.role == link_input.role  # type: ignore
+            if link.dimension.name == dimension_node.name
+            and link.role == link_input.role  # type: ignore
         ]
         activity_type = ActivityType.CREATE
 
         if existing_link:
+            if len(existing_link) >= 1:  # pragma: no cover
+                for dup_link in existing_link[1:]:
+                    await self.session.delete(dup_link)
             # Update the existing dimension link
             activity_type = ActivityType.UPDATE
             dimension_link = existing_link[0]
