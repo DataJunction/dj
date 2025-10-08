@@ -282,14 +282,14 @@ async def test_list_frozen_measures(
     assert len(frozen_measures) == 10
 
     response = await module__client_with_roads.get(
-        "/frozen-measures?prefix=repair_order_id_count_0b7dfba0",
+        "/frozen-measures?prefix=repair_order_id_count_bd241964",
     )
     frozen_measures = response.json()
     assert frozen_measures == [
         {
             "aggregation": "COUNT",
             "expression": "repair_order_id",
-            "name": "repair_order_id_count_0b7dfba0",
+            "name": "repair_order_id_count_bd241964",
             "rule": {
                 "level": None,
                 "type": "full",

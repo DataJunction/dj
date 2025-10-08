@@ -2303,7 +2303,7 @@ async def test_derive_sql_column():
         name="foo_DOT_bar_DOT_baz_DOT_revenue",
         display_name="Revenue",
         type="metric",
-    )
+    )  # type: ignore
     assert sql_column.name == expected_sql_column.name
     assert sql_column.display_name == expected_sql_column.display_name
     assert sql_column.type == expected_sql_column.type
@@ -2318,7 +2318,7 @@ async def test_derive_sql_column():
         name="foo_DOT_bar_DOT_baz_DOT_owner",
         display_name="Owner",
         type="dimension",
-    )
+    )  # type: ignore
     assert sql_column.name == expected_sql_column.name
     assert sql_column.display_name == expected_sql_column.display_name
     assert sql_column.type == expected_sql_column.type
@@ -2377,11 +2377,11 @@ async def test_cube_materialization_metadata(
     ]
     assert results["metrics"] == [
         {
-            "derived_expression": "SELECT  CAST(sum(discount_sum_62846f49) AS DOUBLE) / "
-            "SUM(count_3389dae3) AS default_DOT_discounted_orders_rate  FROM "
+            "derived_expression": "SELECT  CAST(sum(discount_sum_30b84e6c) AS DOUBLE) / "
+            "SUM(count_c8e42e74) AS default_DOT_discounted_orders_rate  FROM "
             "default.repair_orders_fact",
-            "metric_expression": "CAST(sum(discount_sum_62846f49) AS DOUBLE) / "
-            "SUM(count_3389dae3)",
+            "metric_expression": "CAST(sum(discount_sum_30b84e6c) AS DOUBLE) / "
+            "SUM(count_c8e42e74)",
             "metric": {
                 "name": "default.discounted_orders_rate",
                 "version": mock.ANY,
@@ -2389,7 +2389,7 @@ async def test_cube_materialization_metadata(
             },
             "required_measures": [
                 {
-                    "measure_name": "discount_sum_62846f49",
+                    "measure_name": "discount_sum_30b84e6c",
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": mock.ANY,
@@ -2397,7 +2397,7 @@ async def test_cube_materialization_metadata(
                     },
                 },
                 {
-                    "measure_name": "count_3389dae3",
+                    "measure_name": "count_c8e42e74",
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": mock.ANY,
@@ -2407,9 +2407,9 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  SUM(repair_order_id_count_0b7dfba0)  FROM "
+            "derived_expression": "SELECT  SUM(repair_order_id_count_bd241964)  FROM "
             "default.repair_orders_fact",
-            "metric_expression": "SUM(repair_order_id_count_0b7dfba0)",
+            "metric_expression": "SUM(repair_order_id_count_bd241964)",
             "metric": {
                 "name": "default.num_repair_orders",
                 "version": mock.ANY,
@@ -2417,7 +2417,7 @@ async def test_cube_materialization_metadata(
             },
             "required_measures": [
                 {
-                    "measure_name": "repair_order_id_count_0b7dfba0",
+                    "measure_name": "repair_order_id_count_bd241964",
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": mock.ANY,
@@ -2427,9 +2427,9 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  SUM(price_sum_78a5eb43) / SUM(price_count_78a5eb43)  FROM "
+            "derived_expression": "SELECT  SUM(price_sum_935e7117) / SUM(price_count_935e7117)  FROM "
             "default.repair_orders_fact",
-            "metric_expression": "SUM(price_sum_78a5eb43) / SUM(price_count_78a5eb43)",
+            "metric_expression": "SUM(price_sum_935e7117) / SUM(price_count_935e7117)",
             "metric": {
                 "name": "default.avg_repair_price",
                 "version": mock.ANY,
@@ -2437,7 +2437,7 @@ async def test_cube_materialization_metadata(
             },
             "required_measures": [
                 {
-                    "measure_name": "price_count_78a5eb43",
+                    "measure_name": "price_count_935e7117",
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": mock.ANY,
@@ -2445,7 +2445,7 @@ async def test_cube_materialization_metadata(
                     },
                 },
                 {
-                    "measure_name": "price_sum_78a5eb43",
+                    "measure_name": "price_sum_935e7117",
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": mock.ANY,
@@ -2455,9 +2455,9 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  sum(total_repair_cost_sum_9bdaf803)  FROM "
+            "derived_expression": "SELECT  sum(total_repair_cost_sum_67874507)  FROM "
             "default.repair_orders_fact",
-            "metric_expression": "sum(total_repair_cost_sum_9bdaf803)",
+            "metric_expression": "sum(total_repair_cost_sum_67874507)",
             "metric": {
                 "name": "default.total_repair_cost",
                 "version": mock.ANY,
@@ -2465,7 +2465,7 @@ async def test_cube_materialization_metadata(
             },
             "required_measures": [
                 {
-                    "measure_name": "total_repair_cost_sum_9bdaf803",
+                    "measure_name": "total_repair_cost_sum_67874507",
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": mock.ANY,
@@ -2475,9 +2475,9 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  sum(price_discount_sum_017d55a8)  FROM "
+            "derived_expression": "SELECT  sum(price_discount_sum_e4ba5456)  FROM "
             "default.repair_orders_fact",
-            "metric_expression": "sum(price_discount_sum_017d55a8)",
+            "metric_expression": "sum(price_discount_sum_e4ba5456)",
             "metric": {
                 "name": "default.total_repair_order_discounts",
                 "version": mock.ANY,
@@ -2485,7 +2485,7 @@ async def test_cube_materialization_metadata(
             },
             "required_measures": [
                 {
-                    "measure_name": "price_discount_sum_017d55a8",
+                    "measure_name": "price_discount_sum_e4ba5456",
                     "node": {
                         "name": "default.repair_orders_fact",
                         "version": mock.ANY,
@@ -2495,10 +2495,10 @@ async def test_cube_materialization_metadata(
             ],
         },
         {
-            "derived_expression": "SELECT  sum(price_sum_78a5eb43) + sum(price_sum_78a5eb43) AS "
+            "derived_expression": "SELECT  sum(price_sum_252381cf) + sum(price_sum_252381cf) AS "
             "default_DOT_double_total_repair_cost  FROM "
             "default.repair_order_details",
-            "metric_expression": "sum(price_sum_78a5eb43) + sum(price_sum_78a5eb43)",
+            "metric_expression": "sum(price_sum_252381cf) + sum(price_sum_252381cf)",
             "metric": {
                 "name": "default.double_total_repair_cost",
                 "version": mock.ANY,
@@ -2506,7 +2506,7 @@ async def test_cube_materialization_metadata(
             },
             "required_measures": [
                 {
-                    "measure_name": "price_sum_78a5eb43",
+                    "measure_name": "price_sum_252381cf",
                     "node": {
                         "name": "default.repair_order_details",
                         "version": mock.ANY,
@@ -2576,58 +2576,58 @@ async def test_cube_materialization_metadata(
                     "type": "string",
                 },
                 {
-                    "column": "discount_sum_62846f49",
-                    "name": "discount_sum_62846f49",
+                    "column": "discount_sum_30b84e6c",
+                    "name": "discount_sum_30b84e6c",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.discount_sum_62846f49",
+                    "semantic_entity": "default.repair_orders_fact.discount_sum_30b84e6c",
                     "semantic_type": "measure",
                     "type": "bigint",
                 },
                 {
-                    "column": "count_3389dae3",
-                    "name": "count_3389dae3",
+                    "column": "count_c8e42e74",
+                    "name": "count_c8e42e74",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.count_3389dae3",
+                    "semantic_entity": "default.repair_orders_fact.count_c8e42e74",
                     "semantic_type": "measure",
                     "type": "bigint",
                 },
                 {
-                    "column": "repair_order_id_count_0b7dfba0",
-                    "name": "repair_order_id_count_0b7dfba0",
+                    "column": "repair_order_id_count_bd241964",
+                    "name": "repair_order_id_count_bd241964",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.repair_order_id_count_0b7dfba0",
+                    "semantic_entity": "default.repair_orders_fact.repair_order_id_count_bd241964",
                     "semantic_type": "measure",
                     "type": "bigint",
                 },
                 {
-                    "column": "price_count_78a5eb43",
-                    "name": "price_count_78a5eb43",
+                    "column": "price_count_935e7117",
+                    "name": "price_count_935e7117",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.price_count_78a5eb43",
+                    "semantic_entity": "default.repair_orders_fact.price_count_935e7117",
                     "semantic_type": "measure",
                     "type": "bigint",
                 },
                 {
-                    "column": "price_sum_78a5eb43",
-                    "name": "price_sum_78a5eb43",
+                    "column": "price_sum_935e7117",
+                    "name": "price_sum_935e7117",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.price_sum_78a5eb43",
+                    "semantic_entity": "default.repair_orders_fact.price_sum_935e7117",
                     "semantic_type": "measure",
                     "type": "double",
                 },
                 {
-                    "column": "total_repair_cost_sum_9bdaf803",
-                    "name": "total_repair_cost_sum_9bdaf803",
+                    "column": "total_repair_cost_sum_67874507",
+                    "name": "total_repair_cost_sum_67874507",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.total_repair_cost_sum_9bdaf803",
+                    "semantic_entity": "default.repair_orders_fact.total_repair_cost_sum_67874507",
                     "semantic_type": "measure",
                     "type": "double",
                 },
                 {
-                    "column": "price_discount_sum_017d55a8",
-                    "name": "price_discount_sum_017d55a8",
+                    "column": "price_discount_sum_e4ba5456",
+                    "name": "price_discount_sum_e4ba5456",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.price_discount_sum_017d55a8",
+                    "semantic_entity": "default.repair_orders_fact.price_discount_sum_e4ba5456",
                     "semantic_type": "measure",
                     "type": "double",
                 },
@@ -2655,7 +2655,7 @@ async def test_cube_materialization_metadata(
                 {
                     "aggregation": "SUM",
                     "expression": "if(discount > 0.0, 1, 0)",
-                    "name": "discount_sum_62846f49",
+                    "name": "discount_sum_30b84e6c",
                     "rule": {
                         "level": None,
                         "type": "full",
@@ -2664,7 +2664,7 @@ async def test_cube_materialization_metadata(
                 {
                     "aggregation": "COUNT",
                     "expression": "*",
-                    "name": "count_3389dae3",
+                    "name": "count_c8e42e74",
                     "rule": {
                         "level": None,
                         "type": "full",
@@ -2673,7 +2673,7 @@ async def test_cube_materialization_metadata(
                 {
                     "aggregation": "COUNT",
                     "expression": "repair_order_id",
-                    "name": "repair_order_id_count_0b7dfba0",
+                    "name": "repair_order_id_count_bd241964",
                     "rule": {
                         "level": None,
                         "type": "full",
@@ -2682,7 +2682,7 @@ async def test_cube_materialization_metadata(
                 {
                     "aggregation": "COUNT",
                     "expression": "price",
-                    "name": "price_count_78a5eb43",
+                    "name": "price_count_935e7117",
                     "rule": {
                         "level": None,
                         "type": "full",
@@ -2691,7 +2691,7 @@ async def test_cube_materialization_metadata(
                 {
                     "aggregation": "SUM",
                     "expression": "price",
-                    "name": "price_sum_78a5eb43",
+                    "name": "price_sum_935e7117",
                     "rule": {
                         "level": None,
                         "type": "full",
@@ -2700,7 +2700,7 @@ async def test_cube_materialization_metadata(
                 {
                     "aggregation": "SUM",
                     "expression": "total_repair_cost",
-                    "name": "total_repair_cost_sum_9bdaf803",
+                    "name": "total_repair_cost_sum_67874507",
                     "rule": {
                         "level": None,
                         "type": "full",
@@ -2709,7 +2709,7 @@ async def test_cube_materialization_metadata(
                 {
                     "aggregation": "SUM",
                     "expression": "price * discount",
-                    "name": "price_discount_sum_017d55a8",
+                    "name": "price_discount_sum_e4ba5456",
                     "rule": {
                         "level": None,
                         "type": "full",
@@ -2795,10 +2795,10 @@ async def test_cube_materialization_metadata(
                     "type": "string",
                 },
                 {
-                    "column": "price_sum_78a5eb43",
-                    "name": "price_sum_78a5eb43",
+                    "column": "price_sum_252381cf",
+                    "name": "price_sum_252381cf",
                     "node": "default.repair_order_details",
-                    "semantic_entity": "default.repair_order_details.price_sum_78a5eb43",
+                    "semantic_entity": "default.repair_order_details.price_sum_252381cf",
                     "semantic_type": "measure",
                     "type": "double",
                 },
@@ -2826,7 +2826,7 @@ async def test_cube_materialization_metadata(
                 {
                     "aggregation": "SUM",
                     "expression": "price",
-                    "name": "price_sum_78a5eb43",
+                    "name": "price_sum_252381cf",
                     "rule": {
                         "level": None,
                         "type": "full",
@@ -2838,7 +2838,7 @@ async def test_cube_materialization_metadata(
                 "version": mock.ANY,
                 "display_name": "default.roads.repair_order_details",
             },
-            "output_table_name": "default_repair_order_details_v1_2_3b3141d8060dd808",
+            "output_table_name": "default_repair_order_details_v1_2_b94093b6088c190e",
             "query": mock.ANY,
             "spark_conf": None,
             "timestamp_column": "default_DOT_hard_hat_DOT_hire_date",
@@ -2935,13 +2935,13 @@ async def test_cube_materialization_metadata(
       default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_state,
       default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name,
       default_DOT_repair_orders_fact_built.default_DOT_municipality_dim_DOT_local_region,
-      SUM(if(discount > 0.0, 1, 0)) AS discount_sum_62846f49,
-      COUNT(*) AS count_3389dae3,
-      COUNT(repair_order_id) AS repair_order_id_count_0b7dfba0,
-      COUNT(price) AS price_count_78a5eb43,
-      SUM(price) AS price_sum_78a5eb43,
-      SUM(total_repair_cost) AS total_repair_cost_sum_9bdaf803,
-      SUM(price * discount) AS price_discount_sum_017d55a8
+      SUM(if(discount > 0.0, 1, 0)) AS discount_sum_30b84e6c,
+      COUNT(*) AS count_c8e42e74,
+      COUNT(repair_order_id) AS repair_order_id_count_bd241964,
+      COUNT(price) AS price_count_935e7117,
+      SUM(price) AS price_sum_935e7117,
+      SUM(total_repair_cost) AS total_repair_cost_sum_67874507,
+      SUM(price * discount) AS price_discount_sum_e4ba5456
     FROM default_DOT_repair_orders_fact_built
     GROUP BY  default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_country, default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_postal_code, default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_city, default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_hire_date, default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_state, default_DOT_repair_orders_fact_built.default_DOT_dispatcher_DOT_company_name, default_DOT_repair_orders_fact_built.default_DOT_municipality_dim_DOT_local_region
     """
@@ -2956,127 +2956,142 @@ async def test_cube_materialization_metadata(
 
     assert results["combiners"] == [
         {
+            "node": {
+                "name": "default.example_repairs_cube",
+                "version": "v1.0",
+                "display_name": "Example Repairs Cube",
+            },
+            "query": "SELECT  COALESCE(default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_hard_hat_DOT_country, default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_hard_hat_DOT_country) default_DOT_hard_hat_DOT_country,\n\tCOALESCE(default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_hard_hat_DOT_postal_code, default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_hard_hat_DOT_postal_code) default_DOT_hard_hat_DOT_postal_code,\n\tCOALESCE(default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_hard_hat_DOT_city, default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_hard_hat_DOT_city) default_DOT_hard_hat_DOT_city,\n\tCOALESCE(default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_hard_hat_DOT_hire_date, default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_hard_hat_DOT_hire_date) default_DOT_hard_hat_DOT_hire_date,\n\tCOALESCE(default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_hard_hat_DOT_state, default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_hard_hat_DOT_state) default_DOT_hard_hat_DOT_state,\n\tCOALESCE(default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_dispatcher_DOT_company_name, default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_dispatcher_DOT_company_name) default_DOT_dispatcher_DOT_company_name,\n\tCOALESCE(default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_municipality_dim_DOT_local_region, default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_municipality_dim_DOT_local_region) default_DOT_municipality_dim_DOT_local_region,\n\tdefault_repair_orders_fact_v1_5_30e0064f5a315b47.discount_sum_30b84e6c,\n\tdefault_repair_orders_fact_v1_5_30e0064f5a315b47.count_c8e42e74,\n\tdefault_repair_orders_fact_v1_5_30e0064f5a315b47.repair_order_id_count_bd241964,\n\tdefault_repair_orders_fact_v1_5_30e0064f5a315b47.price_count_935e7117,\n\tdefault_repair_orders_fact_v1_5_30e0064f5a315b47.price_sum_935e7117,\n\tdefault_repair_orders_fact_v1_5_30e0064f5a315b47.total_repair_cost_sum_67874507,\n\tdefault_repair_orders_fact_v1_5_30e0064f5a315b47.price_discount_sum_e4ba5456,\n\tdefault_repair_order_details_v1_2_b94093b6088c190e.price_sum_252381cf \n FROM default_repair_orders_fact_v1_5_30e0064f5a315b47 FULL OUTER JOIN default_repair_order_details_v1_2_b94093b6088c190e ON default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_hard_hat_DOT_country = default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_hard_hat_DOT_country AND default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_hard_hat_DOT_postal_code = default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_hard_hat_DOT_postal_code AND default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_hard_hat_DOT_city = default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_hard_hat_DOT_city AND default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_hard_hat_DOT_hire_date = default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_hard_hat_DOT_hire_date AND default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_hard_hat_DOT_state = default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_hard_hat_DOT_state AND default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_dispatcher_DOT_company_name = default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_dispatcher_DOT_company_name AND default_repair_orders_fact_v1_5_30e0064f5a315b47.default_DOT_municipality_dim_DOT_local_region = default_repair_order_details_v1_2_b94093b6088c190e.default_DOT_municipality_dim_DOT_local_region\n",
             "columns": [
                 {
-                    "column": "country",
                     "name": "default_DOT_hard_hat_DOT_country",
+                    "type": "string",
+                    "column": "country",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.country",
                     "semantic_type": "dimension",
-                    "type": "string",
                 },
                 {
-                    "column": "postal_code",
                     "name": "default_DOT_hard_hat_DOT_postal_code",
+                    "type": "string",
+                    "column": "postal_code",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.postal_code",
                     "semantic_type": "dimension",
-                    "type": "string",
                 },
                 {
-                    "column": "city",
                     "name": "default_DOT_hard_hat_DOT_city",
+                    "type": "string",
+                    "column": "city",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.city",
                     "semantic_type": "dimension",
-                    "type": "string",
                 },
                 {
-                    "column": "hire_date",
                     "name": "default_DOT_hard_hat_DOT_hire_date",
+                    "type": "timestamp",
+                    "column": "hire_date",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.hire_date",
                     "semantic_type": "dimension",
-                    "type": "timestamp",
                 },
                 {
-                    "column": "state",
                     "name": "default_DOT_hard_hat_DOT_state",
+                    "type": "string",
+                    "column": "state",
                     "node": "default.hard_hat",
                     "semantic_entity": "default.hard_hat.state",
                     "semantic_type": "dimension",
-                    "type": "string",
                 },
                 {
-                    "column": "company_name",
                     "name": "default_DOT_dispatcher_DOT_company_name",
+                    "type": "string",
+                    "column": "company_name",
                     "node": "default.dispatcher",
                     "semantic_entity": "default.dispatcher.company_name",
                     "semantic_type": "dimension",
-                    "type": "string",
                 },
                 {
-                    "column": "local_region",
                     "name": "default_DOT_municipality_dim_DOT_local_region",
+                    "type": "string",
+                    "column": "local_region",
                     "node": "default.municipality_dim",
                     "semantic_entity": "default.municipality_dim.local_region",
                     "semantic_type": "dimension",
-                    "type": "string",
                 },
                 {
-                    "column": "discount_sum_62846f49",
-                    "name": "discount_sum_62846f49",
-                    "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.discount_sum_62846f49",
-                    "semantic_type": "measure",
+                    "name": "discount_sum_30b84e6c",
                     "type": "bigint",
-                },
-                {
-                    "column": "count_3389dae3",
-                    "name": "count_3389dae3",
+                    "column": "discount_sum_30b84e6c",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.count_3389dae3",
+                    "semantic_entity": "default.repair_orders_fact.discount_sum_30b84e6c",
                     "semantic_type": "measure",
-                    "type": "bigint",
                 },
                 {
-                    "column": "repair_order_id_count_0b7dfba0",
-                    "name": "repair_order_id_count_0b7dfba0",
+                    "name": "count_c8e42e74",
+                    "type": "bigint",
+                    "column": "count_c8e42e74",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.repair_order_id_count_0b7dfba0",
+                    "semantic_entity": "default.repair_orders_fact.count_c8e42e74",
                     "semantic_type": "measure",
-                    "type": "bigint",
                 },
                 {
-                    "column": "price_count_78a5eb43",
-                    "name": "price_count_78a5eb43",
+                    "name": "repair_order_id_count_bd241964",
+                    "type": "bigint",
+                    "column": "repair_order_id_count_bd241964",
                     "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.price_count_78a5eb43",
+                    "semantic_entity": "default.repair_orders_fact.repair_order_id_count_bd241964",
                     "semantic_type": "measure",
-                    "type": "bigint",
                 },
                 {
-                    "column": "price_sum_78a5eb43",
-                    "name": "price_sum_78a5eb43",
+                    "name": "price_count_935e7117",
+                    "type": "bigint",
+                    "column": "price_count_935e7117",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.price_count_935e7117",
+                    "semantic_type": "measure",
+                },
+                {
+                    "name": "price_sum_935e7117",
+                    "type": "double",
+                    "column": "price_sum_935e7117",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.price_sum_935e7117",
+                    "semantic_type": "measure",
+                },
+                {
+                    "name": "total_repair_cost_sum_67874507",
+                    "type": "double",
+                    "column": "total_repair_cost_sum_67874507",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.total_repair_cost_sum_67874507",
+                    "semantic_type": "measure",
+                },
+                {
+                    "name": "price_discount_sum_e4ba5456",
+                    "type": "double",
+                    "column": "price_discount_sum_e4ba5456",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.price_discount_sum_e4ba5456",
+                    "semantic_type": "measure",
+                },
+                {
+                    "name": "price_sum_252381cf",
+                    "type": "double",
+                    "column": "price_sum_252381cf",
                     "node": "default.repair_order_details",
-                    "semantic_entity": "default.repair_order_details.price_sum_78a5eb43",
+                    "semantic_entity": "default.repair_order_details.price_sum_252381cf",
                     "semantic_type": "measure",
-                    "type": "double",
                 },
-                {
-                    "column": "total_repair_cost_sum_9bdaf803",
-                    "name": "total_repair_cost_sum_9bdaf803",
-                    "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.total_repair_cost_sum_9bdaf803",
-                    "semantic_type": "measure",
-                    "type": "double",
-                },
-                {
-                    "column": "price_discount_sum_017d55a8",
-                    "name": "price_discount_sum_017d55a8",
-                    "node": "default.repair_orders_fact",
-                    "semantic_entity": "default.repair_orders_fact.price_discount_sum_017d55a8",
-                    "semantic_type": "measure",
-                    "type": "double",
-                },
-                {
-                    "column": "price_sum_78a5eb43",
-                    "name": "price_sum_78a5eb43",
-                    "node": "default.repair_order_details",
-                    "semantic_entity": "default.repair_order_details.price_sum_78a5eb43",
-                    "semantic_type": "measure",
-                    "type": "double",
-                },
+            ],
+            "grain": [
+                "default_DOT_hard_hat_DOT_country",
+                "default_DOT_hard_hat_DOT_postal_code",
+                "default_DOT_hard_hat_DOT_city",
+                "default_DOT_hard_hat_DOT_hire_date",
+                "default_DOT_hard_hat_DOT_state",
+                "default_DOT_dispatcher_DOT_company_name",
+                "default_DOT_municipality_dim_DOT_local_region",
             ],
             "dimensions": [
                 "default_DOT_hard_hat_DOT_country",
@@ -3087,58 +3102,66 @@ async def test_cube_materialization_metadata(
                 "default_DOT_dispatcher_DOT_company_name",
                 "default_DOT_municipality_dim_DOT_local_region",
             ],
+            "measures": [
+                {
+                    "name": "discount_sum_30b84e6c",
+                    "expression": "if(discount > 0.0, 1, 0)",
+                    "aggregation": "SUM",
+                    "rule": {"type": "full", "level": None},
+                },
+                {
+                    "name": "count_c8e42e74",
+                    "expression": "*",
+                    "aggregation": "COUNT",
+                    "rule": {"type": "full", "level": None},
+                },
+                {
+                    "name": "repair_order_id_count_bd241964",
+                    "expression": "repair_order_id",
+                    "aggregation": "COUNT",
+                    "rule": {"type": "full", "level": None},
+                },
+                {
+                    "name": "price_count_935e7117",
+                    "expression": "price",
+                    "aggregation": "COUNT",
+                    "rule": {"type": "full", "level": None},
+                },
+                {
+                    "name": "price_sum_935e7117",
+                    "expression": "price",
+                    "aggregation": "SUM",
+                    "rule": {"type": "full", "level": None},
+                },
+                {
+                    "name": "total_repair_cost_sum_67874507",
+                    "expression": "total_repair_cost",
+                    "aggregation": "SUM",
+                    "rule": {"type": "full", "level": None},
+                },
+                {
+                    "name": "price_discount_sum_e4ba5456",
+                    "expression": "price * discount",
+                    "aggregation": "SUM",
+                    "rule": {"type": "full", "level": None},
+                },
+                {
+                    "name": "price_sum_252381cf",
+                    "expression": "price",
+                    "aggregation": "SUM",
+                    "rule": {"type": "full", "level": None},
+                },
+            ],
+            "timestamp_column": "default_DOT_hard_hat_DOT_hire_date",
+            "timestamp_format": "yyyyMMdd",
+            "granularity": "day",
+            "upstream_tables": [],
             "druid_spec": {
                 "dataSchema": {
-                    "dataSource": "dj__default_example_repairs_cube_v1_0_41f1198b6e6032dd",
-                    "granularitySpec": {
-                        "intervals": [],
-                        "segmentGranularity": "DAY",
-                        "type": "uniform",
-                    },
-                    "metricsSpec": [
-                        {
-                            "fieldName": "discount_sum_62846f49",
-                            "name": "discount_sum_62846f49",
-                            "type": "longSum",
-                        },
-                        {
-                            "fieldName": "count_3389dae3",
-                            "name": "count_3389dae3",
-                            "type": "longSum",
-                        },
-                        {
-                            "fieldName": "repair_order_id_count_0b7dfba0",
-                            "name": "repair_order_id_count_0b7dfba0",
-                            "type": "longSum",
-                        },
-                        {
-                            "fieldName": "price_count_78a5eb43",
-                            "name": "price_count_78a5eb43",
-                            "type": "longSum",
-                        },
-                        {
-                            "fieldName": "price_sum_78a5eb43",
-                            "name": "price_sum_78a5eb43",
-                            "type": "doubleSum",
-                        },
-                        {
-                            "fieldName": "total_repair_cost_sum_9bdaf803",
-                            "name": "total_repair_cost_sum_9bdaf803",
-                            "type": "doubleSum",
-                        },
-                        {
-                            "fieldName": "price_discount_sum_017d55a8",
-                            "name": "price_discount_sum_017d55a8",
-                            "type": "doubleSum",
-                        },
-                        {
-                            "fieldName": "price_sum_78a5eb43",
-                            "name": "price_sum_78a5eb43",
-                            "type": "doubleSum",
-                        },
-                    ],
+                    "dataSource": "dj__default_example_repairs_cube_v1_0_fdc5182835060cb1",
                     "parser": {
                         "parseSpec": {
+                            "format": "parquet",
                             "dimensionsSpec": {
                                 "dimensions": [
                                     "default_DOT_dispatcher_DOT_company_name",
@@ -3150,12 +3173,58 @@ async def test_cube_materialization_metadata(
                                     "default_DOT_municipality_dim_DOT_local_region",
                                 ],
                             },
-                            "format": "parquet",
                             "timestampSpec": {
                                 "column": "default_DOT_hard_hat_DOT_hire_date",
                                 "format": "yyyyMMdd",
                             },
                         },
+                    },
+                    "metricsSpec": [
+                        {
+                            "fieldName": "discount_sum_30b84e6c",
+                            "name": "discount_sum_30b84e6c",
+                            "type": "longSum",
+                        },
+                        {
+                            "fieldName": "count_c8e42e74",
+                            "name": "count_c8e42e74",
+                            "type": "longSum",
+                        },
+                        {
+                            "fieldName": "repair_order_id_count_bd241964",
+                            "name": "repair_order_id_count_bd241964",
+                            "type": "longSum",
+                        },
+                        {
+                            "fieldName": "price_count_935e7117",
+                            "name": "price_count_935e7117",
+                            "type": "longSum",
+                        },
+                        {
+                            "fieldName": "price_sum_935e7117",
+                            "name": "price_sum_935e7117",
+                            "type": "doubleSum",
+                        },
+                        {
+                            "fieldName": "total_repair_cost_sum_67874507",
+                            "name": "total_repair_cost_sum_67874507",
+                            "type": "doubleSum",
+                        },
+                        {
+                            "fieldName": "price_discount_sum_e4ba5456",
+                            "name": "price_discount_sum_e4ba5456",
+                            "type": "doubleSum",
+                        },
+                        {
+                            "fieldName": "price_sum_252381cf",
+                            "name": "price_sum_252381cf",
+                            "type": "doubleSum",
+                        },
+                    ],
+                    "granularitySpec": {
+                        "type": "uniform",
+                        "segmentGranularity": "DAY",
+                        "intervals": [],
                     },
                 },
                 "tuningConfig": {
@@ -3163,104 +3232,11 @@ async def test_cube_materialization_metadata(
                         "targetPartitionSize": 5000000,
                         "type": "hashed",
                     },
-                    "type": "hadoop",
                     "useCombiner": True,
+                    "type": "hadoop",
                 },
             },
-            "grain": [
-                "default_DOT_hard_hat_DOT_country",
-                "default_DOT_hard_hat_DOT_postal_code",
-                "default_DOT_hard_hat_DOT_city",
-                "default_DOT_hard_hat_DOT_hire_date",
-                "default_DOT_hard_hat_DOT_state",
-                "default_DOT_dispatcher_DOT_company_name",
-                "default_DOT_municipality_dim_DOT_local_region",
-            ],
-            "granularity": "day",
-            "measures": [
-                {
-                    "aggregation": "SUM",
-                    "expression": "if(discount > 0.0, 1, 0)",
-                    "name": "discount_sum_62846f49",
-                    "rule": {
-                        "level": None,
-                        "type": "full",
-                    },
-                },
-                {
-                    "aggregation": "COUNT",
-                    "expression": "*",
-                    "name": "count_3389dae3",
-                    "rule": {
-                        "level": None,
-                        "type": "full",
-                    },
-                },
-                {
-                    "aggregation": "COUNT",
-                    "expression": "repair_order_id",
-                    "name": "repair_order_id_count_0b7dfba0",
-                    "rule": {
-                        "level": None,
-                        "type": "full",
-                    },
-                },
-                {
-                    "aggregation": "COUNT",
-                    "expression": "price",
-                    "name": "price_count_78a5eb43",
-                    "rule": {
-                        "level": None,
-                        "type": "full",
-                    },
-                },
-                {
-                    "aggregation": "SUM",
-                    "expression": "price",
-                    "name": "price_sum_78a5eb43",
-                    "rule": {
-                        "level": None,
-                        "type": "full",
-                    },
-                },
-                {
-                    "aggregation": "SUM",
-                    "expression": "total_repair_cost",
-                    "name": "total_repair_cost_sum_9bdaf803",
-                    "rule": {
-                        "level": None,
-                        "type": "full",
-                    },
-                },
-                {
-                    "aggregation": "SUM",
-                    "expression": "price * discount",
-                    "name": "price_discount_sum_017d55a8",
-                    "rule": {
-                        "level": None,
-                        "type": "full",
-                    },
-                },
-                {
-                    "aggregation": "SUM",
-                    "expression": "price",
-                    "name": "price_sum_78a5eb43",
-                    "rule": {
-                        "level": None,
-                        "type": "full",
-                    },
-                },
-            ],
-            "node": {
-                "display_name": "Example Repairs Cube",
-                "name": "default.example_repairs_cube",
-                "version": "v1.0",
-            },
-            "output_table_name": "default_example_repairs_cube_v1_0_41f1198b6e6032dd",
-            "query": mock.ANY,
-            "timestamp_column": "default_DOT_hard_hat_DOT_hire_date",
-            "timestamp_format": "yyyyMMdd",
-            "upstream_tables": [],
+            "output_table_name": "default_example_repairs_cube_v1_0_fdc5182835060cb1",
         },
     ]
 

@@ -175,8 +175,8 @@ async def test_system_metric_data(
             "filters": filters,
         },
     )
-    data = response.json()
-    assert data == sorted(expected, key=lambda x: x[0]["col"])
+    data = sorted(response.json(), key=lambda x: x[0]["value"])
+    assert data == sorted(expected, key=lambda x: x[0]["value"])
 
 
 @pytest.mark.asyncio
