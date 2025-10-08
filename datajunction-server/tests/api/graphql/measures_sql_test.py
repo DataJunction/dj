@@ -71,28 +71,28 @@ async def test_measures_sql(
                 "semanticType": "DIMENSION",
             },
             {
-                "name": "repair_order_id_count_0b7dfba0",
+                "name": "repair_order_id_count_bd241964",
                 "semanticEntity": {
-                    "column": "repair_order_id_count_0b7dfba0",
-                    "name": "default.repair_orders_fact.repair_order_id_count_0b7dfba0",
+                    "column": "repair_order_id_count_bd241964",
+                    "name": "default.repair_orders_fact.repair_order_id_count_bd241964",
                     "node": "default.repair_orders_fact",
                 },
                 "semanticType": "MEASURE",
             },
             {
-                "name": "price_count_78a5eb43",
+                "name": "price_count_935e7117",
                 "semanticEntity": {
-                    "column": "price_count_78a5eb43",
-                    "name": "default.repair_orders_fact.price_count_78a5eb43",
+                    "column": "price_count_935e7117",
+                    "name": "default.repair_orders_fact.price_count_935e7117",
                     "node": "default.repair_orders_fact",
                 },
                 "semanticType": "MEASURE",
             },
             {
-                "name": "price_sum_78a5eb43",
+                "name": "price_sum_935e7117",
                 "semanticEntity": {
-                    "column": "price_sum_78a5eb43",
-                    "name": "default.repair_orders_fact.price_sum_78a5eb43",
+                    "column": "price_sum_935e7117",
+                    "name": "default.repair_orders_fact.price_sum_935e7117",
                     "node": "default.repair_orders_fact",
                 },
                 "semanticType": "MEASURE",
@@ -203,7 +203,7 @@ async def test_materialization_plan(
                     {
                         "aggregation": "COUNT",
                         "expression": "repair_order_id",
-                        "name": "repair_order_id_count_0b7dfba0",
+                        "name": "repair_order_id_count_bd241964",
                         "rule": {
                             "level": None,
                             "type": "FULL",
@@ -212,7 +212,7 @@ async def test_materialization_plan(
                     {
                         "aggregation": "COUNT",
                         "expression": "price",
-                        "name": "price_count_78a5eb43",
+                        "name": "price_count_935e7117",
                         "rule": {
                             "level": None,
                             "type": "FULL",
@@ -221,7 +221,7 @@ async def test_materialization_plan(
                     {
                         "aggregation": "SUM",
                         "expression": "price",
-                        "name": "price_sum_78a5eb43",
+                        "name": "price_sum_935e7117",
                         "rule": {
                             "level": None,
                             "type": "FULL",
