@@ -30,6 +30,8 @@ LOOKUP_CHARS = {
     "\\": "BSLSH",
     "|": "PIPE",
     "~": "TILDE",
+    ">": "GT",
+    "<": "LT",
 }
 
 
