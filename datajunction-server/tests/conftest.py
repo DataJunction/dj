@@ -477,7 +477,7 @@ def patch_session_contexts(
             "datajunction_server.internal.caching.query_cache_manager.session_context",
             "datajunction_server.internal.nodes.session_context",
             "datajunction_server.internal.materializations.session_context",
-            "datajunction_server.internal.deployment.session_context",
+            "datajunction_server.internal.deployment.deployment.session_context",
             "datajunction_server.api.deployments.session_context",
         ]
         if use_patch

@@ -70,7 +70,7 @@ from datajunction_server.sql.parsing.types import (
     WildcardType,
     YearMonthIntervalType,
 )
-from datajunction_server.utils import SEPARATOR
+from datajunction_server.utils import SEPARATOR, refresh_if_needed
 
 PRIMITIVES = {int, float, str, bool, type(None)}
 logger = logging.getLogger(__name__)
@@ -1062,7 +1062,7 @@ class Column(Aliasable, Named, Expression):
         if self.table and isinstance(self.table.parent, Column):
             await self.table.add_ref_column(self, ctx)
         else:
-            found_sources = await self.find_table_sources(ctx)
+            found_sources = list(set(await self.find_table_sources(ctx)))
             if len(found_sources) < 1:
                 ctx.exception.errors.append(
                     DJError(
@@ -1269,6 +1269,7 @@ class TableExpression(Aliasable, Expression):
                 column.add_table(self)
                 column.add_expression(matching_column)
                 column.add_type(matching_column.type)
+                # return True
 
         # For table-valued functions, add the list of columns that gets
         # returned as reference columns and compile them
