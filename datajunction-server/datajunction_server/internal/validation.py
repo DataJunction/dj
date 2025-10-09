@@ -66,14 +66,20 @@ async def validate_node_data(
     """
     node_validator = NodeValidator()
 
+    # Create context without bulk loading for new nodes
+    ctx = ast.CompileContext(session=session, exception=DJException())
+
     if isinstance(data, NodeRevision):
         validated_node = data
+        # await session.refresh(data, ["parents"])
+        # ctx = await create_compile_context_with_bulk_deps(
+        #     session=session,
+        #     node_names={parent.name for parent in data.parents},
+        # )
     else:
         node = Node(name=data.name, type=data.type)
         validated_node = NodeRevision(**data.model_dump())
         validated_node.node = node
-
-    ctx = ast.CompileContext(session=session, exception=DJException())
 
     # Try to parse the node's query, extract dependencies and missing parents
     try:

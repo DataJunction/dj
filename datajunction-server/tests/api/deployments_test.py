@@ -1,7 +1,7 @@
 import asyncio
 import json
 from unittest import mock
-from datajunction_server.internal.deployment import (
+from datajunction_server.internal.deployment.deployment import (
     safe_task,
 )
 from datajunction_server.models.deployment import (
@@ -32,7 +32,7 @@ import pytest
 
 @pytest.fixture(autouse=True, scope="module")
 def patch_effective_writer_concurrency():
-    from datajunction_server.internal.deployment import settings
+    from datajunction_server.internal.deployment.deployment import settings
 
     with mock.patch.object(
         settings.__class__,
@@ -983,6 +983,7 @@ def default_avg_length_of_employment():
         query="""SELECT avg(CAST(NOW() AS DATE) - hire_date) FROM ${prefix}default.hard_hat""",
         dimension_links=[],
         owners=["dj"],
+        required_dimensions=["hard_hat_id"],
     )
 
 
@@ -999,6 +1000,8 @@ def default_discounted_orders_rate():
                 """,
         dimension_links=[],
         owners=["dj"],
+        direction=MetricDirection.HIGHER_IS_BETTER,
+        unit=MetricUnit.PROPORTION,
     )
 
 
@@ -1146,7 +1149,6 @@ async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
 @pytest.mark.xdist_group(name="deployments")
 class TestDeployments:
     @pytest.mark.asyncio
-    # @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_deploy_failed_on_non_existent_upstream_deps(
         self,
         client,
@@ -1180,7 +1182,6 @@ class TestDeployments:
         }
 
     @pytest.mark.asyncio
-    # @pytest.mark.parametrize("client", [False], indirect=True)
     async def test_deploy_failed_on_non_existent_link_deps(
         self,
         client,
@@ -1272,7 +1273,7 @@ class TestDeployments:
                 },
                 {
                     "deploy_type": "node",
-                    "message": "Some columns in the primary key [hard_hat_id] were not found in "
+                    "message": "Some columns in the primary key ['hard_hat_id'] were not found in "
                     "the list of available columns for the node "
                     f"{namespace}.default.hard_hat.",
                     "name": f"{namespace}.default.hard_hat",
@@ -1299,6 +1300,7 @@ class TestDeployments:
     @pytest.mark.asyncio
     async def test_deploy_with_dimension_link_removal(
         self,
+        session,
         client,
         default_hard_hats,
         default_us_states,
@@ -1336,6 +1338,8 @@ class TestDeployments:
             ),
         )
         assert data["status"] == "success"
+        hard_hat = await Node.get_by_name(session, "link_removal.default.hard_hat")
+        assert len(hard_hat.current.dimension_links) == 1
 
         # Remove the dimension link and redeploy
         dim_spec.dimension_links = []
@@ -1349,6 +1353,71 @@ class TestDeployments:
             "message": "",
             "name": "link_removal.default.hard_hat -> link_removal.default.us_state",
             "operation": "delete",
+            "status": "success",
+        }
+
+    @pytest.mark.asyncio
+    async def test_deploy_with_dimension_link_update(
+        self,
+        session,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Test that updating a dimension link from a node works as expected
+        """
+        namespace = "link_update"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="""Hard hat dimension""",
+            query="""
+            SELECT
+                hard_hat_id,
+                state
+            FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="inner",
+                    join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
+                ),
+            ],
+        )
+        nodes_list = [dim_spec, default_hard_hats, default_us_states, default_us_state]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=nodes_list,
+            ),
+        )
+        assert data["status"] == "success"
+        hard_hat = await Node.get_by_name(session, "link_update.default.hard_hat")
+        assert len(hard_hat.current.dimension_links) == 1
+
+        # Update the dimension link and redeploy
+        dim_spec.dimension_links = [
+            DimensionJoinLinkSpec(
+                dimension_node="${prefix}default.us_state",
+                join_type="left",
+                join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
+            ),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        assert data["results"][-1] == {
+            "deploy_type": "link",
+            "message": "Join link successfully deployed",
+            "name": "link_update.default.hard_hat -> link_update.default.us_state",
+            "operation": "update",
             "status": "success",
         }
 
@@ -1395,6 +1464,21 @@ class TestDeployments:
             "operation": "create",
             "status": "success",
         }
+        dim_spec.dimension_links = [
+            DimensionReferenceLinkSpec(
+                node_column="state",
+                dimension="${prefix}default.us_state.random",
+            ),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "failed"
+        assert (
+            "Dimension attribute 'random' not found in dimension"
+            in data["results"][-1]["message"]
+        )
 
     @pytest.mark.asyncio
     async def test_deploy_dimension_with_update(
@@ -1445,8 +1529,8 @@ class TestDeployments:
         assert data["status"] == "success"
         assert len(data["results"]) == 5
 
-        # node = await Node.get_by_name(session, f"{namespace}.default.hard_hat")
-        # assert node.current.primary_key() == ["hard_hat_id"]
+        node = await Node.get_by_name(session, f"{namespace}.default.hard_hat")
+        assert [col.name for col in node.current.primary_key()] == ["hard_hat_id"]
 
         data = await deploy_and_wait(
             client,
@@ -1483,7 +1567,7 @@ class TestDeployments:
             "name": f"{namespace}.default.hard_hat",
             "status": "success",
             "operation": "update",
-            "message": "Updated dimension (v2.0)",
+            "message": "Updated dimension (v2.0)\n└─ Updated dimension_links",
         }
         update_us_state = next(
             res
@@ -1564,8 +1648,7 @@ class TestDeployments:
         )
         assert metric_result == {
             "deploy_type": "node",
-            "message": "Updated metric (v2.0)\n"
-            "└─ Updated display_name, direction, unit_enum",
+            "message": "Updated metric (v2.0)\n└─ Updated display_name",
             "name": "metric_update.default.avg_length_of_employment",
             "operation": "update",
             "status": "success",
@@ -1727,8 +1810,10 @@ class TestDeployments:
                 },
                 {
                     "deploy_type": "link",
-                    "message": f"Join query {namespace}.default.hard_hat.state = "
-                    f"{namespace}.default.us_state.state_short is not valid\n"
+                    "message": "Dimension link from bad_node_spec_links.default.hard_hat to "
+                    "bad_node_spec_links.default.us_state is invalid: Join query "
+                    "bad_node_spec_links.default.hard_hat.state = "
+                    "bad_node_spec_links.default.us_state.state_short is not valid\n"
                     "The following error happened:\n"
                     f"- Column `{namespace}.default.hard_hat.state` does not exist on "
                     "any valid table. (error code: 206)",
@@ -1876,11 +1961,13 @@ class TestDeployments:
         )
         assert data["results"][-1] == {
             "deploy_type": "node",
-            "message": "Updated dimension (v1.0)\n└─ Updated tags\n└─ Set tags to `tag1`.",
+            "message": "Updated dimension (v2.0)\n└─ Updated tags",
             "name": "node_update.default.us_state",
             "operation": "update",
             "status": "success",
         }
+        node = await Node.get_by_name(session, f"{namespace}.default.us_state")
+        assert [tag.name for tag in node.tags] == ["tag1"]
 
     @pytest.mark.asyncio
     async def test_deploy_column_properties(
@@ -1929,7 +2016,7 @@ class TestDeployments:
             },
             {
                 "deploy_type": "node",
-                "message": "Updated dimension (v1.0)\n└─ Set properties for 1 columns",
+                "message": "Updated dimension (v2.0)\n└─ Set properties for 1 columns",
                 "name": "node_update.default.us_state",
                 "operation": "update",
                 "status": "success",

@@ -2019,6 +2019,80 @@ async def get_all_cube_revisions_metadata(
     return [CubeRevisionMetadata.from_cube_revision(cube) for cube in cubes]
 
 
+async def validate_complex_dimension_link(
+    session: AsyncSession,
+    node: Node,
+    dimension_node: Node,
+    link_input: JoinLinkInput,
+    dependencies_cache: dict[str, Node] | None = None,
+) -> ast.Join:
+    """
+    Validate that a set of dimension links are valid
+    """
+    if not dependencies_cache:
+        dependencies_cache = {}  # pragma: no cover
+    if node.type not in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):  # type: ignore
+        raise DJInvalidInputException(
+            message=f"Cannot link dimension to a node of type {node.type}. "  # type: ignore
+            "Must be a source, dimension, or transform node.",
+        )
+
+    if (
+        dimension_node.current.catalog.name != settings.seed_setup.virtual_catalog_name  # type: ignore
+        and dimension_node.current.catalog is not None  # type: ignore
+        and node.current.catalog.name != dimension_node.current.catalog.name  # type: ignore
+    ):
+        raise DJInvalidInputException(  # pragma: no cover
+            message=(
+                "Cannot link dimension to node, because catalogs do not match: "
+                f"{node.current.catalog.name}, "  # type: ignore
+                f"{dimension_node.current.catalog.name}"  # type: ignore
+            ),
+        )
+
+    # Parse the join query and do some basic verification of its validity
+    join_query = parse(
+        f"SELECT 1 FROM {node.name} "
+        f"{link_input.join_type} JOIN {link_input.dimension_node} "
+        + (f"ON {link_input.join_on}" if link_input.join_on else ""),
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(
+        session=session,
+        exception=exc,
+        dependencies_cache=dependencies_cache,
+    )
+    await join_query.compile(ctx)
+    join_relation = join_query.select.from_.relations[0].extensions[0]  # type: ignore
+
+    # Verify that the query references both the node and the dimension being joined
+    expected_references = {node.name, link_input.dimension_node}
+    references = (
+        {
+            table.name.namespace.identifier()  # type: ignore
+            for table in join_relation.criteria.on.find_all(ast.Column)  # type: ignore
+        }
+        if join_relation.criteria
+        else {}
+    )
+    if (
+        expected_references.difference(references)
+        and link_input.join_type != JoinType.CROSS
+    ):
+        raise DJInvalidInputException(
+            f"The join SQL provided does not reference both the origin node {node.name} and the "
+            f"dimension node {link_input.dimension_node} that it's being joined to.",
+        )
+
+    # Verify that the columns in the ON clause exist on both nodes
+    if ctx.exception.errors:
+        raise DJInvalidInputException(
+            message=f"Join query {link_input.join_on} is not valid",
+            errors=ctx.exception.errors,
+        )
+    return join_relation
+
+
 async def upsert_complex_dimension_link(
     session: AsyncSession,
     node_name: str,
@@ -2033,79 +2107,32 @@ async def upsert_complex_dimension_link(
     and the role, if any. If an existing dimension link identified by those fields already exists,
     we'll update that dimension link. If no dimension link exists, we'll create a new one.
     """
-    node = await Node.get_by_name(
+    node = cast(
+        Node,
+        await Node.get_by_name(
+            session,
+            node_name,
+            raise_if_not_exists=True,
+        ),
+    )
+    dimension_node = cast(
+        Node,
+        await Node.get_by_name(
+            session,
+            link_input.dimension_node,
+            raise_if_not_exists=True,
+        ),
+    )
+    join_relation = await validate_complex_dimension_link(
         session,
-        node_name,
-        raise_if_not_exists=True,
-    )
-    if node.type not in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):  # type: ignore
-        raise DJInvalidInputException(
-            message=f"Cannot link dimension to a node of type {node.type}. "  # type: ignore
-            "Must be a source, dimension, or transform node.",
-        )
-
-    # Find the dimension node and check that the catalogs match
-    dimension_node = await Node.get_by_name(
-        session,
-        link_input.dimension_node,
-        raise_if_not_exists=True,
-    )
-    if (
-        dimension_node.current.catalog.name != settings.seed_setup.virtual_catalog_name  # type: ignore
-        and dimension_node.current.catalog is not None  # type: ignore
-        and node.current.catalog.name != dimension_node.current.catalog.name  # type: ignore
-    ):
-        raise DJException(  # pragma: no cover
-            message=(
-                "Cannot link dimension to node, because catalogs do not match: "
-                f"{node.current.catalog.name}, "  # type: ignore
-                f"{dimension_node.current.catalog.name}"  # type: ignore
-            ),
-        )
-
-    # Parse the join query and do some basic verification of its validity
-    join_query = parse(
-        f"SELECT 1 FROM {node_name} "
-        f"{link_input.join_type} JOIN {link_input.dimension_node} "
-        + (f"ON {link_input.join_on}" if link_input.join_on else ""),
-    )
-    exc = DJException()
-    ctx = ast.CompileContext(
-        session=session,
-        exception=exc,
+        node,
+        dimension_node,
+        link_input,
         dependencies_cache={
             node_name: node,  # type: ignore
             link_input.dimension_node: dimension_node,  # type: ignore
         },
     )
-    await join_query.compile(ctx)
-    join_relation = join_query.select.from_.relations[0].extensions[0]  # type: ignore
-
-    # Verify that the query references both the node and the dimension being joined
-    expected_references = {node_name, link_input.dimension_node}
-    references = (
-        {
-            table.name.namespace.identifier()  # type: ignore
-            for table in join_relation.criteria.on.find_all(ast.Column)  # type: ignore
-        }
-        if join_relation.criteria
-        else {}
-    )
-    if (
-        expected_references.difference(references)
-        and link_input.join_type != JoinType.CROSS
-    ):
-        raise DJInvalidInputException(
-            f"The join SQL provided does not reference both the origin node {node_name} and the "
-            f"dimension node {link_input.dimension_node} that it's being joined to.",
-        )
-
-    # Verify that the columns in the ON clause exist on both nodes
-    if ctx.exception.errors:
-        raise DJInvalidInputException(
-            message=f"Join query {link_input.join_on} is not valid",
-            errors=ctx.exception.errors,
-        )
 
     # Create a new revision for the node to capture the dimension link changes in a new version
     node = cast(Node, node)

@@ -158,6 +158,7 @@ class User(Base):
         cls,
         session: AsyncSession,
         usernames: list[str],
+        raise_if_not_exists: bool = True,
     ) -> list["User"]:
         """
         Find users by username, preserving the order of the input usernames list.
@@ -175,7 +176,7 @@ class User(Base):
         )
         result = await session.execute(statement)
         users = result.unique().scalars().all()
-        if len(users) != len(usernames):
+        if len(users) != len(usernames) and raise_if_not_exists:
             missing_usernames = set(usernames) - {user.username for user in users}
             raise DJDoesNotExistException(
                 f"Users not found: {', '.join(missing_usernames)}",
