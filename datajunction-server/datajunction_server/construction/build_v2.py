@@ -78,7 +78,7 @@ class FullColumnName:
         """
         Gets the column name part of the full column name.
         """
-        regex = r"\[([A-Za-z0-9_]*)\]"
+        regex = r"\[([A-Za-z0-9_\-\>]*)\]"
         match = re.search(regex, self.full_column_name)
         if match:
             return match.group(1)
@@ -1372,9 +1372,9 @@ def convert_to_cte(
 
 
 def build_requested_dimensions_columns(
-    requested_dimensions,
-    link,
-    dimension_node_joins,
+    requested_dimensions: list[str],
+    link: DimensionLink,
+    dimension_node_joins: dict[str, DimensionJoin],
 ) -> Tuple[list[ast.Column], list[DJQueryBuildError]]:
     """
     Builds the requested dimension columns for the final select layer.
@@ -1391,7 +1391,7 @@ def build_requested_dimensions_columns(
         if replacement:  # pragma: no cover
             dimensions_columns.append(replacement)
         else:
-            errors.append(
+            errors.append(  # pragma: no cover
                 DJQueryBuildError(
                     code=ErrorCode.INVALID_DIMENSION,
                     message=f"Dimension attribute {dim} does not exist!",

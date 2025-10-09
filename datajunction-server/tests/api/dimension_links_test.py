@@ -634,6 +634,7 @@ FROM default_DOT_events_metrics
         "/sql/default.elapsed_secs?",
         params={
             "dimensions": [
+                # "default.countries.country_code[user_windowed->registration_country]",
                 "default.countries.name[user_direct->registration_country]",
                 "default.users.snapshot_date[user_direct]",
                 "default.users.registration_country[user_direct]",
@@ -643,7 +644,8 @@ FROM default_DOT_events_metrics
             ],
         },
     )
-    query = response.json()["sql"]
+    data = response.json()
+    query = data["sql"]
     expected = """WITH default_DOT_events AS (
   SELECT
     default_DOT_events_table.user_id,
@@ -669,6 +671,7 @@ FROM default_DOT_events_metrics
 ),
 default_DOT_events_metrics AS (
   SELECT
+    default_DOT_countries.name default_DOT_countries_DOT_name_LBRACK_user_direct_MINUS__GT_registration_country_RBRACK,
     default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
     default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
     SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
@@ -679,16 +682,52 @@ default_DOT_events_metrics AS (
   INNER JOIN default_DOT_countries
     ON default_DOT_users.registration_country = default_DOT_countries.country_code
   GROUP BY
+    default_DOT_countries.name,
     default_DOT_users.snapshot_date,
     default_DOT_users.registration_country
 )
 SELECT
+  default_DOT_events_metrics.default_DOT_countries_DOT_name_LBRACK_user_direct_MINUS__GT_registration_country_RBRACK,
   default_DOT_events_metrics.default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
   default_DOT_events_metrics.default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
   default_DOT_events_metrics.default_DOT_elapsed_secs
 FROM default_DOT_events_metrics
 """
     assert str(parse(query)) == str(parse(expected))
+    assert data["columns"] == [
+        {
+            "column": "name[user_direct->registration_country]",
+            "name": "default_DOT_countries_DOT_name_LBRACK_user_direct_MINUS__GT_registration_country_RBRACK",
+            "node": "default.countries",
+            "semantic_entity": "default.countries.name[user_direct->registration_country]",
+            "semantic_type": "dimension",
+            "type": "string",
+        },
+        {
+            "column": "snapshot_date[user_direct]",
+            "name": "default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK",
+            "node": "default.users",
+            "semantic_entity": "default.users.snapshot_date[user_direct]",
+            "semantic_type": "dimension",
+            "type": "int",
+        },
+        {
+            "column": "registration_country[user_direct]",
+            "name": "default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK",
+            "node": "default.users",
+            "semantic_entity": "default.users.registration_country[user_direct]",
+            "semantic_type": "dimension",
+            "type": "string",
+        },
+        {
+            "column": "default_DOT_elapsed_secs",
+            "name": "default_DOT_elapsed_secs",
+            "node": "default.elapsed_secs",
+            "semantic_entity": "default.elapsed_secs.default_DOT_elapsed_secs",
+            "semantic_type": "metric",
+            "type": "bigint",
+        },
+    ]
 
 
 @pytest.mark.asyncio
