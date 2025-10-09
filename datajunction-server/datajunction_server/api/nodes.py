@@ -1222,7 +1222,7 @@ async def column_lineage(
         ],
     )
     if node.current.lineage:  # type: ignore
-        return node.current.lineage  # type: ignore
+        return node.current.lineage  # type: ignore  # pragma: no cover
     return await get_column_level_lineage(session, node.current)  # type: ignore  # pragma: no cover
 
 
