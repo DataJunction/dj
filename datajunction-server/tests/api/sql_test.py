@@ -2981,7 +2981,7 @@ async def test_get_sql_including_dimension_ids(
     Test getting SQL when there are dimensions ids included
     """
 
-    response = await client_with_roads.get(
+    response = await client_with_examples.get(
         "/sql/",
         params={
             "metrics": ["default.avg_repair_price", "default.total_repair_cost"],
@@ -3042,7 +3042,7 @@ FROM default_DOT_repair_orders_fact_metrics
 """
     assert str(parse(str(data["sql"]))) == str(parse(str(expected)))
 
-    response = await client_with_roads.get(
+    response = await client_with_examples.get(
         "/sql/",
         params={
             "metrics": ["default.avg_repair_price", "default.total_repair_cost"],
