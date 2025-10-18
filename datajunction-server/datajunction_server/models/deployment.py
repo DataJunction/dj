@@ -2,7 +2,6 @@ from enum import Enum
 from pydantic import (
     BaseModel,
     Field,
-    field_validator,
     PrivateAttr,
     ConfigDict,
     model_validator,
@@ -211,6 +210,8 @@ class NodeSpec(BaseModel):
 
     _query_ast: Any | None = PrivateAttr(default=None)
 
+    model_config = ConfigDict(truncate_errors=False)
+
     @property
     def rendered_name(self) -> str:
         if self.namespace:
@@ -326,30 +327,18 @@ class SourceSpec(LinkableNodeSpec):
     """
 
     node_type: Literal[NodeType.SOURCE] = NodeType.SOURCE
+    catalog: str
+    schema_: str | None = Field(alias="schema")
     table: str
 
-    @field_validator("table")
-    def validate_table(cls, value) -> str:
-        """
-        Validate that the table name is fully qualified
-        """
-        if (
-            value.count(".") != 2
-            or not value.replace(".", "").replace("_", "").isalnum()
-        ):
-            raise DJInvalidInputException(
-                f"Invalid table name {value}: table name must be fully qualified: "
-                "<catalog>.<schema>.<table>",
-            )
-        return value
+    model_config = ConfigDict(populate_by_name=True)
 
     def __eq__(self, other: Any) -> bool:
-        return super().__eq__(other) and self.table == other.table
-
-    @property
-    def catalog(self) -> str | None:
-        """Return catalog name from table."""
-        return self.table.split(".")[0] if self.table and "." in self.table else None
+        return super().__eq__(other) and (
+            self.catalog == other.catalog
+            and self.schema_ == other.schema_
+            and self.table == other.table
+        )
 
 
 class TransformSpec(LinkableNodeSpec):
