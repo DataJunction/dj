@@ -5,6 +5,7 @@ Fixtures for testing DJ client.
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 import asyncio
 from contextlib import ExitStack, asynccontextmanager, contextmanager
+from datetime import timedelta
 import os
 from http.client import HTTPException
 from pathlib import Path
@@ -19,6 +20,8 @@ from datajunction_server.config import Settings, DatabaseConfig
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
+from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
@@ -288,7 +291,7 @@ def patch_session_contexts(
             "datajunction_server.internal.caching.query_cache_manager.session_context",
             "datajunction_server.internal.nodes.session_context",
             "datajunction_server.internal.materializations.session_context",
-            "datajunction_server.internal.deployment.session_context",
+            "datajunction_server.internal.deployment.deployment.session_context",
             "datajunction_server.api.deployments.session_context",
         ]
         if use_patch
@@ -348,12 +351,49 @@ def module__session_factory(module__postgres_container) -> Awaitable[AsyncSessio
 
 
 @pytest.fixture(scope="module")
+def jwt_token() -> str:
+    """
+    JWT token fixture for testing.
+    """
+    return create_token(
+        {"username": "dj"},
+        secret="a-fake-secretkey",
+        iss="http://localhost:8000/",
+        expires_delta=timedelta(hours=24),
+    )
+
+
+async def create_default_user(session: AsyncSession) -> User:
+    """
+    A user fixture.
+    """
+    new_user = User(
+        username="dj",
+        password="dj",
+        email="dj@datajunction.io",
+        name="DJ",
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=False,
+    )
+    existing_user = await User.get_by_username(session, new_user.username)
+    if not existing_user:
+        session.add(new_user)
+        await session.commit()
+        user = new_user
+    else:
+        user = existing_user
+    await session.refresh(user)
+    return user
+
+
+@pytest.fixture(scope="module")
 def module__server(  # pylint: disable=too-many-statements
     module__session: AsyncSession,
     module__settings: Settings,
     module__query_service_client: QueryServiceClient,
     module_mocker,
     module__session_factory,
+    jwt_token,
 ) -> Iterator[TestClient]:
     """
     Create a mock server for testing APIs that contains a mock query service.
@@ -379,6 +419,7 @@ def module__server(  # pylint: disable=too-many-statements
         """
         await default_attribute_types(module__session)
         await seed_default_catalogs(module__session)
+        await create_default_user(module__session)
 
         yield
 
@@ -403,21 +444,7 @@ def module__server(  # pylint: disable=too-many-statements
         )
 
         with TestClient(app) as test_client:
-            test_client.post(
-                "/basic/user/",
-                data={
-                    "email": "dj@datajunction.io",
-                    "username": "datajunction",
-                    "password": "datajunction",
-                },
-            )
-            test_client.post(
-                "/basic/login/",
-                data={
-                    "username": "datajunction",
-                    "password": "datajunction",
-                },
-            )
+            test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
             yield test_client
 
     app.dependency_overrides.clear()

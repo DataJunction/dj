@@ -1,7 +1,9 @@
 name: ${prefix}roads.contractors
 node_type: source
 description: Information on companies contracted for repairs
-table: default.roads.contractors
+catalog: default
+schema: roads
+table: contractors
 columns:
   - name: contractor_id
     type: int

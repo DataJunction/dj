@@ -1,5 +1,4 @@
 from datajunction_server.models.node import NodeMode, NodeType
-import pytest
 from datajunction_server.models.deployment import (
     DeploymentSpec,
     DimensionJoinLinkSpec,
@@ -15,22 +14,17 @@ from datajunction_server.models.deployment import (
     eq_or_fallback,
 )
 from datajunction_server.models.node import MetricUnit
-from datajunction_server.errors import DJInvalidInputException
 
 
 def test_source_spec():
     source_spec = SourceSpec(
         name="test_source",
-        table="public.test_db.test_table",
+        catalog="public",
+        schema="test_db",
+        table="test_table",
     )
     assert source_spec.rendered_name == "test_source"
     assert source_spec.rendered_query is None
-
-    with pytest.raises(DJInvalidInputException):
-        source_spec = SourceSpec(
-            name="test_source",
-            table="test_db.test_table",
-        )
 
 
 def test_transform_spec():
@@ -106,7 +100,9 @@ def test_deployment_spec():
                 node_type=NodeType.SOURCE,
                 owners=["user1"],
                 tags=["tag1"],
-                table="db.schema.table",
+                catalog="db",
+                schema="schema",
+                table="table",
             ),
         ],
     )
@@ -130,7 +126,9 @@ def test_deployment_spec():
                 "node_type": NodeType.SOURCE,
                 "owners": ["user1"],
                 "tags": ["tag1"],
-                "table": "db.schema.table",
+                "catalog": "db",
+                "schema_": "schema",
+                "table": "table",
                 "primary_key": [],
             },
         ],
