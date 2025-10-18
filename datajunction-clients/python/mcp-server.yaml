@@ -1,0 +1,20 @@
+# DataJunction MCP Server Configuration
+# Configure your DataJunction MCP server connection here
+
+# Example configuration for a future DataJunction MCP server
+server:
+  # Command to start the DataJunction MCP server (to be implemented)
+  command: "nonexistent_command"  # This will fail and trigger LLM fallback
+  args: ["-m", "datajunction_mcp_server"]
+  description: "DataJunction MCP Server for querying and managing DataJunction resources"
+  
+  # Environment variables (if needed)
+  env:
+    DJ_SERVER_URL: "http://localhost:8000"
+    DJ_API_KEY: ""  # Set your API key here if required
+
+# For testing, you can use a simple echo server:
+# server:
+#   command: "python"
+#   args: ["-c", "import sys, json, time; print('MCP Test Server Started', file=sys.stderr); sys.stderr.flush(); time.sleep(3600)"]
+#   description: "Test server for development"
