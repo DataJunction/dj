@@ -1,7 +1,9 @@
 name: ${prefix}roads.us_states
 node_type: source
 description: US state data
-table: default.roads.us_states
+catalog: default
+schema: roads
+table: us_states
 columns:
   - name: state_id
     type: int

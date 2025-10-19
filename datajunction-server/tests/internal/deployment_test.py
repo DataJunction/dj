@@ -67,7 +67,9 @@ def basic_nodes():
     source_node = SourceSpec(
         name="catalog.facts.clicks",
         node_type=NodeType.SOURCE,
-        table="catalog.facts.clicks",
+        catalog="catalog",
+        schema="facts",
+        table="clicks",
     )
     metric_node = MetricSpec(
         name="example.metric_node",
@@ -110,12 +112,16 @@ def test_graph_complex():
     clicks = SourceSpec(
         name="catalog.facts.clicks",
         node_type=NodeType.SOURCE,
-        table="catalog.facts.clicks",
+        catalog="catalog",
+        schema="facts",
+        table="clicks",
     )
     users = SourceSpec(
         name="catalog.dim.users",
         node_type=NodeType.SOURCE,
-        table="catalog.dim.users",
+        catalog="catalog",
+        schema="dim",
+        table="users",
     )
 
     # Transform nodes
@@ -483,7 +489,9 @@ async def test_deploy_column_properties_partition(
                     ),
                 ),
             ],
-            table="catalog.dim.categories",
+            catalog="catalog",
+            schema="dim",
+            table="categories",
         )
         await deploy_column_properties(
             categories.name,
@@ -542,7 +550,9 @@ async def test_deploy_column_properties_attributes(
                 ),
                 ColumnSpec(name="dateint", type="int"),
             ],
-            table="catalog.dim.categories",
+            catalog="catalog",
+            schema="dim",
+            table="categories",
         )
 
         await deploy_column_properties(
@@ -584,7 +594,9 @@ async def test_deploy_column_properties_desc(
                 ),
                 ColumnSpec(name="dateint", type="int"),
             ],
-            table="catalog.dim.categories",
+            catalog="catalog",
+            schema="dim",
+            table="categories",
         )
         await deploy_column_properties(
             categories.name,
@@ -636,7 +648,9 @@ async def test_deploy_column_properties_reset(
                     ),
                 ),
             ],
-            table="catalog.dim.categories",
+            catalog="catalog",
+            schema="dim",
+            table="categories",
         )
         await deploy_column_properties(
             categories.name,

@@ -1,7 +1,9 @@
 name: ${prefix}roads.companies
 node_type: source
 description: Companies dimension
-table: default.roads.companies
+catalog: default
+schema: roads
+table: companies
 columns:
   - name: name
     type: str

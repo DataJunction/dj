@@ -399,7 +399,9 @@ class Node(Base):
         # Source-specific
         if self.type == NodeType.SOURCE:
             extra_kwargs.update(
-                table=f"{self.current.catalog.name}.{self.current.schema_}.{self.current.table}",
+                catalog=self.current.catalog.name,
+                schema_=self.current.schema_,
+                table=self.current.table,
                 columns=[col.to_spec() for col in self.current.columns],
             )
 

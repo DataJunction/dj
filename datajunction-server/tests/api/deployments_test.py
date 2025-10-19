@@ -48,7 +48,9 @@ def default_repair_orders():
     return SourceSpec(
         name="default.repair_orders",
         description="""All repair orders""",
-        table="default.roads.repair_orders",
+        catalog="default",
+        schema="roads",
+        table="repair_orders",
         columns=[
             ColumnSpec(
                 name="repair_order_id",
@@ -115,7 +117,9 @@ def default_repair_orders_view():
         name="default.repair_orders_view",
         description="""All repair orders (view)""",
         query="""CREATE OR REPLACE VIEW roads.repair_orders_view AS SELECT * FROM roads.repair_orders""",
-        table="default.roads.repair_orders_view",
+        catalog="default",
+        schema="roads",
+        table="repair_orders_view",
         columns=[
             ColumnSpec(
                 name="repair_order_id",
@@ -170,7 +174,9 @@ def default_repair_order_details():
     return SourceSpec(
         name="default.repair_order_details",
         description="""Details on repair orders""",
-        table="default.roads.repair_order_details",
+        catalog="default",
+        schema="roads",
+        table="repair_order_details",
         columns=[
             ColumnSpec(
                 name="repair_order_id",
@@ -219,7 +225,9 @@ def default_repair_type():
     return SourceSpec(
         name="default.repair_type",
         description="""Information on types of repairs""",
-        table="default.roads.repair_type",
+        catalog="default",
+        schema="roads",
+        table="repair_type",
         columns=[
             ColumnSpec(
                 name="repair_type_id",
@@ -256,7 +264,9 @@ def default_contractors():
     return SourceSpec(
         name="default.contractors",
         description="""Information on contractors""",
-        table="default.roads.contractors",
+        catalog="default",
+        schema="roads",
+        table="contractors",
         columns=[
             ColumnSpec(
                 name="contractor_id",
@@ -335,7 +345,9 @@ def default_municipality_municipality_type():
     return SourceSpec(
         name="default.municipality_municipality_type",
         description="""Lookup table for municipality and municipality types""",
-        table="default.roads.municipality_municipality_type",
+        catalog="default",
+        schema="roads",
+        table="municipality_municipality_type",
         columns=[
             ColumnSpec(
                 name="municipality_id",
@@ -360,7 +372,9 @@ def default_municipality_type():
     return SourceSpec(
         name="default.municipality_type",
         description="""Information on municipality types""",
-        table="default.roads.municipality_type",
+        catalog="default",
+        schema="roads",
+        table="municipality_type",
         columns=[
             ColumnSpec(
                 name="municipality_type_id",
@@ -385,7 +399,9 @@ def default_municipality():
     return SourceSpec(
         name="default.municipality",
         description="""Information on municipalities""",
-        table="default.roads.municipality",
+        catalog="default",
+        schema="roads",
+        table="municipality",
         columns=[
             ColumnSpec(
                 name="municipality_id",
@@ -434,7 +450,9 @@ def default_dispatchers():
     return SourceSpec(
         name="default.dispatchers",
         description="""Information on dispatchers""",
-        table="default.roads.dispatchers",
+        catalog="default",
+        schema="roads",
+        table="dispatchers",
         columns=[
             ColumnSpec(
                 name="dispatcher_id",
@@ -465,7 +483,9 @@ def default_hard_hats():
     return SourceSpec(
         name="default.hard_hats",
         description="""Information on employees""",
-        table="default.roads.hard_hats",
+        catalog="default",
+        schema="roads",
+        table="hard_hats",
         columns=[
             ColumnSpec(
                 name="hard_hat_id",
@@ -556,7 +576,9 @@ def default_hard_hat_state():
     return SourceSpec(
         name="default.hard_hat_state",
         description="""Lookup table for employee's current state""",
-        table="default.roads.hard_hat_state",
+        catalog="default",
+        schema="roads",
+        table="hard_hat_state",
         columns=[
             ColumnSpec(
                 name="hard_hat_id",
@@ -581,7 +603,9 @@ def default_us_states():
     return SourceSpec(
         name="default.us_states",
         description="""Information on different types of repairs""",
-        table="default.roads.us_states",
+        catalog="default",
+        schema="roads",
+        table="us_states",
         columns=[
             ColumnSpec(
                 name="state_id",
@@ -618,7 +642,9 @@ def default_us_region():
     return SourceSpec(
         name="default.us_region",
         description="""Information on US regions""",
-        table="default.roads.us_region",
+        catalog="default",
+        schema="roads",
+        table="us_region",
         columns=[
             ColumnSpec(
                 name="us_region_id",
@@ -2434,7 +2460,9 @@ async def test_node_to_spec_source(module__session, module__client_with_roads):
             ),
         ],
         primary_key=[],
-        table="default.roads.repair_orders",
+        catalog="default",
+        schema="roads",
+        table="repair_orders",
     )
 
 

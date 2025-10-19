@@ -53,7 +53,7 @@ def sample_deployment_spec():
             SourceSpec(
                 name="source_node",
                 display_name="Test Source",
-                table="catalog.schema.table",
+                table="table",
                 catalog="catalog",
                 schema="schema",
                 columns=[],
@@ -178,22 +178,25 @@ class TestDeploymentPlanning:
                 SourceSpec(
                     name="simple_node",
                     display_name="Simple Node",
-                    table="catalog.schema.table1",
                     catalog="catalog",
+                    schema="schema",
+                    table="table1",
                 ),
                 # Node not under deployment namespace - should add error
                 SourceSpec(
                     name="other_team.${prefix}marketing.campaigns",
                     display_name="Marketing Node",
-                    table="catalog.schema.table2",
                     catalog="catalog",
+                    schema="schema",
+                    table="table2",
                 ),
                 # Valid node under deployment namespace - should work normally
                 SourceSpec(
                     name="${prefix}random.users.active_users",
                     display_name="Active Users",
-                    table="catalog.schema.table3",
                     catalog="catalog",
+                    schema="schema",
+                    table="table3",
                 ),
             ],
             tags=[],
@@ -259,8 +262,9 @@ class TestDeploymentPlanning:
                 SourceSpec(
                     name="simple_node",
                     display_name="Simple Node",
-                    table="catalog.schema.table1",
                     catalog="catalog",
+                    schema="schema",
+                    table="table1",
                     tags=["updated_existing_tag", "missing_tag"],
                 ),
             ],
@@ -314,8 +318,9 @@ class TestDeploymentPlanning:
                 SourceSpec(
                     name="simple_node",
                     display_name="Simple Node",
-                    table="catalog.schema.table1",
                     catalog="catalog",
+                    schema="schema",
+                    table="table1",
                     tags=["new_tag"],
                 ),
             ],
@@ -351,8 +356,9 @@ class TestDeploymentPlanning:
                 SourceSpec(
                     name="simple_node",
                     display_name="Simple Node",
-                    table="catalog.schema.table1",
                     catalog="catalog",
+                    schema="schema",
+                    table="table1",
                     owners=["new_owner"],
                 ),
             ],
@@ -389,8 +395,9 @@ class TestDeploymentPlanning:
                 SourceSpec(
                     name="simple_node",
                     display_name="Simple Node",
-                    table="catalog.schema.table1",
                     catalog="catalog",
+                    schema="schema",
+                    table="table1",
                     owners=["new_owner"],
                 ),
             ],
@@ -419,8 +426,9 @@ class TestDeploymentPlanning:
                 SourceSpec(
                     name="simple_node",
                     display_name="Simple Node",
-                    table="catalog.schema.table1",
                     catalog="catalog",
+                    schema="schema",
+                    table="table1",
                 ),
             ],
         )

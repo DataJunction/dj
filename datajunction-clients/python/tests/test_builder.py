@@ -682,7 +682,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert (
             number_of_account_types.metric_metadata["direction"] == "higher_is_better"
         )
-        assert number_of_account_types.metric_metadata["unit"]["name"] == "UNITLESS"
+        assert number_of_account_types.metric_metadata["unit"]["name"] == "unitless"
 
         assert (
             number_of_account_types.query == "SELECT count(*) FROM default.account_type"
@@ -712,7 +712,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         assert (
             number_of_account_types2.metric_metadata["direction"] == "higher_is_better"
         )
-        assert number_of_account_types2.metric_metadata["unit"]["name"] == "UNITLESS"
+        assert number_of_account_types2.metric_metadata["unit"]["name"] == "unitless"
 
         # cube nodes
         cube_one = client.create_cube(
