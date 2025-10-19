@@ -1236,41 +1236,22 @@ class DeploymentOrchestrator:
         ):
             new_revision.query = result.spec.rendered_query
             new_revision.columns = [
-                Column(
-                    name=col.name,
-                    type=col.type,
-                    display_name=col.display_name,
-                    description=col.description,
-                    attributes=[
-                        ColumnAttribute(
-                            attribute_type=self.registry.attributes.get(attr),
-                        )
-                        for attr in set(
-                            list(
-                                col.attributes
-                                + (["primary_key"] if col.name in pk_columns else []),
-                            ),
-                        )
-                        if attr in self.registry.attributes
-                    ],
-                    partition=Partition(
-                        type_=col.partition.type,
-                        format=col.partition.format,
-                        granularity=col.partition.granularity,
-                    )
-                    if col.partition
-                    else None,
-                )
+                self._create_column_from_spec(col, pk_columns)
                 for col in result.inferred_columns
             ]
 
         if result.spec.node_type == NodeType.SOURCE:
             source_spec = cast(SourceSpec, result.spec)
-            catalog, schema, table = source_spec.table.split(".")
+            catalog, schema, table = (
+                source_spec.catalog,
+                source_spec.schema_,
+                source_spec.table,
+            )
             new_revision.schema_ = schema
             new_revision.table = table
             new_revision.columns = [
-                Column(name=col.name, type=col.type) for col in result.spec.columns
+                self._create_column_from_spec(col, pk_columns)
+                for col in result.spec.columns
             ]
 
         if result.spec.node_type == NodeType.METRIC:
@@ -1302,6 +1283,37 @@ class DeploymentOrchestrator:
                         )  # pragma: no cover
                 new_revision.required_dimensions = required_dimensions
         return new_revision
+
+    def _create_column_from_spec(
+        self,
+        col: ColumnSpec,
+        pk_columns: list[str],
+    ) -> Column:
+        return Column(
+            name=col.name,
+            type=col.type,
+            display_name=col.display_name,
+            description=col.description,
+            attributes=[
+                ColumnAttribute(
+                    attribute_type=self.registry.attributes.get(attr),
+                )
+                for attr in set(
+                    list(
+                        col.attributes
+                        + (["primary_key"] if col.name in pk_columns else []),
+                    ),
+                )
+                if attr in self.registry.attributes
+            ],
+            partition=Partition(
+                type_=col.partition.type,
+                format=col.partition.format,
+                granularity=col.partition.granularity,
+            )
+            if col.partition
+            else None,
+        )
 
     async def create_or_update_dimension_join_link(
         self,

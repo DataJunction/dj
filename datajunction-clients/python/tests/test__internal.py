@@ -35,7 +35,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
         assert response == {"text": "User already exists."}
         assert client._session.post.call_args == call(
             "/basic/user/",
-            data={"email": "foo", "username": "bar", "password": "baz"},
+            json={"email": "foo", "username": "bar", "password": "baz"},
         )
 
     def test_basic_login(self, client):
@@ -46,7 +46,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
         client.basic_login(username="bar", password="baz")
         assert client._session.post.call_args == call(
             "/basic/login/",
-            data={"username": "bar", "password": "baz"},
+            json={"username": "bar", "password": "baz"},
         )
 
     def test__verify_node_exists(self, client):
