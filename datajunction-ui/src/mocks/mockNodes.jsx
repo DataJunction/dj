@@ -108,6 +108,7 @@ export const mocks = {
     owners: [{ username: 'dj' }],
     dimension_links: [],
     incompatible_druid_functions: ['IF'],
+    custom_metadata: { key1: 'value1', key2: 'value2' },
     dimensions: [
       {
         value: 'default.date_dim.dateint',
@@ -332,6 +333,7 @@ export const mocks = {
       },
       requiredDimensions: [],
       mode: 'PUBLISHED',
+      customMetadata: { key1: 'value1', key2: 'value2' },
     },
     tags: [{ name: 'purpose', displayName: 'Purpose' }],
     owners: [{ username: 'dj' }],
@@ -354,6 +356,7 @@ export const mocks = {
       metricMetadata: null,
       requiredDimensions: [],
       mode: 'PUBLISHED',
+      customMetadata: null,
     },
     tags: [],
     owners: [{ username: 'dj' }],
