@@ -53,7 +53,7 @@ class QueryClientConfig(BaseModel):
 
 
 class SeedSetup(BaseModel):
-    # An "default" catalog for nodes that are pure SQL and don't belong in any
+    # A "default" catalog for nodes that are pure SQL and don't belong in any
     # particular catalog. This typically applies to on-the-fly user-defined dimensions.
     virtual_catalog_name: str = "default"
 
