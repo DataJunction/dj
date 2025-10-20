@@ -109,6 +109,7 @@ class Settings(BaseSettings):  # pragma: no cover
     do_ping_timeout: timedelta = timedelta(seconds=5)
 
     # Query service url (only used with "http" query client config)
+    # TODO: once the `QueryClientConfig` is proven out, this can be removed.
     query_service: Optional[str] = None
 
     # Query client configuration
