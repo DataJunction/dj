@@ -285,8 +285,9 @@ export const DataJunctionAPI = {
               name
             }
             mode
+            customMetadata
           }
-          tags { 
+          tags {
             name
             displayName
           }
@@ -471,6 +472,7 @@ export const DataJunctionAPI = {
     metric_direction,
     metric_unit,
     required_dimensions,
+    custom_metadata,
   ) {
     const metricMetadata =
       metric_direction || metric_unit
@@ -494,6 +496,7 @@ export const DataJunctionAPI = {
         primary_key: primary_key,
         metric_metadata: metricMetadata,
         required_dimensions: required_dimensions,
+        custom_metadata: custom_metadata,
       }),
       credentials: 'include',
     });
@@ -512,6 +515,7 @@ export const DataJunctionAPI = {
     significant_digits,
     required_dimensions,
     owners,
+    custom_metadata,
   ) {
     try {
       const metricMetadata =
@@ -536,6 +540,7 @@ export const DataJunctionAPI = {
           metric_metadata: metricMetadata,
           required_dimensions: required_dimensions,
           owners: owners,
+          custom_metadata: custom_metadata,
         }),
         credentials: 'include',
       });

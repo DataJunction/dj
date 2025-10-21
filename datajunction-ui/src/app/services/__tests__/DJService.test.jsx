@@ -154,6 +154,10 @@ describe('DataJunctionAPI', () => {
       'mode',
       'namespace',
       'primary_key',
+      undefined, // metric_direction
+      undefined, // metric_unit
+      undefined, // required_dimensions
+      { key: 'value' }, // custom_metadata
     ];
     fetch.mockResponseOnce(JSON.stringify({}));
     await DataJunctionAPI.createNode(...sampleArgs);
@@ -171,6 +175,8 @@ describe('DataJunctionAPI', () => {
         namespace: sampleArgs[6],
         primary_key: sampleArgs[7],
         metric_metadata: null,
+        required_dimensions: undefined,
+        custom_metadata: { key: 'value' },
       }),
       credentials: 'include',
     });
@@ -186,6 +192,10 @@ describe('DataJunctionAPI', () => {
       'primary_key',
       'neutral',
       '',
+      null, // significant_digits
+      undefined, // required_dimensions
+      undefined, // owners
+      { key: 'value' }, // custom_metadata
     ];
     fetch.mockResponseOnce(JSON.stringify({}));
     await DataJunctionAPI.patchNode(...sampleArgs);
@@ -205,6 +215,9 @@ describe('DataJunctionAPI', () => {
           unit: '',
           significant_digits: null,
         },
+        required_dimensions: undefined,
+        owners: undefined,
+        custom_metadata: { key: 'value' },
       }),
       credentials: 'include',
     });

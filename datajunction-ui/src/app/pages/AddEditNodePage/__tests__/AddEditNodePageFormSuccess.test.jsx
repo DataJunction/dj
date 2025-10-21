@@ -67,6 +67,7 @@ describe('AddEditNodePage submission succeeded', () => {
         undefined,
         undefined,
         undefined,
+        null,
       );
       expect(screen.getByText(/default.some_test_dim/)).toBeInTheDocument();
     });
@@ -140,6 +141,7 @@ describe('AddEditNodePage submission succeeded', () => {
           undefined,
           undefined,
           undefined,
+          null,
         );
         expect(
           screen.getByText(/default.some_test_metric/),
@@ -201,6 +203,7 @@ describe('AddEditNodePage submission succeeded', () => {
         '',
         undefined,
         ['dj'],
+        '', // custom_metadata is set to '' when null in the form
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
@@ -269,6 +272,7 @@ describe('AddEditNodePage submission succeeded', () => {
         5,
         undefined,
         ['dj'],
+        { key1: 'value1', key2: 'value2' },
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(

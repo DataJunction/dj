@@ -25,6 +25,7 @@ import { NodeModeField } from './NodeModeField';
 import { RequiredDimensionsSelect } from './RequiredDimensionsSelect';
 import LoadingIcon from '../../icons/LoadingIcon';
 import { ColumnsSelect } from './ColumnsSelect';
+import { CustomMetadataField } from './CustomMetadataField';
 
 class Action {
   static Add = new Action('add');
@@ -52,6 +53,7 @@ export function AddEditNodePage({ extensions = {} }) {
     primary_key: '',
     mode: 'published',
     owners: [],
+    custom_metadata: null,
   };
 
   const validator = values => {
@@ -122,6 +124,7 @@ export function AddEditNodePage({ extensions = {} }) {
       values.metric_direction,
       values.metric_unit,
       values.required_dimensions,
+      values.custom_metadata,
     );
     if (status === 200 || status === 201) {
       if (values.tags) {
@@ -157,6 +160,7 @@ export function AddEditNodePage({ extensions = {} }) {
       values.significant_digits,
       values.required_dimensions,
       values.owners,
+      values.custom_metadata,
     );
     const tagsResponse = await djClient.tagsNode(
       values.name,
@@ -205,6 +209,7 @@ export function AddEditNodePage({ extensions = {} }) {
       tags: node.tags,
       mode: node.current.mode.toLowerCase(),
       owners: node.owners,
+      custom_metadata: node.current.customMetadata,
     };
 
     if (node.type === 'METRIC') {
@@ -265,6 +270,7 @@ export function AddEditNodePage({ extensions = {} }) {
       'metric_direction',
       'significant_digits',
       'owners',
+      'custom_metadata',
     ];
     fields.forEach(field => {
       if (field === 'tags') {
@@ -443,6 +449,9 @@ export function AddEditNodePage({ extensions = {} }) {
                         ) : (
                           ''
                         )}
+                        <CustomMetadataField
+                          initialValue={node.custom_metadata || {}}
+                        />
                         {nodeType !== 'metric' && node.type !== 'metric' ? (
                           action === Action.Edit ? (
                             selectPrimaryKey
