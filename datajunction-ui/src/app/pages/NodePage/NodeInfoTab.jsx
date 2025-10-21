@@ -198,6 +198,26 @@ export default function NodeInfoTab({ node }) {
       ''
     );
 
+  const customMetadataDiv =
+    node?.custom_metadata && Object.keys(node.custom_metadata).length > 0 ? (
+      <div className="list-group-item d-flex">
+        <div className="d-flex gap-2 w-100 justify-content-between py-3">
+          <div
+            style={{
+              width: window.innerWidth * 0.8,
+            }}
+          >
+            <h6 className="mb-0 w-100">Custom Metadata</h6>
+            <SyntaxHighlighter language="json" style={foundation}>
+              {JSON.stringify(node.custom_metadata, null, 2)}
+            </SyntaxHighlighter>
+          </div>
+        </div>
+      </div>
+    ) : (
+      ''
+    );
+
   const cubeElementsDiv = node?.cube_elements ? (
     <div className="list-group-item d-flex">
       <div className="d-flex gap-2 w-100 justify-content-between py-3">
@@ -357,6 +377,7 @@ export default function NodeInfoTab({ node }) {
       {metricMetadataDiv}
       {node?.type !== 'cube' && node?.type !== 'metric' ? queryDiv : ''}
       {node?.type === 'metric' ? metricQueryDiv : ''}
+      {customMetadataDiv}
       {cubeElementsDiv}
     </div>
   );
