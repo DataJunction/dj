@@ -4,7 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from datajunction import DJBuilder, Project
+from datajunction import DJBuilder, Project, __version__
 from datajunction.deployment import DeploymentService
 from datajunction.exceptions import DJClientException
 
@@ -41,7 +41,15 @@ class DJCLI:
 
     def create_parser(self):
         """Creates the CLI arg parser"""
-        parser = argparse.ArgumentParser(prog="dj", description="DataJunction CLI")
+        parser = argparse.ArgumentParser(
+            prog="dj", 
+            description=f"DataJunction CLI v{__version__}"
+        )
+        parser.add_argument(
+            "--version", 
+            action="version", 
+            version=f"dj {__version__}"
+        )
         subparsers = parser.add_subparsers(dest="command", required=True)
 
         # `dj deploy <directory> --dryrun`
