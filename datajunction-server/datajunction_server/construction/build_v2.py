@@ -685,6 +685,7 @@ class QueryBuilder:
         """Add a node request to the access control validator."""
         if self._access_control:  # pragma: no cover
             await self._access_control.add_request_by_node_name(  # pragma: no cover
+                self.session,
                 node_name,
             )
 
