@@ -5,56 +5,55 @@ Utilities used around construction
 from typing import TYPE_CHECKING, Optional, Set, Union
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm.exc import NoResultFound
 
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJError, DJErrorException, ErrorCode
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.utils import session_context
 
 if TYPE_CHECKING:
     from datajunction_server.sql.parsing.ast import Column, Name
 
 
 async def get_dj_node(
-    session: AsyncSession,
     node_name: str,
     kinds: Optional[Set[NodeType]] = None,
     current: bool = True,
 ) -> NodeRevision:
     """Return the DJ Node with a given name from a set of node types"""
-    query = select(Node).filter(Node.name == node_name)
-    if kinds:
-        query = query.filter(Node.type.in_(kinds))  # type: ignore
-    match = None
-    try:
-        match = (
-            (
-                await session.execute(
-                    query.options(
-                        joinedload(Node.current).options(
-                            *NodeRevision.default_load_options(),
+    async with session_context() as session:
+        try:
+            query = select(Node).filter(Node.name == node_name)
+            if kinds:
+                query = query.filter(Node.type.in_(kinds))  # type: ignore
+
+            match = (
+                (
+                    await session.execute(
+                        query.options(
+                            joinedload(Node.current).options(
+                                *NodeRevision.default_load_options(),
+                            ),
                         ),
-                    ),
+                    )
                 )
+                .unique()
+                .scalar_one()
             )
-            .unique()
-            .scalar_one()
-        )
-    except NoResultFound as no_result_exc:
-        kind_msg = " or ".join(str(k) for k in kinds) if kinds else ""
-        raise DJErrorException(
-            DJError(
-                code=ErrorCode.UNKNOWN_NODE,
-                message=f"No node `{node_name}` exists of kind {kind_msg}.",
-            ),
-        ) from no_result_exc
-    return match.current if match and current else match
+            return match.current if match and current else match
+        except NoResultFound as no_result_exc:
+            kind_msg = " or ".join(str(k) for k in kinds) if kinds else ""
+            raise DJErrorException(
+                DJError(
+                    code=ErrorCode.UNKNOWN_NODE,
+                    message=f"No node `{node_name}` exists of kind {kind_msg}.",
+                ),
+            ) from no_result_exc
 
 
 async def try_get_dj_node(
-    session: AsyncSession,
     name: Union[str, "Column"],
     kinds: Optional[Set[NodeType]] = None,
 ) -> Optional[Node]:
@@ -67,7 +66,7 @@ async def try_get_dj_node(
         else:  # pragma: no cover
             return None  # pragma: no cover
     try:
-        return await get_dj_node(session, name, kinds, current=False)
+        return await get_dj_node(name, kinds, current=False)
     except DJErrorException:
         return None
 
