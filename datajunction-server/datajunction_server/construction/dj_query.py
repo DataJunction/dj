@@ -49,7 +49,7 @@ async def resolve_metric_queries(
         if id(col) in touched_nodes:
             continue
         ident = col.identifier(False)
-        if metric_node := await try_get_dj_node(ident, {NodeType.METRIC}):
+        if metric_node := await try_get_dj_node(session, ident, {NodeType.METRIC}):
             curr_cols.append((True, col))
             # if we found a metric node we need to check where it came from
             parent_select = col.get_nearest_parent_of_type(ast.Select)
@@ -86,6 +86,7 @@ async def resolve_metric_queries(
                 sibling_ident = sibling_col.identifier(False)
 
                 sibling_node = await try_get_dj_node(
+                    session,
                     sibling_ident,
                     {NodeType.METRIC},
                 )
@@ -211,6 +212,7 @@ async def resolve_all(
     find_all_other(tree, touched_nodes, node_map)
     for namespace, cols in node_map.items():
         if dj_node := await try_get_dj_node(  # pragma: no cover
+            session,
             namespace,
             {NodeType.SOURCE, NodeType.TRANSFORM, NodeType.DIMENSION},
         ):

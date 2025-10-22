@@ -1411,6 +1411,7 @@ class Table(TableExpression, Named):
                     dj_node = db_node.current
                 else:
                     dj_node = await get_dj_node(
+                        ctx.session,
                         self.identifier(quotes=False),
                         {DJNodeType.SOURCE, DJNodeType.TRANSFORM, DJNodeType.DIMENSION},
                     )
