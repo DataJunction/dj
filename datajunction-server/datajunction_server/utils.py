@@ -18,7 +18,7 @@ from fastapi import Depends
 from rich.logging import RichHandler
 from sqlalchemy import AsyncAdaptedQueuePool
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import MissingGreenlet, OperationalError
+from sqlalchemy.exc import MissingGreenlet, OperationalError, InvalidRequestError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -236,7 +236,22 @@ async def get_session(request: Request = None) -> AsyncIterator[AsyncSession]:
         try:
             yield session
         except Exception as exc:
-            await session.rollback()
+            try:
+                await session.rollback()
+            except InvalidRequestError as rollback_error:
+                logger.warning(
+                    "Session rollback failed during exception handling: %s. "
+                    "Original exception: %s",
+                    rollback_error,
+                    exc,
+                )
+            except Exception as rollback_error:
+                logger.warning(
+                    "Unexpected error during session rollback: %s. "
+                    "Original exception: %s",
+                    rollback_error,
+                    exc,
+                )
             raise exc
 
 
@@ -386,7 +401,6 @@ async def get_current_user(request: Request) -> User:
     """
     Returns the current authenticated user
     """
-    # from datajunction_server.database.user import User
     if not hasattr(request.state, "user"):  # pragma: no cover
         raise DJAuthenticationException(
             message="Unauthorized, request state has no user",
