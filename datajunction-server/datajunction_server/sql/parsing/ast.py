@@ -2827,18 +2827,22 @@ class Query(TableExpression, UnNamed):
             else []
         ) + referenced_dimension_options
         if table_options:
-
-            async def _maybe_replace_and_compile(idx, option, ctx):
+            referenced_nodes = await DJNodeRef.get_by_names(
+                ctx.session,
+                {
+                    option.identifier()
+                    for option in table_options
+                    if isinstance(option, Table)
+                },
+            )
+            ctx.dependencies_cache.update(
+                {node.name: node for node in referenced_nodes},
+            )
+            for idx, option in enumerate(table_options):
                 if isinstance(option, Table) and option.name.name in cte_mapping:
                     option = cte_mapping[option.name.name]
                     table_options[idx] = option
-                return await option.compile(ctx)
-
-            tasks = [
-                _maybe_replace_and_compile(idx, option, ctx)
-                for idx, option in enumerate(table_options)
-            ]
-            await asyncio.gather(*tasks)
+                await option.compile(ctx)
 
             expressions_to_compile = [
                 self.select.projection,
