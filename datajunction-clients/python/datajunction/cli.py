@@ -39,6 +39,25 @@ class DJCLI:
         )
         print(f"Finished exporting namespace {namespace} to {directory}.")
 
+    def delete_node(self, node_name: str, hard: bool = False):
+        """
+        Delete a node.
+        """
+        delete_type = "deleting" if hard else "deactivating"
+        print(f"{delete_type.capitalize()} node {node_name}...")
+        self.builder_client.delete_node(node_name, hard=hard)
+        print(f"Finished {delete_type} node {node_name}.")
+
+    def delete_namespace(self, namespace: str, cascade: bool = False, hard: bool = False):
+        """
+        Delete a namespace.
+        """
+        delete_type = "deleting" if hard else "deactivating"
+        cascade_msg = " with cascade" if cascade else ""
+        print(f"{delete_type.capitalize()} namespace {namespace}{cascade_msg}...")
+        self.builder_client.delete_namespace(namespace, cascade=cascade, hard=hard)
+        print(f"Finished {delete_type} namespace {namespace}.")
+
     def create_parser(self):
         """Creates the CLI arg parser"""
         parser = argparse.ArgumentParser(prog="dj", description="DataJunction CLI")
@@ -94,6 +113,38 @@ class DJCLI:
             default="system",
             help="The type of nodes to seed (defaults to `system`)",
         )
+
+        # `dj delete node <node_name> --hard`
+        delete_node_parser = subparsers.add_parser(
+            "delete-node",
+            help="Delete (deactivate) or hard delete a node",
+        )
+        delete_node_parser.add_argument("node_name", help="The name of the node to delete")
+        delete_node_parser.add_argument(
+            "--hard",
+            action="store_true",
+            help="Hard delete the node (completely removes it, use with caution)",
+        )
+
+        # `dj delete namespace <namespace> --cascade --hard`
+        delete_namespace_parser = subparsers.add_parser(
+            "delete-namespace",
+            help="Delete (deactivate) or hard delete a namespace",
+        )
+        delete_namespace_parser.add_argument(
+            "namespace",
+            help="The name of the namespace to delete",
+        )
+        delete_namespace_parser.add_argument(
+            "--cascade",
+            action="store_true",
+            help="Delete all nodes in the namespace as well",
+        )
+        delete_namespace_parser.add_argument(
+            "--hard",
+            action="store_true",
+            help="Hard delete the namespace (completely removes it, use with caution)",
+        )
         return parser
 
     def dispatch_command(self, args, parser):
@@ -106,6 +157,10 @@ class DJCLI:
             self.pull(args.namespace, args.directory)
         elif args.command == "seed":
             self.seed()
+        elif args.command == "delete-node":
+            self.delete_node(args.node_name, hard=args.hard)
+        elif args.command == "delete-namespace":
+            self.delete_namespace(args.namespace, cascade=args.cascade, hard=args.hard)
         else:
             parser.print_help()  # pragma: no cover
 

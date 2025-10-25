@@ -78,13 +78,21 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
 
         return Namespace(namespace=namespace, dj_client=self)
 
-    def delete_namespace(self, namespace: str, cascade: bool = False) -> None:
+    def delete_namespace(
+        self,
+        namespace: str,
+        cascade: bool = False,
+        hard: bool = False,
+    ) -> None:
         """
         Delete a namespace by name.
         """
+        endpoint = (
+            f"/namespaces/{namespace}/hard/" if hard else f"/namespaces/{namespace}/"
+        )
         response = self._session.request(
             "DELETE",
-            f"/namespaces/{namespace}/",
+            endpoint,
             timeout=self._timeout,
             params={
                 "cascade": cascade,
@@ -210,12 +218,13 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         new_node.refresh()
         return new_node
 
-    def delete_node(self, node_name: str) -> None:
+    def delete_node(self, node_name: str, hard: bool = False) -> None:
         """
         Delete (aka deactivate) this node.
         """
+        endpoint = f"/nodes/{node_name}/hard/" if hard else f"/nodes/{node_name}/"
         response = self._session.delete(
-            f"/nodes/{node_name}/",
+            endpoint,
             timeout=self._timeout,
         )
         json_response = response.json()

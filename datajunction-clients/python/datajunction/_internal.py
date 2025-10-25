@@ -189,7 +189,7 @@ class DJClient:
         """
         response = self._session.post(
             "/basic/login/",
-            json={
+            data={
                 "username": username or os.getenv("DJ_USER"),
                 "password": password or os.getenv("DJ_PWD"),
             },
