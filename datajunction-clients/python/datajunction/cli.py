@@ -48,7 +48,12 @@ class DJCLI:
         self.builder_client.delete_node(node_name, hard=hard)
         print(f"Finished {delete_type} node {node_name}.")
 
-    def delete_namespace(self, namespace: str, cascade: bool = False, hard: bool = False):
+    def delete_namespace(
+        self,
+        namespace: str,
+        cascade: bool = False,
+        hard: bool = False,
+    ):
         """
         Delete a namespace.
         """
@@ -119,7 +124,10 @@ class DJCLI:
             "delete-node",
             help="Delete (deactivate) or hard delete a node",
         )
-        delete_node_parser.add_argument("node_name", help="The name of the node to delete")
+        delete_node_parser.add_argument(
+            "node_name",
+            help="The name of the node to delete",
+        )
         delete_node_parser.add_argument(
             "--hard",
             action="store_true",

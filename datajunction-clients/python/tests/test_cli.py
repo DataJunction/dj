@@ -94,6 +94,8 @@ def test_help(builder_client: DJBuilder):  # pylint: disable=redefined-outer-nam
     assert "usage: dj" in output
     assert "deploy" in output
     assert "pull" in output
+    assert "delete-node" in output
+    assert "delete-namespace" in output
 
 
 def test_invalid_command(
@@ -106,3 +108,151 @@ def test_invalid_command(
     with patch.object(sys, "argv", test_args):
         with pytest.raises(SystemExit):
             main(builder_client=builder_client)
+
+
+def test_delete_node(
+    builder_client: DJBuilder,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test `dj delete-node <node_name>`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+
+    # Mock the delete_node method
+    with patch.object(builder_client, "delete_node") as mock_delete:
+        test_args = ["dj", "delete-node", "default.repair_orders"]
+        with patch.dict(os.environ, env_vars, clear=False):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+        # Verify the node was called with soft delete
+        mock_delete.assert_called_once_with("default.repair_orders", hard=False)
+
+
+def test_delete_node_hard(
+    builder_client: DJBuilder,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test `dj delete-node <node_name> --hard`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+
+    # Mock the delete_node method
+    with patch.object(builder_client, "delete_node") as mock_delete:
+        test_args = ["dj", "delete-node", "default.repair_orders", "--hard"]
+        with patch.dict(os.environ, env_vars, clear=False):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+        # Verify the node was called with hard delete
+        mock_delete.assert_called_once_with("default.repair_orders", hard=True)
+
+
+def test_delete_namespace(
+    builder_client: DJBuilder,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test `dj delete-namespace <namespace>`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+
+    # Mock the delete_namespace method
+    with patch.object(builder_client, "delete_namespace") as mock_delete:
+        test_args = ["dj", "delete-namespace", "test_namespace"]
+        with patch.dict(os.environ, env_vars, clear=False):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+        # Verify the namespace was called with correct parameters
+        mock_delete.assert_called_once_with(
+            "test_namespace",
+            cascade=False,
+            hard=False,
+        )
+
+
+def test_delete_namespace_cascade(
+    builder_client: DJBuilder,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test `dj delete-namespace <namespace> --cascade`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+
+    # Mock the delete_namespace method
+    with patch.object(builder_client, "delete_namespace") as mock_delete:
+        test_args = ["dj", "delete-namespace", "test_namespace", "--cascade"]
+        with patch.dict(os.environ, env_vars, clear=False):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+        # Verify the namespace was called with cascade
+        mock_delete.assert_called_once_with(
+            "test_namespace",
+            cascade=True,
+            hard=False,
+        )
+
+
+def test_delete_namespace_hard(
+    builder_client: DJBuilder,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test `dj delete-namespace <namespace> --hard`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+
+    # Mock the delete_namespace method
+    with patch.object(builder_client, "delete_namespace") as mock_delete:
+        test_args = ["dj", "delete-namespace", "test_namespace", "--hard"]
+        with patch.dict(os.environ, env_vars, clear=False):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+        # Verify the namespace was called with hard delete
+        mock_delete.assert_called_once_with(
+            "test_namespace",
+            cascade=False,
+            hard=True,
+        )
+
+
+def test_delete_namespace_cascade_hard(
+    builder_client: DJBuilder,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test `dj delete-namespace <namespace> --cascade --hard`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+
+    # Mock the delete_namespace method
+    with patch.object(builder_client, "delete_namespace") as mock_delete:
+        test_args = ["dj", "delete-namespace", "test_namespace", "--cascade", "--hard"]
+        with patch.dict(os.environ, env_vars, clear=False):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+        # Verify the namespace was called with both cascade and hard delete
+        mock_delete.assert_called_once_with(
+            "test_namespace",
+            cascade=True,
+            hard=True,
+        )
