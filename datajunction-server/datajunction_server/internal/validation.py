@@ -108,6 +108,31 @@ async def validate_node_data(
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
 
+    if validated_node.type == NodeType.METRIC and node_validator.dependencies_map:
+        all_available_columns = set()
+        for upstream_node in node_validator.dependencies_map.keys():
+            for col in upstream_node.columns:
+                all_available_columns.add(col.name)
+
+        metric_expression = query_ast.select.projection[0]
+        referenced_columns = metric_expression.find_all(ast.Column)
+
+        missing_columns = []
+        for col in referenced_columns:
+            column_name = col.alias_or_name.name
+            if column_name not in all_available_columns:
+                missing_columns.append(column_name)
+
+        if missing_columns:
+            node_validator.status = NodeStatus.INVALID
+            upstream_node_names = [node.name for node in node_validator.dependencies_map.keys()]
+            node_validator.errors.append(
+                DJError(
+                    code=ErrorCode.MISSING_COLUMNS,
+                    message=f"Metric definition references missing columns: {', '.join(missing_columns)}",
+                ),
+            )
+
     # Invalid parents will invalidate this node
     # Note: we include source nodes here because they sometimes appear to be invalid, but
     # this is a bug that needs to be fixed
