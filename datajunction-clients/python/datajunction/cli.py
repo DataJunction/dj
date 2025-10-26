@@ -1,8 +1,10 @@
 """DataJunction command-line tool"""
 
 import argparse
+import json
 import logging
 from pathlib import Path
+from typing import Optional
 
 from datajunction import DJBuilder, Project
 from datajunction.deployment import DeploymentService
@@ -62,6 +64,255 @@ class DJCLI:
         print(f"{delete_type.capitalize()} namespace {namespace}{cascade_msg}...")
         self.builder_client.delete_namespace(namespace, cascade=cascade, hard=hard)
         print(f"Finished {delete_type} namespace {namespace}.")
+
+    def describe(self, node_name: str, format: str = "text"):
+        """
+        Describe a node with detailed information.
+        """
+        try:
+            node = self.builder_client.node(node_name)
+
+            if format == "json":
+                # Output as JSON
+                node_dict = {
+                    "name": node.name,
+                    "type": node.type,
+                    "description": node.description,
+                    "display_name": getattr(node, "display_name", None),
+                    "query": getattr(node, "query", None),
+                    "columns": [
+                        {"name": col.name, "type": col.type} for col in node.columns
+                    ]
+                    if hasattr(node, "columns") and node.columns
+                    else [],
+                    "status": node.status,
+                    "mode": node.mode,
+                    "version": getattr(node, "version", None),
+                }
+                print(json.dumps(node_dict, indent=2))
+            else:
+                # Output as formatted text
+                print(f"\n{'=' * 60}")
+                print(f"Node: {node.name}")
+                print(f"{'=' * 60}")
+                print(f"Type:         {node.type}")
+                print(f"Description:  {node.description or 'N/A'}")
+                print(f"Status:       {node.status}")
+                print(f"Mode:         {node.mode}")
+                if hasattr(node, "display_name") and node.display_name:
+                    print(f"Display Name: {node.display_name}")
+                if hasattr(node, "version") and node.version:
+                    print(f"Version:      {node.version}")
+
+                if hasattr(node, "query") and node.query:
+                    print(f"\nQuery:\n{'-' * 60}")
+                    print(node.query)
+
+                if hasattr(node, "columns") and node.columns:
+                    print(f"\nColumns:\n{'-' * 60}")
+                    for col in node.columns:
+                        print(f"  {col.name:<30} {col.type}")
+                print(f"{'=' * 60}\n")
+        except Exception as exc:
+            logger.error("Error describing node: %s", exc)
+            raise
+
+    def list_objects(
+        self,
+        object_type: str,
+        namespace: Optional[str] = None,
+        format: str = "text",
+    ):
+        """
+        List objects (namespaces, metrics, dimensions, etc.)
+        """
+        try:
+            if object_type == "namespaces":
+                results = self.builder_client.list_namespaces(prefix=namespace)
+            elif object_type == "metrics":
+                results = self.builder_client.list_metrics(namespace=namespace)
+            elif object_type == "dimensions":
+                results = self.builder_client.list_dimensions(namespace=namespace)
+            elif object_type == "cubes":
+                results = self.builder_client.list_cubes(namespace=namespace)
+            elif object_type == "sources":
+                results = self.builder_client.list_sources(namespace=namespace)
+            elif object_type == "transforms":
+                results = self.builder_client.list_transforms(namespace=namespace)
+            elif object_type == "nodes":
+                results = self.builder_client.list_nodes(namespace=namespace)
+            else:
+                raise DJClientException(f"Unknown object type: {object_type}")
+
+            if format == "json":
+                print(json.dumps(results, indent=2))
+            else:
+                if results:
+                    print(f"\n{object_type.capitalize()}:")
+                    print("-" * 60)
+                    for item in results:
+                        print(f"  {item}")
+                    print(f"\nTotal: {len(results)}\n")
+                else:
+                    print(f"No {object_type} found.\n")
+        except Exception as exc:
+            logger.error("Error listing %s: %s", object_type, exc)
+            raise
+
+    def get_sql(
+        self,
+        node_name: str,
+        dimensions: Optional[list[str]] = None,
+        filters: Optional[list[str]] = None,
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
+    ):
+        """
+        Generate SQL for a node.
+        """
+        try:
+            sql = self.builder_client.node_sql(
+                node_name=node_name,
+                dimensions=dimensions,
+                filters=filters,
+                engine_name=engine_name,
+                engine_version=engine_version,
+            )
+            print(sql)
+        except Exception as exc:
+            logger.error("Error generating SQL: %s", exc)
+            raise
+
+    def get_data(
+        self,
+        node_name: str,
+        dimensions: Optional[list[str]] = None,
+        filters: Optional[list[str]] = None,
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
+        format: str = "table",
+    ):
+        """
+        Fetch data for a node.
+        """
+        try:
+            data = self.builder_client.node_data(
+                node_name=node_name,
+                dimensions=dimensions,
+                filters=filters,
+                engine_name=engine_name,
+                engine_version=engine_version,
+                async_=True,
+            )
+
+            if format == "json":
+                # Convert to JSON
+                print(json.dumps(data.to_dict(orient="records"), indent=2))
+            elif format == "csv":
+                # Output as CSV
+                print(data.to_csv(index=False))
+            else:
+                # Output as table (default)
+                print(data.to_string(index=False))
+        except Exception as exc:
+            logger.error("Error fetching data: %s", exc)
+            raise
+
+    def show_lineage(
+        self,
+        node_name: str,
+        direction: str = "both",
+        format: str = "text",
+    ):
+        """
+        Show lineage (upstream/downstream dependencies) for a node.
+        """
+        try:
+            node = self.builder_client.node(node_name)
+
+            upstreams = []
+            downstreams = []
+
+            if direction in ["upstream", "both"]:
+                upstreams = node.get_upstreams()
+
+            if direction in ["downstream", "both"]:
+                downstreams = node.get_downstreams()
+
+            if format == "json":
+                lineage = {
+                    "node": node_name,
+                    "upstream": upstreams,
+                    "downstream": downstreams,
+                }
+                print(json.dumps(lineage, indent=2))
+            else:
+                print(f"\n{'=' * 60}")
+                print(f"Lineage for: {node_name}")
+                print(f"{'=' * 60}")
+
+                if direction in ["upstream", "both"]:
+                    print(f"\nUpstream dependencies ({len(upstreams)}):")
+                    print("-" * 60)
+                    if upstreams:
+                        for upstream in upstreams:
+                            print(f"  ← {upstream}")
+                    else:
+                        print("  (none)")
+
+                if direction in ["downstream", "both"]:
+                    print(f"\nDownstream dependencies ({len(downstreams)}):")
+                    print("-" * 60)
+                    if downstreams:
+                        for downstream in downstreams:
+                            print(f"  → {downstream}")
+                    else:
+                        print("  (none)")
+
+                print(f"{'=' * 60}\n")
+        except Exception as exc:
+            logger.error("Error fetching lineage: %s", exc)
+            raise
+
+    def list_node_dimensions(self, node_name: str, format: str = "text"):
+        """
+        List available dimensions for a node (typically a metric).
+        """
+        try:
+            # Use the internal API to get dimensions
+            dimensions = self.builder_client._get_node_dimensions(node_name)
+
+            if format == "json":
+                print(json.dumps(dimensions, indent=2))
+            else:
+                print(f"\n{'=' * 60}")
+                print(f"Available dimensions for: {node_name}")
+                print(f"{'=' * 60}\n")
+
+                if dimensions:
+                    for dim in dimensions:
+                        dim_name = dim.get("name", "")
+                        dim_type = dim.get("type", "")
+                        node_name_attr = dim.get("node_name", "")
+                        path = dim.get("path", [])
+
+                        print(f"  • {dim_name}")
+                        if dim_type:
+                            print(f"    Type: {dim_type}")
+                        if node_name_attr:
+                            print(f"    Node: {node_name_attr}")
+                        if path:
+                            print(f"    Path: {' → '.join(path)}")
+                        print()
+
+                    print(f"Total: {len(dimensions)} dimensions\n")
+                else:
+                    print("  No dimensions available.\n")
+
+                print(f"{'=' * 60}\n")
+        except Exception as exc:
+            logger.error("Error fetching dimensions: %s", exc)
+            raise
 
     def create_parser(self):
         """Creates the CLI arg parser"""
@@ -153,6 +404,160 @@ class DJCLI:
             action="store_true",
             help="Hard delete the namespace (completely removes it, use with caution)",
         )
+
+        # `dj describe <node-name> --format json`
+        describe_parser = subparsers.add_parser(
+            "describe",
+            help="Describe a node with detailed information",
+        )
+        describe_parser.add_argument(
+            "node_name",
+            help="The name of the node to describe",
+        )
+        describe_parser.add_argument(
+            "--format",
+            type=str,
+            default="text",
+            choices=["text", "json"],
+            help="Output format (default: text)",
+        )
+
+        # `dj list <type> --namespace <namespace> --format json`
+        list_parser = subparsers.add_parser(
+            "list",
+            help="List objects (namespaces, metrics, dimensions, cubes, sources, transforms, nodes)",
+        )
+        list_parser.add_argument(
+            "type",
+            choices=[
+                "namespaces",
+                "metrics",
+                "dimensions",
+                "cubes",
+                "sources",
+                "transforms",
+                "nodes",
+            ],
+            help="Type of objects to list",
+        )
+        list_parser.add_argument(
+            "--namespace",
+            type=str,
+            default=None,
+            help="Filter by namespace (for nodes) or prefix (for namespaces)",
+        )
+        list_parser.add_argument(
+            "--format",
+            type=str,
+            default="text",
+            choices=["text", "json"],
+            help="Output format (default: text)",
+        )
+
+        # `dj sql <node-name> --dimensions d1,d2 --filters f1,f2`
+        sql_parser = subparsers.add_parser(
+            "sql",
+            help="Generate SQL for a node",
+        )
+        sql_parser.add_argument("node_name", help="The name of the node")
+        sql_parser.add_argument(
+            "--dimensions",
+            type=str,
+            default=None,
+            help="Comma-separated list of dimensions",
+        )
+        sql_parser.add_argument(
+            "--filters",
+            type=str,
+            default=None,
+            help="Comma-separated list of filters",
+        )
+        sql_parser.add_argument(
+            "--engine",
+            type=str,
+            default=None,
+            help="Engine name",
+        )
+        sql_parser.add_argument(
+            "--engine-version",
+            type=str,
+            default=None,
+            help="Engine version",
+        )
+
+        # `dj data <node-name> --dimensions d1,d2 --filters f1,f2 --format json`
+        data_parser = subparsers.add_parser(
+            "data",
+            help="Fetch data for a node",
+        )
+        data_parser.add_argument("node_name", help="The name of the node")
+        data_parser.add_argument(
+            "--dimensions",
+            type=str,
+            default=None,
+            help="Comma-separated list of dimensions",
+        )
+        data_parser.add_argument(
+            "--filters",
+            type=str,
+            default=None,
+            help="Comma-separated list of filters",
+        )
+        data_parser.add_argument(
+            "--engine",
+            type=str,
+            default=None,
+            help="Engine name",
+        )
+        data_parser.add_argument(
+            "--engine-version",
+            type=str,
+            default=None,
+            help="Engine version",
+        )
+        data_parser.add_argument(
+            "--format",
+            type=str,
+            default="table",
+            choices=["table", "json", "csv"],
+            help="Output format (default: table)",
+        )
+
+        # `dj lineage <node-name> --direction upstream|downstream|both --format json`
+        lineage_parser = subparsers.add_parser(
+            "lineage",
+            help="Show lineage (upstream/downstream dependencies) for a node",
+        )
+        lineage_parser.add_argument("node_name", help="The name of the node")
+        lineage_parser.add_argument(
+            "--direction",
+            type=str,
+            default="both",
+            choices=["upstream", "downstream", "both"],
+            help="Direction of lineage to show (default: both)",
+        )
+        lineage_parser.add_argument(
+            "--format",
+            type=str,
+            default="text",
+            choices=["text", "json"],
+            help="Output format (default: text)",
+        )
+
+        # `dj dimensions <node-name> --format json`
+        dimensions_parser = subparsers.add_parser(
+            "dimensions",
+            help="List available dimensions for a node",
+        )
+        dimensions_parser.add_argument("node_name", help="The name of the node")
+        dimensions_parser.add_argument(
+            "--format",
+            type=str,
+            default="text",
+            choices=["text", "json"],
+            help="Output format (default: text)",
+        )
+
         return parser
 
     def dispatch_command(self, args, parser):
@@ -169,6 +574,39 @@ class DJCLI:
             self.delete_node(args.node_name, hard=args.hard)
         elif args.command == "delete-namespace":
             self.delete_namespace(args.namespace, cascade=args.cascade, hard=args.hard)
+        elif args.command == "describe":
+            self.describe(args.node_name, format=args.format)
+        elif args.command == "list":
+            self.list_objects(args.type, namespace=args.namespace, format=args.format)
+        elif args.command == "sql":
+            dimensions = args.dimensions.split(",") if args.dimensions else None
+            filters = args.filters.split(",") if args.filters else None
+            self.get_sql(
+                args.node_name,
+                dimensions=dimensions,
+                filters=filters,
+                engine_name=args.engine,
+                engine_version=args.engine_version,
+            )
+        elif args.command == "data":
+            dimensions = args.dimensions.split(",") if args.dimensions else None
+            filters = args.filters.split(",") if args.filters else None
+            self.get_data(
+                args.node_name,
+                dimensions=dimensions,
+                filters=filters,
+                engine_name=args.engine,
+                engine_version=args.engine_version,
+                format=args.format,
+            )
+        elif args.command == "lineage":
+            self.show_lineage(
+                args.node_name,
+                direction=args.direction,
+                format=args.format,
+            )
+        elif args.command == "dimensions":
+            self.list_node_dimensions(args.node_name, format=args.format)
         else:
             parser.print_help()  # pragma: no cover
 
