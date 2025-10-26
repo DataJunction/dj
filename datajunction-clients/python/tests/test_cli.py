@@ -110,6 +110,245 @@ def test_invalid_command(
             main(builder_client=builder_client)
 
 
+def test_describe(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj describe <node-name>`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    test_args = ["dj", "describe", "default.num_repair_orders"]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                main(builder_client=builder_client)
+    output = mock_stdout.getvalue()
+    assert "Node: default.num_repair_orders" in output
+    assert "Type:" in output
+    assert "Description:" in output
+
+
+def test_describe_json(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj describe <node-name> --format json`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    test_args = ["dj", "describe", "default.num_repair_orders", "--format", "json"]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                main(builder_client=builder_client)
+    output = mock_stdout.getvalue()
+    import json
+
+    data = json.loads(output)
+    assert data["name"] == "default.num_repair_orders"
+    assert "type" in data
+    assert "description" in data
+
+
+def test_list_metrics(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj list metrics`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    test_args = ["dj", "list", "metrics"]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                main(builder_client=builder_client)
+    output = mock_stdout.getvalue()
+    assert "Metrics:" in output
+    assert "Total:" in output
+
+
+def test_list_namespaces(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj list namespaces`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    test_args = ["dj", "list", "namespaces"]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                main(builder_client=builder_client)
+    output = mock_stdout.getvalue()
+    assert "Namespaces:" in output
+    assert "default" in output
+
+
+def test_list_json(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj list metrics --format json`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    test_args = ["dj", "list", "metrics", "--format", "json"]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                main(builder_client=builder_client)
+    output = mock_stdout.getvalue()
+    import json
+
+    data = json.loads(output)
+    assert isinstance(data, list)
+
+
+def test_sql(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj sql <node-name>`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    test_args = ["dj", "sql", "default.num_repair_orders"]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                main(builder_client=builder_client)
+    output = mock_stdout.getvalue()
+    assert "SELECT" in output.upper()
+
+
+def test_sql_with_dimensions(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj sql <node-name> --dimensions dim1,dim2`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    test_args = [
+        "dj",
+        "sql",
+        "default.num_repair_orders",
+        "--dimensions",
+        "default.hard_hat.city",
+    ]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                main(builder_client=builder_client)
+    output = mock_stdout.getvalue()
+    assert "SELECT" in output.upper()
+
+
+def test_lineage(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj lineage <node-name>`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    test_args = ["dj", "lineage", "default.num_repair_orders"]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                main(builder_client=builder_client)
+    output = mock_stdout.getvalue()
+    assert "Lineage for:" in output
+    assert "Upstream dependencies" in output
+    assert "Downstream dependencies" in output
+
+
+def test_lineage_upstream(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj lineage <node-name> --direction upstream`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    test_args = [
+        "dj",
+        "lineage",
+        "default.num_repair_orders",
+        "--direction",
+        "upstream",
+    ]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                main(builder_client=builder_client)
+    output = mock_stdout.getvalue()
+    assert "Lineage for:" in output
+    assert "Upstream dependencies" in output
+
+
+def test_lineage_json(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj lineage <node-name> --format json`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    test_args = ["dj", "lineage", "default.num_repair_orders", "--format", "json"]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                main(builder_client=builder_client)
+    output = mock_stdout.getvalue()
+    import json
+
+    data = json.loads(output)
+    assert "node" in data
+    assert "upstream" in data
+    assert "downstream" in data
+
+
+def test_dimensions(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj dimensions <node-name>`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    test_args = ["dj", "dimensions", "default.num_repair_orders"]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                main(builder_client=builder_client)
+    output = mock_stdout.getvalue()
+    assert "Available dimensions for:" in output
+
+
+def test_dimensions_json(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj dimensions <node-name> --format json`
+    """
+    env_vars = {
+        "DJ_USER": "datajunction",
+        "DJ_PWD": "datajunction",
+    }
+    test_args = ["dj", "dimensions", "default.num_repair_orders", "--format", "json"]
+    with patch.dict(os.environ, env_vars, clear=False):
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                main(builder_client=builder_client)
+    output = mock_stdout.getvalue()
+    import json
+
+    data = json.loads(output)
+    assert isinstance(data, list)
+
+
 def test_delete_node(
     builder_client: DJBuilder,  # pylint: disable=redefined-outer-name
 ):
