@@ -267,6 +267,8 @@ class DJClient:
             f"/namespaces/{namespace}/" + (f"?type_={type_.value}" if type_ else ""),
         )
         node_details_list = response.json()
+        if "message" in node_details_list:
+            raise DJClientException(node_details_list["message"])
         nodes = [n["name"] for n in node_details_list]
         return nodes
 
