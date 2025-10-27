@@ -1603,7 +1603,7 @@ async def create_new_revision_from_existing(
         )
         or (
             data
-            and hasattr(data, 'custom_metadata')
+            and hasattr(data, "custom_metadata")
             and old_revision.custom_metadata != data.custom_metadata
         )
     )
@@ -1708,7 +1708,7 @@ async def create_new_revision_from_existing(
     if data and data.required_dimensions is not None:  # type: ignore
         new_revision.required_dimensions = data.required_dimensions  # type: ignore
 
-    if data and hasattr(data, 'custom_metadata'):  # type: ignore
+    if data and hasattr(data, "custom_metadata"):  # type: ignore
         new_revision.custom_metadata = data.custom_metadata  # type: ignore
 
     # Link the new revision to its parents if a new revision was created and update its status
