@@ -109,7 +109,7 @@ export function AddEditNodePage({ extensions = {} }) {
     return primaryKey.map(columnName => columnName.trim());
   };
 
-  const parseCustomMetadata = (customMetadata) => {
+  const parseCustomMetadata = customMetadata => {
     if (!customMetadata || customMetadata.trim() === '') {
       return null;
     }
@@ -381,7 +381,15 @@ export function AddEditNodePage({ extensions = {} }) {
               }}
             >
               {function Render(formikProps) {
-                const { isSubmitting, status, setFieldValue, errors, touched, isValid, dirty } = formikProps;
+                const {
+                  isSubmitting,
+                  status,
+                  setFieldValue,
+                  errors,
+                  touched,
+                  isValid,
+                  dirty,
+                } = formikProps;
                 const [node, setNode] = useState([]);
                 const [selectPrimaryKey, setSelectPrimaryKey] = useState(null);
                 const [selectRequiredDims, setSelectRequiredDims] =
