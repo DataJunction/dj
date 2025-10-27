@@ -145,7 +145,7 @@ class NodeRevision:
     mode: Optional[NodeMode]  # type: ignore
     description: str = ""
     updated_at: datetime.datetime
-    custom_metadata: Optional[JSON] = strawberry.field(default_factory=dict)
+    custom_metadata: Optional[JSON] = None
 
     @strawberry.field
     def catalog(self, root: "DBNodeRevision") -> Optional[Catalog]:
