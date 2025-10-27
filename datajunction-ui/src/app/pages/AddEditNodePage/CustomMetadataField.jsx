@@ -5,7 +5,7 @@ import { ErrorMessage, Field } from 'formik';
 import { useEffect } from 'react';
 
 export const CustomMetadataField = () => {
-  const formatValue = (value) => {
+  const formatValue = value => {
     if (value === null || value === undefined) {
       return '';
     }
