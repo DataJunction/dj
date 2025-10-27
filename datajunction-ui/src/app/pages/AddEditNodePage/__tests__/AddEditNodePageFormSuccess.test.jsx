@@ -203,7 +203,7 @@ describe('AddEditNodePage submission succeeded', () => {
         '',
         undefined,
         ['dj'],
-        '', // custom_metadata is set to '' when null in the form
+        null,
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
