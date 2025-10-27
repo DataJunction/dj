@@ -711,6 +711,7 @@ class QueryBuilder:
 
         # For dimensions that need a join, build metadata on the join path
         for dim in necessary_dimensions:
+            print("dim", dim)
             dimension_attr = FullColumnName(dim)
             dim_node = dimension_attr.node_name
             if dim_node == self.node_revision.name:
@@ -1271,18 +1272,30 @@ async def dimension_join_path(
             return []
 
     dimension_attr = FullColumnName(dimension)
+    role_path = (
+        [role for role in dimension_attr.role.split("->")]
+        if dimension_attr.role
+        else []
+    )
 
     # If it's not a local dimension, traverse the node's dimensions graph
     # This queue tracks the dimension link being processed and the path to that link
     await refresh_if_needed(session, node, ["dimension_links"])
 
     # Start with first layer of linked dims
+    layer_with_role = [
+        (link, [link], 1)
+        for link in node.dimension_links
+        if not role_path or (link.role == role_path[0])
+    ]
+    layer_without_role = [(link, [link], 0) for link in node.dimension_links]
+
     processing_queue = collections.deque(
-        [(link, [link]) for link in node.dimension_links],
+        layer_with_role if layer_with_role else layer_without_role,
     )
     visited = set()
     while processing_queue:
-        current_link, join_path = processing_queue.popleft()
+        current_link, join_path, role_idx = processing_queue.popleft()
         if current_link.id in visited:
             continue
         visited.add(current_link.id)
@@ -1296,12 +1309,20 @@ async def dimension_join_path(
             current_link.dimension.current,
             ["dimension_links"],
         )
-        processing_queue.extend(
-            [
-                (link, join_path + [link])
-                for link in current_link.dimension.current.dimension_links
-            ],
-        )
+        layer_with_role = [
+            (link, join_path + [link], role_idx + 1)
+            for link in current_link.dimension.current.dimension_links
+            if not role_path or (link.role == role_path[role_idx])
+        ]
+        if layer_with_role:
+            processing_queue.extend(layer_with_role)
+        else:
+            processing_queue.extend(
+                [
+                    (link, join_path + [link], role_idx)
+                    for link in current_link.dimension.current.dimension_links
+                ],
+            )
     return None
 
 
