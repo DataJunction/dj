@@ -69,7 +69,7 @@ services:
             psql -U dj -c 'CREATE DATABASE djqs';
             wait"
     volumes:
-      - ./postgres_metadata:/var/lib/postgresql/data
+      - ./postgres_metadata:/var/lib/postgresql
       - ./db-init/create-readonly-user.sh:/docker-entrypoint-initdb.d/create-readonly-user.sh
     environment:
       - POSTGRES_PASSWORD=dj
@@ -265,7 +265,7 @@ services:
       POSTGRES_PASSWORD: superset
       POSTGRES_USER: superset
     volumes:
-      - ./postgres_superset:/var/lib/postgresql/data
+      - ./postgres_superset:/var/lib/postgresql
     ports:
       - "5433:5432"
     profiles: ["superset"]
