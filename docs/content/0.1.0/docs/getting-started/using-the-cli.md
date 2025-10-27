@@ -194,35 +194,7 @@ dj sql default.num_repair_orders \
 - `--engine <name>`: Engine name
 - `--engine-version <version>`: Engine version
 
-### Data Retrieval
-
-#### `dj data <node-name>`
-
-Fetch data for a node with optional dimensions and filters.
-
-**Usage:**
-```bash
-# Fetch data for a metric (table format)
-dj data default.num_repair_orders
-
-# Fetch data with dimensions
-dj data default.num_repair_orders --dimensions default.hard_hat.city
-
-# Output as JSON
-dj data default.num_repair_orders --format json
-
-# Output as CSV
-dj data default.num_repair_orders --format csv > repair_orders.csv
-```
-
-**Options:**
-- `--dimensions <dim1,dim2,...>`: Comma-separated list of dimensions
-- `--filters <filter1,filter2,...>`: Comma-separated list of filters
-- `--engine <name>`: Engine name
-- `--engine-version <version>`: Engine version
-- `--format <table|json|csv>`: Output format (default: table)
-
-### Push & Pull
+### Deployments
 
 #### `dj push <directory>`
 
@@ -262,30 +234,6 @@ dj pull production.metrics ./metrics-backup
 ```bash
 # Backup all nodes in production namespace
 dj pull production ./backups/production-$(date +%Y%m%d)
-```
-
-### Deployment
-
-#### `dj deploy <directory>`
-
-Deploy node YAML definitions with optional dry-run mode.
-
-**Usage:**
-```bash
-# Deploy nodes (same as push)
-dj deploy ./my-nodes
-
-# Dry run - see what would be deployed without making changes
-dj deploy ./my-nodes --dryrun
-```
-
-**Options:**
-- `--dryrun`: Preview changes without actually deploying
-
-**Example:**
-```bash
-# Check deployment before applying
-dj deploy ./new-metrics --dryrun
 ```
 
 ### Node Management
@@ -349,37 +297,6 @@ dj delete-namespace archived.old_project --hard --cascade
 ```
 
 {{< alert icon="⚠️" text="Using <code>--cascade</code> with <code>--hard</code> will permanently delete the namespace and all its nodes. This cannot be undone." />}}
-
-### System Setup
-
-#### `dj seed`
-
-Seed DJ system nodes and metadata tables.
-
-**Usage:**
-```bash
-# Seed system nodes (default)
-dj seed
-
-# Seed specific type of nodes
-dj seed --type system
-```
-
-**Options:**
-- `--type <type>`: Type of nodes to seed (default: "system")
-
-**What it does:**
-1. Registers DJ metadata tables (node, noderevision, users, etc.)
-2. Loads and compiles system node definitions
-3. Deploys system nodes to the DJ server
-
-**Example:**
-```bash
-# Initialize a fresh DJ installation
-dj seed
-```
-
-{{< alert icon="💡" text="This command is typically run once during initial DJ setup or after a fresh database initialization." />}}
 
 ## Troubleshooting
 

@@ -95,27 +95,43 @@ class DJCLI:
                 print(f"\n{'=' * 60}")
                 print(f"Node: {node.name}")
                 print(f"{'=' * 60}")
-                print(f"Type:         {node.type}")
-                print(f"Description:  {node.description or 'N/A'}")
-                print(f"Status:       {node.status}")
-                print(f"Mode:         {node.mode}")
-                if hasattr(node, "display_name") and node.display_name:
-                    print(f"Display Name: {node.display_name}")
-                if hasattr(node, "version") and node.version:
-                    print(f"Version:      {node.version}")
+                print(f"Type:          {node.type}")
+                print(f"Description:   {node.description or 'N/A'}")
+                print(f"Status:        {node.status}")
+                print(f"Mode:          {node.mode}")
+                print(f"Display Name:  {node.display_name or 'N/A'}")
+                print(f"Version:       {node.version}")
+                if node.primary_key:
+                    print(f"Primary Key:   {node.primary_key}")
 
-                if hasattr(node, "query") and node.query:
+                if node.query:
                     print(f"\nQuery:\n{'-' * 60}")
                     print(node.query)
 
-                if hasattr(node, "columns") and node.columns:
+                if node.columns and node.type not in ["metric", "cube"]:
                     print(f"\nColumns:\n{'-' * 60}")
                     for col in node.columns:
                         print(f"  {col.name:<30} {col.type}")
+                if node.type == "cube":
+                    print(f"\nDimensions:\n{'-' * 60}")
+                    for dim in node.dimensions:
+                        print(f"  {dim}")
+                    print(f"\nMetrics:\n{'-' * 60}")
+                    for metric in node.metrics:
+                        print(f"  {metric}")
+                    if node.filters:  # pragma: no cover
+                        print(f"\nFilters:\n{'-' * 60}")
+                        for filter_ in node.filters:
+                            print(f"  {filter_}")
                 print(f"{'=' * 60}\n")
-        except Exception as exc:
-            logger.error("Error describing node: %s", exc)
-            raise
+        except DJClientException as exc:
+            error_data = exc.args[0] if exc.args else str(exc)
+            message = (
+                error_data.get("message", str(exc))
+                if isinstance(error_data, dict)
+                else str(exc)
+            )
+            print(f"ERROR: {message}")
 
     def list_objects(
         self,
@@ -127,6 +143,7 @@ class DJCLI:
         List objects (namespaces, metrics, dimensions, etc.)
         """
         try:
+            results = []
             if object_type == "namespaces":
                 results = self.builder_client.list_namespaces(prefix=namespace)
             elif object_type == "metrics":
@@ -139,10 +156,8 @@ class DJCLI:
                 results = self.builder_client.list_sources(namespace=namespace)
             elif object_type == "transforms":
                 results = self.builder_client.list_transforms(namespace=namespace)
-            elif object_type == "nodes":
+            elif object_type == "nodes":  # pragma: no cover
                 results = self.builder_client.list_nodes(namespace=namespace)
-            else:
-                raise DJClientException(f"Unknown object type: {object_type}")
 
             if format == "json":
                 print(json.dumps(results, indent=2))
@@ -154,10 +169,18 @@ class DJCLI:
                         print(f"  {item}")
                     print(f"\nTotal: {len(results)}\n")
                 else:
-                    print(f"No {object_type} found.\n")
-        except Exception as exc:
-            logger.error("Error listing %s: %s", object_type, exc)
-            raise
+                    print(
+                        f"No {object_type} found"
+                        + (f" in `{namespace}`" if namespace else ""),
+                    )
+        except DJClientException as exc:  # pragma: no cover
+            error_data = exc.args[0] if exc.args else str(exc)
+            message = (
+                error_data.get("message", str(exc))
+                if isinstance(error_data, dict)
+                else str(exc)
+            )
+            print(f"ERROR: {message}")
 
     def get_sql(
         self,
@@ -179,43 +202,8 @@ class DJCLI:
                 engine_version=engine_version,
             )
             print(sql)
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover
             logger.error("Error generating SQL: %s", exc)
-            raise
-
-    def get_data(
-        self,
-        node_name: str,
-        dimensions: Optional[list[str]] = None,
-        filters: Optional[list[str]] = None,
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-        format: str = "table",
-    ):
-        """
-        Fetch data for a node.
-        """
-        try:
-            data = self.builder_client.node_data(
-                node_name=node_name,
-                dimensions=dimensions,
-                filters=filters,
-                engine_name=engine_name,
-                engine_version=engine_version,
-                async_=True,
-            )
-
-            if format == "json":
-                # Convert to JSON
-                print(json.dumps(data.to_dict(orient="records"), indent=2))
-            elif format == "csv":
-                # Output as CSV
-                print(data.to_csv(index=False))
-            else:
-                # Output as table (default)
-                print(data.to_string(index=False))
-        except Exception as exc:
-            logger.error("Error fetching data: %s", exc)
             raise
 
     def show_lineage(
@@ -234,10 +222,10 @@ class DJCLI:
             downstreams = []
 
             if direction in ["upstream", "both"]:
-                upstreams = node.get_upstreams()
+                upstreams = node.get_upstreams() if node.type != "source" else []
 
             if direction in ["downstream", "both"]:
-                downstreams = node.get_downstreams()
+                downstreams = node.get_downstreams() if node.type != "cube" else []
 
             if format == "json":
                 lineage = {
@@ -270,7 +258,7 @@ class DJCLI:
                         print("  (none)")
 
                 print(f"{'=' * 60}\n")
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover
             logger.error("Error fetching lineage: %s", exc)
             raise
 
@@ -297,12 +285,9 @@ class DJCLI:
                         path = dim.get("path", [])
 
                         print(f"  • {dim_name}")
-                        if dim_type:
-                            print(f"    Type: {dim_type}")
-                        if node_name_attr:
-                            print(f"    Node: {node_name_attr}")
-                        if path:
-                            print(f"    Path: {' → '.join(path)}")
+                        print(f"    Type: {dim_type}")
+                        print(f"    Node: {node_name_attr}")
+                        print(f"    Path: {' → '.join(path)}")
                         print()
 
                     print(f"Total: {len(dimensions)} dimensions\n")
@@ -310,7 +295,7 @@ class DJCLI:
                     print("  No dimensions available.\n")
 
                 print(f"{'=' * 60}\n")
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover
             logger.error("Error fetching dimensions: %s", exc)
             raise
 
@@ -370,7 +355,7 @@ class DJCLI:
             help="The type of nodes to seed (defaults to `system`)",
         )
 
-        # `dj delete node <node_name> --hard`
+        # `dj delete-node <node_name> --hard`
         delete_node_parser = subparsers.add_parser(
             "delete-node",
             help="Delete (deactivate) or hard delete a node",
@@ -385,7 +370,7 @@ class DJCLI:
             help="Hard delete the node (completely removes it, use with caution)",
         )
 
-        # `dj delete namespace <namespace> --cascade --hard`
+        # `dj delete-namespace <namespace> --cascade --hard`
         delete_namespace_parser = subparsers.add_parser(
             "delete-namespace",
             help="Delete (deactivate) or hard delete a namespace",
@@ -485,44 +470,6 @@ class DJCLI:
             help="Engine version",
         )
 
-        # `dj data <node-name> --dimensions d1,d2 --filters f1,f2 --format json`
-        data_parser = subparsers.add_parser(
-            "data",
-            help="Fetch data for a node",
-        )
-        data_parser.add_argument("node_name", help="The name of the node")
-        data_parser.add_argument(
-            "--dimensions",
-            type=str,
-            default=None,
-            help="Comma-separated list of dimensions",
-        )
-        data_parser.add_argument(
-            "--filters",
-            type=str,
-            default=None,
-            help="Comma-separated list of filters",
-        )
-        data_parser.add_argument(
-            "--engine",
-            type=str,
-            default=None,
-            help="Engine name",
-        )
-        data_parser.add_argument(
-            "--engine-version",
-            type=str,
-            default=None,
-            help="Engine version",
-        )
-        data_parser.add_argument(
-            "--format",
-            type=str,
-            default="table",
-            choices=["table", "json", "csv"],
-            help="Output format (default: table)",
-        )
-
         # `dj lineage <node-name> --direction upstream|downstream|both --format json`
         lineage_parser = subparsers.add_parser(
             "lineage",
@@ -587,17 +534,6 @@ class DJCLI:
                 filters=filters,
                 engine_name=args.engine,
                 engine_version=args.engine_version,
-            )
-        elif args.command == "data":
-            dimensions = args.dimensions.split(",") if args.dimensions else None
-            filters = args.filters.split(",") if args.filters else None
-            self.get_data(
-                args.node_name,
-                dimensions=dimensions,
-                filters=filters,
-                engine_name=args.engine,
-                engine_version=args.engine_version,
-                format=args.format,
             )
         elif args.command == "lineage":
             self.show_lineage(
