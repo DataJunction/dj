@@ -559,18 +559,19 @@ async def test_link_complex_dimension_with_role(
 ),
 default_DOT_events_metrics AS (
   SELECT
-    default_DOT_users.user_id default_DOT_users_DOT_user_id_LBRACK_user_windowed_RBRACK,
-    default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_windowed_RBRACK,
-    default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_windowed_RBRACK,
+    user_windowed.user_id default_DOT_users_DOT_user_id_LBRACK_user_windowed_RBRACK,
+    user_windowed.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_windowed_RBRACK,
+    user_windowed.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_windowed_RBRACK,
     SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
   FROM default_DOT_events
-  LEFT JOIN default_DOT_users
-    ON default_DOT_events.user_id = default_DOT_users.user_id
-    AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+  LEFT JOIN default_DOT_users AS user_windowed ON default_DOT_events.user_id = user_windowed.user_id
+    AND default_DOT_events.event_start_date BETWEEN user_windowed.snapshot_date
+    AND CAST(DATE_ADD(CAST(user_windowed.snapshot_date AS DATE), 10) AS INT)
+  WHERE  user_windowed.registration_country = 'NZ'
   GROUP BY
-    default_DOT_users.user_id,
-    default_DOT_users.snapshot_date,
-    default_DOT_users.registration_country
+    user_windowed.user_id,
+    user_windowed.snapshot_date,
+    user_windowed.registration_country
 )
 SELECT
   default_DOT_events_metrics.default_DOT_users_DOT_user_id_LBRACK_user_windowed_RBRACK,
@@ -607,18 +608,18 @@ FROM default_DOT_events_metrics
     ),
     default_DOT_events_metrics AS (
       SELECT
-        default_DOT_users.user_id default_DOT_users_DOT_user_id_LBRACK_user_direct_RBRACK,
-        default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
-        default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
+        user_direct.user_id default_DOT_users_DOT_user_id_LBRACK_user_direct_RBRACK,
+        user_direct.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
+        user_direct.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
         SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
       FROM default_DOT_events
-      LEFT JOIN default_DOT_users
-        ON default_DOT_events.user_id = default_DOT_users.user_id
-        AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+      LEFT JOIN default_DOT_users AS user_direct
+        ON default_DOT_events.user_id = user_direct.user_id
+        AND default_DOT_events.event_start_date = user_direct.snapshot_date
       GROUP BY
-        default_DOT_users.user_id,
-        default_DOT_users.snapshot_date,
-        default_DOT_users.registration_country
+        user_direct.user_id,
+        user_direct.snapshot_date,
+        user_direct.registration_country
     )
     SELECT
       default_DOT_events_metrics.default_DOT_users_DOT_user_id_LBRACK_user_direct_RBRACK,
@@ -671,20 +672,21 @@ FROM default_DOT_events_metrics
 ),
 default_DOT_events_metrics AS (
   SELECT
-    default_DOT_countries.name default_DOT_countries_DOT_name_LBRACK_user_direct_MINUS__GT_registration_country_RBRACK,
-    default_DOT_users.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
-    default_DOT_users.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
+    user_direct__registration_country.name default_DOT_countries_DOT_name_LBRACK_user_direct_MINUS__GT_registration_country_RBRACK,
+    user_direct.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
+    user_direct.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
     SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
   FROM default_DOT_events
-  LEFT JOIN default_DOT_users
-    ON default_DOT_events.user_id = default_DOT_users.user_id
-    AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
-  INNER JOIN default_DOT_countries
-    ON default_DOT_users.registration_country = default_DOT_countries.country_code
+  LEFT JOIN default_DOT_users AS user_direct
+    ON default_DOT_events.user_id = user_direct.user_id
+    AND default_DOT_events.event_start_date = user_direct.snapshot_date
+  INNER JOIN default_DOT_countries AS user_direct__registration_country
+    ON user_direct.registration_country = user_direct__registration_country.country_code
+  WHERE  user_direct__registration_country.name = 'NZ'
   GROUP BY
-    default_DOT_countries.name,
-    default_DOT_users.snapshot_date,
-    default_DOT_users.registration_country
+    user_direct__registration_country.name,
+    user_direct.snapshot_date,
+    user_direct.registration_country
 )
 SELECT
   default_DOT_events_metrics.default_DOT_countries_DOT_name_LBRACK_user_direct_MINUS__GT_registration_country_RBRACK,

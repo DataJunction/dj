@@ -615,8 +615,13 @@ async def create_cube_node_revision(
             ],
             order=idx,
         )
-        if full_element_name in dimension_to_roles_mapping:
-            node_column.dimension_column = dimension_to_roles_mapping[full_element_name]
+        if (
+            full_element_name in dimension_to_roles_mapping
+            and dimension_to_roles_mapping[full_element_name]
+        ):
+            node_column.dimension_column = (
+                "[" + dimension_to_roles_mapping[full_element_name] + "]"
+            )
 
         node_columns.append(node_column)
 

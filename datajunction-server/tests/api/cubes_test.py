@@ -718,6 +718,7 @@ WITH default_DOT_repair_orders_fact AS (
     ON default_DOT_repair_orders_fact.municipality_id = default_DOT_municipality_dim.municipality_id
   LEFT JOIN default_DOT_hard_hat_to_delete
     ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat_to_delete.hard_hat_id
+  WHERE  default_DOT_hard_hat.state = 'AZ'
   GROUP BY
     default_DOT_hard_hat.country,
     default_DOT_hard_hat.postal_code,
@@ -748,6 +749,7 @@ WITH default_DOT_repair_orders_fact AS (
     ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id
   LEFT JOIN default_DOT_hard_hat_to_delete
     ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat_to_delete.hard_hat_id
+  WHERE  default_DOT_hard_hat.state = 'AZ'
   GROUP BY
     default_DOT_hard_hat.country,
     default_DOT_hard_hat.postal_code,
@@ -1539,6 +1541,7 @@ async def test_updating_cube(
                 "attributes": [],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "partition": None,
             },
             {
@@ -1548,6 +1551,7 @@ async def test_updating_cube(
                 "attributes": [],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "partition": None,
             },
             {
@@ -1557,6 +1561,7 @@ async def test_updating_cube(
                 "attributes": [],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "partition": {
                     "type_": "temporal",
                     "format": "yyyyMMdd",
@@ -2926,6 +2931,7 @@ async def test_cube_materialization_metadata(
       FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
       INNER JOIN default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
       INNER JOIN default_DOT_municipality_dim ON default_DOT_repair_orders_fact.municipality_id = default_DOT_municipality_dim.municipality_id
+      WHERE  default_DOT_hard_hat.hire_date = CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP)
     )
 
     SELECT  default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_country,
@@ -2952,7 +2958,14 @@ async def test_cube_materialization_metadata(
                 "DJ_LOGICAL_TIMESTAMP()",
             ),
         ),
-    ) == str(parse(measures_sql))
+    ) == str(
+        parse(
+            measures_sql.replace(
+                "${dj_logical_timestamp}",
+                "DJ_LOGICAL_TIMESTAMP()",
+            ),
+        ),
+    )
 
     assert results["combiners"] == [
         {

@@ -291,6 +291,7 @@ async def test_build_metric_with_dimensions_filters(construction_session: AsyncS
       FROM basic_DOT_source_DOT_comments
       INNER JOIN basic_DOT_dimension_DOT_users
         ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
+      WHERE  basic_DOT_dimension_DOT_users.age >= 25 AND basic_DOT_dimension_DOT_users.age < 50
     )
     SELECT  basic_DOT_source_DOT_comments_metrics.basic_DOT_num_comments
     FROM basic_DOT_source_DOT_comments_metrics
