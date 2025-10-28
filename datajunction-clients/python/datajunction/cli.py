@@ -447,14 +447,16 @@ class DJCLI:
         sql_parser.add_argument("node_name", help="The name of the node")
         sql_parser.add_argument(
             "--dimensions",
+            nargs=argparse.ZERO_OR_MORE,
             type=str,
-            default=None,
+            default=[],
             help="Comma-separated list of dimensions",
         )
         sql_parser.add_argument(
             "--filters",
+            nargs=argparse.ZERO_OR_MORE,
             type=str,
-            default=None,
+            default=[],
             help="Comma-separated list of filters",
         )
         sql_parser.add_argument(
@@ -526,12 +528,10 @@ class DJCLI:
         elif args.command == "list":
             self.list_objects(args.type, namespace=args.namespace, format=args.format)
         elif args.command == "sql":
-            dimensions = args.dimensions.split(",") if args.dimensions else None
-            filters = args.filters.split(",") if args.filters else None
             self.get_sql(
                 args.node_name,
-                dimensions=dimensions,
-                filters=filters,
+                dimensions=args.dimensions,
+                filters=args.filters,
                 engine_name=args.engine,
                 engine_version=args.engine_version,
             )
