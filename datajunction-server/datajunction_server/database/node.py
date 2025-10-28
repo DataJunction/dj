@@ -351,7 +351,7 @@ class Node(Base):
             description=self.current.description,
             tags=[tag.name for tag in self.tags],
             mode=self.current.mode,
-            custom_metadata=self.current.custom_metadata or {},
+            custom_metadata=self.current.custom_metadata,
         )
 
         # Type-specific extra arguments
