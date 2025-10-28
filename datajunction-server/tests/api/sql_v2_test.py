@@ -321,6 +321,7 @@ async def fix_dimension_links(module__client_with_roads: AsyncClient):
               ON default_DOT_hard_hat.state = default_DOT_us_state.state_short
             LEFT JOIN default_DOT_dispatcher
               ON default_DOT_repair_orders_fact.dispatcher_id =default_DOT_dispatcher.dispatcher_id
+            WHERE  default_DOT_us_state.state_name = 'New Jersey' AND default_DOT_hard_hat.last_name IN ('Brian')
             """,
             [
                 {
@@ -424,6 +425,7 @@ async def fix_dimension_links(module__client_with_roads: AsyncClient):
             FROM default_DOT_repair_orders_fact
             LEFT JOIN default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
             INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+            WHERE  default_DOT_hard_hat.last_name IN ('Brian')
             ORDER BY default_DOT_dispatcher.company_name
             """,
             [],
@@ -487,6 +489,7 @@ async def fix_dimension_links(module__client_with_roads: AsyncClient):
             FROM default_DOT_repair_orders_fact
             LEFT JOIN default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
             INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+            WHERE  default_DOT_hard_hat.last_name IN ('Brian')
             ORDER BY default_DOT_dispatcher.company_name DESC
             """,
             [],
@@ -757,6 +760,7 @@ async def test_measures_sql_with_filters__v2(
               LEFT JOIN default_DOT_dispatcher
                 ON default_DOT_repair_orders_fact.dispatcher_id =
                    default_DOT_dispatcher.dispatcher_id
+              WHERE  default_DOT_us_state.state_name = 'New Jersey' AND default_DOT_hard_hat.last_name IN ('Brian')
             )
             SELECT
               default_DOT_repair_orders_fact_built.default_DOT_us_state_DOT_state_name,
@@ -886,6 +890,7 @@ async def test_measures_sql_with_filters__v2(
                    default_DOT_dispatcher.dispatcher_id
               INNER JOIN default_DOT_hard_hat
                 ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+              WHERE  default_DOT_hard_hat.last_name IN ('Brian')
               ORDER BY default_DOT_dispatcher.company_name
             )
             SELECT
@@ -966,6 +971,7 @@ async def test_measures_sql_with_filters__v2(
                    default_DOT_dispatcher.dispatcher_id
               INNER JOIN default_DOT_hard_hat
                 ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+              WHERE  default_DOT_hard_hat.last_name IN ('Brian')
               ORDER BY default_DOT_dispatcher.company_name DESC
             )
             SELECT
@@ -1120,6 +1126,7 @@ async def test_measures_sql_include_all_columns(
      FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
     INNER JOIN default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_short
     LEFT JOIN default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+    WHERE  default_DOT_us_state.state_name = 'New Jersey' AND default_DOT_hard_hat.last_name IN ('Brian')
     """
     assert str(parse(str(expected_sql))) == str(parse(str(translated_sql["sql"])))
     result = duckdb_conn.sql(translated_sql["sql"])
