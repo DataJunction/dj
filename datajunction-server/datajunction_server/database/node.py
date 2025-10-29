@@ -909,7 +909,7 @@ class NodeRevision(
 
     custom_metadata: Mapped[Optional[Dict]] = mapped_column(
         JSON,
-        default={},
+        default=None,
     )
 
     # Measures

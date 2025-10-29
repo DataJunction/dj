@@ -752,7 +752,7 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
 
     node_defs = {node["name"]: node for node in data["nodes"]}
     assert node_defs["${prefix}example_cube"] == {
-        "custom_metadata": {},
+        "custom_metadata": None,
         "filters": None,
         "owners": ["dj"],
         "mode": "published",
