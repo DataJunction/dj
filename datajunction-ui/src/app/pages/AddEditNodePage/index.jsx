@@ -109,6 +109,17 @@ export function AddEditNodePage({ extensions = {} }) {
     return primaryKey.map(columnName => columnName.trim());
   };
 
+  const parseCustomMetadata = customMetadata => {
+    if (!customMetadata || customMetadata.trim() === '') {
+      return null;
+    }
+    try {
+      return JSON.parse(customMetadata);
+    } catch (err) {
+      return null;
+    }
+  };
+
   const createNode = async (values, setStatus) => {
     const { status, json } = await djClient.createNode(
       nodeType,
@@ -124,7 +135,7 @@ export function AddEditNodePage({ extensions = {} }) {
       values.metric_direction,
       values.metric_unit,
       values.required_dimensions,
-      values.custom_metadata,
+      parseCustomMetadata(values.custom_metadata),
     );
     if (status === 200 || status === 201) {
       if (values.tags) {
@@ -160,7 +171,7 @@ export function AddEditNodePage({ extensions = {} }) {
       values.significant_digits,
       values.required_dimensions,
       values.owners,
-      values.custom_metadata,
+      parseCustomMetadata(values.custom_metadata),
     );
     const tagsResponse = await djClient.tagsNode(
       values.name,
@@ -283,6 +294,9 @@ export function AddEditNodePage({ extensions = {} }) {
           field,
           data[field].map(owner => owner.username),
         );
+      } else if (field === 'custom_metadata') {
+        const value = data[field] ? JSON.stringify(data[field], null, 2) : '';
+        setFieldValue(field, value, false);
       } else {
         setFieldValue(field, data[field] || '', false);
       }
@@ -352,6 +366,8 @@ export function AddEditNodePage({ extensions = {} }) {
             <Formik
               initialValues={initialValues}
               validate={validator}
+              validateOnChange={true}
+              validateOnBlur={true}
               onSubmit={async (values, { setSubmitting, setStatus }) => {
                 try {
                   for (const handler of submitHandlers) {
@@ -364,7 +380,16 @@ export function AddEditNodePage({ extensions = {} }) {
                 }
               }}
             >
-              {function Render({ isSubmitting, status, setFieldValue }) {
+              {function Render(formikProps) {
+                const {
+                  isSubmitting,
+                  status,
+                  setFieldValue,
+                  errors,
+                  touched,
+                  isValid,
+                  dirty,
+                } = formikProps;
                 const [node, setNode] = useState([]);
                 const [selectPrimaryKey, setSelectPrimaryKey] = useState(null);
                 const [selectRequiredDims, setSelectRequiredDims] =
@@ -449,9 +474,7 @@ export function AddEditNodePage({ extensions = {} }) {
                         ) : (
                           ''
                         )}
-                        <CustomMetadataField
-                          initialValue={node.custom_metadata || {}}
-                        />
+                        <CustomMetadataField />
                         {nodeType !== 'metric' && node.type !== 'metric' ? (
                           action === Action.Edit ? (
                             selectPrimaryKey
@@ -493,7 +516,10 @@ export function AddEditNodePage({ extensions = {} }) {
                         {action === Action.Edit ? selectTags : <TagsField />}
                         <NodeModeField />
 
-                        <button type="submit" disabled={isSubmitting}>
+                        <button
+                          type="submit"
+                          disabled={isSubmitting || !isValid}
+                        >
                           {isSubmitting ? (
                             <LoadingIcon />
                           ) : (
