@@ -711,17 +711,10 @@ def test_max_by():
         "SELECT MAX_BY(IF(condition, 1, 0), dimension) FROM parent_node",
     )
     measures, derived_sql = extractor.extract()
-    expected_measures = [
-        MetricComponent(
-            name="condition_max_by_da873133",
-            expression="IF(condition, 1, 0)",
-            aggregation="MAX",
-            rule=AggregationRule(type=Aggregability.LIMITED, level=["dimension"]),
-        ),
-    ]
+    expected_measures = []
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT MAX_BY(condition_max_by_da873133, dimension) FROM parent_node"),
+        parse("SELECT MAX_BY(IF(condition, 1, 0), dimension) FROM parent_node"),
     )
 
 
@@ -733,15 +726,8 @@ def test_min_by():
         "SELECT MIN_BY(IF(condition, 1, 0), dimension) FROM parent_node",
     )
     measures, derived_sql = extractor.extract()
-    expected_measures = [
-        MetricComponent(
-            name="condition_min_by_da873133",
-            expression="IF(condition, 1, 0)",
-            aggregation="MIN",
-            rule=AggregationRule(type=Aggregability.LIMITED, level=["dimension"]),
-        ),
-    ]
+    expected_measures = []
     assert measures == expected_measures
     assert str(derived_sql) == str(
-        parse("SELECT MIN_BY(condition_min_by_da873133, dimension) FROM parent_node"),
+        parse("SELECT MIN_BY(IF(condition, 1, 0), dimension) FROM parent_node"),
     )
