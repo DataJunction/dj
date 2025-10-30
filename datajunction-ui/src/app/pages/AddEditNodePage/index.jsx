@@ -474,7 +474,6 @@ export function AddEditNodePage({ extensions = {} }) {
                         ) : (
                           ''
                         )}
-                        <CustomMetadataField />
                         {nodeType !== 'metric' && node.type !== 'metric' ? (
                           action === Action.Edit ? (
                             selectPrimaryKey
@@ -491,6 +490,11 @@ export function AddEditNodePage({ extensions = {} }) {
                         ) : (
                           <RequiredDimensionsSelect />
                         )}
+                        <CustomMetadataField
+                          value={
+                            node.custom_metadata ? node.custom_metadata : ''
+                          }
+                        />
                         {Object.entries(extensions).map(
                           ([key, ExtensionComponent]) => (
                             <div key={key} className="mt-4 border-t pt-4">
