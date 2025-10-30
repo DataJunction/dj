@@ -228,8 +228,6 @@ class MetricComponentExtractor:
                 func.args = [
                     ast.Column(ast.Name(component.name)) for component in components
                 ]
-        elif function in (dj_functions.MaxBy, dj_functions.MinBy):
-            func.args = [ast.Column(ast.Name(components[0].name)), func.args[1]]
         else:
             func.args = [
                 ast.Column(ast.Name(component.name)) for component in components
