@@ -11,7 +11,6 @@ export const CustomMetadataField = ({ value }) => {
   const jsonExt = langs.json();
   const [hasError, setHasError] = useState(false);
 
-  // Simple error checking for visual feedback
   useEffect(() => {
     if (!value || value === '') {
       setHasError(false);
@@ -41,10 +40,8 @@ export const CustomMetadataField = ({ value }) => {
 
   const updateFormik = val => {
     formik.setFieldValue('custom_metadata', val);
-    // Mark field as touched to trigger validation
     formik.setFieldTouched('custom_metadata', true);
 
-    // Simple error checking for visual feedback
     if (!val || val.trim() === '') {
       setHasError(false);
     } else {
