@@ -424,7 +424,8 @@ async def get_measures_query(
                         from_amenable_name(identifier).split(SEPARATOR)[-1]
                         in parent_columns[parent_node.name]
                         or identifier in parent_columns[parent_node.name]
-                        or expr.semantic_entity in dimensions_without_roles
+                        or expr.semantic_entity
+                        in set(dimensions_without_roles + dimensions)
                         or from_amenable_name(identifier) in dimensions_without_roles
                     )
                 )

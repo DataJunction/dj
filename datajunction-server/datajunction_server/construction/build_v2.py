@@ -1188,6 +1188,7 @@ class CubeQueryBuilder:
                 for expr in parent_ast.select.projection
                 if from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
                 in self.dimensions
+                # or expr.semantic_entity in self.dimensions
             ]
             parent_ast.select.projection = dimension_columns
             for col in dimension_columns:
