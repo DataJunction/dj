@@ -138,52 +138,22 @@ class MetricComponentExtractor:
         """
         Handles decomposition for MAX_BY or MIN_BY aggregation functions.
 
-        MAX_BY/MIN_BY functions have limited aggregability because they depend on the
-        ordering dimension. The pre-aggregation level is constrained by the ordering
-        dimension, and we must include it in the GROUP BY in order to maintain the
-        correctness of the MAX_BY/MIN_BY operation.
+        MAX_BY/MIN_BY functions cannot be pre-aggregated because they depend on finding
+        the row with the maximum/minimum ordering value across the entire dataset.
+        Pre-aggregating would lose the ordering relationship between measure and ordering
+        values, making it impossible to correctly reconstruct the result.
 
         Example:
-          MAX_BY(coalesce(clicked, 0), dateint)
-
-          Here we can pre-aggregate as long as dateint is always included in the GROUP BY.
-          When dateint is in GROUP BY, `MAX_BY(clicked, dateint)` becomes `MAX(clicked)`,
-          since all rows in each group have the same ordering value.
-
-          The derived query should then be MAX_BY(condition_expr, ordering_expr).
+          MAX_BY(clicked, dateint) must be computed on the full dataset to find
+          the 'clicked' value corresponding to the row with the highest 'dateint'.
 
         Args:
             func: The MAX_BY or MIN_BY function AST node
 
         Returns:
-            List containing a single MetricComponent with limited aggregability,
-            where the aggregation rule level specifies the ordering dimension
-            that must be preserved for correct pre-computation.
+            An empty list which captures that this function cannot be decomposed.
         """
-        measure_expr, ordering_expr = func.args
-        component_name = "_".join(
-            [amenable_name(str(col)) for col in measure_expr.find_all(ast.Column)]
-            + [func.name.name.lower()],
-        )
-
-        expression = str(measure_expr)
-        short_hash = hashlib.md5(expression.encode("utf-8").lower()).hexdigest()[:8]
-        agg_mapping = {
-            dj_functions.MaxBy: dj_functions.Max,
-            dj_functions.MinBy: dj_functions.Min,
-        }
-
-        return [
-            MetricComponent(
-                name=f"{component_name}_{short_hash}",
-                expression=expression,
-                aggregation=agg_mapping[func.function()].__name__.upper(),
-                rule=AggregationRule(
-                    type=Aggregability.LIMITED,
-                    level=(str(ordering_expr),),
-                ),
-            ),
-        ]
+        return []
 
     def _avg(self, func: ast.Function) -> list[MetricComponent]:
         """
@@ -258,8 +228,6 @@ class MetricComponentExtractor:
                 func.args = [
                     ast.Column(ast.Name(component.name)) for component in components
                 ]
-        elif function in (dj_functions.MaxBy, dj_functions.MinBy):
-            func.args = [ast.Column(ast.Name(components[0].name)), func.args[1]]
         else:
             func.args = [
                 ast.Column(ast.Name(component.name)) for component in components
