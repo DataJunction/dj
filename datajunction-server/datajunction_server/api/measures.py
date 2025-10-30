@@ -81,6 +81,8 @@ async def get_node_columns(
             for col in node.current.columns  # type: ignore
             if col.name == node_column.column
         ]
+        for col in available:
+            await session.refresh(col, ["node_revision"])
         if len(available) == 0:
             raise DJDoesNotExistException(
                 message=f"Column `{node_column.column}` does not exist on "
