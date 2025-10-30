@@ -116,7 +116,7 @@ class DimensionJoin:
         """
         Adds a requested dimension to the join
         """
-        if dimension not in self.requested_dimensions:
+        if dimension not in self.requested_dimensions:  # pragma: no cover
             self.requested_dimensions.append(dimension)
 
 

@@ -5064,3 +5064,43 @@ async def test_role_path_dimensions_performance_complex_query(
      FROM default_DOT_user_dim_metrics
     """),
     )
+
+
+@pytest.mark.asyncio
+async def test_cube_with_roles(
+    module__client_with_examples: AsyncClient,
+    role_path_test_setup: dict,
+):
+    """
+    Create a cube that contains dimensions with role paths.
+    """
+    response = await module__client_with_examples.post(
+        "/nodes/cube/",
+        json={
+            "description": "Cube with role path dimensions",
+            "mode": "published",
+            "name": "default.role_path_cube",
+            "metrics": ["default.avg_user_age"],
+            "dimensions": [
+                "default.special_country_dim.name[user_birth_country]",
+                "default.regions.region_name[user_birth_country->country_region]",
+                "default.continents.continent_name[user_residence_country->country_region->region_continent]",
+                "default.years.year_number[user_birth_date->date_week->week_month->month_year]",
+            ],
+        },
+    )
+
+    assert response.status_code in (200, 201), (
+        f"Cube creation failed: {response.status_code}, {response.json()}"
+    )
+    response = await module__client_with_examples.get("/cubes/default.role_path_cube")
+    assert response.status_code == 200, (
+        f"Cube retrieval failed: {response.status_code}, {response.json()}"
+    )
+    cube_info = response.json()
+    assert cube_info["cube_node_dimensions"] == [
+        "default.special_country_dim.name[user_birth_country]",
+        "default.regions.region_name[user_birth_country->country_region]",
+        "default.continents.continent_name[user_residence_country->country_region->region_continent]",
+        "default.years.year_number[user_birth_date->date_week->week_month->month_year]",
+    ]
