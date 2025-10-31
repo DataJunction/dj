@@ -2276,7 +2276,7 @@ class Lambda(Expression):
             id_str = self.identifiers[0]
         else:
             id_str = "(" + ", ".join(str(iden) for iden in self.identifiers) + ")"
-        return f"{id_str} -> {self.expr}"
+        return f"{id_str}->{self.expr}"
 
     @property
     def type(self) -> Union[ColumnType, List[ColumnType]]:

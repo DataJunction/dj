@@ -24,6 +24,7 @@ from datajunction_server.construction.build import (
     rename_columns,
     validate_shared_dimensions,
 )
+from datajunction_server.construction.build_v2 import FullColumnName
 from datajunction_server.construction.dj_query import build_dj_query
 from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog
@@ -356,8 +357,11 @@ def map_dimensions_to_roles(dimensions: List[str]) -> Dict[str, str]:
     For example, ["default.users.user_id[user]"] would turn into
     {"default.users.user_id": "[user]"}
     """
-    dimension_roles = [re.findall(COLUMN_NAME_REGEX, dim)[0] for dim in dimensions]
-    return {dim_rols[0]: dim_rols[1] for dim_rols in dimension_roles}
+    dimension_attrs = [FullColumnName(dim) for dim in dimensions]
+    return {
+        attr.node_name + SEPARATOR + attr.column_name: attr.role  # type: ignore
+        for attr in dimension_attrs
+    }
 
 
 async def validate_cube(
@@ -402,16 +406,20 @@ async def validate_cube(
         dimension_names,
     )
     dimension_mapping: Dict[str, Node] = {
-        f"{node_name}{SEPARATOR}{attr}": dimension_nodes[node_name]
-        for node_name, attr in dimension_attributes
+        f"{attr.node_name}{SEPARATOR}{attr.column_name}": dimension_nodes[
+            attr.node_name
+        ]
+        for attr in dimension_attributes
     }
     dimensions: List[Column] = []
-    for node_name, column_name in dimension_attributes:
-        dimension_node = dimension_mapping[f"{node_name}{SEPARATOR}{column_name}"]
+    for attr in dimension_attributes:
+        dimension_node = dimension_mapping[
+            f"{attr.node_name}{SEPARATOR}{attr.column_name}"
+        ]
         columns = {col.name: col for col in dimension_node.current.columns}  # type: ignore
 
-        column_name_without_role = column_name
-        match = re.fullmatch(COLUMN_NAME_REGEX, column_name)
+        column_name_without_role = attr.column_name
+        match = re.fullmatch(COLUMN_NAME_REGEX, attr.column_name)
         if match:
             column_name_without_role = match.groups()[0]
 
@@ -476,14 +484,14 @@ async def check_metrics_exist(session: AsyncSession, metrics: list[str]) -> list
 async def check_dimension_attributes_exist(
     session: AsyncSession,
     dimensions: list[str],
-) -> Tuple[list[list[str]], Dict[str, Node]]:
+) -> Tuple[list[FullColumnName], Dict[str, Node]]:
     """
     Verify that the provided dimension attributes exist
     """
-    dimension_attributes: List[List[str]] = [
-        dimension_attribute.rsplit(".", 1) for dimension_attribute in dimensions
+    dimension_attributes: list[FullColumnName] = [
+        FullColumnName(dimension_attribute) for dimension_attribute in dimensions
     ]
-    dimension_node_names = [node_name for node_name, _ in dimension_attributes]
+    dimension_node_names = [attr.node_name for attr in dimension_attributes]
     dimension_nodes: Dict[str, Node] = {
         node.name: node
         for node in await Node.get_by_names(
@@ -503,9 +511,9 @@ async def check_dimension_attributes_exist(
     if missing_dimensions:  # pragma: no cover
         missing_dimension_attributes = ", ".join(  # pragma: no cover
             [
-                attr
-                for node_name, attr in dimension_attributes
-                if node_name in missing_dimensions
+                attr.name
+                for attr in dimension_attributes
+                if attr.node_name in missing_dimensions
             ],
         )
         message = (

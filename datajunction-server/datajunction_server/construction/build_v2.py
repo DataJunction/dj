@@ -76,13 +76,29 @@ class FullColumnName:
     @cached_property
     def role(self) -> Optional[str]:
         """
-        Gets the column name part of the full column name.
+        Gets the role.
         """
         regex = r"\[([A-Za-z0-9_\-\>]*)\]"
         match = re.search(regex, self.full_column_name)
         if match:
             return match.group(1)
         return None
+
+    @cached_property
+    def join_key(self) -> str:
+        """
+        Generates a unique key for identifying shared join contexts in query building.
+
+        For dimensions without role paths, returns the node name (e.g., "default.countries").
+        For role path dimensions, includes the role to distinguish different join contexts
+        for the same dimension node (e.g., "default.countries[user_birth_country]").
+
+        This key is used by the query builder to group dimensions that can share the same
+        dimension node join.
+        """
+        if self.role:
+            return f"{self.node_name}[{self.role}]"
+        return self.node_name
 
 
 @dataclass
@@ -94,6 +110,14 @@ class DimensionJoin:
     join_path: list[DimensionLink]
     requested_dimensions: list[str]
     node_query: Optional[ast.Query] = None
+    right_alias: Optional[ast.Name] = None
+
+    def add_requested_dimension(self, dimension: str):
+        """
+        Adds a requested dimension to the join
+        """
+        if dimension not in self.requested_dimensions:  # pragma: no cover
+            self.requested_dimensions.append(dimension)
 
 
 def resolve_metric_component_against_parent(
@@ -479,6 +503,40 @@ class QueryBuilder:
                     ),
                 )
 
+        filterable_final_dims = {
+            col.semantic_entity: col
+            for col in self.final_ast.select.projection  # type: ignore
+            if isinstance(col, ast.Column)
+        }
+        for filter_ast in self.filter_asts:
+            resolved = False
+            for filter_dim in filter_ast.find_all(ast.Column):
+                filter_dim_expr = (
+                    filter_dim.parent
+                    if isinstance(filter_dim.parent, ast.Subscript)
+                    else filter_dim
+                )
+                filter_key = str(filter_dim_expr)
+                dim_expr = filterable_final_dims.get(filter_key)
+                if dim_expr:
+                    resolved = True
+                    if filter_dim_expr.parent:
+                        filter_dim_expr.parent.replace(
+                            filter_dim_expr,
+                            ast.Column(
+                                name=ast.Name(dim_expr.identifier()),
+                                _table=dim_expr.table,
+                                _type=dim_expr.type,
+                                semantic_entity=dim_expr.semantic_entity,
+                            ),
+                        )
+
+            if resolved:
+                self.final_ast.select.where = combine_filter_conditions(  # type: ignore
+                    self.final_ast.select.where,  # type: ignore
+                    filter_ast,
+                )
+
         # Error validation
         self.validate_access()
         if self.errors and not self._ignore_errors:
@@ -577,12 +635,34 @@ class QueryBuilder:
                         ast.Name(col.alias_or_name.name),  # type: ignore
                         _table=node_ast,
                         _type=col.type,  # type: ignore
+                        semantic_type=col.semantic_type,
+                        semantic_entity=col.semantic_entity,
                     )
                     for col in node_ast.select.projection
                 ],
                 from_=ast.From(relations=[ast.Relation(node_alias)]),  # type: ignore
             ),
             ctes=[*node_ctes, node_ast],
+        )
+
+    @classmethod
+    def generate_role_alias(
+        cls,
+        node_name: str,
+        role_path: str | None,
+        join_index: int,
+    ) -> str | None:
+        """
+        Generate unique alias for a role path join
+        """
+        if not role_path:
+            return None
+        role_parts = role_path.split("->")
+        role_path = "__".join(role_parts[: join_index + 1])
+        return (
+            f"{amenable_name(node_name)}__{join_index}"
+            if not role_path
+            else role_path.replace("->", "__")
         )
 
     async def build_dimension_node_joins(self, node_ast, node_alias):
@@ -596,47 +676,81 @@ class QueryBuilder:
 
         # Find all dimension node joins necessary for the requested dimensions and filters
         dimension_node_joins = await self.find_dimension_node_joins()
-        for _, dimension_join in dimension_node_joins.items():
+
+        # Track added joins to avoid duplicates
+        added_joins = set()
+
+        for join_key, dimension_join in dimension_node_joins.items():
             join_path = dimension_join.join_path
             requested_dimensions = list(
                 dict.fromkeys(dimension_join.requested_dimensions),
             )
 
-            for link in join_path:
+            previous_alias = None
+            for idx, link in enumerate(join_path):
                 link = cast(DimensionLink, link)
-                if all(
+                if all(  # pragma: no cover
                     dim in link.foreign_keys_reversed for dim in requested_dimensions
-                ):  # pragma: no cover
-                    continue  # pragma: no cover
-
-                if link.dimension.name in self.cte_mapping:
-                    dimension_join.node_query = self.cte_mapping[link.dimension.name]
+                ):
                     continue
 
-                dimension_node_query = await build_dimension_node_query(
-                    self.session,
-                    self._build_criteria,
-                    link,
-                    self._filters,
-                    self.cte_mapping,
-                    use_materialized=self.use_materialized,
-                )
+                # Add dimension node query to CTEs if not already present
+                if not self.cte_mapping.get(link.dimension.name):
+                    dimension_node_query = await build_dimension_node_query(
+                        self.session,
+                        self._build_criteria,
+                        link,
+                        self._filters,
+                        self.cte_mapping,
+                        use_materialized=self.use_materialized,
+                    )
+                else:
+                    dimension_node_query = self.cte_mapping[link.dimension.name]
+
                 dimension_join.node_query = convert_to_cte(
                     dimension_node_query,
                     self.final_ast,
                     link.dimension.name,
                 )
+                if role := FullColumnName(join_key).role:
+                    dimension_join.right_alias = ast.Name(role)
+
                 # Add it to the list of CTEs
-                self.cte_mapping[link.dimension.name] = dimension_join.node_query  # type: ignore
-                self.final_ast.ctes.append(dimension_join.node_query)  # type: ignore
+                if link.dimension.name not in self.cte_mapping:
+                    self.cte_mapping[link.dimension.name] = dimension_join.node_query  # type: ignore
+                    self.final_ast.ctes.append(dimension_join.node_query)  # type: ignore
 
                 # Build the join statement
-                join_ast = build_join_for_link(
-                    link,
-                    self.cte_mapping,
-                    dimension_node_query,
+                join_key_col = FullColumnName(join_key)
+                role_alias = QueryBuilder.generate_role_alias(
+                    link.dimension.name,
+                    join_key_col.role,
+                    idx,
                 )
-                self.final_ast.select.from_.relations[-1].extensions.append(join_ast)  # type: ignore
+
+                # Create a unique identifier for this join to avoid duplicates
+                join_identifier = (
+                    link.dimension.name,
+                    role_alias or link.dimension.name,
+                    previous_alias,
+                    str(link.join_sql),
+                )
+
+                if join_identifier not in added_joins:
+                    join_ast = build_join_for_link(
+                        link,
+                        self.cte_mapping,
+                        dimension_node_query,
+                        role_alias,
+                        previous_alias,
+                    )
+                    self.final_ast.select.from_.relations[-1].extensions.append(
+                        join_ast,
+                    )
+                    added_joins.add(join_identifier)
+
+                # Track this alias for the next join in the chain
+                previous_alias = role_alias
 
             # Add the requested dimensions to the final SELECT
             if join_path:  # pragma: no cover
@@ -701,51 +815,20 @@ class QueryBuilder:
         Returns a list of dimension node joins that are necessary based on
         the requested dimensions and filters
         """
-        dimension_node_joins = {}
-
-        # Combine necessary dimensions from filters and requested dimensions
-        necessary_dimensions = self.dimensions.copy()
-        for filter_ast in self.filter_asts:
-            for filter_dim in filter_ast.find_all(ast.Column):
-                necessary_dimensions.append(filter_dim.identifier())
-
-        # For dimensions that need a join, build metadata on the join path
+        dimension_node_joins: dict[str, DimensionJoin] = {}
+        necessary_dimensions = self._collect_referenced_dimensions()
         for dim in necessary_dimensions:
-            dimension_attr = FullColumnName(dim)
-            dim_node = dimension_attr.node_name
-            if dim_node == self.node_revision.name:
+            attr = FullColumnName(dim)
+            if attr.node_name == self.node_revision.name:
                 continue
-            await self.add_request_by_node_name(dim_node)
-            if dim_node not in dimension_node_joins:
-                join_path = await dimension_join_path(
-                    self.session,
-                    self.node_revision,
-                    dimension_attr.name,
-                )
-                if not join_path and join_path != []:
-                    self.errors.append(
-                        DJQueryBuildError(
-                            code=ErrorCode.INVALID_DIMENSION_JOIN,
-                            message=(
-                                f"This dimension attribute cannot be joined in: {dim}. "
-                                f"Please make sure that {dimension_attr.node_name} is "
-                                f"linked to {self.node_revision.name}"
-                            ),
-                            context=str(self),
-                        ),
-                    )
-                if join_path and await needs_dimension_join(
-                    self.session,
-                    dimension_attr.name,
-                    join_path,
-                ):
-                    dimension_node_joins[dim_node] = DimensionJoin(
-                        join_path=join_path,  # type: ignore
-                        requested_dimensions=[dimension_attr.name],
-                    )
+
+            await self.add_request_by_node_name(attr.node_name)
+            if attr.join_key not in dimension_node_joins:
+                dimension_join = await self._build_dimension_join_metadata(attr)
+                if dimension_join:
+                    dimension_node_joins[attr.join_key] = dimension_join
             else:
-                if dim not in dimension_node_joins[dim_node].requested_dimensions:
-                    dimension_node_joins[dim_node].requested_dimensions.append(dim)
+                dimension_node_joins[attr.join_key].add_requested_dimension(attr.name)
         return dimension_node_joins
 
     @classmethod
@@ -765,6 +848,57 @@ class QueryBuilder:
                 raise TypeError(
                     f"Unsupported parameter type: {type(value)} for param {param}",
                 )
+
+    def _collect_referenced_dimensions(self) -> list[str]:
+        """
+        Collects all dimensions referenced in filters and requested dimensions.
+        """
+        necessary_dimensions = self.dimensions.copy()
+        for filter_ast in self.filter_asts:
+            for filter_dim in filter_ast.find_all(ast.Column):
+                filter_dim_id = (
+                    str(filter_dim.parent)  # Handles dimensions with roles
+                    if isinstance(filter_dim.parent, ast.Subscript)
+                    else filter_dim.identifier()
+                )
+                if filter_dim_id not in necessary_dimensions:
+                    necessary_dimensions.append(filter_dim_id)
+        return necessary_dimensions
+
+    async def _build_dimension_join_metadata(
+        self,
+        attr: FullColumnName,
+    ) -> DimensionJoin | None:
+        """
+        Builds metadata on dimension joins needed for the query.
+        """
+        join_path = await dimension_join_path(
+            self.session,
+            self.node_revision,
+            attr.name,
+        )
+        if not join_path and join_path != []:
+            self.errors.append(
+                DJQueryBuildError(
+                    code=ErrorCode.INVALID_DIMENSION_JOIN,
+                    message=(
+                        f"This dimension attribute cannot be joined in: {attr.name}. "
+                        f"Please make sure that {attr.node_name} is "
+                        f"linked to {self.node_revision.name}"
+                    ),
+                    context=str(self),
+                ),
+            )
+        if join_path and await needs_dimension_join(
+            self.session,
+            attr.name,
+            join_path,
+        ):
+            return DimensionJoin(
+                join_path=join_path,  # type: ignore
+                requested_dimensions=[attr.name],
+            )
+        return None
 
 
 class CubeQueryBuilder:
@@ -1054,6 +1188,7 @@ class CubeQueryBuilder:
                 for expr in parent_ast.select.projection
                 if from_amenable_name(expr.alias_or_name.identifier(False))  # type: ignore
                 in self.dimensions
+                # or expr.semantic_entity in self.dimensions
             ]
             parent_ast.select.projection = dimension_columns
             for col in dimension_columns:
@@ -1271,18 +1406,30 @@ async def dimension_join_path(
             return []
 
     dimension_attr = FullColumnName(dimension)
+    role_path = (
+        [role for role in dimension_attr.role.split("->")]
+        if dimension_attr.role
+        else []
+    )
 
     # If it's not a local dimension, traverse the node's dimensions graph
     # This queue tracks the dimension link being processed and the path to that link
     await refresh_if_needed(session, node, ["dimension_links"])
 
     # Start with first layer of linked dims
+    layer_with_role = [
+        (link, [link], 1)
+        for link in node.dimension_links
+        if not role_path or (link.role == role_path[0])
+    ]
+    layer_without_role = [(link, [link], 0) for link in node.dimension_links]
+
     processing_queue = collections.deque(
-        [(link, [link]) for link in node.dimension_links],
+        layer_with_role if layer_with_role else layer_without_role,
     )
     visited = set()
     while processing_queue:
-        current_link, join_path = processing_queue.popleft()
+        current_link, join_path, role_idx = processing_queue.popleft()
         if current_link.id in visited:
             continue
         visited.add(current_link.id)
@@ -1296,12 +1443,20 @@ async def dimension_join_path(
             current_link.dimension.current,
             ["dimension_links"],
         )
-        processing_queue.extend(
-            [
-                (link, join_path + [link])
-                for link in current_link.dimension.current.dimension_links
-            ],
-        )
+        layer_with_role = [
+            (link, join_path + [link], role_idx + 1)
+            for link in current_link.dimension.current.dimension_links
+            if not role_path or (link.role == role_path[role_idx])
+        ]
+        if layer_with_role:
+            processing_queue.extend(layer_with_role)
+        else:
+            processing_queue.extend(
+                [
+                    (link, join_path + [link], role_idx)
+                    for link in current_link.dimension.current.dimension_links
+                ],
+            )
     return None
 
 
@@ -1420,10 +1575,9 @@ def build_dimension_attribute(
     Turn the canonical dimension attribute into a column on the query AST
     """
     dimension_attr = FullColumnName(full_column_name)
-    dim_node = dimension_attr.node_name
     node_query = (
-        dimension_node_joins[dim_node].node_query
-        if dim_node in dimension_node_joins
+        dimension_node_joins[dimension_attr.join_key].node_query
+        if dimension_attr.join_key in dimension_node_joins
         else None
     )
 
@@ -1443,8 +1597,16 @@ def build_dimension_attribute(
                 return ast.Column(
                     name=ast.Name(col.alias_or_name.name),  # type: ignore
                     alias=ast.Name(alias) if alias else None,
-                    _table=node_query,
+                    _table=(
+                        node_query
+                        if not dimension_attr.role
+                        else ast.Table(
+                            name=node_query.name,
+                            alias=ast.Name(dimension_attr.role.replace("->", "__")),
+                        )
+                    ),
                     _type=col.type,  # type: ignore
+                    semantic_entity=full_column_name,
                 )
     return None  # pragma: no cover
 
@@ -1485,6 +1647,8 @@ def build_join_for_link(
     link: "DimensionLink",
     cte_mapping: dict[str, ast.Query],
     join_right: ast.Query,
+    role_alias: str | None = None,
+    previous_alias: str | None = None,
 ):
     """
     Build a join for the dimension link using the provided query table expression
@@ -1492,6 +1656,13 @@ def build_join_for_link(
     """
     join_ast = link.joins()[0]
     join_ast.right = join_right.alias  # type: ignore
+    if link.role and role_alias:
+        join_ast.right = ast.Alias(  # type: ignore
+            child=join_right.alias,
+            alias=ast.Name(role_alias),
+            as_=True,
+        )
+
     dimension_node_columns = join_right.select.column_mapping
     join_left = cte_mapping.get(link.node_revision.name)
     node_columns = join_left.select.column_mapping  # type: ignore
@@ -1507,9 +1678,31 @@ def build_join_for_link(
                 f"The requested column {full_column.column_name} does not exist"
                 f" on {full_column.node_name}",
             )
+
+        # Determine the correct table reference for each side
+        if is_dimension_node:
+            # Right side - use join_right, but create proper alias if there's a role
+            if link.role and role_alias:
+                table_ref = ast.Alias(  # type: ignore
+                    child=join_right.alias,
+                    alias=ast.Name(role_alias),
+                    as_=True,
+                )
+            else:
+                table_ref = join_right  # type: ignore
+        else:
+            # Left side - use previous alias if available for multi-hop joins
+            table_ref = join_left  # type: ignore
+            if previous_alias:
+                table_ref = ast.Alias(  # type: ignore
+                    child=join_left.alias,  # type: ignore
+                    alias=ast.Name(previous_alias),
+                    as_=True,
+                )
+
         replacement = ast.Column(
             name=ast.Name(full_column.column_name),
-            _table=join_right if is_dimension_node else join_left,
+            _table=table_ref,
             _type=(dimension_node_columns if is_dimension_node else node_columns)
             # type: ignore
             .get(full_column.column_name)
@@ -1682,8 +1875,13 @@ def apply_filters_to_node(
         if not filter_ast:
             continue
         for filter_dim in filter_ast.find_all(ast.Column):
+            filter_dim_id = (
+                str(filter_dim.parent)  # Handles dimensions with roles
+                if isinstance(filter_dim.parent, ast.Subscript)
+                else filter_dim.identifier()
+            )
             column_name = get_column_from_canonical_dimension(
-                filter_dim.identifier(),
+                filter_dim_id,
                 node,
             )
             node_col = (
