@@ -1004,6 +1004,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ],
             "description": None,
             "dimension": None,
+            "dimension_column": None,
             "partition": None,
         } in response["columns"]
         assert {
@@ -1015,6 +1016,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ],
             "description": None,
             "dimension": None,
+            "dimension_column": None,
             "partition": None,
         } in response["columns"]
 
@@ -1051,6 +1053,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "attributes": [],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "display_name": "State Id",
                 "name": "state_id",
                 "type": "int",
@@ -1060,6 +1063,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "attributes": [],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "display_name": "Name",
                 "name": "name",
                 "type": "string",
@@ -1069,6 +1073,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "attributes": [],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "display_name": "Abbr",
                 "name": "abbr",
                 "type": "string",
@@ -1078,6 +1083,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "attributes": [],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "display_name": "Region",
                 "name": "region",
                 "type": "int",

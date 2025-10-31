@@ -359,8 +359,8 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         # Retrieve data for a single metric
         expected_df = pandas.DataFrame.from_dict(
             {
-                "default_DOT_hard_hat_DOT_city": ["Foo", "Bar"],
-                "default_DOT_avg_repair_price": [1.0, 2.0],
+                "default.hard_hat.city": ["Foo", "Bar"],
+                "default.avg_repair_price": [1.0, 2.0],
             },
         )
 
