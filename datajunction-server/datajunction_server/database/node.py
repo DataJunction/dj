@@ -70,7 +70,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
-from datajunction_server.naming import amenable_name
+from datajunction_server.naming import amenable_name, from_amenable_name
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR, execute_with_retry
 
@@ -1120,24 +1120,17 @@ class NodeRevision(
         """
         if self.type != NodeType.CUBE:
             return []  # pragma: no cover
-        dimension_to_roles_mapping = {
-            col.name: col.dimension_column for col in self.columns
+        cube_metrics = {
+            from_amenable_name(elem.name): node
+            for elem, node in self.cube_elements_with_nodes()
+            if node.type == NodeType.METRIC  # type: ignore
         }
-        ordering = {
-            (col.name + (col.dimension_column or "")).split("[")[0]: col.order or idx
-            for idx, col in enumerate(self.columns)
-        }
-        return sorted(
-            [
-                node_revision.name
-                + SEPARATOR
-                + element.name
-                + dimension_to_roles_mapping.get(element.name, "")
-                for element, node_revision in self.cube_elements_with_nodes()
-                if node_revision and node_revision.type != NodeType.METRIC
-            ],
-            key=lambda x: ordering[x],
-        )
+        res = [
+            element.name + (element.dimension_column or "")
+            for element in self.columns
+            if not cube_metrics.get(element.name)
+        ]
+        return res
 
     @hybrid_property
     def cube_node_metrics(self) -> List[str]:

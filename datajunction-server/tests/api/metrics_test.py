@@ -1024,6 +1024,15 @@ async def test_get_multi_link_dimensions(
             "properties": [],
         },
         {
+            "filter_only": False,
+            "name": "default.user_dim.birth_date",
+            "node_display_name": "User Dim",
+            "node_name": "default.user_dim",
+            "path": [],
+            "properties": [],
+            "type": "int",
+        },
+        {
             "name": "default.user_dim.residence_country",
             "node_display_name": "User Dim",
             "node_name": "default.user_dim",
@@ -1121,6 +1130,7 @@ async def test_metric_expression_auto_aliased(module__client_with_roads: AsyncCl
             "attributes": [],
             "description": None,
             "dimension": None,
+            "dimension_column": None,
             "display_name": "Dream Count 4",
             "name": "basic_DOT_dream_count_4",
             "partition": None,

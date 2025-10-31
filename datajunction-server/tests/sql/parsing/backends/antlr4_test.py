@@ -117,9 +117,9 @@ def test_antlr4_lambda_function():
     Test a lambda function using `->`
     """
     query = parse("SELECT FOO('a', 'b', c -> d) AS e;")
-    assert "FOO('a', 'b', c -> d) AS e" in str(query)
+    assert "FOO('a', 'b', c->d) AS e" in str(query)
     query = parse("SELECT FOO('a', 'b', (c, c2, c3) -> d) AS e;")
-    assert "FOO('a', 'b', (c, c2, c3) -> d) AS e" in str(query)
+    assert "FOO('a', 'b', (c, c2, c3)->d) AS e" in str(query)
 
 
 def test_antlr4_parse_error():

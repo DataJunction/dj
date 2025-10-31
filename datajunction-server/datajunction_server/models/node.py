@@ -693,6 +693,7 @@ class ColumnOutput(BaseModel):
     display_name: Optional[str] = None
     type: str
     description: Optional[str] = None
+    dimension_column: Optional[str] = None
     attributes: Optional[List[AttributeOutput]] = None
     dimension: Optional[NodeNameOutput] = None
     partition: Optional[PartitionOutput] = None

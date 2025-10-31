@@ -85,7 +85,7 @@ def rename_columns(
             if not preaggregate:
                 expression.set_alias(ast.Name(amenable_name(alias_name)))
             projection.append(expression)
-        else:
+        else:  # pragma: no cover
             expression = expression.copy()
             if isinstance(
                 expression,

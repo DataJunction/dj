@@ -169,6 +169,7 @@ async def test_update_source_node(
             "attributes": [],
             "description": None,
             "dimension": None,
+            "dimension_column": None,
             "display_name": "Total Amount",
             "name": "total_amount",
             "partition": None,

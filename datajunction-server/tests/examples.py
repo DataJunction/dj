@@ -2332,6 +2332,7 @@ DIMENSION_LINK = (  # type: ignore
             "columns": [
                 {"name": "user_id", "type": "int"},
                 {"name": "birth_country", "type": "string"},
+                {"name": "birth_date", "type": "int"},
                 {"name": "residence_country", "type": "string"},
                 {"name": "age", "type": "int"},
             ],
@@ -2386,7 +2387,8 @@ DIMENSION_LINK = (  # type: ignore
                 user_id,
                 birth_country,
                 residence_country,
-                age
+                age,
+                birth_date
             FROM default.users
             """,
             "mode": "published",

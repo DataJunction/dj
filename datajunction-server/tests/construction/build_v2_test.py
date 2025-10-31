@@ -773,6 +773,7 @@ async def test_build_source_with_pushdown_filters(
       source_DOT_events.latency,
       source_DOT_events.utc_date
     FROM source_DOT_events
+    WHERE  source_DOT_events.device_id = 111 AND source_DOT_events.device_id = 222
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -834,16 +835,16 @@ async def test_build_source_with_join_filters(
     )
     SELECT  source_DOT_events.event_id,
         source_DOT_events.user_id,
-        source_DOT_events.device_id,
+        source_DOT_events.device_id shared_DOT_devices_DOT_device_id,
         source_DOT_events.country_code,
         source_DOT_events.latency,
         source_DOT_events.utc_date,
         shared_DOT_devices.device_name shared_DOT_devices_DOT_device_name,
-        shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer,
-        shared_DOT_devices.device_id shared_DOT_devices_DOT_device_id
+        shared_DOT_devices.device_manufacturer shared_DOT_devices_DOT_device_manufacturer
     FROM source_DOT_events
     INNER JOIN shared_DOT_devices
       ON shared_DOT_devices.device_id = source_DOT_events.device_id
+    WHERE  source_DOT_events.device_id = 111 AND shared_DOT_devices.device_name = 'iPhone'
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -972,6 +973,7 @@ async def test_build_transform_with_pushdown_dimensions_filters(
       agg_DOT_events.country_code,
       agg_DOT_events.total_latency
     FROM agg_DOT_events
+    WHERE  agg_DOT_events.device_id = 111 AND agg_DOT_events.device_id = 222
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -1034,6 +1036,7 @@ async def test_build_transform_with_deeper_pushdown_dimensions_filters(
       agg_DOT_events.country_code,
       agg_DOT_events.total_latency
     FROM agg_DOT_events
+    WHERE  agg_DOT_events.device_id = 111 AND agg_DOT_events.device_id = 222
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -1105,6 +1108,7 @@ async def test_build_transform_w_cte_and_pushdown_dimensions_filters(
       agg_DOT_events_complex.country_code,
       agg_DOT_events_complex.total_latency
     FROM agg_DOT_events_complex
+    WHERE  agg_DOT_events_complex.device_id = 111 AND agg_DOT_events_complex.device_id = 222
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -1168,6 +1172,7 @@ async def test_build_transform_with_join_dimensions_filters(
         FROM agg_DOT_events
         INNER JOIN shared_DOT_devices
           ON shared_DOT_devices.device_id = agg_DOT_events.device_id
+        WHERE  shared_DOT_devices.device_name = 'iOS' AND shared_DOT_devices.device_id = 222
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -1251,6 +1256,8 @@ async def test_build_transform_with_multijoin_dimensions_filters(
           ON shared_DOT_devices.device_id = agg_DOT_events.device_id
         INNER JOIN shared_DOT_manufacturers
           ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
+        WHERE  shared_DOT_manufacturers.company_name = 'Apple' AND shared_DOT_devices.device_id = 123
+          AND shared_DOT_devices.device_manufacturer = 'Something'
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -1455,6 +1462,8 @@ async def test_build_transform_sql_without_materialized_tables(
      FROM agg_DOT_events INNER JOIN shared_DOT_devices ON shared_DOT_devices.device_id = agg_DOT_events.device_id
     INNER JOIN shared_DOT_countries ON agg_DOT_events.country_code = shared_DOT_countries.country_code
     INNER JOIN shared_DOT_manufacturers ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
+    WHERE  shared_DOT_manufacturers.company_name = 'Apple' AND shared_DOT_manufacturers.created_at > 20240101
+      AND shared_DOT_countries.region_name = 'APAC'
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
@@ -1568,7 +1577,10 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
     INNER JOIN shared_DOT_countries
       ON agg_DOT_events.country_code = shared_DOT_countries.country_code
     INNER JOIN shared_DOT_manufacturers
-     ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
+      ON shared_DOT_manufacturers.name = shared_DOT_devices.device_manufacturer
+    WHERE  shared_DOT_manufacturers.company_name = 'Apple'
+      AND shared_DOT_manufacturers.created_at > 20240101
+      AND shared_DOT_countries.region_name = 'APAC'
     """
     assert str(query_ast).strip() == str(parse(expected)).strip()
 
