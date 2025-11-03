@@ -855,7 +855,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         )
         assert (
             result["message"]
-            == "Please make sure that `dimension_that_does_not_exist` is a dimensional attribute."
+            == "Please make sure that `foo.bar.dimension_that_does_not_exist` is a dimensional attribute."
             or result["message"]
             == "foo.bar.dimension_that_does_not_exist are not available dimensions on "
             "foo.bar.avg_repair_price"
@@ -1127,6 +1127,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 ],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "display_name": "Contact Title",
                 "name": "contact_title",
                 "type": "string",
