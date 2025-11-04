@@ -240,15 +240,23 @@ class DJClient:
         if "results" in results and results["results"]:
             columns = results["results"][0]["columns"]
             rows = results["results"][0]["rows"]
+
+            # Rename columns from the physical names to their semantic names
+            renamed_columns = [
+                col.get("semantic_entity")
+                if col["semantic_type"] != "metric"
+                else col.get("node") or col["name"]
+                for col in columns
+            ]
             try:
                 return pd.DataFrame(
                     rows,
-                    columns=[col["name"] for col in columns],
+                    columns=renamed_columns,
                 )
             except NameError:  # pragma: no cover
                 return Results(
                     data=rows,
-                    columns=tuple(col["name"] for col in columns),  # type: ignore
+                    columns=tuple(renamed_columns),  # type: ignore
                 )
         raise DJClientException("No data for query!")
 
