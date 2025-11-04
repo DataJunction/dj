@@ -446,13 +446,42 @@ class CubeSpec(NodeSpec):
             render_prefixes(filter_, self.namespace) for filter_ in self.filters or []
         ]
 
+    @property
+    def rendered_columns(self) -> list[ColumnSpec]:
+        """Render column names with namespace prefixes for comparison"""
+        if not self.columns:
+            return []
+        rendered = []
+        for col in self.columns:
+            rendered_col = col.model_copy()
+            rendered_col.name = render_prefixes(col.name, self.namespace)
+            rendered.append(rendered_col)
+        return rendered
+
     def __eq__(self, other: Any) -> bool:
         return (
             super().__eq__(other)
-            and eq_columns(self.columns, other.columns)
+            and eq_columns(self.rendered_columns, other.rendered_columns)
             and set(self.rendered_metrics) == set(other.rendered_metrics)
             and set(self.rendered_dimensions) == set(other.rendered_dimensions)
             and (self.rendered_filters or []) == (other.rendered_filters or [])
+        )
+
+    def diff(self, other: "NodeSpec") -> list[str]:
+        """
+        Return a list of fields that differ between this and another NodeSpec.
+        """
+        return diff(
+            self,
+            other,
+            ignore_fields=[
+                "name",
+                "namespace",
+                "metrics",
+                "dimensions",
+                "filters",
+                "columns",
+            ],
         )
 
 

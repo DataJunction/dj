@@ -1,12 +1,20 @@
 import asyncio
 import logging
 from dataclasses import dataclass, field
+import re
 import time
 from typing import Coroutine, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api.helpers import get_attribute_type, get_node_namespace
+from datajunction_server.api.helpers import (
+    check_dimension_attributes_exist,
+    check_metrics_exist,
+    get_attribute_type,
+    get_node_namespace,
+    COLUMN_NAME_REGEX,
+    map_dimensions_to_roles,
+)
 from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.namespace import NodeNamespace
@@ -14,8 +22,12 @@ from datajunction_server.database.tag import Tag
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.user import User, OAuthProvider
 from datajunction_server.database.node import Node
-from datajunction_server.models.node import NodeType
-from datajunction_server.internal.deployment.validation import NodeValidationResult
+from datajunction_server.models.node import CreateCubeNode, NodeType
+from datajunction_server.internal.deployment.validation import (
+    NodeValidationResult,
+    CubeValidationData,
+)
+from dataclasses import dataclass
 from datajunction_server.internal.nodes import (
     hard_delete_node,
     validate_complex_dimension_link,
@@ -85,7 +97,8 @@ from datajunction_server.models.node import (
 from datajunction_server.errors import (
     DJInvalidDeploymentConfig,
 )
-from datajunction_server.utils import SEPARATOR, Version
+from datajunction_server.utils import SEPARATOR, Version, get_namespace_from_name
+
 
 logger = logging.getLogger(__name__)
 
@@ -531,9 +544,11 @@ class DeploymentOrchestrator:
             len(levels),
         )
 
-        # Deploy them level by level
+        # Deploy them level by level (excluding cubes which are handled separately)
         name_to_node_specs = {
-            node_spec.rendered_name: node_spec for node_spec in plan.to_deploy
+            node_spec.rendered_name: node_spec
+            for node_spec in plan.to_deploy
+            if not isinstance(node_spec, CubeSpec)
         }
         for level in levels:
             node_specs = [
@@ -755,26 +770,375 @@ class DeploymentOrchestrator:
         )
 
     async def _deploy_cubes(self, plan: DeploymentPlan) -> list[DeploymentResult]:
-        """Deploy cubes for nodes in the plan"""
+        """Deploy cubes for nodes in the plan using bulk approach"""
         cubes_to_deploy = [
             node for node in plan.to_deploy if isinstance(node, CubeSpec)
         ]
-        from datajunction_server.internal.deployment.deployment import deploy_cubes
 
-        logger.info("Starting deployment of %d cubes", len(cubes_to_deploy))
-        deployed_cubes = await deploy_cubes(
-            to_deploy=cubes_to_deploy,
-            current_username=self.context.current_user.username,
-            request=self.context.request,
-            query_service_client=self.context.query_service_client,
-            validate_access=self.context.validate_access,
-            background_tasks=self.context.background_tasks,
-            save_history=self.context.save_history,
-            cache=self.context.cache,
-            existing_nodes_map=plan.existing_specs,
+        if not cubes_to_deploy:
+            return []
+
+        logger.info("Starting bulk deployment of %d cubes", len(cubes_to_deploy))
+        start = time.perf_counter()
+
+        validation_results = await self._bulk_validate_cubes(cubes_to_deploy)
+
+        nodes, revisions, deployment_results = await self._create_cubes_from_validation(
+            validation_results,
         )
-        logger.info("Finished deploying %d cubes", len(deployed_cubes))
-        return deployed_cubes
+
+        # Step 3: Bulk add to session and commit
+        self.session.add_all(nodes)
+        self.session.add_all(revisions)
+        await self.session.commit()
+
+        # Step 4: Refresh nodes for latest state
+        all_nodes = await self.refresh_nodes(
+            [cube.rendered_name for cube in cubes_to_deploy],
+        )
+
+        # Update registry with deployed nodes
+        self.registry.add_nodes(all_nodes)
+
+        logger.info(
+            f"Deployed {len(nodes)} cubes in bulk in {time.perf_counter() - start:.2f}s",
+        )
+        return deployment_results
+
+    async def _bulk_validate_cubes(
+        self,
+        cube_specs: list[CubeSpec],
+    ) -> list[NodeValidationResult]:
+        """Bulk validate cube specifications efficiently with batched DB queries"""
+        if not cube_specs:
+            return []
+
+        # Step 1: Collect all unique metrics and dimensions across all cubes
+        all_metric_names = set()
+        all_dimension_names = set()
+        cube_data_map = {}
+
+        for cube_spec in cube_specs:
+            create_cube_data = CreateCubeNode(
+                name=cube_spec.rendered_name,
+                display_name=cube_spec.display_name,
+                description=cube_spec.description,
+                mode=cube_spec.mode,
+                custom_metadata=cube_spec.custom_metadata,
+                owners=cube_spec.owners,
+                metrics=cube_spec.rendered_metrics,
+                dimensions=cube_spec.rendered_dimensions,
+                filters=cube_spec.rendered_filters,
+            )
+            cube_data_map[cube_spec.rendered_name] = create_cube_data
+            all_metric_names.update(create_cube_data.metrics or [])
+            all_dimension_names.update(create_cube_data.dimensions or [])
+
+        # Step 2: Batch load all metrics and dimensions with single DB queries
+        try:
+            # Batch load all metrics
+            all_metric_nodes = await check_metrics_exist(
+                self.session,
+                list(all_metric_names),
+            )
+            metric_nodes_map = {node.name: node for node in all_metric_nodes}
+
+            # Batch load all dimension attributes
+            (
+                all_dimension_attributes,
+                all_dimension_nodes_dict,
+            ) = await check_dimension_attributes_exist(
+                self.session,
+                list(all_dimension_names),
+            )
+            dimension_mapping = {
+                f"{node_name}{SEPARATOR}{attr}": all_dimension_nodes_dict[node_name]
+                for node_name, attr in all_dimension_attributes
+            }
+
+        except Exception as exc:
+            # If batch loading fails, return errors for all cubes
+            return [
+                NodeValidationResult(
+                    spec=cube_spec,
+                    status=NodeStatus.INVALID,
+                    inferred_columns=[],
+                    errors=[DJError(code=ErrorCode.INVALID_CUBE, message=str(exc))],
+                    dependencies=[],
+                )
+                for cube_spec in cube_specs
+            ]
+
+        # Step 3: Validate each cube using the batch-loaded data
+        validation_results = []
+
+        for cube_spec in cube_specs:
+            try:
+                create_cube_data = cube_data_map[cube_spec.rendered_name]
+
+                # Get metrics for this cube from batch-loaded data
+                cube_metric_nodes = []
+                for metric_name in create_cube_data.metrics or []:
+                    if metric_name not in metric_nodes_map:
+                        raise DJInvalidInputException(f"Metric {metric_name} not found")
+                    node = metric_nodes_map[metric_name]
+                    if node.type != NodeType.METRIC:
+                        raise DJInvalidInputException(
+                            f"Node {metric_name} is not a metric",
+                        )
+                    cube_metric_nodes.append(node)
+
+                if not cube_metric_nodes:
+                    raise DJInvalidInputException("At least one metric is required")
+
+                # Get dimensions for this cube from batch-loaded data
+                cube_dimension_nodes = []
+                cube_dimensions = []
+                dimension_attributes = [
+                    dimension_attribute.rsplit(SEPARATOR, 1)
+                    for dimension_attribute in (create_cube_data.dimensions or [])
+                ]
+
+                for node_name, column_name in dimension_attributes:
+                    full_key = f"{node_name}{SEPARATOR}{column_name}"
+                    if full_key not in dimension_mapping:
+                        raise DJInvalidInputException(f"Dimension {full_key} not found")
+
+                    dimension_node = dimension_mapping[full_key]
+                    if dimension_node not in cube_dimension_nodes:
+                        cube_dimension_nodes.append(dimension_node)
+
+                    # Get the actual column
+                    columns = {col.name: col for col in dimension_node.current.columns}
+                    column_name_without_role = column_name
+                    match = re.fullmatch(COLUMN_NAME_REGEX, column_name)
+                    if match:
+                        column_name_without_role = match.groups()[0]
+
+                    if column_name_without_role in columns:
+                        cube_dimensions.append(columns[column_name_without_role])
+
+                # Extract metric columns and validate catalog consistency
+                metric_columns = [node.current.columns[0] for node in cube_metric_nodes]
+                catalogs = [metric.current.catalog for metric in cube_metric_nodes]
+                catalog = catalogs[0] if catalogs else None
+
+                if len(set(catalogs)) > 1:
+                    raise DJInvalidInputException(
+                        f"Metrics cannot be from multiple catalogs: {catalogs}",
+                    )
+
+                # Check if all dependencies are valid
+                status = (
+                    NodeStatus.VALID
+                    if (
+                        all(
+                            metric.current.status == NodeStatus.VALID
+                            for metric in cube_metric_nodes
+                        )
+                        and all(
+                            dim.current.status == NodeStatus.VALID
+                            for dim in cube_dimension_nodes
+                        )
+                    )
+                    else NodeStatus.INVALID
+                )
+
+                # Store validation data for later use (avoids re-validation)
+                validation_data = CubeValidationData(
+                    metric_columns=metric_columns,
+                    metric_nodes=cube_metric_nodes,
+                    dimension_nodes=cube_dimension_nodes,
+                    dimension_columns=cube_dimensions,
+                    catalog=catalog,
+                )
+
+                validation_result = NodeValidationResult(
+                    spec=cube_spec,
+                    status=status,
+                    inferred_columns=cube_spec.rendered_columns,
+                    errors=[],
+                    dependencies=[],
+                    _cube_validation_data=validation_data,
+                )
+                validation_results.append(validation_result)
+
+            except Exception as exc:
+                validation_results.append(
+                    NodeValidationResult(
+                        spec=cube_spec,
+                        status=NodeStatus.INVALID,
+                        inferred_columns=[],
+                        errors=[DJError(code=ErrorCode.INVALID_CUBE, message=str(exc))],
+                        dependencies=[],
+                    ),
+                )
+
+        return validation_results
+
+    async def _create_cubes_from_validation(
+        self,
+        validation_results: list[NodeValidationResult],
+    ) -> tuple[list[Node], list[NodeRevision], list[DeploymentResult]]:
+        """Create cube nodes and revisions from validation results without re-validation"""
+        nodes, revisions = [], []
+        deployment_results = []
+
+        for result in validation_results:
+            if result.status == NodeStatus.INVALID:
+                deployment_results.append(self._process_invalid_node_deploy(result))
+            else:
+                cube_spec = cast(CubeSpec, result.spec)
+                existing = self.registry.nodes.get(cube_spec.rendered_name)
+                operation = (
+                    DeploymentResult.Operation.UPDATE
+                    if existing
+                    else DeploymentResult.Operation.CREATE
+                )
+
+                # Get pre-computed validation data to avoid re-validation
+                if not result._cube_validation_data:
+                    raise DJInvalidDeploymentConfig(
+                        f"Missing validation data for cube {cube_spec.rendered_name}",
+                    )
+
+                if existing:
+                    # Update existing node
+                    logger.info("Updating cube node %s", cube_spec.rendered_name)
+                    new_node = existing
+                    new_node.current_version = str(
+                        Version.parse(new_node.current_version).next_major_version(),
+                    )
+                    new_node.display_name = cube_spec.display_name
+                    new_node.owners = [
+                        self.registry.owners[owner_name]
+                        for owner_name in cube_spec.owners
+                        if owner_name in self.registry.owners
+                    ]
+                else:
+                    # Create new node
+                    logger.info("Creating cube node %s", cube_spec.rendered_name)
+                    namespace = get_namespace_from_name(cube_spec.rendered_name)
+                    await get_node_namespace(session=self.session, namespace=namespace)
+
+                    new_node = Node(
+                        name=cube_spec.rendered_name,
+                        namespace=namespace,
+                        type=NodeType.CUBE,
+                        display_name=cube_spec.display_name,
+                        current_version=(
+                            str(DEFAULT_DRAFT_VERSION)
+                            if cube_spec.mode == NodeMode.DRAFT
+                            else str(DEFAULT_PUBLISHED_VERSION)
+                        ),
+                        tags=[
+                            self.registry.tags[tag_name] for tag_name in cube_spec.tags
+                        ],
+                        created_by_id=self.context.current_user.id,
+                        owners=[
+                            self.registry.owners[owner_name]
+                            for owner_name in cube_spec.owners
+                            if owner_name in self.registry.owners
+                        ],
+                    )
+
+                # Create node revision using pre-computed validation data (no re-validation)
+                new_revision = (
+                    await self._create_cube_node_revision_from_validation_data(
+                        cube_spec=cube_spec,
+                        validation_data=result._cube_validation_data,
+                        new_node=new_node,
+                    )
+                )
+
+                # Create deployment result
+                deployment_result = DeploymentResult(
+                    name=cube_spec.rendered_name,
+                    deploy_type=DeploymentResult.Type.NODE,
+                    status=DeploymentResult.Status.SUCCESS,
+                    operation=operation,
+                    message=f"{operation.value.title()}d {new_node.type} ({new_node.current_version})",
+                )
+
+                deployment_results.append(deployment_result)
+                nodes.append(new_node)
+                revisions.append(new_revision)
+
+        return nodes, revisions, deployment_results
+
+    async def _create_cube_node_revision_from_validation_data(
+        self,
+        cube_spec: CubeSpec,
+        validation_data: CubeValidationData,
+        new_node: Node,
+    ) -> NodeRevision:
+        """Create cube node revision using pre-computed validation data"""
+        # Build the "columns" for this node based on the cube elements
+        node_columns = []
+        create_cube_data = CreateCubeNode(
+            name=cube_spec.rendered_name,
+            display_name=cube_spec.display_name,
+            description=cube_spec.description,
+            mode=cube_spec.mode,
+            custom_metadata=cube_spec.custom_metadata,
+            owners=cube_spec.owners,
+            metrics=cube_spec.rendered_metrics,
+            dimensions=cube_spec.rendered_dimensions,
+            filters=cube_spec.rendered_filters,
+        )
+
+        dimension_to_roles_mapping = map_dimensions_to_roles(
+            create_cube_data.dimensions or [],
+        )
+
+        for idx, col in enumerate(
+            validation_data.metric_columns + validation_data.dimension_columns,
+        ):
+            await self.session.refresh(col, ["node_revision"])
+            referenced_node = col.node_revision
+            full_element_name = (
+                referenced_node.name  # type: ignore
+                if referenced_node.type == NodeType.METRIC  # type: ignore
+                else f"{referenced_node.name}.{col.name}"  # type: ignore
+            )
+            node_column = Column(
+                name=full_element_name,
+                display_name=referenced_node.display_name
+                if referenced_node.type == NodeType.METRIC
+                else col.display_name,
+                type=col.type,
+                attributes=[
+                    ColumnAttribute(attribute_type_id=attr.attribute_type_id)
+                    for attr in col.attributes
+                ],
+                order=idx,
+            )
+            if full_element_name in dimension_to_roles_mapping:
+                node_column.dimension_column = dimension_to_roles_mapping[
+                    full_element_name
+                ]
+            node_columns.append(node_column)
+
+        node_revision = NodeRevision(
+            name=cube_spec.rendered_name,
+            display_name=cube_spec.display_name
+            or labelize(cube_spec.rendered_name.split(SEPARATOR)[-1]),
+            description=cube_spec.description,
+            type=NodeType.CUBE,
+            query="",
+            columns=node_columns,
+            cube_elements=validation_data.metric_columns
+            + validation_data.dimension_columns,
+            parents=list(
+                set(validation_data.dimension_nodes + validation_data.metric_nodes),
+            ),
+            status=NodeStatus.VALID,  # Already validated
+            catalog=validation_data.catalog,
+            created_by_id=self.context.current_user.id,
+            node=new_node,
+            version=new_node.current_version,
+        )
+        return node_revision
 
     async def _delete_nodes(self, to_delete: list[NodeSpec]) -> list[DeploymentResult]:
         logger.info("Starting deletion of %d nodes", len(to_delete))
@@ -1256,6 +1620,7 @@ class DeploymentOrchestrator:
 
         if result.spec.node_type == NodeType.METRIC:
             metric_spec = cast(MetricSpec, result.spec)
+            new_revision.columns[0].display_name = new_revision.display_name
             if (
                 metric_spec.unit
                 or metric_spec.direction

@@ -57,6 +57,7 @@ class ErrorCode(IntEnum):
     INVALID_DIMENSION = 601
     INVALID_METRIC = 602
     INVALID_DIMENSION_LINK = 603
+    INVALID_CUBE = 604
 
     # Deployment
     TAG_NOT_FOUND = 700
