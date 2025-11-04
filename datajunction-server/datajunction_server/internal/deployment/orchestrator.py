@@ -1082,7 +1082,6 @@ class DeploymentOrchestrator:
                     )
 
                 if existing:
-                    # Update existing node
                     logger.info("Updating cube node %s", cube_spec.rendered_name)
                     new_node = existing
                     new_node.current_version = str(
@@ -1094,8 +1093,10 @@ class DeploymentOrchestrator:
                         for owner_name in cube_spec.owners
                         if owner_name in self.registry.owners
                     ]
+                    new_node.tags = [
+                        self.registry.tags[tag_name] for tag_name in cube_spec.tags
+                    ]
                 else:
-                    # Create new node
                     logger.info("Creating cube node %s", cube_spec.rendered_name)
                     namespace = get_namespace_from_name(cube_spec.rendered_name)
                     await get_node_namespace(session=self.session, namespace=namespace)
