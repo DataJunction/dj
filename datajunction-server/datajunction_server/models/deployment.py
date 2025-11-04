@@ -485,7 +485,6 @@ def diff(one: BaseModel, two: BaseModel, ignore_fields: list[str] = None) -> lis
     """
     Compare two Pydantic models and return a list of fields that have changed.
     """
-    print("Comparing models:", one.model_dump(), two.model_dump())
     changed_fields = [
         field
         for field in one.model_fields.keys()
